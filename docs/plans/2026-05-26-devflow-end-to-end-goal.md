@@ -82,6 +82,8 @@ Add commands or templates that make good tasks easy to create:
 - example embedded diff task
 - example plan JSON
 
+Status: COMPLETE in commit following Phase 1.
+
 Acceptance criteria:
 - New task files contain sections 1 through 10.
 - Task files include Status, Goal, Plan, Assigned Agent, Owner Lock, Risk, Branch, and Touched Files headers.

@@ -7,7 +7,16 @@ import json
 import sys
 from contextlib import redirect_stdout
 
-from devflow.cli import claim_task, init_workspace, main, release_task, run_task, status_task, status_workspace
+from devflow.cli import (
+    claim_task,
+    init_workspace,
+    main,
+    new_task,
+    release_task,
+    run_task,
+    status_task,
+    status_workspace,
+)
 
 
 class TestCLI(unittest.TestCase):
@@ -237,6 +246,61 @@ Claim from CLI.
         self.assertIn("Assigned Agent: antigravity", updated)
         self.assertIn("Owner Lock: antigravity-team", updated)
         self.assertIn("- src/devflow/cli.py", updated)
+
+    def test_task_new_creates_canonical_task_template(self):
+        init_workspace()
+
+        task_path = new_task(
+            "020",
+            "Add Task Template",
+            goal="001_devflow_mvp",
+            plan="001.plan.json",
+            agent="codex",
+            risk="LOW",
+            allowed_files=["src/devflow/**", "tests/..."],
+            touched_files=["src/devflow/cli.py"],
+            verification_commands=["PYTHONPATH=src python3 -m unittest discover -s tests -q"],
+        )
+
+        self.assertEqual(task_path, ".devflow/tasks/020_add_task_template.md")
+        with open(task_path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        for header in (
+            "Status: PENDING",
+            "Goal: 001_devflow_mvp",
+            "Plan: 001.plan.json",
+            "Assigned Agent: codex",
+            "Owner Lock:",
+            "Risk: LOW",
+            "Branch: devflow/task-020-codex",
+            "Touched Files:",
+        ):
+            self.assertIn(header, content)
+        for heading in (
+            "## 1. Objective",
+            "## 2. Allowed Files",
+            "## 3. Do Not Touch",
+            "## 4. Required Context",
+            "## 5. Implementation Instructions",
+            "## 6. Patch Protocol",
+            "## 7. Verification Commands",
+            "## 8. Failure Handling",
+            "## 9. Execution Results",
+            "## 10. Final Report",
+        ):
+            self.assertIn(heading, content)
+        self.assertIn("- src/devflow/**", content)
+        self.assertIn("- tests/...", content)
+        self.assertIn("- src/devflow/cli.py", content)
+        self.assertIn("```diff", content)
+
+    def test_task_new_refuses_to_overwrite_existing_task(self):
+        init_workspace()
+        new_task("021", "Existing Task")
+
+        with self.assertRaises(FileExistsError):
+            new_task("021", "Existing Task")
 
     def test_run_previews_unified_diff_without_yes(self):
         init_workspace()

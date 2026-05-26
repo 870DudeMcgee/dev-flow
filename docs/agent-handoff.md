@@ -16,6 +16,7 @@ In scope:
 - devflow init
 - devflow status
 - devflow task claim <task-file> --agent <owner> --lock <session>
+- devflow task new <task-id> <title>
 - devflow task release <task-file>
 - devflow task status <task-file>
 - devflow run <task-file> previews and writes PREVIEWED status/report
@@ -89,3 +90,4 @@ Completed stabilization items:
 - failed verification rolls source changes back to checkpoint state before writing FAILED task/report state
 - plan JSON mirrors task status best-effort when the referenced plan exists
 - task claim/release/status commands are available for peer-orchestrator ownership
+- task new scaffolds canonical task Markdown

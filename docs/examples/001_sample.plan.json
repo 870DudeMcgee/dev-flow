@@ -1,0 +1,20 @@
+{
+  "goal_id": "sample_devflow_goal",
+  "status": "ACTIVE",
+  "tasks": [
+    {
+      "id": "001",
+      "title": "Update sample text",
+      "status": "PENDING",
+      "depends_on": [],
+      "risk": "LOW",
+      "allowed_paths": [
+        "sample.txt"
+      ],
+      "verification": [
+        "true"
+      ],
+      "assigned_agent": "codex"
+    }
+  ]
+}

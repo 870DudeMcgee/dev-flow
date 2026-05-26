@@ -123,6 +123,19 @@ PYTHONPATH=src python3 -m devflow run .devflow/tasks/001_example.md --yes
 
 For direct apply without a separate preview checkpoint, run `--yes` from the clean task state.
 
+You can scaffold a canonical task:
+
+```bash
+PYTHONPATH=src python3 -m devflow task new 001 "Update Sample" \
+  --plan 001.plan.json \
+  --agent codex \
+  --allowed sample.txt \
+  --touch sample.txt \
+  --verify true
+```
+
+See `docs/examples/001_sample_task.md` and `docs/examples/001_sample.plan.json` for a complete embedded-diff example.
+
 ## Task Ownership
 
 Peer orchestrators should claim tasks before editing their task files or touched-file scope:

@@ -143,6 +143,133 @@ def _default_task_branch(task: dict, agent: str) -> str:
     return f"devflow/task-{task_id}-{owner}"
 
 
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", value.strip().lower()).strip("_")
+    return slug or "task"
+
+
+def _list_block(values: list[str], fallback: str = "- ") -> str:
+    if not values:
+        return fallback
+    return "\n".join(f"- {value}" for value in values)
+
+
+def _build_task_template(
+    task_id: str,
+    title: str,
+    goal: str = "",
+    plan: str = "",
+    agent: str = "",
+    risk: str = "LOW",
+    branch: str = "",
+    allowed_files: list[str] | None = None,
+    touched_files: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+) -> str:
+    allowed_files = allowed_files or []
+    touched_files = touched_files or []
+    verification_commands = verification_commands or []
+    branch = branch or f"devflow/task-{task_id}-{agent}" if agent else f"devflow/task-{task_id}"
+
+    return f"""# Task: {task_id} - {title}
+Status: PENDING
+Goal: {goal}
+Plan: {plan}
+Assigned Agent: {agent}
+Owner Lock:
+Risk: {risk}
+Branch: {branch}
+Touched Files:
+{_list_block(touched_files)}
+
+## 1. Objective
+
+Describe the concrete outcome for this task.
+
+## 2. Allowed Files
+
+{_list_block(allowed_files)}
+
+## 3. Do Not Touch
+
+- .env
+- production secrets
+- unrelated files outside Allowed Files
+
+## 4. Required Context
+
+Add relevant architecture notes, file excerpts, or decisions.
+
+## 5. Implementation Instructions
+
+Describe the implementation steps for the owning orchestrator.
+
+## 6. Patch Protocol
+
+Unified diff only.
+
+## 7. Verification Commands
+
+{_list_block(verification_commands, '- true')}
+
+## 8. Failure Handling
+
+- Patch apply failure: stop and report
+- Protected file touched: stop immediately
+- Verification failure: rollback and report
+
+## 9. Execution Results
+
+```diff
+# Add unified diff here.
+```
+
+## 10. Final Report
+
+Pending.
+"""
+
+
+def new_task(
+    task_id: str,
+    title: str,
+    goal: str = "",
+    plan: str = "",
+    agent: str = "",
+    risk: str = "LOW",
+    allowed_files: list[str] | None = None,
+    touched_files: list[str] | None = None,
+    verification_commands: list[str] | None = None,
+    output: str | None = None,
+    force: bool = False,
+) -> str:
+    """Create a canonical task markdown file."""
+    if not os.path.exists(".devflow"):
+        print("Error: .devflow/ folder not found. Run 'devflow init' first.")
+        sys.exit(1)
+
+    os.makedirs(os.path.join(".devflow", "tasks"), exist_ok=True)
+    task_path = output or os.path.join(".devflow", "tasks", f"{task_id}_{_slugify(title)}.md")
+    if os.path.exists(task_path) and not force:
+        raise FileExistsError(f"Task already exists: {task_path}")
+
+    content = _build_task_template(
+        task_id=task_id,
+        title=title,
+        goal=goal,
+        plan=plan,
+        agent=agent,
+        risk=risk,
+        allowed_files=allowed_files,
+        touched_files=touched_files,
+        verification_commands=verification_commands,
+    )
+    with open(task_path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    print(f"Created task: {task_path}")
+    return task_path
+
+
 def _resolve_plan_path(plan_ref: object) -> str:
     if not isinstance(plan_ref, str) or not plan_ref.strip():
         return ""
@@ -507,6 +634,19 @@ def main():
     task_parser = subparsers.add_parser("task", help="Manage task ownership and status")
     task_subparsers = task_parser.add_subparsers(dest="task_command")
 
+    new_parser = task_subparsers.add_parser("new", help="Create a canonical task markdown file")
+    new_parser.add_argument("task_id", type=str, help="Task id, e.g. 001")
+    new_parser.add_argument("title", type=str, help="Task title")
+    new_parser.add_argument("--goal", default="", help="Goal id/reference")
+    new_parser.add_argument("--plan", default="", help="Plan JSON filename or path")
+    new_parser.add_argument("--agent", default="", help="Initial assigned orchestrator")
+    new_parser.add_argument("--risk", default="LOW", help="Risk level")
+    new_parser.add_argument("--allowed", action="append", default=[], help="Allowed file path/glob; may be repeated")
+    new_parser.add_argument("--touch", action="append", default=[], help="Expected touched file/glob; may be repeated")
+    new_parser.add_argument("--verify", action="append", default=[], help="Verification command; may be repeated")
+    new_parser.add_argument("--output", help="Output task path")
+    new_parser.add_argument("--force", action="store_true", help="Overwrite existing task file")
+
     claim_parser = task_subparsers.add_parser("claim", help="Claim a task for an orchestrator")
     claim_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
     claim_parser.add_argument("--agent", required=True, help="Owning orchestrator: codex, vscode, or antigravity")
@@ -532,7 +672,25 @@ def main():
     elif args.command == "status":
         status_workspace()
     elif args.command == "task":
-        if args.task_command == "claim":
+        if args.task_command == "new":
+            try:
+                new_task(
+                    args.task_id,
+                    args.title,
+                    goal=args.goal,
+                    plan=args.plan,
+                    agent=args.agent,
+                    risk=args.risk,
+                    allowed_files=args.allowed,
+                    touched_files=args.touch,
+                    verification_commands=args.verify,
+                    output=args.output,
+                    force=args.force,
+                )
+            except FileExistsError as exc:
+                print(f"Error: {exc}")
+                sys.exit(1)
+        elif args.task_command == "claim":
             claim_task(
                 args.task_file,
                 agent=args.agent,

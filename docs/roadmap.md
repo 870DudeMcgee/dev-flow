@@ -6,6 +6,7 @@
 - peer orchestrator coordination model (Codex, VS Code/Cline, Antigravity)
 - per-task ownership and touched-file declarations
 - task claim/release/status commands
+- task new command and canonical examples
 - Task schema parsing (sections 1..10)
 - Unified diff detection/apply flow
 - Protected-file gating
