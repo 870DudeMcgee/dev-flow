@@ -1,5 +1,10 @@
+"""Deprecated XML search/replace editor utilities.
+
+MVP execution uses unified diffs. This module is retained only for compatibility.
+"""
+
 import re
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 def apply_xml_edits(original_content: str, xml_changes: str) -> Tuple[str, Optional[str]]:
     """

@@ -1,143 +1,75 @@
-# Design Spec: devflow - "Maximum Power + Minimum Cost" Hybrid AI Developer Setup
+# Design Spec: devflow MVP Safe Unified-Diff Runner
 
-## Executive Summary
+Date: 2026-05-26
+Status: AUTHORITATIVE FOR MVP
 
-`devflow` is a global, reusable development workflow and CLI tool optimized for a highly efficient "cloud-orchestrated, locally-executed" agentic loop. 
+## Summary
 
-By leveraging **Gemini 3.5 Flash (High)** in the cloud as a low-cost, ultra-deep reasoning orchestrator, and **Ollama** running state-of-the-art coding models locally (**Qwen 2.5 Coder**), `devflow` achieves frontier-level software engineering performance at near-zero operating costs.
+devflow is a vendor-neutral protocol and CLI that executes bounded task files safely through git-native unified diffs.
 
----
+Codex Desktop, VS Code/Cline, and Antigravity are peer orchestrators. Each orchestrator may run a full internal subagent dev team and own a task end-to-end. The shared repo, task files, branches, and reports are the coordination surface between orchestrators.
 
-## 1. System Architecture & Directory Layout
+The CLI is intentionally narrow for MVP:
+- init
+- status
+- run <task-file>
+- run <task-file> --yes
 
-`devflow` runs as a global Python CLI tool inside any active workspace. When initialized, it creates a control folder `.devflow/` to maintain execution state separate from git tracking.
+`run <task-file>` previews by default. `--yes` is required to apply code changes.
 
-### Workspace Footprint
-```text
-my-project/
-├── .devflow/
-│   ├── config.json         # Developer configuration (model maps, hardware profiles)
-│   ├── plan.json           # Cloud-orchestrated roadmap and architectural decisions
-│   ├── tasks/              # Active and completed task handoff files
-│   │   ├── 001_db.md
-│   │   └── 002_api.md
-│   └── logs/               # Verbose local agent execution and terminal logs
-```
+## Canonical Architecture
 
-### Config Schema (`.devflow/config.json`)
-The configuration is machine-specific. It automatically profiles local resources to target the best available model.
-```json
-{
-  "orchestrator": {
-    "provider": "google",
-    "model": "gemini-3.5-flash",
-    "api_key_env": "GEMINI_API_KEY"
-  },
-  "local_agent": {
-    "provider": "ollama",
-    "host": "http://localhost:11434",
-    "model_map": {
-      "work_m4_max_64gb": "qwen2.5-coder:32b-instruct",
-      "home_m1_16gb": "qwen2.5-coder:7b-instruct"
-    },
-    "active_profile": "work_m4_max_64gb"
-  },
-  "verification": {
-    "run_tests_command": "pytest",
-    "run_lint_command": "flake8"
-  }
-}
-```
+Task file -> clean-worktree gate -> diff validation -> protected-file gate -> dry-run patch -> PREVIEWED report or --yes apply -> verification -> failure classification -> rollback if needed -> task report.
 
----
+Source of truth remains files + git state in-repo.
 
-## 2. The File-Based Handoff Protocol (Data Flow)
+## Canonical Config Responsibilities
 
-To ensure robustness, resume-on-failure, and absolute developer visibility, the Orchestrator and the Local Agent communicate exclusively by reading and writing to Markdown files in `.devflow/tasks/`.
+config.json is enforceable policy:
+- checkpoint strategy and branch prefix
+- protected path patterns
+- verification commands and fallback behavior
+- retry budget taxonomy
 
-```mermaid
-graph TD
-    UserReq[User Request] -->|devflow plan| Gemini[Gemini 3.5 Flash Orchestrator]
-    Gemini -->|Writes roadmap| PlanJSON[plan.json]
-    Gemini -->|Scaffolds task| TaskMD[tasks/001_task.md]
-    
-    TaskMD -->|devflow run| LocalRunner[Python CLI Executor]
-    LocalRunner -->|Streams prompt & context| Ollama[Ollama Local Model]
-    Ollama -->|Generates XML Search/Replace| LocalRunner
-    
-    LocalRunner -->|Safe-applies diffs| SrcCode[Source Code]
-    LocalRunner -->|Runs lint & tests| Verification[Verify Diffs & AST]
-    
-    Verification -->|Success| TaskMDStatus[Mark task COMPLETED]
-    Verification -->|Fail| OllamaFix[Send compiler errors to Ollama to auto-fix]
-    
-    TaskMDStatus -->|Next Turn| Gemini
-```
+constitution.md is advisory and human-facing.
 
-### Task Specification Format (`.devflow/tasks/001_task.md`)
-```markdown
-# Task: 001 - Create Auth Schema
-Status: PENDING
-Assigned To: LOCAL_AGENT_CODING
-Target Files: 
-- `backend/app/schemas/auth.py`
+## Canonical Task Format
 
-## [1. ORCHESTRATOR INSTRUCTIONS]
-Create a modern Pydantic V2 login schema requiring email (validated string) and password (minimum 8 characters).
+Task markdown schema:
+- header metadata (Status, Goal, Plan, Assigned Agent, Owner Lock, Risk, Branch, Touched Files)
+- sections 1..10 (Objective, Allowed Files, Do Not Touch, Required Context, Implementation Instructions, Patch Protocol, Verification Commands, Failure Handling, Execution Results, Final Report)
 
-## [2. REQUIRED CONTEXT FILES]
-<!-- file: backend/app/main.py -->
-```python
-# Context code here...
-```
+Patch content is supplied as a fenced diff block.
 
-## [3. LOCAL AGENT WORK AREA]
-<!-- Local agent output will go here in XML Search/Replace blocks -->
+Task ownership is explicit. PENDING tasks may be claimed by any orchestrator. CLAIMED/RUNNING tasks belong to their Assigned Agent and Owner Lock until released, completed, failed, blocked, or overridden by the human.
 
-## [4. EXECUTION RESULTS]
-<!-- CLI runner records verification logs (Pytest/Flake8) here -->
-```
+## MVP Safety Behavior
 
----
+Required:
+- stop before mutation when the git worktree is dirty
+- detect files in diff
+- block protected-file changes before apply
+- create checkpoint branch before patch operations
+- dry-run patch before apply
+- run verification from task/config/auto-detect order
+- classify failures and honor retry budgets
+- rollback when run fails after apply
+- write one report file per run
 
-## 3. Local Coding Agent & Safe Edit Execution
+Deferred:
+- full risk scoring engine
+- automated route-to-agent execution by failure type
+- AST-aware code editing
+- orchestration planning commands
 
-### Model Optimizations
-* **Work Machine (Mac Studio M4 Max - 64GB Unified Memory):**
-  Runs `qwen2.5-coder:32b-instruct` or `deepseek-coder-v2:16b`. Capable of high-speed deep-context agentic reasoning.
-* **Home Machine (Mac Mini M1 - 16GB Unified Memory):**
-  Runs `qwen2.5-coder:7b-instruct` or `deepseek-coder-v2:16b-lite`. Highly optimized for low memory usage and fast local iteration.
+## Deprecations (Explicit)
 
-### XML Search-and-Replace Protocol
-To avoid the high latency and error rates of local models rewriting full files, the local agent is restricted to generating targeted search-and-replace blocks:
-```xml
-<search>
-def old_login_schema():
-    pass
-</search>
-<replace>
-class LoginSchema(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-</replace>
-```
+Deprecated for MVP:
+- XML search/replace edit protocol
+- slim .devflow-only prototype shape
+- hardcoded model-specific orchestration coupling
 
-### Self-Healing Compilation Loop
-If a local agent writes code that causes a compiler/syntax error, the CLI runner automatically intercepts it, rolls back the file changes, and posts the compiler traceback directly back to the local agent's prompt to heal itself:
-> **Self-Healing Prompt:** "The changes you proposed to `backend/app/schemas/auth.py` resulted in a syntax error: `NameError: name 'BaseModel' is not defined`. Please rewrite your search/replace block ensuring all imports are resolved."
-
----
-
-## 4. Verification Plan
-
-### 1. Mock Validation Tests
-* Create unit tests for the Python parser to verify it correctly parses XML search-and-replace blocks.
-* Test standard and edge-case multi-line replacements (e.g., matching indentation, trailing whitespace).
-
-### 2. Sandbox Integration Runs
-* Initialize `devflow` inside a test project.
-* Mock the Ollama server responses to verify that the CLI correctly transitions task states (`PENDING` -> `RUNNING` -> `COMPLETED`).
-* Test the self-healing loop by intentionally returning bad code from the mock local agent and verifying it successfully corrects the imports.
-
-### 3. Local Hardware Test
-* Run a benchmark suite locally on the **M4 Max 64GB** to calculate the tokens-per-second and verify low thermal throttling under active Ollama load.
+Replaced by:
+- full .devflow protocol tree
+- unified diff patching
+- model-configurable orchestrator metadata (future milestone)

@@ -1,53 +1,29 @@
 import unittest
-from devflow.editor import apply_xml_edits
+from devflow.manager import extract_unified_diff
 
 class TestEditor(unittest.TestCase):
-    def test_apply_single_xml_edit(self):
-        original = "def foo():\n    return 'bar'\n"
-        xml_changes = """<search>
-def foo():
-    return 'bar'
-</search>
-<replace>
-def foo():
-    return 'baz'
-</replace>"""
-        modified, err = apply_xml_edits(original, xml_changes)
-        self.assertIsNone(err)
-        self.assertEqual(modified, "def foo():\n    return 'baz'\n")
+    def test_extract_unified_diff_from_task(self):
+        task = """# Task: 002 - Demo
+Status: PENDING
 
-    def test_apply_multiple_xml_edits(self):
-        original = "first_line\nsecond_line\nthird_line\n"
-        xml_changes = """<search>
-first_line
-</search>
-<replace>
-1st
-</replace>
-<search>
-third_line
-</search>
-<replace>
-3rd
-</replace>"""
-        modified, err = apply_xml_edits(original, xml_changes)
-        self.assertIsNone(err)
-        self.assertEqual(modified, "1st\nsecond_line\n3rd\n")
+## 9. Execution Results
+```diff
+diff --git a/demo.txt b/demo.txt
+--- a/demo.txt
++++ b/demo.txt
+@@ -1 +1 @@
+-old
++new
+```
+"""
+        diff_text = extract_unified_diff(task)
+        self.assertTrue(diff_text.startswith("diff --git"))
+        self.assertIn("+new", diff_text)
 
-    def test_apply_xml_edit_missing_search_block(self):
-        original = "def foo():\n    return 'bar'\n"
-        xml_changes = """<search>
-def missing_function():
-    return 'bar'
-</search>
-<replace>
-def missing_function():
-    return 'baz'
-</replace>"""
-        modified, err = apply_xml_edits(original, xml_changes)
-        self.assertIsNotNone(err)
-        self.assertIn("Search block not found", err)
-        self.assertEqual(modified, original)
+    def test_extract_unified_diff_missing_block(self):
+        task = "# Task: 003 - Missing Diff\nStatus: PENDING\n"
+        diff_text = extract_unified_diff(task)
+        self.assertEqual(diff_text, "")
 
 if __name__ == "__main__":
     unittest.main()
