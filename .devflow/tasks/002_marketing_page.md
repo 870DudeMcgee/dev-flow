@@ -1,9 +1,9 @@
 # Task: 002 - Build devflow marketing landing page
-Status: PENDING
+Status: CLAIMED
 Goal: devflow_marketing_launch
 Plan: 002_marketing_page.plan.json
 Assigned Agent: antigravity
-Owner Lock: 
+Owner Lock: antigravity-session-002
 Risk: LOW
 Branch: devflow/task-002-antigravity
 Touched Files:
