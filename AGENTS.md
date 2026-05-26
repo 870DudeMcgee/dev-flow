@@ -1,16 +1,20 @@
 # Devflow Agent Operating Rule
 
-This repository uses Codex (on Mac Studio) and Google Antigravity (on Mac Mini M1 16GB - Antigravity ONLY) as default peer orchestrators for development work.
+This repository supports three separate, parallel peer orchestrators for development work:
+1. **Codex** (operating on Mac Studio)
+2. **VS Code / Copilot** (operating via IDE plugin/terminal)
+3. **Google Antigravity** (operating on Mac Mini M1 16GB - Antigravity ONLY)
 
-## Default Workflow
+## Parallel Coordination Workflow
 
-- The active orchestrator (Codex or Antigravity) owns brainstorming, planning, research, coordination, task claiming, verification review, and final handoff.
-- Local Ollama coding models are the worker team for bounded implementation loops: coding drafts, test drafts, failure explanations, repair suggestions, and summaries.
-- Prefer the local worker path before spending cloud-model turns on iterative code/test/repair work.
-- Keep `devflow` task files, reports, and git history as the coordination surface.
-- Claim a task before mutating its task file or touched-file scope when working from a goal or task file.
-- Keep the worktree clean before any `devflow run` operation that mutates task/report/code state.
-- All local-model output must flow back through the active orchestrator and the `devflow` safety gates; local models do not mutate repo state directly.
+To work on multiple tasks in parallel without conflicts:
+- Each orchestrator runs in its own workspace lane or physical machine and claims separate tasks in `.devflow/tasks/` using unique agent IDs and owner locks.
+- Each orchestrator instantiates and controls its own virtual dev team of local model workers (via Ollama or local worker scripts) to handle high-turn coding, drafting, test repairs, and summaries.
+- Prefer delegating low-level operations to the local worker dev team before spending cloud tokens.
+- Coordination remains decentralized: task markdown metadata, checkpoint branches, and reports are the safety surface.
+- Claiming a task is strictly required before mutating its fenced diff block or touched files.
+- The git worktree must be clean before running `devflow` status transitions.
+- All local-model worker suggestions must flow back through the owning peer orchestrator and be validated by `devflow` safety gates before code mutation.
 
 ## Local Worker Defaults
 
