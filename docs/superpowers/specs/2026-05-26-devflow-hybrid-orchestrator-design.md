@@ -7,7 +7,7 @@ Status: AUTHORITATIVE FOR MVP
 
 devflow is a vendor-neutral protocol and CLI that executes bounded task files safely through git-native unified diffs.
 
-Codex Desktop, VS Code/Cline, and Antigravity are peer orchestrators. Each orchestrator may run a full internal subagent dev team and own a task end-to-end. The shared repo, task files, branches, and reports are the coordination surface between orchestrators.
+Codex Desktop, VS Code/Copilot, and Antigravity are peer orchestrators. Each orchestrator may run a full internal subagent dev team and own a task end-to-end. The shared repo, task files, branches, and reports are the coordination surface between orchestrators.
 
 The CLI is intentionally narrow for MVP:
 - init

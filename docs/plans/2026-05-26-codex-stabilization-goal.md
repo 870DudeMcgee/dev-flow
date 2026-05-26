@@ -10,7 +10,7 @@ Status: ACTIVE
 /goal Stabilize the devflow MVP into a conservative, reliable, multi-orchestrator unified-diff runner.
 
 Outcome:
-Bring the current devflow repo to a coherent MVP where Codex Desktop, VS Code/Cline, and Antigravity can each operate as independent peer orchestrators with their own local-model subagent teams, while sharing one repo, task queue, git safety model, and report protocol.
+Bring the current devflow repo to a coherent MVP where Codex Desktop, VS Code/Copilot, and Antigravity can each operate as independent peer orchestrators with their own local-model subagent teams, while sharing one repo, task queue, git safety model, and report protocol.
 
 The MVP is not an LLM orchestrator yet. It is a safe execution harness for AI-generated unified diffs embedded in canonical task markdown files.
 

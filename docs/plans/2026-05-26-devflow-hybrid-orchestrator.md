@@ -7,7 +7,7 @@ This plan supersedes prior hybrid drafts that centered XML search/replace and ve
 
 ## Peer-Orchestrator Model
 
-Codex Desktop, VS Code/Cline, and Antigravity are peer orchestrators. Each IDE can run its own complete subagent dev team for planning, implementation, test generation, verification, and reporting.
+Codex Desktop, VS Code/Copilot, and Antigravity are peer orchestrators. Each IDE can run its own complete subagent dev team for planning, implementation, test generation, verification, and reporting.
 
 Work is divided by task ownership, not by permanent IDE role. A task may be claimed by any orchestrator; the claiming orchestrator owns that task end-to-end until it completes, fails, blocks, or releases ownership.
 

@@ -59,7 +59,7 @@ class TestCLI(unittest.TestCase):
 
         expected_files = [
             ".devflow/orchestrators/codex.md",
-            ".devflow/orchestrators/vscode-cline.md",
+            ".devflow/orchestrators/vscode-copilot.md",
             ".devflow/orchestrators/antigravity.md",
             ".devflow/orchestrators/local-model-worker-policy.md",
         ]
@@ -140,7 +140,7 @@ Claim task.
             handle.write("""# Task: 011 - Claimed
 Status: CLAIMED
 Assigned Agent: vscode
-Owner Lock: vscode-cline
+Owner Lock: vscode-copilot
 
 ## 1. Objective
 Already claimed.
@@ -152,7 +152,7 @@ Already claimed.
         with open(task_path, "r", encoding="utf-8") as handle:
             unchanged = handle.read()
         self.assertIn("Assigned Agent: vscode", unchanged)
-        self.assertIn("Owner Lock: vscode-cline", unchanged)
+        self.assertIn("Owner Lock: vscode-copilot", unchanged)
 
     def test_task_claim_force_overrides_existing_claim(self):
         init_workspace()
@@ -161,7 +161,7 @@ Already claimed.
             handle.write("""# Task: 012 - Force Claim
 Status: CLAIMED
 Assigned Agent: vscode
-Owner Lock: vscode-cline
+Owner Lock: vscode-copilot
 
 ## 1. Objective
 Override claim.

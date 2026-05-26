@@ -1,10 +1,13 @@
-# VS Code/Cline Peer Orchestrator Template
+# VS Code/Copilot Peer Orchestrator Template
 
 Role: Peer Orchestrator
 
 ## Purpose
 
 Operate as a complete AI development team for claimed devflow tasks.
+
+Target orchestrator profile:
+- Copilot high-reasoning profile (GPT-5.5-high or nearest available equivalent)
 
 ## Internal Dev Team
 
@@ -24,6 +27,10 @@ Operate as a complete AI development team for claimed devflow tasks.
 - Do not assume permanent global role ownership.
 - Do not bypass devflow run safety gates.
 - Write reports and keep task status current.
+
+Local worker policy for this orchestrator:
+- use local qwen workers for bounded planner/coder/reviewer/tester/summarizer jobs
+- keep all repo mutations in devflow task unified diff + run/apply workflow
 
 ## Handoff Expectations
 

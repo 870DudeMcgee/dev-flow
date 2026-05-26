@@ -3,7 +3,7 @@
 Date: 2026-05-26
 Status: ACTIVE COORDINATION MODEL
 
-This playbook defines collaboration for three peer IDE orchestrators: Codex Desktop, VS Code + Cline, and Google Antigravity.
+This playbook defines collaboration for three peer IDE orchestrators: Codex Desktop, VS Code + Copilot, and Google Antigravity.
 
 Important operating rule: no IDE is globally "the planner" and no IDE is globally "just the implementer". Each IDE runs its own full dev-team subagent stack.
 
@@ -14,7 +14,7 @@ Important operating rule: no IDE is globally "the planner" and no IDE is globall
 ```mermaid
 graph TD
     Codex[Codex Orchestrator] --> CodexTeam[Codex Subagent Dev Team]
-    VSCode[VS Code/Cline Orchestrator] --> VSCodeTeam[VS Code Subagent Dev Team]
+    VSCode[VS Code/Copilot Orchestrator] --> VSCodeTeam[VS Code Subagent Dev Team]
     Anti[Antigravity Orchestrator] --> AntiTeam[Antigravity Subagent Dev Team]
 
     CodexTeam --> LocalModels[(Local Model Worker Pool)]
@@ -104,6 +104,10 @@ Current preferred local endpoint:
 Current validated baseline model:
 - qwen2.5-coder:1.5b
 
+Operational model rule:
+- VS Code/Copilot is the orchestrator lane.
+- qwen local models are worker subagents (planner/coder/reviewer/tester/summarizer), not orchestrators.
+
 Recommended scaling models (hardware dependent):
 - qwen2.5-coder:7b-instruct
 - qwen2.5-coder:32b-instruct
@@ -116,7 +120,7 @@ All orchestrators should treat local model calls as bounded worker jobs with exp
 
 Deprecated assumptions:
 - Codex is always strategic planner only.
-- VS Code/Cline is always diff writer only.
+- VS Code/Copilot is always diff writer only.
 - Antigravity is always auditor/executor only.
 
 Replacement:

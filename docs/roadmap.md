@@ -3,7 +3,7 @@
 ## MVP (Current)
 
 - Canonical .devflow tree initialization
-- peer orchestrator coordination model (Codex, VS Code/Cline, Antigravity)
+- peer orchestrator coordination model (Codex, VS Code/Copilot, Antigravity)
 - per-task ownership and touched-file declarations
 - task claim/release/status commands
 - task new command and canonical examples
@@ -37,9 +37,18 @@ Completed:
 - config default alignment
 - checkpoint-based rollback semantics
 - best-effort plan status mirroring
+- local worker health-check runbook authored
+- smoke integration proving goal/plan/task pack authored
+- smoke integration proving run executed end-to-end (claim, preview, apply, verify, report)
+- proving edge case documented: trailing blank-context diff hunks can be corrupted by extraction whitespace trimming
+- proving edge case documented: same-second preview/apply checkpoint branch collision can require immediate retry
 
 ## Next Milestone
 
+- local AI dev team integration execution (Codex, VS Code/Copilot, Antigravity + local workers)
+- thin local dispatcher contract and health-check runbook
+- end-to-end integration proving project (`smoke-multi-agent-todo-cli`)
+- VS Code/Copilot-only audit handoff pass for smoke proving artifacts
 - devflow plan command
 - richer goal/plan/task lifecycle commands
 - stronger peer orchestrator federation automation

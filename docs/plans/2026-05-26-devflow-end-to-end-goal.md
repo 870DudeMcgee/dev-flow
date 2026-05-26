@@ -10,7 +10,7 @@ Owner: Human-directed peer orchestrator
 /goal Finish devflow end-to-end as a safe multi-orchestrator AI development workflow system.
 
 Outcome:
-Take the current devflow repo from its stabilized MVP foundation to a coherent, committed, usable system where Codex Desktop, VS Code/Cline, and Antigravity can each act as independent peer orchestrators with their own local-model subagent dev teams, all coordinating safely through one shared repo, .devflow task files, git branches, verification, and reports.
+Take the current devflow repo from its stabilized MVP foundation to a coherent, committed, usable system where Codex Desktop, VS Code/Copilot, and Antigravity can each act as independent peer orchestrators with their own local-model subagent dev teams, all coordinating safely through one shared repo, .devflow task files, git branches, verification, and reports.
 
 Core product definition:
 devflow is a conservative, file-based execution and coordination layer for AI-generated unified diffs. It is not an LLM provider router in the MVP. It lets any IDE orchestrator or human generate a patch, then devflow validates, previews, applies with explicit approval, verifies, rolls back if needed, updates task status, mirrors plan status best-effort, and writes audit reports.
@@ -21,7 +21,7 @@ Architecture:
 - Task markdown files are the executable work units and canonical task status source.
 - plan.json files are secondary indexes and mirror task status best-effort.
 - Reports are the audit trail.
-- Codex Desktop, VS Code/Cline, and Antigravity are peer orchestrators.
+- Codex Desktop, VS Code/Copilot, and Antigravity are peer orchestrators.
 - Each IDE may run a complete internal subagent dev team: analyst, architect, planner, implementer, tester, verifier, reporter.
 - Local models are worker subagents used by orchestrators, not owners of repo state.
 - Work is divided by claimed task and touched-file scope, not by permanent IDE role.

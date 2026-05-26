@@ -8,6 +8,8 @@ Use docs/plans/2026-05-26-devflow-mvp-authoritative-spec.md as the single MVP so
 
 Use docs/workflows/coordination-playbook.md as the active coordination topology.
 
+Use docs/plans/2026-05-26-local-ai-dev-team-integration-plan.md as the active integration execution blueprint.
+
 Codex Desktop is currently taking lead on coordination reset, document normalization, gap analysis, and next-task sequencing.
 
 ## Implementation Scope
@@ -36,6 +38,7 @@ Current coordination focus:
 - coordination documentation
 - explicit ownership assignment per task
 - peer-orchestrator handoffs where each IDE can execute a full task end-to-end
+- local worker connectivity standardization and proving-run design
 
 Out of scope for MVP:
 - planning command
@@ -54,7 +57,7 @@ Out of scope for MVP:
 - Protected path touches require human approval before apply.
 - config.json is enforceable policy.
 - constitution.md is advisory.
-- Codex, VS Code/Cline, and Antigravity are peer orchestrators.
+- Codex, VS Code/Copilot, and Antigravity are peer orchestrators.
 - Local models are worker subagents for all orchestrators.
 - Do not assign permanent global roles like "Codex only plans" or "VS Code only codes".
 - Before modifying code, claim a task or receive direct human instruction for the file scope.
@@ -93,6 +96,10 @@ Systematic-debugging facts captured on 2026-05-26:
 
 No open MVP stabilization gaps remain in the current queue.
 
+Next active queue:
+- run VS Code/Copilot-only audit handoff against completed smoke report/task artifacts using docs/workflows/vscode-smoke-audit-handoff.md
+- execute local worker preflight from docs/workflows/local-worker-health-check-runbook.md before any VS Code proving rerun
+
 Completed stabilization items:
 - package metadata and `devflow` console entrypoint declared in `pyproject.toml`
 - `python -m devflow` entrypoint added
@@ -109,3 +116,8 @@ Completed stabilization items:
 - `devflow init` creates peer orchestrator templates and local model worker policy in `.devflow/orchestrators/`
 - reports include status transitions, safety decisions, and verification output snippets
 - future model routing is documented as post-MVP only in `docs/future-model-routing.md`
+- local worker health-check runbook exists in `docs/workflows/local-worker-health-check-runbook.md`
+- smoke integration proving artifacts exist in `docs/examples/002_smoke_multi_agent.*`
+- smoke proving run has been executed successfully in temp repo with final COMPLETED status and passing verification
+- proving run surfaced and documented two operational edge cases: trailing blank-context patch extraction risk and same-second checkpoint branch naming collisions
+- VS Code-specific smoke audit runbook exists in `docs/workflows/vscode-smoke-audit-handoff.md`

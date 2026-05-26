@@ -137,7 +137,7 @@ Candidate models:
 def _write_orchestrator_templates() -> None:
     templates = {
         "codex.md": _orchestrator_template("Codex Desktop"),
-        "vscode-cline.md": _orchestrator_template("VS Code/Cline"),
+        "vscode-copilot.md": _orchestrator_template("VS Code/Copilot"),
         "antigravity.md": _orchestrator_template("Antigravity"),
         "local-model-worker-policy.md": _local_model_worker_policy(),
     }

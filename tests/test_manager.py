@@ -8,7 +8,7 @@ Status: PENDING
 Goal: 001_devflow_mvp
 Plan: 001_devflow_mvp.plan.json
 Assigned Agent: local_ollama
-Owner Lock: vscode-cline
+Owner Lock: vscode-copilot
 Risk: LOW
 Branch: devflow/task-001
 Touched Files:
@@ -60,7 +60,7 @@ Pending.
         self.assertEqual(task["goal"], "001_devflow_mvp")
         self.assertEqual(task["plan"], "001_devflow_mvp.plan.json")
         self.assertEqual(task["assigned_agent"], "local_ollama")
-        self.assertEqual(task["owner_lock"], "vscode-cline")
+        self.assertEqual(task["owner_lock"], "vscode-copilot")
         self.assertEqual(task["touched_files"], ["src/example.txt", "tests/test_example.py"])
         self.assertEqual(task["branch"], "devflow/task-001")
         self.assertEqual(task["allowed_files"], ["src/example.txt"])

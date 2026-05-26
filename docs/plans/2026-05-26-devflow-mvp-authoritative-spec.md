@@ -9,7 +9,7 @@ devflow MVP is a safe, file-based task runner for AI-generated unified diffs.
 
 ## Multi-Orchestrator Operating Mode
 
-Codex Desktop, VS Code/Cline, and Antigravity are peer orchestrators.
+Codex Desktop, VS Code/Copilot, and Antigravity are peer orchestrators.
 
 Each orchestrator can run a full internal dev team (planning, implementation, testing, verification, reporting). Local models are worker agents, not orchestrators.
 
