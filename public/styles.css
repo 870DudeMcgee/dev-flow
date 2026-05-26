@@ -1,16 +1,35 @@
-/* Core Styling Variables */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Outfit:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
 :root {
-    --bg-dark: #07090e;
-    --bg-card: #0f131a;
+    --bg-dark: #030712;
+    --bg-card: rgba(15, 19, 26, 0.4);
     --border-color: rgba(255, 255, 255, 0.08);
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --accent-indigo: #6366f1;
-    --accent-violet: #a855f7;
+    --accent-purple: hsl(263, 85%, 65%);
+    --accent-indigo-glow: hsl(217, 91%, 60%);
     --accent-green: #10b981;
     --accent-red: #ef4444;
     --font-sans: 'Inter', sans-serif;
+    --font-heading: 'Outfit', sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Custom premium scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg-dark);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--accent-indigo-glow);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-purple);
 }
 
 /* Reset */
@@ -30,7 +49,7 @@ body {
     font-family: var(--font-sans);
     line-height: 1.6;
     overflow-x: hidden;
-    background: radial-gradient(circle at 50% 0%, #171635 0%, #030712 60%);
+    background: radial-gradient(circle at 50% 0%, #0f0e26 0%, #030712 70%);
 }
 
 /* Header */
@@ -40,14 +59,15 @@ body {
     align-items: center;
     padding: 1.5rem 2rem;
     border-bottom: 1px solid var(--border-color);
-    background: rgba(7, 9, 14, 0.6);
-    backdrop-filter: blur(10px);
+    background: rgba(3, 7, 18, 0.6);
+    backdrop-filter: blur(20px);
     position: sticky;
     top: 0;
     z-index: 100;
 }
 
 .logo {
+    font-family: var(--font-heading);
     font-size: 1.4rem;
     font-weight: 800;
     display: flex;
@@ -110,6 +130,7 @@ body {
 }
 
 .hero-title {
+    font-family: var(--font-heading);
     font-size: 3.5rem;
     font-weight: 800;
     line-height: 1.15;
@@ -118,7 +139,7 @@ body {
 }
 
 .gradient-text {
-    background: linear-gradient(135deg, var(--accent-indigo) 0%, var(--accent-violet) 100%);
+    background: linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-indigo-glow) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -171,9 +192,9 @@ body {
 
 /* Glassmorphism Cards */
 .glass {
-    background: rgba(15, 19, 26, 0.4);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--bg-card);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 1px solid var(--border-color);
     border-radius: 12px;
 }
@@ -183,6 +204,7 @@ body {
 }
 
 .section-title {
+    font-family: var(--font-heading);
     font-size: 2.2rem;
     font-weight: 800;
     text-align: center;
@@ -211,8 +233,8 @@ body {
 
 .card:hover {
     transform: translateY(-5px);
-    border-color: rgba(99, 102, 241, 0.3);
-    box-shadow: 0 10px 30px rgba(99, 102, 241, 0.1);
+    border-color: var(--accent-purple);
+    box-shadow: 0 10px 30px rgba(168, 85, 247, 0.15);
 }
 
 .card-icon {
@@ -221,6 +243,7 @@ body {
 }
 
 .card h3 {
+    font-family: var(--font-heading);
     font-size: 1.3rem;
     margin-bottom: 0.75rem;
 }
@@ -244,7 +267,7 @@ body {
 }
 
 .terminal-sidebar {
-    background: rgba(10, 12, 18, 0.8);
+    background: rgba(5, 6, 12, 0.85);
     border-right: 1px solid var(--border-color);
     padding: 2rem;
 }
@@ -305,14 +328,15 @@ body {
 .terminal-main {
     display: flex;
     flex-direction: column;
-    background: rgba(5, 6, 10, 0.95);
+    background: rgba(3, 4, 8, 0.95);
+    border: 1px solid var(--border-color);
 }
 
 .terminal-header {
     display: flex;
     align-items: center;
     padding: 0.75rem 1.25rem;
-    background: rgba(15, 17, 26, 0.9);
+    background: rgba(10, 12, 20, 0.9);
     border-bottom: 1px solid var(--border-color);
     position: relative;
 }
@@ -352,7 +376,7 @@ body {
 }
 
 .term-prompt {
-    color: var(--accent-indigo);
+    color: var(--accent-purple);
     font-weight: bold;
 }
 
@@ -360,7 +384,7 @@ body {
     display: inline-block;
     width: 8px;
     height: 15px;
-    background-color: var(--text-primary);
+    background-color: var(--accent-indigo-glow);
     animation: blink 1s infinite;
     vertical-align: middle;
 }
@@ -368,7 +392,7 @@ body {
 .terminal-footer {
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--border-color);
-    background: rgba(10, 12, 18, 0.5);
+    background: rgba(5, 7, 14, 0.5);
     display: flex;
     justify-content: flex-end;
 }
