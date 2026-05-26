@@ -115,6 +115,8 @@ Strengthen reports so another orchestrator can review or continue work:
 - include verification stdout/stderr snippets or log links
 - include plan mirror warnings
 
+Status: COMPLETE in commit following Phase 3.
+
 Acceptance criteria:
 - Reports are human-readable Markdown.
 - Reports contain enough detail to recover or audit a task run.

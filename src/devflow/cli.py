@@ -388,8 +388,15 @@ def _mirror_plan_status(task: dict, new_status: str) -> str:
 def _write_task_status(task_file: str, new_status: str, task: dict, report_payload: dict) -> None:
     with open(task_file, "r", encoding="utf-8") as handle:
         latest_task = handle.read()
+    previous_status = report_payload.get("_current_status") or parse_task_file(latest_task).get("status", "")
     with open(task_file, "w", encoding="utf-8") as handle:
         handle.write(_replace_status(latest_task, new_status))
+
+    if previous_status and previous_status != new_status:
+        transitions = report_payload.setdefault("status_transitions", [])
+        if isinstance(transitions, list):
+            transitions.append(f"{previous_status} -> {new_status}")
+    report_payload["_current_status"] = new_status
 
     warning = _mirror_plan_status(task, new_status)
     if warning:
@@ -595,6 +602,9 @@ def run_task(task_file: str, yes: bool = False):
         "failure_classification": "",
         "rollback_status": "not_started",
         "final_outcome": "",
+        "dirty_worktree_decision": "clean",
+        "protected_paths_decision": "none" if not protected else f"blocked: {', '.join(protected)}",
+        "allowed_files_decision": "not_checked",
     }
 
     if protected:
@@ -611,6 +621,7 @@ def run_task(task_file: str, yes: bool = False):
     if isinstance(allowed, list) and allowed:
         outside_allowed = paths_outside_allowed(files_changed, allowed)
         if outside_allowed:
+            report_payload["allowed_files_decision"] = f"blocked: {', '.join(outside_allowed)}"
             report_payload["failure_classification"] = "UNKNOWN_FAILURE"
             report_payload["final_outcome"] = "Patch modifies files outside Allowed Files."
             _write_task_status(task_file, "FAILED", task, report_payload)
@@ -618,6 +629,9 @@ def run_task(task_file: str, yes: bool = False):
             write_task_report(report_file, report_payload)
             print("Task failed: patch modifies files outside Allowed Files.")
             return
+        report_payload["allowed_files_decision"] = "all changed files allowed"
+    else:
+        report_payload["allowed_files_decision"] = "not configured"
 
     ok, base_branch, checkpoint = create_checkpoint_branch(
         cwd=os.getcwd(),

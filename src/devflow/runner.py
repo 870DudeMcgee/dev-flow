@@ -240,15 +240,43 @@ def write_task_report(report_path: str, payload: Dict[str, object]) -> None:
         f"- Rollback Status: {payload.get('rollback_status', '')}",
         f"- Final Outcome: {payload.get('final_outcome', '')}",
         "",
-        "## Verification Commands",
     ]
 
     verification = payload.get("verification", [])
+    lines.extend(["", "## Verification Commands"])
     if isinstance(verification, list) and verification:
         for item in verification:
             lines.append(f"- {item.get('command', '')}: exit {item.get('exit_code', '')}")
     else:
         lines.append("- No verification commands were available.")
+
+    transitions = payload.get("status_transitions", [])
+    if isinstance(transitions, list) and transitions:
+        lines.extend(["", "## Status Transitions"])
+        for transition in transitions:
+            lines.append(f"- {transition}")
+
+    lines.extend(
+        [
+            "",
+            "## Safety Decisions",
+            f"- Dirty Worktree: {payload.get('dirty_worktree_decision', '')}",
+            f"- Protected Paths: {payload.get('protected_paths_decision', '')}",
+            f"- Allowed Files: {payload.get('allowed_files_decision', '')}",
+        ]
+    )
+
+    if isinstance(verification, list) and verification:
+        lines.extend(["", "## Verification Output"])
+        for item in verification:
+            command = item.get("command", "")
+            stdout = str(item.get("stdout", "")).strip()
+            stderr = str(item.get("stderr", "")).strip()
+            lines.append(f"### {command}")
+            if stdout:
+                lines.extend(["", "stdout:", "```text", stdout[:2000], "```"])
+            if stderr:
+                lines.extend(["", "stderr:", "```text", stderr[:2000], "```"])
 
     warnings = payload.get("warnings", [])
     if isinstance(warnings, list) and warnings:

@@ -16,6 +16,7 @@
 - Failure classification and retry budget handling
 - Rollback behavior
 - Per-task report generation
+- Rich report audit trail
 - Status command
 
 ## Stabilization Queue

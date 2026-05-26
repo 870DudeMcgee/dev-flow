@@ -668,6 +668,68 @@ Pending.
             report = handle.read()
         self.assertIn("Rollback Status: checkpoint_reset", report)
 
+    def test_report_includes_audit_trail_and_verification_output(self):
+        init_workspace()
+        task_path = ".devflow/tasks/016_audit_report.md"
+        content = """# Task: 016 - Audit Report
+Status: PENDING
+
+## 1. Objective
+Generate a rich failed report.
+
+## 2. Allowed Files
+- sample.txt
+
+## 3. Do Not Touch
+- .env
+
+## 4. Required Context
+None.
+
+## 5. Implementation Instructions
+None.
+
+## 6. Patch Protocol
+Unified diff.
+
+## 7. Verification Commands
+- python3 -c "import sys; print('audit stdout'); sys.stderr.write('audit stderr\\\\n'); sys.exit(1)"
+
+## 8. Failure Handling
+None.
+
+## 9. Execution Results
+```diff
+diff --git a/sample.txt b/sample.txt
+--- a/sample.txt
++++ b/sample.txt
+@@ -1 +1 @@
+-hello
++audit report
+```
+
+## 10. Final Report
+Pending.
+"""
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        self.commit_all("add audit task")
+
+        run_task(task_path, yes=True)
+
+        with open(".devflow/reports/016.report.md", "r", encoding="utf-8") as handle:
+            report = handle.read()
+        self.assertIn("## Status Transitions", report)
+        self.assertIn("- PENDING -> RUNNING", report)
+        self.assertIn("- RUNNING -> FAILED", report)
+        self.assertIn("## Safety Decisions", report)
+        self.assertIn("- Dirty Worktree: clean", report)
+        self.assertIn("- Protected Paths: none", report)
+        self.assertIn("- Allowed Files: all changed files allowed", report)
+        self.assertIn("## Verification Output", report)
+        self.assertIn("audit stdout", report)
+        self.assertIn("audit stderr", report)
+
     def test_run_mirrors_task_status_to_plan_json_when_present(self):
         init_workspace()
         plan_path = ".devflow/plans/001_devflow_mvp.plan.json"

@@ -32,6 +32,7 @@ PYTHONPATH=src python3 -m devflow --help
 - Protected paths block before apply.
 - `Allowed Files` accepts exact paths, glob patterns, and `...` shorthand.
 - Failed verification rolls source changes back to checkpoint state.
+- Reports include status transitions, safety decisions, verification commands, and verification output snippets.
 
 ## Task Format
 
