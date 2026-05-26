@@ -5,7 +5,7 @@
     {
       "id": "002",
       "title": "Build devflow marketing landing page",
-      "status": "PREVIEWED",
+      "status": "COMPLETED",
       "depends_on": [],
       "risk": "LOW",
       "allowed_paths": [

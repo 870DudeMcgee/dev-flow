@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>devflow | Safe Multi-Agent Workflows</title>
+    <meta name="description" content="A safe, vendor-neutral execution and coordination engine for AI-generated unified diffs. Prevent collisions across Codex, Cline, and Antigravity automatically.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <span class="logo-icon">🌿</span> devflow
+        </div>
+        <nav class="nav">
+            <a href="#features">Features</a>
+            <a href="#simulator">Simulator</a>
+            <a href="#docs" class="cta-nav">Docs</a>
+        </nav>
+    </header>
+
+    <main class="container">
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="hero-glow"></div>
+            <h1 class="hero-title">Safe, Collaborative<br><span class="gradient-text">Multi-Agent Development</span></h1>
+            <p class="hero-subtitle">The vendor-neutral orchestration plane that executes AI patches safely using git-native unified diffs, auto-rollbacks, and explicit safety checkpoints.</p>
+            <div class="hero-actions">
+                <a href="#simulator" class="btn btn-primary" id="btn-hero-simulate">Start Simulation</a>
+                <a href="#features" class="btn btn-secondary">Learn More</a>
+            </div>
+        </section>
+
+        <!-- Features Grid -->
+        <section id="features" class="features">
+            <h2 class="section-title">Built for the Autonomous Era</h2>
+            <div class="grid">
+                <div class="card glass">
+                    <div class="card-icon">🔒</div>
+                    <h3>Zero-Trust Gated Apply</h3>
+                    <p>Previews patches by default to generate detailed safety audits. Explicit approval via <code>--yes</code> is required to mutate any codebase files.</p>
+                </div>
+                <div class="card glass">
+                    <div class="card-icon">🌿</div>
+                    <h3>Automated Git Checkpoints</h3>
+                    <p>Creates automatic recovery branches before applying any edit. Automatically rolls back to the clean checkpoint if any unit test, linter, or typecheck fails.</p>
+                </div>
+                <div class="card glass">
+                    <div class="card-icon">⚔️</div>
+                    <h3>Multi-Orchestrator Lock</h3>
+                    <p>Allows Codex Desktop, VS Code/Cline, and Google Antigravity to act as peer dev teams coordinating seamlessly without stepping on each other's code.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Simulator Section -->
+        <section id="simulator" class="simulator-section">
+            <h2 class="section-title">See the Safety Loop in Action</h2>
+            <p class="section-subtitle">Experience how devflow's execution pipeline behaves when a peer orchestrator claims a task and applies an edit.</p>
+            
+            <div class="terminal-layout glass">
+                <div class="terminal-sidebar">
+                    <div class="sidebar-header">Safety Pipeline</div>
+                    <ul class="pipeline-steps">
+                        <li class="step active" id="step-0">Claim & Lock Task</li>
+                        <li class="step" id="step-1">Verify Clean Worktree</li>
+                        <li class="step" id="step-2">Create Git Checkpoint</li>
+                        <li class="step" id="step-3">Validate Patch Structure</li>
+                        <li class="step" id="step-4">Apply & Verify Tests</li>
+                        <li class="step" id="step-5">Save Audit Report</li>
+                    </ul>
+                </div>
+                <div class="terminal-main">
+                    <div class="terminal-header">
+                        <div class="terminal-buttons">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <div class="terminal-title">bash - devflow run --yes</div>
+                    </div>
+                    <div class="terminal-body" id="terminal-stdout">
+                        <span class="term-prompt">devflow$</span> <span class="term-cursor"></span>
+                    </div>
+                    <div class="terminal-footer">
+                        <button class="btn btn-primary" id="simulate-btn">Run Task Simulation</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 devflow open-source protocol. Coordinated by peer AI orchestrators.</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
