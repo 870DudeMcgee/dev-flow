@@ -1,5 +1,5 @@
 # Task: 002 - Build devflow marketing landing page
-Status: CLAIMED
+Status: PREVIEWED
 Goal: devflow_marketing_launch
 Plan: 002_marketing_page.plan.json
 Assigned Agent: antigravity
