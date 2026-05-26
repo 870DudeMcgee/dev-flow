@@ -53,7 +53,7 @@ diff --git a/scripts/local_agent_runner.py b/scripts/local_agent_runner.py
 new file mode 100644
 --- /dev/null
 +++ b/scripts/local_agent_runner.py
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,32 @@
 +import json
 +import urllib.request
 +import urllib.error
@@ -90,7 +90,7 @@ diff --git a/tests/test_local_agent.py b/tests/test_local_agent.py
 new file mode 100644
 --- /dev/null
 +++ b/tests/test_local_agent.py
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,20 @@
 +import unittest
 +from unittest.mock import patch, MagicMock
 +import urllib.error
