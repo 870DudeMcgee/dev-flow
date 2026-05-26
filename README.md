@@ -187,3 +187,4 @@ See:
 - `docs/workflows/coordination-playbook.md`
 - `docs/plans/2026-05-26-devflow-mvp-authoritative-spec.md`
 - `docs/plans/2026-05-26-devflow-end-to-end-goal.md`
+- `docs/future-model-routing.md`

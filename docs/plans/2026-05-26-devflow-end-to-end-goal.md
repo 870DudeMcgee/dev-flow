@@ -132,6 +132,8 @@ Document, but do not yet execute, future model/provider routing:
 - summarizer role
 - local model worker pool
 
+Status: COMPLETE in commit following Phase 4.
+
 Acceptance criteria:
 - No MVP execution path calls Codex, Gemini, Claude, Copilot, Ollama, or other model providers.
 - Future routing is represented as docs/templates/config only.

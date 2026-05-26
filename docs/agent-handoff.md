@@ -93,3 +93,4 @@ Completed stabilization items:
 - task new scaffolds canonical task Markdown
 - `devflow init` creates peer orchestrator templates and local model worker policy in `.devflow/orchestrators/`
 - reports include status transitions, safety decisions, and verification output snippets
+- future model routing is documented as post-MVP only in `docs/future-model-routing.md`

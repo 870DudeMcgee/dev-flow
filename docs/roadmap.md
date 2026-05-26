@@ -18,6 +18,7 @@
 - Per-task report generation
 - Rich report audit trail
 - Status command
+- Future model routing documented as post-MVP only
 
 ## Stabilization Queue
 
