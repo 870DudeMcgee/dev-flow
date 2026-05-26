@@ -5,7 +5,7 @@
     {
       "id": "001",
       "title": "Integrate local agent runner",
-      "status": "PREVIEWED",
+      "status": "COMPLETED",
       "depends_on": [],
       "risk": "LOW",
       "allowed_paths": [
