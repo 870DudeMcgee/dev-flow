@@ -15,6 +15,9 @@ Codex Desktop is currently taking lead on coordination reset, document normaliza
 In scope:
 - devflow init
 - devflow status
+- devflow task claim <task-file> --agent <owner> --lock <session>
+- devflow task release <task-file>
+- devflow task status <task-file>
 - devflow run <task-file> previews and writes PREVIEWED status/report
 - devflow run <task-file> --yes applies, verifies, and writes final status/report
 - unified diff apply + dry-run
@@ -85,3 +88,4 @@ Completed stabilization items:
 - default config is conservative MVP policy: no active orchestrator/provider routing, `auto` verification, clean-worktree required, no auto-apply
 - failed verification rolls source changes back to checkpoint state before writing FAILED task/report state
 - plan JSON mirrors task status best-effort when the referenced plan exists
+- task claim/release/status commands are available for peer-orchestrator ownership

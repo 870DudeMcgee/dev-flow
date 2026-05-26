@@ -4,9 +4,10 @@ import shutil
 import tempfile
 import io
 import json
+import sys
 from contextlib import redirect_stdout
 
-from devflow.cli import init_workspace, run_task, status_workspace
+from devflow.cli import claim_task, init_workspace, main, release_task, run_task, status_task, status_workspace
 
 
 class TestCLI(unittest.TestCase):
@@ -71,6 +72,171 @@ class TestCLI(unittest.TestCase):
         self.assertIn("devflow status", output)
         self.assertIn("pending: 1", output)
         self.assertIn("claimed: 1", output)
+
+    def test_task_claim_updates_ownership_headers(self):
+        init_workspace()
+        task_path = ".devflow/tasks/010_claim.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 010 - Claim Me
+Status: PENDING
+
+## 1. Objective
+Claim task.
+""")
+
+        claim_task(
+            task_path,
+            agent="codex",
+            owner_lock="codex-desktop",
+            touched_files=["src/devflow/cli.py", "tests/test_cli.py"],
+        )
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            updated = handle.read()
+        self.assertIn("Status: CLAIMED", updated)
+        self.assertIn("Assigned Agent: codex", updated)
+        self.assertIn("Owner Lock: codex-desktop", updated)
+        self.assertIn("Branch: devflow/task-010-codex", updated)
+        self.assertIn("Touched Files:\n- src/devflow/cli.py\n- tests/test_cli.py", updated)
+
+    def test_task_claim_refuses_already_claimed_without_force(self):
+        init_workspace()
+        task_path = ".devflow/tasks/011_claimed.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 011 - Claimed
+Status: CLAIMED
+Assigned Agent: vscode
+Owner Lock: vscode-cline
+
+## 1. Objective
+Already claimed.
+""")
+
+        claimed = claim_task(task_path, agent="codex", owner_lock="codex-desktop")
+
+        self.assertFalse(claimed)
+        with open(task_path, "r", encoding="utf-8") as handle:
+            unchanged = handle.read()
+        self.assertIn("Assigned Agent: vscode", unchanged)
+        self.assertIn("Owner Lock: vscode-cline", unchanged)
+
+    def test_task_claim_force_overrides_existing_claim(self):
+        init_workspace()
+        task_path = ".devflow/tasks/012_force.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 012 - Force Claim
+Status: CLAIMED
+Assigned Agent: vscode
+Owner Lock: vscode-cline
+
+## 1. Objective
+Override claim.
+""")
+
+        claimed = claim_task(task_path, agent="codex", owner_lock="codex-desktop", force=True)
+
+        self.assertTrue(claimed)
+        with open(task_path, "r", encoding="utf-8") as handle:
+            updated = handle.read()
+        self.assertIn("Assigned Agent: codex", updated)
+        self.assertIn("Owner Lock: codex-desktop", updated)
+
+    def test_task_release_clears_ownership_and_returns_to_pending(self):
+        init_workspace()
+        task_path = ".devflow/tasks/013_release.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 013 - Release
+Status: CLAIMED
+Assigned Agent: codex
+Owner Lock: codex-desktop
+Branch: devflow/task-013-codex
+
+## 1. Objective
+Release claim.
+""")
+
+        release_task(task_path)
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            released = handle.read()
+        self.assertIn("Status: PENDING", released)
+        self.assertIn("Assigned Agent: ", released)
+        self.assertIn("Owner Lock: ", released)
+        self.assertIn("Branch: ", released)
+
+    def test_task_status_prints_metadata_report_and_plan_mirror(self):
+        init_workspace()
+        plan_path = ".devflow/plans/001.plan.json"
+        with open(plan_path, "w", encoding="utf-8") as handle:
+            json.dump({"tasks": [{"id": "014", "status": "CLAIMED"}]}, handle)
+        task_path = ".devflow/tasks/014_status.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 014 - Status
+Status: CLAIMED
+Plan: 001.plan.json
+Assigned Agent: codex
+Owner Lock: codex-desktop
+Branch: devflow/task-014-codex
+Touched Files:
+- src/devflow/cli.py
+
+## 1. Objective
+Print status.
+
+## 2. Allowed Files
+- src/devflow/**
+""")
+        os.makedirs(".devflow/reports", exist_ok=True)
+        with open(".devflow/reports/014.report.md", "w", encoding="utf-8") as handle:
+            handle.write("# report\n")
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            status_task(task_path)
+        output = buffer.getvalue()
+
+        self.assertIn("Task 014 - Status", output)
+        self.assertIn("status: CLAIMED", output)
+        self.assertIn("assigned_agent: codex", output)
+        self.assertIn("owner_lock: codex-desktop", output)
+        self.assertIn("latest_report: .devflow/reports/014.report.md", output)
+        self.assertIn("plan_status: CLAIMED", output)
+
+    def test_task_claim_cli_command(self):
+        init_workspace()
+        task_path = ".devflow/tasks/015_cli_claim.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 015 - CLI Claim
+Status: PENDING
+
+## 1. Objective
+Claim from CLI.
+""")
+
+        old_argv = sys.argv
+        try:
+            sys.argv = [
+                "devflow",
+                "task",
+                "claim",
+                task_path,
+                "--agent",
+                "antigravity",
+                "--lock",
+                "antigravity-team",
+                "--touch",
+                "src/devflow/cli.py",
+            ]
+            main()
+        finally:
+            sys.argv = old_argv
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            updated = handle.read()
+        self.assertIn("Status: CLAIMED", updated)
+        self.assertIn("Assigned Agent: antigravity", updated)
+        self.assertIn("Owner Lock: antigravity-team", updated)
+        self.assertIn("- src/devflow/cli.py", updated)
 
     def test_run_previews_unified_diff_without_yes(self):
         init_workspace()

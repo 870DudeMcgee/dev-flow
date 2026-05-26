@@ -66,6 +66,8 @@ Build the minimum task lifecycle commands needed for safe peer-orchestrator coll
 - devflow task release <task>
 - devflow task status <task>
 
+Status: COMPLETE in commit following Phase 0.
+
 Acceptance criteria:
 - Claim updates task header metadata: Status, Assigned Agent, Owner Lock, Branch, Touched Files if provided.
 - Claim refuses already claimed/running tasks unless explicit force is provided.

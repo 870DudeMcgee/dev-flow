@@ -5,6 +5,7 @@
 - Canonical .devflow tree initialization
 - peer orchestrator coordination model (Codex, VS Code/Cline, Antigravity)
 - per-task ownership and touched-file declarations
+- task claim/release/status commands
 - Task schema parsing (sections 1..10)
 - Unified diff detection/apply flow
 - Protected-file gating
@@ -32,7 +33,7 @@ Completed:
 ## Next Milestone
 
 - devflow plan command
-- goal/plan/task lifecycle commands
+- richer goal/plan/task lifecycle commands
 - stronger peer orchestrator federation automation
 - per-orchestrator full subagent team templates in .devflow/skills or .devflow/orchestrators
 - shared local model worker pool policies

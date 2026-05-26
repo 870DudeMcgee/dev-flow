@@ -83,6 +83,66 @@ def _replace_status(task_content: str, new_status: str) -> str:
     return task_content
 
 
+def _metadata_insert_index(lines: list[str]) -> int:
+    for index, line in enumerate(lines):
+        if line.startswith("## "):
+            return index
+    return len(lines)
+
+
+def _upsert_header(content: str, key: str, value: str) -> str:
+    lines = content.splitlines()
+    end = _metadata_insert_index(lines)
+    pattern = re.compile(rf"^{re.escape(key)}:\s*.*$")
+    for index in range(end):
+        if pattern.match(lines[index]):
+            lines[index] = f"{key}: {value}"
+            return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+
+    insert_at = 1 if lines and lines[0].startswith("# ") else end
+    lines.insert(insert_at, f"{key}: {value}")
+    return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+
+
+def _upsert_header_list(content: str, key: str, values: list[str]) -> str:
+    lines = content.splitlines()
+    end = _metadata_insert_index(lines)
+    key_pattern = re.compile(rf"^{re.escape(key)}:\s*.*$")
+    new_block = [f"{key}:"] + [f"- {value}" for value in values]
+
+    for index in range(end):
+        if not key_pattern.match(lines[index]):
+            continue
+        remove_end = index + 1
+        while remove_end < end and lines[remove_end].strip().startswith("- "):
+            remove_end += 1
+        lines[index:remove_end] = new_block
+        return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+
+    insert_at = end
+    lines[insert_at:insert_at] = new_block
+    return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+
+
+def _read_task_markdown(task_file: str) -> str:
+    if not os.path.exists(task_file):
+        print(f"Error: task file does not exist: {task_file}")
+        sys.exit(1)
+    with open(task_file, "r", encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _write_task_markdown(task_file: str, content: str) -> None:
+    with open(task_file, "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+
+def _default_task_branch(task: dict, agent: str) -> str:
+    task_id = str(task.get("task_id", "000"))
+    owner = agent.strip().replace(" ", "-")
+    return f"devflow/task-{task_id}-{owner}"
+
+
 def _resolve_plan_path(plan_ref: object) -> str:
     if not isinstance(plan_ref, str) or not plan_ref.strip():
         return ""
@@ -128,6 +188,88 @@ def _write_task_status(task_file: str, new_status: str, task: dict, report_paylo
         warnings = report_payload.setdefault("warnings", [])
         if isinstance(warnings, list):
             warnings.append(warning)
+
+
+def claim_task(
+    task_file: str,
+    agent: str,
+    owner_lock: str,
+    touched_files: list[str] | None = None,
+    branch: str | None = None,
+    force: bool = False,
+) -> bool:
+    """Claim a task for one peer orchestrator."""
+    content = _read_task_markdown(task_file)
+    task = parse_task_file(content)
+    status = str(task.get("status", "PENDING"))
+    if status in {"CLAIMED", "RUNNING"} and not force:
+        print(f"Task {task.get('task_id', 'unknown')} is already {status}. Use --force to override.")
+        return False
+
+    branch_name = branch or _default_task_branch(task, agent)
+    updated = _replace_status(content, "CLAIMED")
+    updated = _upsert_header(updated, "Assigned Agent", agent)
+    updated = _upsert_header(updated, "Owner Lock", owner_lock)
+    updated = _upsert_header(updated, "Branch", branch_name)
+    if touched_files is not None:
+        updated = _upsert_header_list(updated, "Touched Files", touched_files)
+
+    _write_task_markdown(task_file, updated)
+    print(f"Task {task.get('task_id', 'unknown')} claimed by {agent} ({owner_lock}).")
+    return True
+
+
+def release_task(task_file: str) -> bool:
+    """Release an owned task back to the shared queue."""
+    content = _read_task_markdown(task_file)
+    task = parse_task_file(content)
+    current_status = str(task.get("status", "PENDING"))
+    next_status = "BLOCKED" if current_status == "BLOCKED" else "PENDING"
+
+    updated = _replace_status(content, next_status)
+    updated = _upsert_header(updated, "Assigned Agent", "")
+    updated = _upsert_header(updated, "Owner Lock", "")
+    updated = _upsert_header(updated, "Branch", "")
+
+    _write_task_markdown(task_file, updated)
+    print(f"Task {task.get('task_id', 'unknown')} released to {next_status}.")
+    return True
+
+
+def _plan_status_for_task(task: dict) -> str:
+    plan_path = _resolve_plan_path(task.get("plan"))
+    if not plan_path or not os.path.exists(plan_path):
+        return ""
+    try:
+        with open(plan_path, "r", encoding="utf-8") as handle:
+            plan = json.load(handle)
+    except Exception:
+        return ""
+
+    task_id = str(task.get("task_id", ""))
+    for item in plan.get("tasks", []):
+        if isinstance(item, dict) and str(item.get("id", "")) == task_id:
+            return str(item.get("status", ""))
+    return ""
+
+
+def status_task(task_file: str) -> None:
+    """Print task ownership and coordination status."""
+    content = _read_task_markdown(task_file)
+    task = parse_task_file(content)
+    report_path = os.path.join(".devflow", "reports", f"{task.get('task_id', 'unknown')}.report.md")
+    latest_report = report_path if os.path.exists(report_path) else ""
+    plan_status = _plan_status_for_task(task)
+
+    print(f"Task {task.get('task_id', 'unknown')} - {task.get('title', 'Unknown')}")
+    print(f"status: {task.get('status', '')}")
+    print(f"assigned_agent: {task.get('assigned_agent', '')}")
+    print(f"owner_lock: {task.get('owner_lock', '')}")
+    print(f"branch: {task.get('branch', '')}")
+    print(f"touched_files: {', '.join(task.get('touched_files', []))}")
+    print(f"allowed_files: {', '.join(task.get('allowed_files', []))}")
+    print(f"latest_report: {latest_report}")
+    print(f"plan_status: {plan_status}")
 
 
 def init_workspace():
@@ -361,6 +503,24 @@ def main():
 
     subparsers.add_parser("init", help="Initialize a new devflow workspace")
     subparsers.add_parser("status", help="Show goal, plan, and task state")
+
+    task_parser = subparsers.add_parser("task", help="Manage task ownership and status")
+    task_subparsers = task_parser.add_subparsers(dest="task_command")
+
+    claim_parser = task_subparsers.add_parser("claim", help="Claim a task for an orchestrator")
+    claim_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
+    claim_parser.add_argument("--agent", required=True, help="Owning orchestrator: codex, vscode, or antigravity")
+    claim_parser.add_argument("--lock", required=True, help="Session/team lock identifier")
+    claim_parser.add_argument("--branch", help="Branch name to write into the task header")
+    claim_parser.add_argument("--touch", action="append", default=[], help="Expected touched file or glob; may be repeated")
+    claim_parser.add_argument("--force", action="store_true", help="Override an existing CLAIMED/RUNNING task")
+
+    release_parser = task_subparsers.add_parser("release", help="Release a claimed task")
+    release_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
+
+    task_status_parser = task_subparsers.add_parser("status", help="Show one task's coordination status")
+    task_status_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
+
     run_parser = subparsers.add_parser("run", help="Run a single task markdown file")
     run_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
     run_parser.add_argument("--yes", action="store_true", help="Apply the patch after validation")
@@ -371,6 +531,22 @@ def main():
         init_workspace()
     elif args.command == "status":
         status_workspace()
+    elif args.command == "task":
+        if args.task_command == "claim":
+            claim_task(
+                args.task_file,
+                agent=args.agent,
+                owner_lock=args.lock,
+                touched_files=args.touch or None,
+                branch=args.branch,
+                force=args.force,
+            )
+        elif args.task_command == "release":
+            release_task(args.task_file)
+        elif args.task_command == "status":
+            status_task(args.task_file)
+        else:
+            task_parser.print_help()
     elif args.command == "run":
         run_task(args.task_file, yes=args.yes)
     else:

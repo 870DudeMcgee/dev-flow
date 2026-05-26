@@ -9,6 +9,9 @@ The MVP does not call LLM providers. Codex, VS Code/Cline, Antigravity, a local 
 ```bash
 devflow init
 devflow status
+devflow task claim .devflow/tasks/001_example.md --agent codex --lock codex-desktop
+devflow task status .devflow/tasks/001_example.md
+devflow task release .devflow/tasks/001_example.md
 devflow run .devflow/tasks/001_example.md
 devflow run .devflow/tasks/001_example.md --yes
 ```
@@ -119,6 +122,32 @@ PYTHONPATH=src python3 -m devflow run .devflow/tasks/001_example.md --yes
 ```
 
 For direct apply without a separate preview checkpoint, run `--yes` from the clean task state.
+
+## Task Ownership
+
+Peer orchestrators should claim tasks before editing their task files or touched-file scope:
+
+```bash
+PYTHONPATH=src python3 -m devflow task claim .devflow/tasks/001_example.md \
+  --agent codex \
+  --lock codex-desktop \
+  --touch src/devflow/cli.py \
+  --touch tests/test_cli.py
+```
+
+Inspect a single task:
+
+```bash
+PYTHONPATH=src python3 -m devflow task status .devflow/tasks/001_example.md
+```
+
+Release a task back to the shared queue:
+
+```bash
+PYTHONPATH=src python3 -m devflow task release .devflow/tasks/001_example.md
+```
+
+Claim refuses `CLAIMED` and `RUNNING` tasks unless `--force` is provided.
 
 ## Verify
 
