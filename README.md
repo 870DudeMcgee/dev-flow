@@ -165,11 +165,29 @@ Claim refuses `CLAIMED` and `RUNNING` tasks unless `--force` is provided.
 
 ## Verify
 
+Editable install path:
+
+```bash
+/opt/homebrew/bin/python3.12 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/python -m unittest discover -s tests -q
+.venv/bin/devflow --help
+```
+
+Source path:
+
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -q
 ```
 
-Current note: this local Python environment has a `pip`/`pyexpat` issue that blocks verifying `pip install -e .`; use `PYTHONPATH=src` until the Python toolchain is healthy.
+Machine repair note from 2026-05-26:
+
+- Homebrew/Python startup hangs were caused by a wedged macOS `syspolicyd`; `sudo killall syspolicyd` restarted it and launchd relaunched it cleanly.
+- Homebrew portable Ruby was restored to 4.0.5_1, and `brew --env` works.
+- Python 3.12 and Python 3.14 `pyexpat` extensions were relinked from `/usr/lib/libexpat.1.dylib` to `/opt/homebrew/opt/expat/lib/libexpat.1.dylib` and re-signed.
+- The fresh `.venv` initially had macOS `hidden` flags on site-packages files, causing Python to skip the editable `.pth`; `chflags -R nohidden .venv` fixed editable imports.
+- Editable install is verified with Homebrew Python 3.12.
+- If Python starts but `pyexpat` fails again after a Homebrew Python upgrade, check `otool -L .../lib-dynload/pyexpat*.so` for the Expat path.
 
 ## Multi-Orchestrator Model
 

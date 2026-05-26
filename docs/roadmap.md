@@ -22,10 +22,14 @@
 
 ## Stabilization Queue
 
-- test runner path cleanup (`PYTHONPATH=src` should not be required long-term)
+- no open MVP stabilization items
 
 Completed:
 - package metadata and CLI entrypoint
+- editable install verified with Homebrew Python 3.12
+- local macOS/Homebrew startup hang repaired by restarting `syspolicyd`
+- local Python `pyexpat` linkage repaired for Homebrew Python 3.12 and 3.14
+- local `.venv` editable-import path repaired by clearing macOS hidden flags
 - task ownership metadata parsing and reporting
 - shared-folder dirty-state guardrails
 - run approval policy: preview by default, `--yes` applies

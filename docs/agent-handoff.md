@@ -65,18 +65,33 @@ Out of scope for MVP:
 Verification command:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -q
+.venv/bin/python -m unittest discover -s tests -q
 ```
 
 Current result:
-- 24 tests pass with `unittest`
+- 35 tests pass with `unittest`
+- editable install works with Homebrew Python 3.12
+- `.venv/bin/devflow --help` starts correctly
+- source path also works with `PYTHONPATH=src python3 -m unittest discover -s tests -q`
 - `pytest` is not installed in the current Python or `.venv`
-- package metadata now exists, but local `pip` is blocked by a Python/pyexpat runtime issue before project install begins
-- until editable install is verified on a healthy Python, tests still use `PYTHONPATH=src`
+
+## Local Machine Runtime Repair
+
+Systematic-debugging facts captured on 2026-05-26:
+
+- Reproduction before repair: Homebrew portable Ruby 4.0.5_1 and Homebrew Python 3.12 hung before `--version`; `syspolicyd` was pinned near 100% CPU.
+- Security logs showed Gatekeeper/syspolicy assessment errors, including notarization check failures and `qtn_proc` initialization failures.
+- Repair step: `sudo killall syspolicyd`; launchd relaunched it cleanly.
+- Verification after restart: Homebrew Python 3.12 and portable Ruby 4.0.5_1 both print versions inside the bounded startup probe.
+- Homebrew portable Ruby version was restored from temporary 4.0.4 pin to official 4.0.5_1; `brew --env` works and Homebrew no longer reports dirty.
+- Remaining Python import failure was a `pyexpat` linkage mismatch: both Python 3.12 and 3.14 `pyexpat` extensions loaded `/usr/lib/libexpat.1.dylib` while requiring Homebrew Expat 2.8.1 symbols.
+- Repair step: relink both `pyexpat` extension modules to `/opt/homebrew/opt/expat/lib/libexpat.1.dylib` with `install_name_tool`, then ad-hoc re-sign them with `codesign --force --sign -`.
+- Fresh `.venv` site-packages files initially had the macOS `hidden` flag, causing Python to skip `__editable__.devflow-0.1.0.pth`; `chflags -R nohidden .venv` repaired editable imports.
+- Verification after relink and hidden-flag repair: Python 3.12 and 3.14 can import `pyexpat`, editable install succeeds, 35 tests pass from `.venv`, and `.venv/bin/devflow --help` starts.
 
 ## Immediate Gap Queue
 
-No open MVP stabilization gaps remain in the current queue, aside from verifying editable install on a healthy Python toolchain.
+No open MVP stabilization gaps remain in the current queue.
 
 Completed stabilization items:
 - package metadata and `devflow` console entrypoint declared in `pyproject.toml`
