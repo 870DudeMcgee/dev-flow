@@ -1,9 +1,9 @@
 # Task: 001 - Integrate local agent runner
-Status: PENDING
+Status: CLAIMED
 Goal: antigravity_integration_spike
 Plan: 001_test_project.plan.json
 Assigned Agent: antigravity
-Owner Lock: 
+Owner Lock: antigravity-session-001
 Risk: LOW
 Branch: devflow/task-001-antigravity
 Touched Files:
