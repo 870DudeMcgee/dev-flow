@@ -4,7 +4,7 @@ Date: 2026-05-26
 Status: ACTIVE
 Scope: VS Code/Copilot orchestrator with local qwen worker subagents
 
-Default rule for this workspace: Codex is the standard orchestrator for goal-oriented work. Use this VS Code/Copilot workflow only when the human explicitly delegates a specific task to VS Code/Copilot.
+Default rule for this workspace: peer-parallel orchestration. Use this VS Code/Copilot workflow whenever VS Code claims a task or is delegated a task by the human.
 
 ## 1. What Is devflow?
 

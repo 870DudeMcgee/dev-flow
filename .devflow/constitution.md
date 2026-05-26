@@ -1,6 +1,7 @@
 # devflow Constitution (MVP)
 
-- GLOBAL RULE: Codex is the default orchestrator for all goal-driven work unless the human explicitly delegates a task to another orchestrator.
+- GLOBAL RULE: VS Code/Copilot, Codex Desktop, and Antigravity are separate peer orchestrators. No orchestrator has permanent default ownership.
+- Parallel execution is encouraged: each orchestrator may run its own claimed tasks and branches concurrently.
 - Local models are the default bounded worker team for iterative coding, testing, repair, and summarization loops.
 - Files and git are the source of truth.
 - Unified diffs are the only supported patch protocol for MVP.

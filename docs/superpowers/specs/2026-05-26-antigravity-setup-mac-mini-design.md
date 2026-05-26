@@ -5,7 +5,7 @@ Status: DRAFT / PENDING REVIEW
 
 ## 1. Objective & Context
 
-This document details the configuration and architectural setup for running **Google Antigravity** as the sole/primary peer orchestrator on a **Mac Mini M1 with 16 GB RAM** (configured in an "Antigravity ONLY" model). 
+This document details the configuration and architectural setup for running the **Google Antigravity** peer-orchestrator lane on a **Mac Mini M1 with 16 GB RAM**. Antigravity can run in parallel with Codex and VS Code/Copilot as long as each lane claims separate tasks and touched-file scope.
 
 To optimize token economics and performance, this machine uses a **Hybrid Execution Model**:
 * **Outer Loop (Strategic Reasoning & Planning)**: Premium Google Antigravity SDK running on cloud-based Gemini models (e.g., Gemini 3.5 Flash / High).

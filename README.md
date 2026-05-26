@@ -6,11 +6,13 @@ In a multi-agent development environment, different AI orchestrators (e.g. Codex
 
 ## Global Workflow Rule
 
-For this repository's ongoing work, Codex is the default orchestrator for all goal-driven tasks.
+For this repository's ongoing work, orchestration is peer-parallel by default.
 
-- Use local qwen models as the default worker dev team for iterative coding, test-writing, repair loops, and summarization.
+- VS Code/Copilot, Codex Desktop, and Google Antigravity are separate first-class orchestrator lanes.
+- Run many tasks in parallel by claiming different task files and branches per orchestrator.
+- Each orchestrator has its own local qwen worker dev team for iterative coding, test-writing, repair loops, and summarization.
 - Route all repository mutations through the `devflow` task + unified diff + verification + report contract.
-- Override only when the human explicitly delegates a specific task to another orchestrator.
+- Human direction assigns or reassigns task ownership; there is no permanent default orchestrator.
 
 ---
 

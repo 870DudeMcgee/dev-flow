@@ -108,7 +108,8 @@ Current model policy (profile-based):
 - baseline: qwen2.5-coder:1.5b
 
 Operational model rule:
-- Codex is the default orchestrator lane for this workspace's goal-driven work unless human instruction delegates a specific task to another orchestrator.
+- VS Code/Copilot, Codex Desktop, and Antigravity run as separate peer orchestrator lanes.
+- Parallel execution is standard: each lane can claim and execute different tasks concurrently.
 - qwen local models are worker subagents (planner/coder/reviewer/tester/summarizer), not orchestrators.
 
 Recommended scaling models (hardware dependent):
@@ -134,7 +135,7 @@ Replacement:
 
 ## 6. Current Leadership Mode
 
-Codex is the default coordination lead for goal-driven work in this workspace. This does not remove peer-orchestrator capability; it defines the default lane unless the human delegates a specific task elsewhere.
+Human-directed peer orchestration is the active model. No single IDE is the permanent coordination lead; task-level ownership and priority are assigned explicitly.
 
 Current priorities:
 1. synthesis and gap analysis

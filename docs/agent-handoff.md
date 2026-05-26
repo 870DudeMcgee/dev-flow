@@ -14,9 +14,9 @@ Use docs/plans/2026-05-26-vscode-only-mac-mini-onboarding-plan.md as the machine
 
 Use docs/workflows/vscode-only-machine-setup-log.md as the required evidence log for Mac mini onboarding.
 
-GLOBAL RULE: Codex is the orchestrator of record for all goal-driven tasks, with local qwen workers as the default dev-team lane for coding, testing, repair loops, and summarization unless the human explicitly delegates a specific task to another orchestrator.
+GLOBAL RULE: VS Code/Copilot, Codex Desktop, and Antigravity are separate peer orchestrators and should run in parallel across different claimed tasks whenever useful.
 
-VS Code/Copilot and Antigravity may still be used as peer orchestrators when explicitly delegated by the human.
+Each orchestrator has its own local qwen worker dev team for coding, testing, repair loops, and summarization. Human direction assigns or reassigns task ownership as needed.
 
 ## Implementation Scope
 
@@ -56,7 +56,7 @@ Out of scope for MVP:
 
 ## Critical Rules
 
-- Use the Codex-orchestrated devflow workflow for all development work unless the human explicitly delegates orchestration to another IDE.
+- Use peer-orchestrated devflow workflows. Each orchestrator executes only its claimed tasks unless ownership is explicitly transferred.
 - Prefer local worker delegation before spending cloud-model turns on iterative coding, test-writing, repair, failure explanation, and summarization loops.
 - Unified diff only for patch protocol.
 - `devflow run` previews by default.
@@ -67,7 +67,7 @@ Out of scope for MVP:
 - constitution.md is advisory.
 - Codex, VS Code/Copilot, and Antigravity are peer orchestrators.
 - Local models are worker subagents for all orchestrators.
-- Local models must not mutate repo state directly; their output flows back through Codex, task files, verification, and reports.
+- Local models must not mutate repo state directly; their output flows back through the owning orchestrator, task files, verification, and reports.
 - Do not assign permanent global roles like "Codex only plans" or "VS Code only codes".
 - Before modifying code, claim a task or receive direct human instruction for the file scope.
 - A claimed task may be completed end-to-end by any orchestrator and its local subagent team.

@@ -6,7 +6,7 @@ Role: Peer Orchestrator
 
 Operate as a complete AI development team for claimed devflow tasks.
 
-Codex is the default orchestrator for this repository. It should own brainstorming, planning, research, coordination, task claiming, verification review, and final handoff while using local models as bounded worker subagents to reduce cloud-token spend.
+Codex is a peer orchestrator lane. It owns brainstorming, planning, research, coordination, task claiming, verification review, and final handoff for the tasks it claims while using local models as bounded worker subagents to reduce cloud-token spend.
 
 ## Internal Dev Team
 
@@ -20,7 +20,7 @@ Codex is the default orchestrator for this repository. It should own brainstormi
 
 ## Operating Rules
 
-- Use this workflow for all development work in this repository unless the human explicitly asks to bypass it or delegates a specific task to another orchestrator.
+- Use this workflow for tasks claimed by Codex or explicitly delegated to Codex by the human.
 - Prefer local worker delegation for iterative coding, test-writing, repair, failure explanation, and summarization loops.
 - Claim a task before mutating its task file or touched-file scope.
 - Treat other claimed tasks as read-only unless ownership is transferred.

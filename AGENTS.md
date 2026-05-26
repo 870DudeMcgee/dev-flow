@@ -1,7 +1,7 @@
 # Devflow Agent Operating Rule
 
 This repository supports three separate, parallel peer orchestrators for development work:
-1. **Codex** (operating on Mac Studio)
+1. **Codex** (Codex Desktop lane)
 2. **VS Code / Copilot** (operating via IDE plugin/terminal)
 3. **Google Antigravity** (operating on Mac Mini M1 16GB - Antigravity ONLY)
 
