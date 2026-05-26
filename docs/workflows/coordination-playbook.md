@@ -99,17 +99,19 @@ Touched Files:
 Local models are shared execution workers and are not orchestrators.
 
 Current preferred local endpoint:
-- http://127.0.0.1:11434
 
-Current validated baseline model:
-- qwen2.5-coder:1.5b
+Current validated minimum baseline model:
+Current model policy (profile-based):
+- studio: qwen2.5-coder:32b-instruct
+- mini: qwen2.5-coder:7b-instruct
+- baseline: qwen2.5-coder:1.5b
 
 Operational model rule:
-- VS Code/Copilot is the orchestrator lane.
 - qwen local models are worker subagents (planner/coder/reviewer/tester/summarizer), not orchestrators.
 
 Recommended scaling models (hardware dependent):
-- qwen2.5-coder:7b-instruct
+- qwen2.5-coder:7b-instruct (fast fallback)
+- qwen2.5-coder:14b (preferred quality worker for Mac mini M1 16 GB)
 - qwen2.5-coder:32b-instruct
 
 All orchestrators should treat local model calls as bounded worker jobs with explicit retries and verification gates.

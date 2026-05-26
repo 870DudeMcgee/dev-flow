@@ -37,6 +37,8 @@ MODEL="qwen2.5-coder:1.5b"
 if [[ "$PROFILE" == "studio" ]]; then
   MODEL="qwen2.5-coder:32b-instruct"
 elif [[ "$PROFILE" == "mini" ]]; then
+  MODEL="qwen2.5-coder:14b"
+elif [[ "$PROFILE" == "mini-fast" ]]; then
   MODEL="qwen2.5-coder:7b-instruct"
 elif [[ "$PROFILE" == "baseline" ]]; then
   MODEL="qwen2.5-coder:1.5b"
@@ -95,4 +97,3 @@ echo "3) Pull model (native): ollama pull $MODEL"
 echo "4) Docker run: docker run -d --name ollama-local -p 11434:11434 -v \"$HOME/.ollama:/root/.ollama\" ollama/ollama:latest"
 echo "5) Pull model (container): docker exec -it ollama-local ollama pull $MODEL"
 echo "6) Generate test: curl -sS http://127.0.0.1:11434/api/generate -d '{\"model\":\"$MODEL\",\"prompt\":\"print hello in python\",\"stream\":false}'"
-

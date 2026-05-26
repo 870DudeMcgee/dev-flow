@@ -116,7 +116,11 @@ Define one request/response shape for local jobs:
 
 Start adapter:
 - Ollama at `http://127.0.0.1:11434`
-- baseline model `qwen2.5-coder:1.5b`
+- profile-based model defaults:
+  - `studio` -> `qwen2.5-coder:32b-instruct`
+  - `mini` -> `qwen2.5-coder:14b`
+  - `mini-fast` -> `qwen2.5-coder:7b-instruct`
+  - `baseline` -> `qwen2.5-coder:1.5b`
 
 VS Code orchestrator profile target:
 - Copilot with GPT-5.5-high profile (or nearest available high-reasoning profile)

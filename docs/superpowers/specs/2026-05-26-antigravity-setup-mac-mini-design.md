@@ -9,7 +9,7 @@ This document details the configuration and architectural setup for running **Go
 
 To optimize token economics and performance, this machine uses a **Hybrid Execution Model**:
 * **Outer Loop (Strategic Reasoning & Planning)**: Premium Google Antigravity SDK running on cloud-based Gemini models (e.g., Gemini 3.5 Flash / High).
-* **Inner Loop (Drafting, Syntax checks, & Local repairs)**: Local `qwen2.5-coder:7b-instruct` model running via Ollama (auto-detected as the `mini` profile matching the 4.7 GB size).
+* **Inner Loop (Drafting, Syntax checks, & Local repairs)**: Local `qwen2.5-coder:14b` coding model running via Ollama (auto-detected as the `mini` profile on this 16 GB Mac). Use `qwen2.5-coder:7b-instruct` only as the faster fallback under memory pressure.
 
 ---
 
@@ -20,7 +20,7 @@ On this Mac Mini, the system coordinates via `devflow` task files in the workspa
 ```mermaid
 graph TD
     AGY_Orchestrator[Google Antigravity Cloud Orchestrator] -->|Reads / Writes Tasks| DevFlow_Workspace[Shared Workspace & .devflow Files]
-    AGY_Orchestrator -->|Delegates Coding/Drafts| Local_Qwen[Local Qwen 7B worker via Ollama]
+    AGY_Orchestrator -->|Delegates Coding/Drafts| Local_Qwen[Local Qwen coding worker via Ollama]
     Local_Qwen -->|Returns Patch Proposals| AGY_Orchestrator
     AGY_Orchestrator -->|Runs Gated Apply & Verify| DevFlow_Safety[devflow Safety Pipeline]
 ```
@@ -29,7 +29,8 @@ graph TD
 `devflow`'s `local_agent_runner.py` uses dynamic system memory detection:
 * **System Memory**: 16 GB RAM
 * **Profile Selected**: `mini`
-* **Model Assigned**: `qwen2.5-coder:7b-instruct` (approx. 4.7 GB download size)
+* **Model Assigned**: `qwen2.5-coder:14b` (approx. 9.0 GB Q4_K_M model)
+* **Fast Fallback**: `qwen2.5-coder:7b-instruct` (approx. 4.7 GB Q4_K_M model)
 * **API Endpoint**: `http://127.0.0.1:11434`
 
 ---
@@ -38,7 +39,7 @@ graph TD
 
 For tasks run on this machine, Antigravity follows a zero-trust lifecycle:
 
-1. **Preflight Health Check**: Runs `local-worker-health-check-runbook.md` to ensure Ollama is active and the `qwen2.5-coder:7b-instruct` model is loaded.
+1. **Preflight Health Check**: Runs `local-worker-health-check-runbook.md` to ensure Ollama is active and the `qwen2.5-coder:14b` model is loaded.
 2. **Task Claim**: Locks task ownership for the machine session.
    ```bash
    PYTHONPATH=src python3 -m devflow task claim .devflow/tasks/<task_id>.md --agent antigravity --lock antigravity-mini-session
@@ -60,7 +61,7 @@ For tasks run on this machine, Antigravity follows a zero-trust lifecycle:
 
 To document everything comprehensively as requested, we will establish two new guides under `docs/workflows/`:
 1. `docs/workflows/hello-peer-orchestrator-antigravity.md`: Direct onboarding and command handbook for Google Antigravity.
-2. `docs/workflows/local-worker-setup-mini.md`: System configurations, memory allocations, and performance tuning for Ollama running 7B models on 16GB Apple Silicon hardware.
+2. `docs/workflows/local-worker-setup-mini.md`: System configurations, memory allocations, and performance tuning for Ollama coding models on 16GB Apple Silicon hardware.
 
 ---
 

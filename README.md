@@ -32,7 +32,7 @@ graph TD
 A standard cloud-based coding agent burns through thousands of tokens in iterative test-repair and lint-fix loops. `devflow` solves this by establishing a **hybrid execution model**:
 
 * **Outer Loop (Strategy & Planning - Cloud)**: Premium cloud models (like Gemini or Claude) are used exclusively for high-level specification writing, task planning, and final validation report review.
-* **Inner Loop (Drafting & Repair - Local)**: Small, fast, locally-hosted models (like `qwen2.5-coder:1.5b` or `7b-instruct` running via Ollama) handle the high-turn implementation drafting, syntax checks, import resolution, and test repair loops.
+* **Inner Loop (Drafting & Repair - Local)**: Locally-hosted coding models handle high-turn implementation drafting, syntax checks, import resolution, and test repair loops. On a Mac mini M1 with 16 GB RAM, the preferred quality worker is `qwen2.5-coder:14b`; use `qwen2.5-coder:7b-instruct` as the faster fallback and `qwen2.5-coder:1.5b` as the minimum baseline.
 
 ### Calculated Token Savings
 For a moderate feature requiring a 5-turn test-and-repair loop:

@@ -6,14 +6,15 @@ Scope: Local model worker environment mapping to the `mini` profile on a Mac Min
 
 ---
 
-## 1. Optimal Profile Selection
+## 1. Coding Worker Profile Selection
 
 Because this machine is a **Mac Mini M1 with 16 GB unified memory**, the resource balance between operating systems, IDE orchestrators, and local model workers is highly constrained. 
 
 `devflow`'s auto-detection logic (`scripts/local_agent_runner.py`) handles memory profiles as follows:
 * **System memory > 8 GB and <= 32 GB**: Maps to the **`mini`** profile.
-* **Assigned Model**: `qwen2.5-coder:7b-instruct` (approx. 4.7 GB GGUF model).
-* **RAM footprint**: Approximately 5.5 GB in-memory during active generation, leaving ~10 GB free for macOS system operations and the Google Antigravity Cloud orchestrator context.
+* **Preferred coding worker**: `qwen2.5-coder:14b` (approx. 9.0 GB Q4_K_M model).
+* **Fast fallback**: `qwen2.5-coder:7b-instruct` (approx. 4.7 GB Q4_K_M model) when IDEs, browser tabs, or parallel tools make memory pressure noticeable.
+* **Why not a base model**: `devflow` workers receive natural-language tasks and return patches or test ideas, so instruction-tuned coding models are the right fit.
 
 ---
 
@@ -22,7 +23,12 @@ Because this machine is a **Mac Mini M1 with 16 GB unified memory**, the resourc
 To ensure stable, high-performance inner-loop operations:
 
 ### A. Download the Core Model (Required)
-If you have not already, pull the designated 7B model:
+If you have not already, pull the designated 14B coding model:
+```bash
+ollama pull qwen2.5-coder:14b
+```
+
+For a faster fallback worker:
 ```bash
 ollama pull qwen2.5-coder:7b-instruct
 ```
@@ -58,4 +64,4 @@ PYTHONPATH=src .venv/bin/python scripts/local_agent_runner.py --profile mini "Wr
 
 Expected output:
 * API responses are well-formed JSON.
-* Active generation prints the selected model `qwen2.5-coder:7b-instruct` to stderr and the output code block to stdout.
+* Active generation prints the selected model `qwen2.5-coder:14b` to stderr and the output code block to stdout.

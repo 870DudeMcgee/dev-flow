@@ -7,7 +7,8 @@ import sys
 
 PROFILES = {
     "studio": "qwen2.5-coder:32b-instruct",
-    "mini": "qwen2.5-coder:7b-instruct",
+    "mini": "qwen2.5-coder:14b",
+    "mini-fast": "qwen2.5-coder:7b-instruct",
     "baseline": "qwen2.5-coder:1.5b"
 }
 DEFAULT_PROFILE = "baseline"
@@ -75,10 +76,9 @@ def generate_text(prompt: str, profile_name: str = None) -> str:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Local model worker runner utility.")
-    parser.add_argument("--profile", type=str, help="Override active local model profile (studio, mini, baseline).")
+    parser.add_argument("--profile", type=str, help="Override active local model profile (studio, mini, mini-fast, baseline).")
     parser.add_argument("prompt", nargs="+", help="The prompt to send to the local model.")
     args = parser.parse_args()
     
     prompt_str = " ".join(args.prompt)
     print(generate_text(prompt_str, profile_name=args.profile))
-

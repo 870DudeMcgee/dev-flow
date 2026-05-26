@@ -49,7 +49,7 @@ Local models must not mutate the repo directly. They should return artifacts to 
       },
       "coder": {
         "provider": "ollama",
-        "model": "qwen2.5-coder:7b-instruct"
+        "model": "qwen2.5-coder:14b"
       },
       "reviewer": {
         "provider": "manual"

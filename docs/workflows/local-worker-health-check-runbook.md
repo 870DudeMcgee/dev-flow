@@ -7,11 +7,21 @@ Status: ACTIVE
 
 Provide one repeatable preflight sequence for local model workers before any orchestrator starts a `devflow` task run.
 
+Model selection is profile-based:
+- `studio` -> `qwen2.5-coder:32b-instruct`
+- `mini` -> `qwen2.5-coder:14b`
+- `mini-fast` -> `qwen2.5-coder:7b-instruct`
+- `baseline` -> `qwen2.5-coder:1.5b`
+
+For this Mac mini M1 with 16 GB RAM, the expected auto-detected profile is `mini`.
+
 ## Scope
 
 - Orchestrators: Codex Desktop, VS Code/Copilot, Antigravity
 - Worker endpoint: `http://127.0.0.1:11434`
-- Baseline model: `qwen2.5-coder:1.5b`
+- Preferred Mac mini M1 16 GB coding worker: `qwen2.5-coder:14b`
+- Fast fallback worker: `qwen2.5-coder:7b-instruct`
+- Minimum baseline worker: `qwen2.5-coder:1.5b`
 
 ## Fast Preflight (Required)
 
@@ -23,11 +33,13 @@ curl -sS http://127.0.0.1:11434/api/version
 curl -sS http://127.0.0.1:11434/api/tags
 ```
 
+If you override to another profile, pull the corresponding model for that profile.
+
 Expected:
 - API version request returns JSON.
 - API tags request lists at least one model.
 
-## Baseline Generation Probe (Required)
+## Generation Probe (Required)
 
 ```bash
 python3 scripts/local_agent_runner.py "Return only: LOCAL_WORKER_OK"
@@ -54,13 +66,20 @@ If preflight fails:
 1. verify Ollama app/process is running
 2. rerun doctor script
 3. verify model availability with `ollama list`
-4. pull baseline model if missing:
+4. pull the preferred coding worker if missing:
 
 ```bash
-ollama pull qwen2.5-coder:1.5b
+ollama pull qwen2.5-coder:14b
 ```
 
-5. if still unstable, run task in manual mode:
+5. if the preferred worker causes memory pressure, pull and select the faster fallback:
+
+```bash
+ollama pull qwen2.5-coder:7b-instruct
+LOCAL_AI_PROFILE=mini-fast python3 scripts/local_agent_runner.py "Return only: LOCAL_WORKER_OK"
+```
+
+6. if still unstable, run task in manual mode:
    - orchestrator writes unified diff without local worker calls
 
 Checkpoint branch edge case observed during proving:
@@ -72,9 +91,10 @@ Checkpoint branch edge case observed during proving:
 For each task run, add worker preflight notes in section 4 (Required Context) of the task file:
 
 - endpoint reachable: yes/no
-- baseline model available: yes/no
+- preferred model available: yes/no
+- fallback model used: yes/no
 - probe result: pass/fail
-- fallback mode used: yes/no
+- manual mode used: yes/no
 
 ## Integration Rule
 

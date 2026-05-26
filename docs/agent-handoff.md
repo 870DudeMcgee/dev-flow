@@ -10,6 +10,10 @@ Use docs/workflows/coordination-playbook.md as the active coordination topology.
 
 Use docs/plans/2026-05-26-local-ai-dev-team-integration-plan.md as the active integration execution blueprint.
 
+Use docs/plans/2026-05-26-vscode-only-mac-mini-onboarding-plan.md as the machine onboarding source of truth for VS Code-only setup.
+
+Use docs/workflows/vscode-only-machine-setup-log.md as the required evidence log for Mac mini onboarding.
+
 Codex Desktop is currently taking lead on coordination reset, document normalization, gap analysis, and next-task sequencing.
 
 ## Implementation Scope
@@ -99,6 +103,7 @@ No open MVP stabilization gaps remain in the current queue.
 Next active queue:
 - run VS Code/Copilot-only audit handoff against completed smoke report/task artifacts using docs/workflows/vscode-smoke-audit-handoff.md
 - execute local worker preflight from docs/workflows/local-worker-health-check-runbook.md before any VS Code proving rerun
+- execute VS Code-only Mac mini onboarding phases and capture evidence in docs/workflows/vscode-only-machine-setup-log.md
 
 Completed stabilization items:
 - package metadata and `devflow` console entrypoint declared in `pyproject.toml`

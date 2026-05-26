@@ -34,7 +34,7 @@ PYTHONPATH=src .venv/bin/python -m devflow task claim .devflow/tasks/<task_file>
 *Note: Commit the task file change immediately to keep your git worktree clean.*
 
 ### Step B: Draft Code Patches
-- Use local Qwen workers on `http://127.0.0.1:11434` (optimal `mini` profile auto-detects system memory and maps to `qwen2.5-coder:7b-instruct`) for quick, high-turn drafting and syntax checking.
+- Use local Qwen workers on `http://127.0.0.1:11434`; the `mini` profile maps to `qwen2.5-coder:14b` for the best practical coding quality on this 16 GB Mac, with `mini-fast`/`qwen2.5-coder:7b-instruct` available when memory pressure matters more than output quality.
 - Write final changes as a unified diff inside the Section 9 fenced `diff` block.
 - Commit task markdown updates to keep the worktree clean.
 
@@ -69,4 +69,4 @@ PYTHONPATH=src .venv/bin/python -m devflow run .devflow/tasks/<task_file>.md --y
 
 On this Mac Mini, Google Antigravity runs in the following peer configuration:
 * **Orchestrator Lane**: Google Antigravity (Gemini 3.5 Flash / High) — handles planning, policy gating, dry-runs, and final reviews.
-* **Worker Subagent Lane**: Local `qwen2.5-coder:7b-instruct` (4.7 GB) — handles high-turn implementation drafting and minor repair loops.
+* **Worker Subagent Lane**: Local `qwen2.5-coder:14b` (9.0 GB) — handles implementation drafting and minor repair loops; use `qwen2.5-coder:7b-instruct` (4.7 GB) as the fast fallback.

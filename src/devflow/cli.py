@@ -129,7 +129,8 @@ Current preferred endpoint:
 Candidate models:
 
 - qwen2.5-coder:1.5b
-- qwen2.5-coder:7b-instruct
+- qwen2.5-coder:7b-instruct (fast fallback for constrained 16 GB machines)
+- qwen2.5-coder:14b (preferred coding worker for Mac mini M1 16 GB)
 - qwen2.5-coder:32b-instruct
 """
 

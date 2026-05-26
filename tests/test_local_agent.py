@@ -42,7 +42,7 @@ class TestLocalAgentRunner(unittest.TestCase):
             with patch("os.sysconf", side_effect=lambda name: 16 * 1024 * 1024 * 1024 if name == "SC_PHYS_PAGES" else (1 if name == "SC_PAGE_SIZE" else 0)):
                 model, profile = get_selected_model()
                 self.assertEqual(profile, "mini (auto-detected)")
-                self.assertEqual(model, "qwen2.5-coder:7b-instruct")
+                self.assertEqual(model, "qwen2.5-coder:14b")
 
             # Mock os.sysconf to simulate 4 GB RAM -> baseline
             with patch("os.sysconf", side_effect=lambda name: 4 * 1024 * 1024 * 1024 if name == "SC_PHYS_PAGES" else (1 if name == "SC_PAGE_SIZE" else 0)):
@@ -61,6 +61,11 @@ class TestLocalAgentRunner(unittest.TestCase):
         with patch.dict(os.environ, {"LOCAL_AI_PROFILE": "mini"}):
             model, profile = get_selected_model()
             self.assertEqual(profile, "mini")
+            self.assertEqual(model, "qwen2.5-coder:14b")
+
+        with patch.dict(os.environ, {"LOCAL_AI_PROFILE": "mini-fast"}):
+            model, profile = get_selected_model()
+            self.assertEqual(profile, "mini-fast")
             self.assertEqual(model, "qwen2.5-coder:7b-instruct")
 
     def test_get_selected_model_explicit_profile(self):
@@ -88,4 +93,3 @@ class TestLocalAgentRunner(unittest.TestCase):
         req = called_args[0]
         # Inspect request data
         self.assertIn(b'"model": "qwen2.5-coder:32b-instruct"', req.data)
-
