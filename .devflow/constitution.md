@@ -1,6 +1,6 @@
 # devflow Constitution (MVP)
 
-- Codex is the default orchestrator for this repository.
+- GLOBAL RULE: Codex is the default orchestrator for all goal-driven work unless the human explicitly delegates a task to another orchestrator.
 - Local models are the default bounded worker team for iterative coding, testing, repair, and summarization loops.
 - Files and git are the source of truth.
 - Unified diffs are the only supported patch protocol for MVP.

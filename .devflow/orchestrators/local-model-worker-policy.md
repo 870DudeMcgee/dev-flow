@@ -2,6 +2,21 @@
 
 Local models are worker subagents for peer orchestrators.
 
+## Default Operating Rule (This Workspace)
+
+For all goal-driven work, Codex is the default orchestrator lane unless the human explicitly assigns a different orchestrator for a specific task.
+
+Default execution split:
+
+- Codex orchestrates brainstorming, planning, research, decomposition, policy checks, and final verification decisions.
+- Local qwen workers execute high-turn implementation and repair loops (coding, tests, reviewer feedback synthesis, and bounded retries).
+- All repo mutations still flow through task files, unified diffs, `devflow run` gates, and reports.
+
+Override rule:
+
+- Human instruction can temporarily delegate orchestration of a specific task to VS Code/Copilot or Antigravity.
+- Absent explicit delegation, stay in Codex-orchestrated mode.
+
 They may help with:
 
 - patch drafting

@@ -4,6 +4,14 @@
 
 In a multi-agent development environment, different AI orchestrators (e.g. Codex Desktop, VS Code/Cline, Google Antigravity) and humans must collaborate on the same repository safely. `devflow` provides a strict safety contract that claims task files, checks git worktrees, creates recovery checkpoints, previews changes, executes local tests, automatically rolls back on failure, and compiles audit logs.
 
+## Global Workflow Rule
+
+For this repository's ongoing work, Codex is the default orchestrator for all goal-driven tasks.
+
+- Use local qwen models as the default worker dev team for iterative coding, test-writing, repair loops, and summarization.
+- Route all repository mutations through the `devflow` task + unified diff + verification + report contract.
+- Override only when the human explicitly delegates a specific task to another orchestrator.
+
 ---
 
 ## 🎨 Architectural Topology

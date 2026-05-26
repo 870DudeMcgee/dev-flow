@@ -4,6 +4,8 @@ Date: 2026-05-26
 Status: ACTIVE
 Scope: VS Code/Copilot orchestrator with local qwen worker subagents
 
+Default rule for this workspace: Codex is the standard orchestrator for goal-oriented work. Use this VS Code/Copilot workflow only when the human explicitly delegates a specific task to VS Code/Copilot.
+
 ## 1. What Is devflow?
 
 devflow is a file-based, safe coordination and execution plane for AI-generated code changes.

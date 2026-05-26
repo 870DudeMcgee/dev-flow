@@ -29,7 +29,7 @@ Notes:
 - Xcode CLI tools path: `/Library/Developer/CommandLineTools`
 - Branch: `main`
 - HEAD: `19513127e166de298581179b78e8252cab694ed7`
-- Worktree is intentionally dirty with onboarding documentation changes
+- Worktree was cleaned before final connection validation; `git status --short` returned no changes.
 
 ## 2) Python Runtime Readiness
 
@@ -73,6 +73,8 @@ Commands run:
 - [x] `curl -sS http://127.0.0.1:11434/api/version`
 - [x] `curl -sS http://127.0.0.1:11434/api/tags`
 - [x] `python3 scripts/local_agent_runner.py "Return only: LOCAL_WORKER_OK"`
+- [x] `python3 scripts/local_agent_runner.py "You are a coder. Return exactly CONNECTED_CODER_OK"`
+- [x] `python3 scripts/local_agent_runner.py "You are a reviewer. Return exactly CONNECTED_REVIEWER_OK"`
 
 Expected token observed:
 - [x] `LOCAL_WORKER_OK`
@@ -88,6 +90,7 @@ Failure details/remediation:
 - Installed model list includes `qwen2.5-coder:14b` (size ~9.0 GB), which matches the preferred `mini` profile.
 - Installed fallback list also includes `qwen2.5-coder:7b-instruct` (size ~4.7 GB) for memory-constrained runs.
 - Ollama API reachable at `http://127.0.0.1:11434` (version `0.13.0`).
+- Role probes passed with exact responses `CONNECTED_CODER_OK` and `CONNECTED_REVIEWER_OK`.
 
 ## 5) VS Code Smoke Audit
 
@@ -95,7 +98,7 @@ Runbook:
 - [ ] `docs/workflows/vscode-smoke-audit-handoff.md`
 
 Verification rerun command:
-- [x] `PYTHONDONTWRITEBYTECODE=1 /Users/jewelbait/Desktop/Local\ AI\ Dev\ Team/.venv/bin/python -m unittest discover -s smoke_todo_cli/tests -q`
+- [x] `PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s smoke_todo_cli/tests -q`
 
 Audit result:
 - [ ] PASS
@@ -103,9 +106,8 @@ Audit result:
 - [x] BLOCKED
 
 Findings:
-- Smoke audit command path does not exist on this machine:
-  - `/Users/jewelbait/Desktop/Local AI Dev Team/.venv/bin/python`
-- To complete this section, run the audit in the smoke repo workspace or update the command to the local smoke repo path on this Mac mini.
+- Smoke project path is not present in this workspace (`smoke_todo_cli/tests` missing).
+- To complete this section, open the smoke proving repo/workspace that contains `smoke_todo_cli` and rerun the audit command.
 
 ## 6) Hardening Notes (Optional)
 
@@ -119,7 +121,7 @@ Repeatable fixes added to shared docs:
 
 Checklist:
 - [x] tests pass in `.venv`
-- [ ] `devflow` CLI works from VS Code terminal
+- [x] `devflow` CLI works from VS Code terminal
 - [x] local worker probe passes
 - [ ] smoke audit recorded
 - [ ] this setup log is complete

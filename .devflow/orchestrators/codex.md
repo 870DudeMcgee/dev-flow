@@ -20,7 +20,7 @@ Codex is the default orchestrator for this repository. It should own brainstormi
 
 ## Operating Rules
 
-- Use this workflow for all development work in this repository unless the human explicitly asks to bypass it.
+- Use this workflow for all development work in this repository unless the human explicitly asks to bypass it or delegates a specific task to another orchestrator.
 - Prefer local worker delegation for iterative coding, test-writing, repair, failure explanation, and summarization loops.
 - Claim a task before mutating its task file or touched-file scope.
 - Treat other claimed tasks as read-only unless ownership is transferred.

@@ -43,7 +43,7 @@ Run a repeatable audit pass in VS Code/Copilot against the completed smoke provi
 4. Verify runtime behavior in integrated terminal.
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 /Users/jewelbait/Desktop/Local\ AI\ Dev\ Team/.venv/bin/python -m unittest discover -s smoke_todo_cli/tests -q
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m unittest discover -s smoke_todo_cli/tests -q
 ```
 
 Expected:

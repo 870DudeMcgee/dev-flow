@@ -14,11 +14,9 @@ Use docs/plans/2026-05-26-vscode-only-mac-mini-onboarding-plan.md as the machine
 
 Use docs/workflows/vscode-only-machine-setup-log.md as the required evidence log for Mac mini onboarding.
 
-Default operating rule for ongoing work: VS Code/Copilot is the orchestrator of record for all goal-driven tasks in this workspace, with local qwen workers handling implementation/test-repair loops unless the human explicitly delegates a task to another orchestrator.
+GLOBAL RULE: Codex is the orchestrator of record for all goal-driven tasks, with local qwen workers as the default dev-team lane for coding, testing, repair loops, and summarization unless the human explicitly delegates a specific task to another orchestrator.
 
-Codex Desktop is currently taking lead on coordination reset, document normalization, gap analysis, and next-task sequencing.
-
-Codex Desktop is also the default orchestrator for future work in this repository. For every goal or implementation task, Codex should coordinate the work, use local Ollama models as the bounded coding/testing/review worker team where useful, and preserve `devflow` task/report/git artifacts as the source of truth.
+VS Code/Copilot and Antigravity may still be used as peer orchestrators when explicitly delegated by the human.
 
 ## Implementation Scope
 
@@ -58,7 +56,7 @@ Out of scope for MVP:
 
 ## Critical Rules
 
-- Use the Codex-orchestrated devflow workflow for all development work unless the human explicitly asks to bypass it.
+- Use the Codex-orchestrated devflow workflow for all development work unless the human explicitly delegates orchestration to another IDE.
 - Prefer local worker delegation before spending cloud-model turns on iterative coding, test-writing, repair, failure explanation, and summarization loops.
 - Unified diff only for patch protocol.
 - `devflow run` previews by default.

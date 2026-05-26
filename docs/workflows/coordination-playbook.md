@@ -99,14 +99,16 @@ Touched Files:
 Local models are shared execution workers and are not orchestrators.
 
 Current preferred local endpoint:
+- http://127.0.0.1:11434
 
-Current validated minimum baseline model:
 Current model policy (profile-based):
 - studio: qwen2.5-coder:32b-instruct
-- mini: qwen2.5-coder:7b-instruct
+- mini: qwen2.5-coder:14b
+- mini-fast: qwen2.5-coder:7b-instruct
 - baseline: qwen2.5-coder:1.5b
 
 Operational model rule:
+- Codex is the default orchestrator lane for this workspace's goal-driven work unless human instruction delegates a specific task to another orchestrator.
 - qwen local models are worker subagents (planner/coder/reviewer/tester/summarizer), not orchestrators.
 
 Recommended scaling models (hardware dependent):
@@ -132,7 +134,7 @@ Replacement:
 
 ## 6. Current Leadership Mode
 
-Codex Desktop is currently taking coordination lead for normalizing the documents and identifying the next safest implementation tasks. This does not make Codex the permanent planner; it is a temporary leadership assignment from the human.
+Codex is the default coordination lead for goal-driven work in this workspace. This does not remove peer-orchestrator capability; it defines the default lane unless the human delegates a specific task elsewhere.
 
 Current priorities:
 1. synthesis and gap analysis
