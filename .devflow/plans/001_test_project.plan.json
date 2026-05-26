@@ -1,0 +1,21 @@
+{
+  "goal_id": "antigravity_integration_spike",
+  "status": "ACTIVE",
+  "tasks": [
+    {
+      "id": "001",
+      "title": "Integrate local agent runner",
+      "status": "PENDING",
+      "depends_on": [],
+      "risk": "LOW",
+      "allowed_paths": [
+        "scripts/local_agent_runner.py",
+        "tests/test_local_agent.py"
+      ],
+      "verification": [
+        "PYTHONPATH=src python3 -m unittest tests/test_local_agent.py"
+      ],
+      "assigned_agent": "antigravity"
+    }
+  ]
+}
