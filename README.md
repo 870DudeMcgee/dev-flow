@@ -174,6 +174,13 @@ Current note: this local Python environment has a `pip`/`pyexpat` issue that blo
 
 Codex Desktop, VS Code/Cline, and Antigravity are peer orchestrators. Each can run a complete internal dev team with local model workers. Work is divided by claimed task and touched-file scope, not by permanent IDE role.
 
+`devflow init` creates peer-orchestrator templates in `.devflow/orchestrators/`:
+
+- `codex.md`
+- `vscode-cline.md`
+- `antigravity.md`
+- `local-model-worker-policy.md`
+
 See:
 
 - `docs/workflows/coordination-playbook.md`

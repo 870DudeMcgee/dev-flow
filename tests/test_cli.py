@@ -52,6 +52,31 @@ class TestCLI(unittest.TestCase):
         self.assertTrue(os.path.exists(".devflow/tasks"))
         self.assertTrue(os.path.exists(".devflow/workflows"))
         self.assertTrue(os.path.exists(".devflow/reports"))
+        self.assertTrue(os.path.exists(".devflow/orchestrators"))
+
+    def test_cli_init_creates_peer_orchestrator_templates(self):
+        init_workspace()
+
+        expected_files = [
+            ".devflow/orchestrators/codex.md",
+            ".devflow/orchestrators/vscode-cline.md",
+            ".devflow/orchestrators/antigravity.md",
+            ".devflow/orchestrators/local-model-worker-policy.md",
+        ]
+        for path in expected_files:
+            self.assertTrue(os.path.exists(path), path)
+
+        with open(".devflow/orchestrators/codex.md", "r", encoding="utf-8") as handle:
+            codex_template = handle.read()
+        self.assertIn("Peer Orchestrator", codex_template)
+        self.assertIn("Product/Spec Analyst", codex_template)
+        self.assertIn("Diff Implementer", codex_template)
+        self.assertIn("Do not assume permanent global role ownership", codex_template)
+
+        with open(".devflow/orchestrators/local-model-worker-policy.md", "r", encoding="utf-8") as handle:
+            worker_policy = handle.read()
+        self.assertIn("Local models are worker subagents", worker_policy)
+        self.assertIn("must not mutate repo state directly", worker_policy)
 
     def test_cli_init_writes_conservative_mvp_config_defaults(self):
         init_workspace()

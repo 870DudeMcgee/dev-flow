@@ -69,6 +69,87 @@ def _default_constitution() -> str:
     return """# devflow Constitution (MVP)\n\n- Files and git are the source of truth.\n- Unified diffs are the only supported patch protocol for MVP.\n- Protected file changes require human approval before apply.\n- Verification should run from task commands, config commands, or auto-detection.\n- Reports are mandatory for every task run.\n- devflow run previews by default; --yes is required to apply patches.\n- devflow run must stop before mutation when the git worktree is dirty.\n- Model/provider routing is post-MVP.\n"""
 
 
+def _orchestrator_template(name: str) -> str:
+    return f"""# {name} Peer Orchestrator Template
+
+Role: Peer Orchestrator
+
+## Purpose
+
+Operate as a complete AI development team for claimed devflow tasks.
+
+## Internal Dev Team
+
+- Product/Spec Analyst
+- Technical Architect
+- Task Planner
+- Diff Implementer
+- Test Engineer
+- Verifier/Reviewer
+- Release/Report Coordinator
+
+## Operating Rules
+
+- Claim a task before mutating its task file or touched-file scope.
+- Treat other claimed tasks as read-only unless ownership is transferred.
+- Use local models as bounded worker subagents when useful.
+- Do not assume permanent global role ownership.
+- Do not bypass devflow run safety gates.
+- Write reports and keep task status current.
+
+## Handoff Expectations
+
+- Task Markdown remains the canonical task state.
+- plan.json mirroring is best-effort only.
+- Reports must be sufficient for another orchestrator to audit or continue work.
+"""
+
+
+def _local_model_worker_policy() -> str:
+    return """# Local Model Worker Policy
+
+Local models are worker subagents for peer orchestrators.
+
+They may help with:
+
+- patch drafting
+- test generation
+- failure explanation
+- small repair loops
+- summarization
+
+They must not mutate repo state directly.
+
+All local-model outputs should flow back through an orchestrator, then through task files, unified diffs, verification, and reports.
+
+Current preferred endpoint:
+
+- http://127.0.0.1:11434
+
+Candidate models:
+
+- qwen2.5-coder:1.5b
+- qwen2.5-coder:7b-instruct
+- qwen2.5-coder:32b-instruct
+"""
+
+
+def _write_orchestrator_templates() -> None:
+    templates = {
+        "codex.md": _orchestrator_template("Codex Desktop"),
+        "vscode-cline.md": _orchestrator_template("VS Code/Cline"),
+        "antigravity.md": _orchestrator_template("Antigravity"),
+        "local-model-worker-policy.md": _local_model_worker_policy(),
+    }
+    root = os.path.join(".devflow", "orchestrators")
+    os.makedirs(root, exist_ok=True)
+    for filename, content in templates.items():
+        path = os.path.join(root, filename)
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(content)
+
+
 def _load_config() -> dict:
     config_path = os.path.join(".devflow", "config.json")
     if not os.path.exists(config_path):
@@ -411,6 +492,7 @@ def init_workspace():
         "index",
         "logs",
         "reports",
+        "orchestrators",
     ]
     os.makedirs(".devflow", exist_ok=True)
     for folder in folders:
@@ -423,6 +505,8 @@ def init_workspace():
     constitution_path = os.path.join(".devflow", "constitution.md")
     with open(constitution_path, "w", encoding="utf-8") as handle:
         handle.write(_default_constitution())
+
+    _write_orchestrator_templates()
 
     print("Initialized empty devflow workspace in .devflow/")
 

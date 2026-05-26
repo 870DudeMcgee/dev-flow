@@ -7,6 +7,7 @@
 - per-task ownership and touched-file declarations
 - task claim/release/status commands
 - task new command and canonical examples
+- peer orchestrator templates in .devflow/orchestrators
 - Task schema parsing (sections 1..10)
 - Unified diff detection/apply flow
 - Protected-file gating
@@ -36,7 +37,6 @@ Completed:
 - devflow plan command
 - richer goal/plan/task lifecycle commands
 - stronger peer orchestrator federation automation
-- per-orchestrator full subagent team templates in .devflow/skills or .devflow/orchestrators
 - shared local model worker pool policies
 - richer risk scoring and approval policy
 - failure route targets to specialized agents

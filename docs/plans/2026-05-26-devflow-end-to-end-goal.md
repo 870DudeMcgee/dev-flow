@@ -96,6 +96,8 @@ Create a visible .devflow/orchestrators or .devflow/skills structure for peer ID
 - vscode/cline team template
 - antigravity team template
 - local model worker policy
+
+Status: COMPLETE in commit following Phase 2.
 - handoff and report expectations
 
 Acceptance criteria:

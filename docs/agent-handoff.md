@@ -91,3 +91,4 @@ Completed stabilization items:
 - plan JSON mirrors task status best-effort when the referenced plan exists
 - task claim/release/status commands are available for peer-orchestrator ownership
 - task new scaffolds canonical task Markdown
+- `devflow init` creates peer orchestrator templates and local model worker policy in `.devflow/orchestrators/`
