@@ -857,6 +857,13 @@ def main():
     context_list_parser = context_subparsers.add_parser("list", help="List context packs for a task")
     context_list_parser.add_argument("task_id", type=str, help="Task id, e.g. T-042")
 
+    agent_parser = subparsers.add_parser("agent", help="Stateless model agent commands")
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_command")
+
+    agent_review_parser = agent_subparsers.add_parser("review", help="Run stateless code review agent")
+    agent_review_parser.add_argument("task_file", type=str, help="Path to task file")
+    agent_review_parser.add_argument("--profile", default="reviewer", help="Agent profile to use")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -917,6 +924,14 @@ def main():
             context_list(args.task_id)
         else:
             context_parser.print_help()
+    elif args.command == "agent":
+        if args.agent_command == "review":
+            from devflow.agents.runner import run_review_agent
+            record = run_review_agent(args.task_file, profile_name=args.profile)
+            print(f"Agent review completed. Artifact created: {record.artifact_id}")
+            print(f"Path: {record.body_path}")
+        else:
+            agent_parser.print_help()
     else:
         parser.print_help()
 

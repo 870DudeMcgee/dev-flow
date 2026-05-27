@@ -6,6 +6,7 @@ import io
 import json
 import sys
 from contextlib import redirect_stdout
+from unittest.mock import patch, MagicMock
 
 from devflow.cli import (
     claim_task,
@@ -52,6 +53,7 @@ class TestCLI(unittest.TestCase):
         self.assertTrue(os.path.exists(".devflow/tasks"))
         self.assertTrue(os.path.exists(".devflow/workflows"))
         self.assertTrue(os.path.exists(".devflow/reports"))
+        self.assertTrue(os.path.exists(".devflow/artifacts"))
         self.assertTrue(os.path.exists(".devflow/orchestrators"))
 
     def test_cli_init_creates_peer_orchestrator_templates(self):
@@ -793,6 +795,31 @@ Pending.
         with open(plan_path, "r", encoding="utf-8") as handle:
             plan = json.load(handle)
         self.assertEqual(plan["tasks"][0]["status"], "PREVIEWED")
+
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_agent_review_command(self, mock_urlopen):
+        from devflow.artifacts import list_artifacts
+        init_workspace()
+        task_path = ".devflow/tasks/022_cli_review.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("# Task: 022 - CLI Review\nStatus: PENDING\nTouched Files:\n- sample.txt\n## 1. Objective\nReview.")
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"approved\\", \\"summary\\": \\"Code looks good\\", \\"findings\\": [], \\"required_actions\\": [], \\"confidence\\": 0.95}"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "agent", "review", task_path, "--profile", "reviewer"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("Agent review completed", output)
+        self.assertTrue(len(list_artifacts("022")) > 0)
 
 if __name__ == "__main__":
     unittest.main()
