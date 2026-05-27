@@ -87,5 +87,17 @@ diff --git a/a.txt b/a.txt
         self.assertIn("diff --git a/a.txt b/a.txt", diff_text)
         self.assertIn("+b", diff_text)
 
+    def test_extract_unified_diff_with_trailing_space_on_fence(self):
+        """Bug: regex fails when the opening ```diff fence has trailing whitespace."""
+        task_content = "## 9. Execution Results\n```diff \ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n```\n"
+        diff_text = extract_unified_diff(task_content)
+        self.assertIn("diff --git a/a.txt b/a.txt", diff_text)
+
+    def test_extract_unified_diff_with_crlf_line_endings(self):
+        """Bug: regex fails when file contains CRLF line endings (Windows editors)."""
+        task_content = "## 9. Execution Results\r\n```diff\r\ndiff --git a/a.txt b/a.txt\r\n--- a/a.txt\r\n+++ b/a.txt\r\n@@ -1 +1 @@\r\n-a\r\n+b\r\n```\r\n"
+        diff_text = extract_unified_diff(task_content)
+        self.assertIn("diff --git", diff_text)
+
 if __name__ == "__main__":
     unittest.main()

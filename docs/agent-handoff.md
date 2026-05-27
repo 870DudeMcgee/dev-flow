@@ -4,6 +4,10 @@ Date: 2026-05-26
 
 ## Current Canonical Target
 
+Use docs/superpowers/specs/2026-05-27-devflow-agentic-control-plane-spec.md as the strategic north-star source of truth for the next major architecture wave.
+
+Use docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md as the executable implementation source of truth for artifact kernel, context packs, review-only worker adapter, diff-only implementer, repair loops, TDD state machine, task DAGs, traces, evals, worktree-native parallelism, and architectural memory invalidation.
+
 Use docs/plans/2026-05-26-devflow-mvp-authoritative-spec.md as the single MVP source of truth.
 
 Use docs/workflows/coordination-playbook.md as the active coordination topology.
@@ -18,6 +22,10 @@ GLOBAL RULE: VS Code/Copilot, Codex Desktop, and Antigravity are separate peer o
 
 Each orchestrator has its own local qwen worker dev team for coding, testing, repair loops, and summarization. Human direction assigns or reassigns task ownership as needed.
 
+VS Code/Copilot invocation surface: use the `/devflow` workspace skill from `.github/skills/devflow/SKILL.md` for the full workflow. Planning, implementation, repair, and review guidance lives under `.github/skills/devflow/references/` so Devflow appears as one slash command.
+
+Minimal workflow smoke project: `examples/devflow-hello/` is a dependency-free Python greeting project. Use `python3 examples/devflow-hello/test_hello.py` as the narrow verification command for basic orchestrator proving runs.
+
 ## Implementation Scope
 
 In scope:
@@ -29,7 +37,33 @@ In scope:
 - devflow task status <task-file>
 - devflow run <task-file> previews and writes PREVIEWED status/report
 - devflow run <task-file> --yes applies, verifies, and writes final status/report
+- devflow artifact list <task-id>
+- devflow artifact inspect <artifact-id-or-path>
+- devflow context refresh
+- devflow context build <task-file> --role <role> [--budget <tokens>]
+- devflow context inspect <artifact-id-or-path>
+- devflow context list <task-id>
+- devflow memory list
+- devflow memory add --type <type> --statement <statement> --evidence <evidence> --invalidate-on <path-or-glob>
+- devflow memory inspect <memory-id>
+- devflow agent review <task-file> [--profile <profile>]
+- devflow worktree create <task-file> --agent <agent>
+- devflow worktree status
+- devflow worktree remove <task-file> --keep-artifacts
 - unified diff apply + dry-run
+- artifact metadata/body storage under .devflow/artifacts/<task-id>/
+- artifact body hash verification on read
+- deterministic repo maps under .devflow/context/
+- context packs emitted as context-pack.json artifacts
+- architectural memory records stored under .devflow/memory/
+- successful `devflow run --yes` applies stale matching active memories by touched diff paths
+- stale memories are excluded from generated context packs
+- review-only worker outputs emitted as review.json artifacts
+- review result schema validation before artifact write
+- explicit task worktree metadata under .devflow/worktrees/index.json
+- task worktree create/status/remove command surface
+- VS Code/Copilot `/devflow` workspace skill discovery surface
+- dependency-free `examples/devflow-hello/` smoke project for tiny workflow proving runs
 - protected-file gating
 - clean-worktree gating before run mutation
 - checkpoint branch creation
@@ -53,6 +87,12 @@ Out of scope for MVP:
 - model routing engine
 - AST editing protocol
 - dashboard
+
+Next architecture wave, still gated by deterministic control-plane rules:
+- artifact graph deepening beyond task-local lists
+- integration guard design for promoting completed isolated worktrees
+- richer goal/plan/task lifecycle automation
+- stronger peer orchestrator federation automation
 
 ## Critical Rules
 
@@ -81,7 +121,7 @@ Verification command:
 ```
 
 Current result:
-- 35 tests pass with `unittest`
+- 130 tests pass with `unittest`
 - editable install works with Homebrew Python 3.12
 - `.venv/bin/devflow --help` starts correctly
 - source path also works with `PYTHONPATH=src python3 -m unittest discover -s tests -q`
@@ -105,6 +145,11 @@ Systematic-debugging facts captured on 2026-05-26:
 
 No open MVP stabilization gaps remain in the current queue.
 
+New strategic implementation queue:
+- Phase 4 diff-only implementer from docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md
+- keep local/cloud workers artifact-only; do not grant direct write access
+- route implementation diffs through artifact validation before any `devflow run` mutation path
+
 Next active queue:
 - run VS Code/Copilot-only audit handoff against completed smoke report/task artifacts using docs/workflows/vscode-smoke-audit-handoff.md
 - execute local worker preflight from docs/workflows/local-worker-health-check-runbook.md before any VS Code proving rerun
@@ -125,9 +170,20 @@ Completed stabilization items:
 - task new scaffolds canonical task Markdown
 - `devflow init` creates peer orchestrator templates and local model worker policy in `.devflow/orchestrators/`
 - reports include status transitions, safety decisions, and verification output snippets
+- artifact kernel implemented with metadata/body separation, stable hashes, lineage fields, and artifact list/inspect CLI commands
+- context pack compiler implemented with deterministic repo maps, bounded file snippets, task-contract sections, test mappings, and context pack artifacts
+- review-only worker adapter implemented with role profile loading, stateless Ollama invocation, schema validation, graceful blocked artifacts, and `devflow agent review`
+- agentic control plane Phase 4 diff-only implementer stores schema-validated diff artifacts and supports `devflow guard scan-diff`
+- agentic control plane Phase 5 repair loop stores failure and repair artifacts without direct repo mutation
+- agentic control plane Phase 6 TDD transitions and structured verification recipes are implemented
+- agentic control plane Phase 7 task DAG and impact analysis commands are implemented
+- agentic control plane Phase 8 traces and deterministic evals are implemented
+- agentic control plane Phase 9 worktree-native parallelism is implemented with explicit `devflow worktree create/status/remove` commands and `.devflow/worktrees/index.json` metadata
+- agentic control plane Phase 10 memory invalidation engine is implemented with `devflow memory list/add/inspect`, `.devflow/memory/` JSON records, post-apply invalidation, and stale-memory exclusion from context packs
 - future model routing is documented as post-MVP only in `docs/future-model-routing.md`
 - local worker health-check runbook exists in `docs/workflows/local-worker-health-check-runbook.md`
 - smoke integration proving artifacts exist in `docs/examples/002_smoke_multi_agent.*`
 - smoke proving run has been executed successfully in temp repo with final COMPLETED status and passing verification
 - proving run surfaced and documented two operational edge cases: trailing blank-context patch extraction risk and same-second checkpoint branch naming collisions
 - VS Code-specific smoke audit runbook exists in `docs/workflows/vscode-smoke-audit-handoff.md`
+- CLI decomposition objective completed: `src/devflow/cli.py` is now primarily parser/dispatch with thin wrappers, and command logic is extracted into focused modules (`task_commands.py`, `runner.py`, `worktree_commands.py`, `trace_eval_commands.py`, `resource_commands.py`, `admin_commands.py`, `lifecycle_commands.py`)

@@ -6,7 +6,9 @@ import io
 import json
 import sys
 from contextlib import redirect_stdout
+from unittest.mock import patch, MagicMock
 
+from devflow.repo_map import refresh_repo_maps
 from devflow.cli import (
     claim_task,
     init_workspace,
@@ -52,6 +54,7 @@ class TestCLI(unittest.TestCase):
         self.assertTrue(os.path.exists(".devflow/tasks"))
         self.assertTrue(os.path.exists(".devflow/workflows"))
         self.assertTrue(os.path.exists(".devflow/reports"))
+        self.assertTrue(os.path.exists(".devflow/artifacts"))
         self.assertTrue(os.path.exists(".devflow/orchestrators"))
 
     def test_cli_init_creates_peer_orchestrator_templates(self):
@@ -271,6 +274,91 @@ Claim from CLI.
         self.assertIn("Assigned Agent: antigravity", updated)
         self.assertIn("Owner Lock: antigravity-team", updated)
         self.assertIn("- src/devflow/cli.py", updated)
+
+    def test_task_claim_cli_command_space_separated_touch(self):
+        init_workspace()
+        task_path = ".devflow/tasks/015_cli_claim_space.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 015 - CLI Claim Space
+Status: PENDING
+
+## 1. Objective
+Claim from CLI with space-separated touch paths.
+""")
+
+        old_argv = sys.argv
+        try:
+            sys.argv = [
+                "devflow",
+                "task",
+                "claim",
+                task_path,
+                "--agent",
+                "antigravity",
+                "--lock",
+                "antigravity-team",
+                "--touch",
+                "src/devflow/cli.py",
+                "tests/test_cli.py",
+            ]
+            main()
+        finally:
+            sys.argv = old_argv
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            updated = handle.read()
+        self.assertIn("Status: CLAIMED", updated)
+        self.assertIn("- src/devflow/cli.py", updated)
+        self.assertIn("- tests/test_cli.py", updated)
+
+    def test_task_new_cli_command_space_separated_args(self):
+        init_workspace()
+        task_path = ".devflow/tasks/020_new_space_separated.md"
+        if os.path.exists(task_path):
+            os.remove(task_path)
+
+        old_argv = sys.argv
+        try:
+            sys.argv = [
+                "devflow",
+                "task",
+                "new",
+                "020",
+                "Add Task Space Separated",
+                "--goal",
+                "001_devflow_mvp",
+                "--plan",
+                "001.plan.json",
+                "--agent",
+                "codex",
+                "--allowed",
+                "src/devflow/**",
+                "tests/...",
+                "--touch",
+                "src/devflow/cli.py",
+                "tests/test_cli.py",
+                "--verify",
+                "pytest tests/",
+                "flake8 src/",
+                "--output",
+                task_path,
+                "--force",
+            ]
+            main()
+        finally:
+            sys.argv = old_argv
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn("Status: PENDING", content)
+        self.assertIn("Goal: 001_devflow_mvp", content)
+        self.assertIn("- src/devflow/**", content)
+        self.assertIn("- tests/...", content)
+        self.assertIn("- src/devflow/cli.py", content)
+        self.assertIn("- tests/test_cli.py", content)
+        self.assertIn("- pytest tests/", content)
+        self.assertIn("- flake8 src/", content)
 
     def test_task_new_creates_canonical_task_template(self):
         init_workspace()
@@ -794,5 +882,455 @@ Pending.
             plan = json.load(handle)
         self.assertEqual(plan["tasks"][0]["status"], "PREVIEWED")
 
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_agent_review_command(self, mock_urlopen):
+        from devflow.artifacts import list_artifacts
+        init_workspace()
+        task_path = ".devflow/tasks/022_cli_review.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("# Task: 022 - CLI Review\nStatus: PENDING\nTouched Files:\n- sample.txt\n## 1. Objective\nReview.")
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"approved\\", \\"summary\\": \\"Code looks good\\", \\"findings\\": [], \\"required_actions\\": [], \\"confidence\\": 0.95}"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "agent", "review", task_path, "--profile", "reviewer"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("Agent review completed", output)
+        self.assertTrue(len(list_artifacts("022")) > 0)
+
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_agent_implement_command(self, mock_urlopen):
+        from devflow.artifacts import list_artifacts
+        init_workspace()
+        task_path = ".devflow/tasks/023_cli_implement.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("# Task: 023 - CLI Implement\nStatus: PENDING\nTouched Files:\n- sample.txt\n## 1. Objective\nImplement.")
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"ready\\", \\"diff\\": \\"diff --git a/sample.txt b/sample.txt\\\\n--- a/sample.txt\\\\n+++ b/sample.txt\\\\n@@ -1 +1 @@\\\\n-hello\\\\n+hello world\\", \\"touched_paths\\": [\\"sample.txt\\"], \\"risk\\": \\"low\\", \\"confidence\\": 0.95}"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "agent", "implement", task_path, "--profile", "implementer", "--emit-diff"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("Agent implementation completed", output)
+        self.assertIn("--- PROPOSED DIFF ---", output)
+        self.assertTrue(len(list_artifacts("023")) > 0)
+
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_agent_repair_command(self, mock_urlopen):
+        from devflow.artifacts import list_artifacts
+        init_workspace()
+        
+        # Write task file with verification command
+        task_path = ".devflow/tasks/024_cli_repair.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 024 - CLI Repair
+Status: PENDING
+Touched Files:
+- sample.txt
+## 1. Objective
+Repair sample.
+## 2. Allowed Files
+- sample.txt
+## 7. Verification Commands
+- true
+## 9. Execution Results
+```diff
+diff --git a/sample.txt b/sample.txt
+--- a/sample.txt
++++ b/sample.txt
+@@ -1 +1 @@
+-hello
++hello world
+```
+""")
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"ready\\", \\"diff\\": \\"diff --git a/sample.txt b/sample.txt\\\\n--- a/sample.txt\\\\n+++ b/sample.txt\\\\n@@ -1 +1 @@\\\\n-hello\\\\n+hello world\\\\n\\", \\"touched_paths\\": [\\"sample.txt\\"], \\"risk\\": \\"low\\", \\"confidence\\": 0.95}"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        # Commit task to make sure worktree is clean!
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'commit repair task' > /dev/null 2>&1")
+        refresh_repo_maps()
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'commit maps' > /dev/null 2>&1")
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "agent", "repair", task_path, "--profile", "repair", "--max-loops", "2"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("Agent repair completed", output)
+        self.assertTrue(len(list_artifacts("024")) > 0)
+
+
+    def test_guard_scan_diff_clean_file(self):
+        init_workspace()
+        diff_path = "clean.diff"
+        with open(diff_path, "w", encoding="utf-8") as f:
+            f.write("+++ b/src/example.py\n+def foo():\n+    return 1\n")
+            
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "guard", "scan-diff", diff_path]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+            
+        self.assertEqual(cm.exception.code, 0)
+        self.assertIn("Safety scan completed", output)
+
+    def test_guard_scan_diff_hazardous_file(self):
+        init_workspace()
+        diff_path = "hazardous.diff"
+        with open(diff_path, "w", encoding="utf-8") as f:
+            f.write("+++ b/src/config.py\n+API_KEY = 'secret-token-123'\n")
+            
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "guard", "scan-diff", diff_path]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+            
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Adversarial hazards detected", output)
+
+    def test_cli_transition_valid_tdd_states(self):
+        init_workspace()
+        new_task(
+            "042",
+            "TDD Task",
+            goal="goal-1",
+            plan="plan-1",
+            agent="antigravity",
+            risk="LOW",
+            allowed_files=["sample.txt"],
+            touched_files=["sample.txt"],
+            verification_commands=["echo 'hello'"],
+            output="task_042.md"
+        )
+
+        # Transition PENDING -> RED
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "transition", "task_042.md", "--to", "RED", "--reason", "Ready to start", "--artifact", "art-1"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("transitioned from PENDING to RED", output)
+        
+        # Verify status and Transitions header in file
+        with open("task_042.md", "r", encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertIn("Status: RED", content)
+        self.assertIn("Transitions:", content)
+        self.assertIn("PENDING -> RED: Ready to start (artifact: art-1) at", content)
+
+        # Transition RED -> GREEN
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "transition", "task_042.md", "--to", "GREEN", "--reason", "Tests passing", "--artifact", "art-2"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("transitioned from RED to GREEN", output)
+        
+        # Verify both transitions are present
+        with open("task_042.md", "r", encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertIn("Status: GREEN", content)
+        self.assertIn("- PENDING -> RED: Ready to start (artifact: art-1) at", content)
+        self.assertIn("- RED -> GREEN: Tests passing (artifact: art-2) at", content)
+
+        # Print status and check output
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "status", "task_042.md"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("status: GREEN", output)
+        self.assertIn("transitions:", output)
+        self.assertIn("PENDING -> RED: Ready to start", output)
+
+    def test_cli_transition_invalid_transition_fails(self):
+        init_workspace()
+        new_task(
+            "043",
+            "TDD Task 2",
+            output="task_043.md"
+        )
+
+        # Invalid transition PENDING -> REFACTOR
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "transition", "task_043.md", "--to", "REFACTOR"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error: Transition from 'PENDING' to 'REFACTOR' is invalid", output)
+
+    def test_cli_dag_and_impact(self):
+        init_workspace()
+        
+        # Write a mock plan JSON
+        mock_plan = {
+            "goal_id": "cli_dag_test",
+            "status": "ACTIVE",
+            "tasks": [
+                {
+                    "id": "001",
+                    "title": "First Task",
+                    "status": "COMPLETED",
+                    "depends_on": []
+                },
+                {
+                    "id": "002",
+                    "title": "Second Task",
+                    "status": "PENDING",
+                    "depends_on": ["001"],
+                    "assigned_agent": "antigravity"
+                }
+            ]
+        }
+        with open(".devflow/plans/001_test.plan.json", "w", encoding="utf-8") as f:
+            json.dump(mock_plan, f)
+
+        # 1. Test ready command (non-JSON)
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "ready"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Ready Tasks:", output)
+        self.assertIn("Second Task", output)
+
+        # 2. Test ready command with --json
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "ready", "--json"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        parsed_ready = json.loads(output)
+        self.assertEqual(len(parsed_ready), 1)
+        self.assertEqual(parsed_ready[0]["id"], "002")
+
+        # 3. Test next command
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "next", "--agent", "antigravity"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Next Task: [002] Second Task", output)
+
+        # 4. Test graph command
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "graph"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Task Dependency Graph:", output)
+        self.assertIn("[002] PENDING: Second Task (assigned: antigravity) [depends on: 001]", output)
+
+        # 5. Create a task file to test impact command
+        new_task(
+            "002",
+            "Second Task",
+            goal="cli_dag_test",
+            allowed_files=["sample.txt"],
+            output="task_002.md"
+        )
+        
+        # Test impact command
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "impact", "task_002.md"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Impact Analysis Report for Task 002 - Second Task", output)
+        self.assertIn("Risk Level:", output)
+
+    def test_cli_traces_and_evals(self):
+        init_workspace()
+
+        # 1. Test trace list
+        # Create a mock trace file
+        os.makedirs(".devflow/logs/traces", exist_ok=True)
+        trace_id = "test_trace_123"
+        trace_file = os.path.join(".devflow/logs/traces", f"{trace_id}.json")
+        mock_trace_data = [
+            {
+                "span_id": "span-1",
+                "name": "root_op",
+                "start_time": "2026-05-27T08:00:00.000",
+                "end_time": "2026-05-27T08:00:01.000",
+                "duration_ms": 1000.0,
+                "status": "SUCCESS",
+                "parent_span_id": None,
+                "attributes": {}
+            },
+            {
+                "span_id": "span-2",
+                "name": "child_op",
+                "start_time": "2026-05-27T08:00:00.100",
+                "end_time": "2026-05-27T08:00:00.500",
+                "duration_ms": 400.0,
+                "status": "SUCCESS",
+                "parent_span_id": "span-1",
+                "attributes": {}
+            }
+        ]
+        with open(trace_file, "w", encoding="utf-8") as f:
+            json.dump(mock_trace_data, f)
+
+        # Run "devflow trace list"
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "trace", "list"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Trace ID", output)
+        self.assertIn("test_trace_123", output)
+
+        # Run "devflow trace inspect test_trace_123"
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "trace", "inspect", "test_trace_123"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Trace Execution Graph for ID: test_trace_123", output)
+        self.assertIn("root_op (1000.00ms)", output)
+        self.assertIn("child_op (400.00ms)", output)
+
+        # 2. Test eval run
+        # Create a mock evaluation fixture
+        os.makedirs(".devflow/evals/fixtures", exist_ok=True)
+        fixture_file = ".devflow/evals/fixtures/mock_cli_impl.json"
+        mock_fixture = {
+            "name": "cli_eval_test",
+            "role": "implementer",
+            "task_markdown": "# Task: 999 - CLI Task\nStatus: PENDING\nTouched Files:\n- sample.txt\n## 2. Allowed Files\n- sample.txt\n## 7. Verification Commands\n- true\n## 9. Execution Results\nPending.\n",
+            "mock_model_response": "{\n  \"status\": \"ready\",\n  \"diff\": \"```diff\\ndiff --git a/sample.txt b/sample.txt\\n--- a/sample.txt\\n+++ b/sample.txt\\n@@ -1 +1 @@\\n-hello\\n+hello world\\n```\",\n  \"touched_paths\": [\"sample.txt\"],\n  \"risk\": \"low\",\n  \"confidence\": 1.0\n}",
+            "assertions": {
+                "expected_status": "ready",
+                "must_touch_files": ["sample.txt"]
+            }
+        }
+        with open(fixture_file, "w", encoding="utf-8") as f:
+            json.dump(mock_fixture, f)
+
+        # Run "devflow eval run --role implementer" with mocked invoke_local_model
+        with patch("devflow.agents.ollama.invoke_local_model") as mock_invoke:
+            mock_invoke.return_value = mock_fixture["mock_model_response"]
+            
+            old_argv = sys.argv
+            try:
+                sys.argv = ["devflow", "eval", "run", "--role", "implementer"]
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    with self.assertRaises(SystemExit) as cm:
+                        main()
+                output = buffer.getvalue()
+            finally:
+                sys.argv = old_argv
+
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn("Passed: 1/1", output)
+
+        # 3. Test eval compare
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "eval", "compare", "Prompt A", "Prompt B"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Prompt Performance Comparison Report:", output)
+        self.assertIn("Prompt A", output)
+        self.assertIn("Prompt B", output)
+        self.assertIn("Conclusion", output)
+
 if __name__ == "__main__":
     unittest.main()
+
+
