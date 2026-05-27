@@ -1,5 +1,12 @@
 # Roadmap
 
+## Strategic Direction
+
+- devflow should become the deterministic control plane for bounded AI software engineering across Codex, Claude Code, Copilot, Cline, Antigravity, OpenCode, local Ollama models, humans, and future tools.
+- Current strategic source of truth: `docs/superpowers/specs/2026-05-27-devflow-agentic-control-plane-spec.md`.
+- Current implementation source of truth: `docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md`.
+- Core design rule: local and cloud workers produce schema-validated artifacts; only devflow may preview, apply, verify, rollback, and report repository mutations.
+
 ## MVP (Current)
 
 - Canonical .devflow tree initialization
@@ -17,6 +24,9 @@
 - Rollback behavior
 - Per-task report generation
 - Rich report audit trail
+- Artifact kernel with metadata/body storage, hashing, lineage fields, list command, and inspect command
+- Context pack compiler with deterministic repo maps and context pack artifacts
+- Review-only worker adapter with local profile loading, Ollama invocation, review result validation, and review artifacts
 - Status command
 - Future model routing documented as post-MVP only
 
@@ -42,9 +52,16 @@ Completed:
 - smoke integration proving run executed end-to-end (claim, preview, apply, verify, report)
 - proving edge case documented: trailing blank-context diff hunks can be corrupted by extraction whitespace trimming
 - proving edge case documented: same-second preview/apply checkpoint branch collision can require immediate retry
+- agentic control plane Phase 1 artifact kernel implemented with `devflow artifact list` and `devflow artifact inspect`
+- artifact schema packaged under `src/devflow/schemas/artifact.schema.json`
+- agentic control plane Phase 2 context pack compiler implemented with `devflow context refresh/build/inspect/list`
+- repo maps generated as `.devflow/context/repo-map.short.md`, `.devflow/context/repo-map.symbols.json`, and `.devflow/context/repo-map.deps.json`
+- agentic control plane Phase 3 review-only worker adapter implemented with `devflow agent review`
+- review output is schema-validated and stored as non-mutating `review.json` artifacts
 
 ## Next Milestone
 
+- diff-only implementer artifacts routed through `devflow run`
 - local AI dev team integration execution (Codex, VS Code/Copilot, Antigravity + local workers)
 - thin local dispatcher contract and health-check runbook
 - end-to-end integration proving project (`smoke-multi-agent-todo-cli`)

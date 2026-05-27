@@ -14,6 +14,14 @@ For this repository's ongoing work, orchestration is peer-parallel by default.
 - Route all repository mutations through the `devflow` task + unified diff + verification + report contract.
 - Human direction assigns or reassigns task ownership; there is no permanent default orchestrator.
 
+## Strategic Source Of Truth
+
+The next major direction is captured in `docs/superpowers/specs/2026-05-27-devflow-agentic-control-plane-spec.md`: devflow should become a deterministic, Git-and-artifact-native control plane for bounded AI software engineering across Codex, Claude Code, Copilot, Cline, Antigravity, OpenCode, local Ollama workers, and future tools.
+
+Execution should follow `docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md`. The plan starts with the artifact kernel, then context packs, review-only worker invocation, diff-only implementation, repair loops, TDD states, DAG orchestration, traces, evals, and worktree-native parallelism.
+
+Design rule: workers produce artifacts; devflow validates, previews, applies, verifies, rolls back, and reports.
+
 ---
 
 ## 🎨 Architectural Topology
@@ -122,6 +130,40 @@ Task markdown file
   PYTHONPATH=src python3 -m devflow run .devflow/tasks/<task_file>.md --yes
   ```
 
+### Artifact Commands
+
+* **List Task Artifacts**: Shows schema-tracked artifacts produced for a task in task-local sequence order.
+  ```bash
+  PYTHONPATH=src python3 -m devflow artifact list <task_id>
+  ```
+* **Inspect An Artifact**: Resolves an artifact by id, metadata path, or body path, verifies the body hash, and prints metadata.
+  ```bash
+  PYTHONPATH=src python3 -m devflow artifact inspect <artifact_id_or_path>
+  ```
+
+### Context Commands
+
+* **Refresh Repo Maps**: Regenerates deterministic short, symbol, and dependency maps under `.devflow/context/`.
+  ```bash
+  PYTHONPATH=src python3 -m devflow context refresh
+  ```
+* **Build A Context Pack**: Compiles a bounded worker context packet from a task file and stores it as a `context-pack.json` artifact.
+  ```bash
+  PYTHONPATH=src python3 -m devflow context build .devflow/tasks/<task_file>.md --role reviewer
+  ```
+* **Inspect Or List Context Packs**: Summarizes one context pack or all context packs for a task.
+  ```bash
+  PYTHONPATH=src python3 -m devflow context inspect <artifact_id_or_path>
+  PYTHONPATH=src python3 -m devflow context list <task_id>
+  ```
+
+### Agent Commands
+
+* **Run Review-Only Worker**: Builds a bounded context pack, invokes a stateless local review worker, validates the structured review result, and stores a `review.json` artifact. Worker output remains non-mutating.
+  ```bash
+  PYTHONPATH=src python3 -m devflow agent review .devflow/tasks/<task_file>.md --profile reviewer
+  ```
+
 ---
 
 ## 📂 The `.devflow` Structure
@@ -132,6 +174,8 @@ Task markdown file
 ├── constitution.md        # Human-facing, advisory operating principles
 ├── plans/                 # Secondary plan JSON indexes (status mirrored best-effort)
 ├── tasks/                 # Canonical task markdown files (executable files containing diffs)
+├── context/               # Deterministic repo maps used to build bounded worker context packs
+├── artifacts/             # Schema-tracked worker/control-plane artifacts and metadata
 ├── reports/               # Auto-generated markdown reports compiled after every run
 └── orchestrators/         # Team shape specifications and local model policies
 ```

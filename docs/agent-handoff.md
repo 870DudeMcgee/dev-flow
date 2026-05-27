@@ -4,6 +4,10 @@ Date: 2026-05-26
 
 ## Current Canonical Target
 
+Use docs/superpowers/specs/2026-05-27-devflow-agentic-control-plane-spec.md as the strategic north-star source of truth for the next major architecture wave.
+
+Use docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md as the executable implementation source of truth for artifact kernel, context packs, review-only worker adapter, diff-only implementer, repair loops, TDD state machine, task DAGs, traces, evals, and worktree-native parallelism.
+
 Use docs/plans/2026-05-26-devflow-mvp-authoritative-spec.md as the single MVP source of truth.
 
 Use docs/workflows/coordination-playbook.md as the active coordination topology.
@@ -29,7 +33,20 @@ In scope:
 - devflow task status <task-file>
 - devflow run <task-file> previews and writes PREVIEWED status/report
 - devflow run <task-file> --yes applies, verifies, and writes final status/report
+- devflow artifact list <task-id>
+- devflow artifact inspect <artifact-id-or-path>
+- devflow context refresh
+- devflow context build <task-file> --role <role> [--budget <tokens>]
+- devflow context inspect <artifact-id-or-path>
+- devflow context list <task-id>
+- devflow agent review <task-file> [--profile <profile>]
 - unified diff apply + dry-run
+- artifact metadata/body storage under .devflow/artifacts/<task-id>/
+- artifact body hash verification on read
+- deterministic repo maps under .devflow/context/
+- context packs emitted as context-pack.json artifacts
+- review-only worker outputs emitted as review.json artifacts
+- review result schema validation before artifact write
 - protected-file gating
 - clean-worktree gating before run mutation
 - checkpoint branch creation
@@ -53,6 +70,16 @@ Out of scope for MVP:
 - model routing engine
 - AST editing protocol
 - dashboard
+
+Next architecture wave, still gated by deterministic control-plane rules:
+- artifact kernel and artifact graph
+- bounded context packs and repo maps
+- schema-validated local worker outputs
+- review-only worker harness before mutation-producing workers
+- diff-only implementer artifacts routed through `devflow run`
+- failure classification and bounded repair loops
+- TDD state transitions and verification recipes
+- traces and evals for harness improvement
 
 ## Critical Rules
 
@@ -81,7 +108,7 @@ Verification command:
 ```
 
 Current result:
-- 35 tests pass with `unittest`
+- 73 tests pass with `unittest`
 - editable install works with Homebrew Python 3.12
 - `.venv/bin/devflow --help` starts correctly
 - source path also works with `PYTHONPATH=src python3 -m unittest discover -s tests -q`
@@ -105,6 +132,11 @@ Systematic-debugging facts captured on 2026-05-26:
 
 No open MVP stabilization gaps remain in the current queue.
 
+New strategic implementation queue:
+- Phase 4 diff-only implementer from docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md
+- keep local/cloud workers artifact-only; do not grant direct write access
+- route implementation diffs through artifact validation before any `devflow run` mutation path
+
 Next active queue:
 - run VS Code/Copilot-only audit handoff against completed smoke report/task artifacts using docs/workflows/vscode-smoke-audit-handoff.md
 - execute local worker preflight from docs/workflows/local-worker-health-check-runbook.md before any VS Code proving rerun
@@ -125,6 +157,9 @@ Completed stabilization items:
 - task new scaffolds canonical task Markdown
 - `devflow init` creates peer orchestrator templates and local model worker policy in `.devflow/orchestrators/`
 - reports include status transitions, safety decisions, and verification output snippets
+- artifact kernel implemented with metadata/body separation, stable hashes, lineage fields, and artifact list/inspect CLI commands
+- context pack compiler implemented with deterministic repo maps, bounded file snippets, task-contract sections, test mappings, and context pack artifacts
+- review-only worker adapter implemented with role profile loading, stateless Ollama invocation, schema validation, graceful blocked artifacts, and `devflow agent review`
 - future model routing is documented as post-MVP only in `docs/future-model-routing.md`
 - local worker health-check runbook exists in `docs/workflows/local-worker-health-check-runbook.md`
 - smoke integration proving artifacts exist in `docs/examples/002_smoke_multi_agent.*`
