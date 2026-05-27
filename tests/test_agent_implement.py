@@ -103,3 +103,21 @@ class TestAgentImplementRunner(unittest.TestCase):
         result = json.loads(body)
         self.assertEqual(result["status"], "ready")
         self.assertIn("print(1)", result["diff"])
+
+    def test_implement_agent_system_instruction_contains_protocols(self):
+        with patch("devflow.agents.runner.ollama.invoke_local_model") as mock_invoke:
+            mock_invoke.return_value = json.dumps({
+                "status": "ready",
+                "diff": "",
+                "touched_paths": [],
+                "risk": "low",
+                "confidence": 1.0
+            })
+            run_implement_agent(self.task_path)
+            self.assertTrue(mock_invoke.called)
+            system_instruction = mock_invoke.call_args[1]["system_instruction"]
+            self.assertIn("=== WEB APP AESTHETICS & QUALITY PROTOCOLS ===", system_instruction)
+            self.assertIn("=== CRITICAL UNIFIED DIFF PROTOCOLS ===", system_instruction)
+            self.assertIn("DESIGN TOKENS", system_instruction)
+            self.assertIn("STRUCTURAL INTEGRITY & TAG CLEANLINESS", system_instruction)
+

@@ -46,7 +46,19 @@ def run_implement_agent(task_file: str, profile_name: str = "implementer", cwd: 
     # 3. Formulate system instruction and prompt
     system_instruction = (
         "You are an expert Software Engineer. Analyze the task contract and context "
-        "and provide code modifications (as a unified diff) in strict JSON format. "
+        "and provide code modifications (as a unified diff) in strict JSON format.\n\n"
+        "=== WEB APP AESTHETICS & QUALITY PROTOCOLS ===\n"
+        "When modifying HTML, CSS, or JS files:\n"
+        "1. VISUAL EXCELLENCE: Prioritize stunning, premium, modern aesthetics (glassmorphism, clean layouts, vibrant harmonized HSL color scales).\n"
+        "2. DESIGN TOKENS: Adhere strictly to the theme and CSS variables (e.g., var(--bg-dark), var(--accent-indigo), var(--border-color)) defined in the core stylesheet. Do not use generic plain colors (e.g., #e6f7ff or solid blue).\n"
+        "3. STRUCTURAL INTEGRITY & TAG CLEANLINESS: Every opened HTML tag MUST be closed correctly. Absolutely NO structural tag soup (unclosed <div>, <span>, or duplicate </nav></header> elements).\n"
+        "4. NO PLACEHOLDERS: Implement complete, functional elements. Avoid dummy notes; write meaningful, cohesive UI copy.\n\n"
+        "=== CRITICAL UNIFIED DIFF PROTOCOLS ===\n"
+        "1. FORMAT: Your diff must be a standard git unified diff.\n"
+        "2. ACCURACY: The surrounding context lines (lines starting with ' ') MUST match the target files EXACTLY, character-for-character including indentation.\n"
+        "3. PATHS: Header paths must match the target files (e.g., --- public/index.html, +++ public/index.html).\n"
+        "4. NO TRUNCATION: Do not truncate code blocks or omit required lines inside diff chunks.\n\n"
+        "=== OUTPUT SCHEMA ===\n"
         "Do not return markdown, only output raw JSON matching the diff_result schema:\n"
         "{\n"
         "  \"status\": \"ready\" | \"blocked\" | \"failed\",\n"
@@ -56,6 +68,7 @@ def run_implement_agent(task_file: str, profile_name: str = "implementer", cwd: 
         "  \"confidence\": float (0.0 to 1.0)\n"
         "}"
     )
+
     
     prompt = f"TASK CONTRACT AND CONTEXT:\n{context_body}\n"
     
@@ -153,7 +166,12 @@ def run_review_agent(task_file: str, profile_name: str = "reviewer", cwd: str = 
     system_instruction = (
         "You are an expert Staff Code Reviewer. Analyze the task contract and context "
         "and provide a structured review in strict JSON format. Do not return markdown, "
-        "only output raw JSON matching the review_result schema:\n"
+        "only output raw JSON matching the review_result schema:\n\n"
+        "=== STRICT REVIEW STANDARDS ===\n"
+        "1. WEB QUALITY & DESIGN AUDIT: Flag any structural HTML violations (tag-soup, unclosed tags), poor styling (avoiding defined CSS variables), or placeholder text as BLOCKING findings.\n"
+        "2. DIFF VALIDITY: Verify that the proposed unified diff has exact context matches and valid git diff headers.\n"
+        "3. SCOPE GATES: Verify that the diff touches only allowed paths and does not introduce scope creep.\n\n"
+        "=== OUTPUT SCHEMA ===\n"
         "{\n"
         "  \"status\": \"approved\" | \"changes_requested\" | \"blocked\",\n"
         "  \"summary\": \"string (minLength: 5)\",\n"
@@ -171,6 +189,7 @@ def run_review_agent(task_file: str, profile_name: str = "reviewer", cwd: str = 
         "  \"confidence\": float (0.0 to 1.0)\n"
         "}"
     )
+
     
     prompt = f"TASK CONTRACT AND CONTEXT:\n{context_body}\n"
     
@@ -260,7 +279,12 @@ def _query_repair_model(task_file: str, diff_text: str, failure_dict: dict, cwd:
     
     system_instruction = (
         "You are an expert Software Engineer specializing in code repair. Analyze the task, the failing diff, "
-        "and the verification failure log, and return an improved corrected unified diff in strict JSON format. "
+        "and the verification failure log, and return an improved corrected unified diff in strict JSON format.\n\n"
+        "=== REPAIR INSTRUCTIONS ===\n"
+        "1. IDENTIFY ROOT CAUSE: Analyze the failure classification (e.g., SYNTAX_ERROR, TEST_FAILURE) and error output to locate the precise bug.\n"
+        "2. PRESERVE DESIGN QUALITY: Ensure the repaired code preserves visual excellence, uses CSS variables, and maintains clean, closed HTML structures. Fix any visual tag-soup or layout errors.\n"
+        "3. PRECISION DIFFING: The repaired diff must be a syntactically correct unified diff with exact context matching to apply cleanly without offset or rejects.\n\n"
+        "=== OUTPUT SCHEMA ===\n"
         "Do not return markdown, only output raw JSON matching the repair_result schema:\n"
         "{\n"
         "  \"status\": \"ready\" | \"blocked\" | \"failed\",\n"
