@@ -51,6 +51,7 @@ def parse_task_file(content: str) -> Dict[str, object]:
         "risk": "LOW",
         "branch": "",
         "touched_files": [],
+        "transitions": [],
     }
 
     current_header_list = ""
@@ -88,6 +89,10 @@ def parse_task_file(content: str) -> Dict[str, object]:
             current_header_list = "touched_files"
             if value:
                 metadata["touched_files"].append(value.strip("`"))
+        elif normalized == "transitions":
+            current_header_list = "transitions"
+            if value:
+                metadata["transitions"].append(value.strip("`"))
 
     section_pattern = re.compile(r"^##\s*(\d+)\.\s+(.+)$", re.MULTILINE)
     section_matches = list(section_pattern.finditer(content))

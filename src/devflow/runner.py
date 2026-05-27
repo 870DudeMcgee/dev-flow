@@ -178,6 +178,32 @@ def run_verification(commands: List[str], cwd: str) -> Tuple[bool, List[Dict[str
     results: List[Dict[str, object]] = []
     overall_success = True
     for cmd in commands:
+        stripped = cmd.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                import json
+                recipe = json.loads(cmd)
+                from devflow.states import execute_recipe
+                res = execute_recipe(recipe, cwd)
+                if "command" not in res or not res["command"]:
+                    res["command"] = cmd
+                results.append(res)
+                if not res.get("success", False):
+                    overall_success = False
+                    break
+                continue
+            except Exception as e:
+                results.append({
+                    "command": cmd,
+                    "exit_code": -1,
+                    "stdout": "",
+                    "stderr": f"Error parsing/executing structured recipe: {str(e)}",
+                    "success": False,
+                    "message": f"Structured recipe parsing/execution error: {str(e)}"
+                })
+                overall_success = False
+                break
+
         code, out, err = run_shell(cmd, cwd)
         result = {
             "command": cmd,
@@ -216,7 +242,11 @@ def write_task_report(report_path: str, payload: Dict[str, object]) -> None:
     lines.extend(["", "## Verification Commands"])
     if isinstance(verification, list) and verification:
         for item in verification:
-            lines.append(f"- {item.get('command', '')}: exit {item.get('exit_code', '')}")
+            cmd_str = item.get('command', '')
+            exit_code = item.get('exit_code', '')
+            success_str = "SUCCESS" if item.get('success', False) else "FAILED"
+            msg_str = f" ({item.get('message')})" if item.get('message') else ""
+            lines.append(f"- {cmd_str}: exit {exit_code} [{success_str}]{msg_str}")
     else:
         lines.append("- No verification commands were available.")
 

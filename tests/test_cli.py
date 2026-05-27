@@ -942,6 +942,100 @@ diff --git a/sample.txt b/sample.txt
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Adversarial hazards detected", output)
 
+    def test_cli_transition_valid_tdd_states(self):
+        init_workspace()
+        new_task(
+            "042",
+            "TDD Task",
+            goal="goal-1",
+            plan="plan-1",
+            agent="antigravity",
+            risk="LOW",
+            allowed_files=["sample.txt"],
+            touched_files=["sample.txt"],
+            verification_commands=["echo 'hello'"],
+            output="task_042.md"
+        )
+
+        # Transition PENDING -> RED
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "transition", "task_042.md", "--to", "RED", "--reason", "Ready to start", "--artifact", "art-1"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("transitioned from PENDING to RED", output)
+        
+        # Verify status and Transitions header in file
+        with open("task_042.md", "r", encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertIn("Status: RED", content)
+        self.assertIn("Transitions:", content)
+        self.assertIn("PENDING -> RED: Ready to start (artifact: art-1) at", content)
+
+        # Transition RED -> GREEN
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "transition", "task_042.md", "--to", "GREEN", "--reason", "Tests passing", "--artifact", "art-2"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("transitioned from RED to GREEN", output)
+        
+        # Verify both transitions are present
+        with open("task_042.md", "r", encoding="utf-8") as handle:
+            content = handle.read()
+        self.assertIn("Status: GREEN", content)
+        self.assertIn("- PENDING -> RED: Ready to start (artifact: art-1) at", content)
+        self.assertIn("- RED -> GREEN: Tests passing (artifact: art-2) at", content)
+
+        # Print status and check output
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "status", "task_042.md"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("status: GREEN", output)
+        self.assertIn("transitions:", output)
+        self.assertIn("PENDING -> RED: Ready to start", output)
+
+    def test_cli_transition_invalid_transition_fails(self):
+        init_workspace()
+        new_task(
+            "043",
+            "TDD Task 2",
+            output="task_043.md"
+        )
+
+        # Invalid transition PENDING -> REFACTOR
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "transition", "task_043.md", "--to", "REFACTOR"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Error: Transition from 'PENDING' to 'REFACTOR' is invalid", output)
+
 if __name__ == "__main__":
     unittest.main()
+
 

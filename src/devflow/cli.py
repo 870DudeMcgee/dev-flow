@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import datetime
 
 from devflow.artifacts import find_artifact, list_artifacts, read_artifact
 from devflow.context import build_context_pack, inspect_context_pack, list_context_packs
@@ -490,6 +491,70 @@ def status_task(task_file: str) -> None:
     print(f"latest_report: {latest_report}")
     print(f"plan_status: {plan_status}")
 
+    # Display TDD transitions if any exist
+    transitions = task.get("transitions", [])
+    if transitions:
+        print("transitions:")
+        for trans in transitions:
+            print(f"  - {trans}")
+
+    # Extract and display verification step execution results from report if available
+    if latest_report and os.path.exists(latest_report):
+        try:
+            with open(latest_report, "r", encoding="utf-8") as handle:
+                report_content = handle.read()
+            lines = report_content.splitlines()
+            in_verification = False
+            verif_lines = []
+            for line in lines:
+                if line.startswith("## Verification Commands"):
+                    in_verification = True
+                    continue
+                if in_verification:
+                    if line.startswith("## "):
+                        break
+                    if line.strip():
+                        verif_lines.append(line.strip())
+            if verif_lines:
+                print("verification_results:")
+                for vl in verif_lines:
+                    print(f"  {vl}")
+        except Exception:
+            pass
+
+
+def transition_task(task_file: str, to_state: str, reason: str = "", artifact_id: str = "") -> None:
+    """Transition a task between canonical TDD states with validation."""
+    content = _read_task_markdown(task_file)
+    task = parse_task_file(content)
+    current_status = str(task.get("status", "PENDING")).upper()
+    target_status = to_state.upper()
+
+    from devflow.states import validate_transition
+    if not validate_transition(current_status, target_status):
+        print(f"Error: Transition from '{current_status}' to '{target_status}' is invalid.")
+        sys.exit(1)
+
+    # Construct the transition entry
+    timestamp = datetime.datetime.now().replace(microsecond=0).isoformat()
+    if reason and artifact_id:
+        trans_str = f"{current_status} -> {target_status}: {reason} (artifact: {artifact_id}) at {timestamp}"
+    elif reason:
+        trans_str = f"{current_status} -> {target_status}: {reason} at {timestamp}"
+    elif artifact_id:
+        trans_str = f"{current_status} -> {target_status}: (artifact: {artifact_id}) at {timestamp}"
+    else:
+        trans_str = f"{current_status} -> {target_status} at {timestamp}"
+
+    current_transitions = task.get("transitions", [])
+    current_transitions.append(trans_str)
+
+    updated = _replace_status(content, target_status)
+    updated = _upsert_header_list(updated, "Transitions", current_transitions)
+
+    _write_task_markdown(task_file, updated)
+    print(f"Task {task.get('task_id', 'unknown')} transitioned from {current_status} to {target_status}.")
+
 
 def init_workspace():
     """Initialize the canonical .devflow protocol tree."""
@@ -828,6 +893,12 @@ def main():
     task_status_parser = task_subparsers.add_parser("status", help="Show one task's coordination status")
     task_status_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
 
+    transition_parser = task_subparsers.add_parser("transition", help="Transition a task between TDD states")
+    transition_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
+    transition_parser.add_argument("--to", required=True, help="Target state, e.g. RED, GREEN, REFACTOR, REPORT")
+    transition_parser.add_argument("--reason", default="", help="Reason for the transition")
+    transition_parser.add_argument("--artifact", default="", help="Artifact ID associated with this transition")
+
     run_parser = subparsers.add_parser("run", help="Run a single task markdown file")
     run_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
     run_parser.add_argument("--yes", action="store_true", help="Apply the patch after validation")
@@ -920,6 +991,13 @@ def main():
             release_task(args.task_file)
         elif args.task_command == "status":
             status_task(args.task_file)
+        elif args.task_command == "transition":
+            transition_task(
+                args.task_file,
+                to_state=args.to,
+                reason=args.reason,
+                artifact_id=args.artifact
+            )
         else:
             task_parser.print_help()
     elif args.command == "run":
