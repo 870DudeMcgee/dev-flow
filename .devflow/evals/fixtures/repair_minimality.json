@@ -1,0 +1,9 @@
+{
+  "name": "repair_minimality",
+  "role": "repair",
+  "task_markdown": "# Task: 001 - Update Greeting\nStatus: PENDING\nGoal: goal-1\nPlan: plan-1.json\nAssigned Agent: local_ollama\nOwner Lock: vscode-copilot\nRisk: LOW\nBranch: devflow/task-001\nTouched Files:\n- src/greeting.txt\n\n## 1. Objective\nUpdate greeting text.\n\n## 2. Allowed Files\n- src/greeting.txt\n\n## 3. Do Not Touch\n- .env\n\n## 4. Required Context\nNone.\n\n## 5. Implementation Instructions\nUpdate greeting.\n\n## 6. Patch Protocol\nUnified diff only.\n\n## 7. Verification Commands\n- python3 -c \"raise NameError()\"\n\n## 8. Failure Handling\nRetry once.\n\n## 9. Execution Results\nPending.\n\n## 10. Final Report\nPending.\n",
+  "mock_model_response": "{\n  \"status\": \"SUCCESS\",\n  \"repaired_diff\": \"```diff\\ndiff --git a/src/greeting.txt b/src/greeting.txt\\n--- a/src/greeting.txt\\n+++ b/src/greeting.txt\\n@@ -1 +1 @@\\n-hello\\n+hello world\\n```\"\n}",
+  "assertions": {
+    "expected_status": "FAILED"
+  }
+}
