@@ -37,7 +37,7 @@ def parse_task_file(content: str) -> Dict[str, object]:
     task_id = "000"
     title = "Unknown"
     if lines:
-        task_match = re.search(r"^#\s*Task:\s*([^\s-]+)\s*-\s*(.+)$", lines[0].strip())
+        task_match = re.search(r"^#\s*Task:\s*(.+?)\s+-\s+(.+)$", lines[0].strip())
         if task_match:
             task_id = task_match.group(1).strip()
             title = task_match.group(2).strip()

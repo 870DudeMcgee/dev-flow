@@ -4,7 +4,10 @@ import os
 import re
 import sys
 
+from devflow.artifacts import find_artifact, list_artifacts, read_artifact
+from devflow.context import build_context_pack, inspect_context_pack, list_context_packs
 from devflow.manager import extract_unified_diff, parse_task_file
+from devflow.repo_map import refresh_repo_maps
 from devflow.runner import (
     DEFAULT_TAXONOMY,
     apply_patch,
@@ -500,6 +503,7 @@ def init_workspace():
         "index",
         "logs",
         "reports",
+        "artifacts",
         "orchestrators",
     ]
     os.makedirs(".devflow", exist_ok=True)
@@ -553,6 +557,70 @@ def status_workspace():
     print(f"- tasks: {len([t for t in tasks if t.endswith('.md')])}")
     for key in ("PENDING", "CLAIMED", "PREVIEWED", "RUNNING", "COMPLETED", "FAILED", "BLOCKED"):
         print(f"- {key.lower()}: {statuses[key]}")
+
+
+def artifact_list(task_id: str) -> None:
+    """Print artifact metadata for one task."""
+    records = list_artifacts(task_id)
+    if not records:
+        print(f"No artifacts found for task {task_id}.")
+        return
+
+    for record in records:
+        metadata = record.metadata
+        print(
+            f"{record.sequence:03d} {metadata.get('artifact_id', '')} "
+            f"{metadata.get('artifact_type', '')} "
+            f"role={metadata.get('role', '')} "
+            f"created_at={metadata.get('created_at', '')} "
+            f"apply={metadata.get('apply_status', '')} "
+            f"verify={metadata.get('verification_status', '')}"
+        )
+
+
+def artifact_inspect(identifier: str) -> None:
+    """Print metadata and body location for one artifact."""
+    record = find_artifact(identifier)
+    metadata, _ = read_artifact(record.metadata_path)
+    print(json.dumps(metadata, indent=2, sort_keys=True))
+
+
+def context_refresh() -> None:
+    """Refresh deterministic repository maps under .devflow/context."""
+    paths = refresh_repo_maps()
+    print("repo maps refreshed")
+    for name in ("short", "symbols", "deps"):
+        print(f"{name}: {paths[name]}")
+
+
+def context_build(task_file: str, role: str, budget: int | None = None) -> None:
+    """Build and store a context pack artifact for one task and role."""
+    record = build_context_pack(task_file, role=role, token_budget=budget)
+    summary = inspect_context_pack(record.artifact_id)
+    print(f"context_pack_id: {summary['context_pack_id']}")
+    print(f"artifact_id: {record.artifact_id}")
+    print(f"body_path: {record.body_path}")
+    print(f"token_estimate: {summary['token_estimate']}/{summary['token_budget']}")
+
+
+def context_inspect(identifier: str) -> None:
+    """Print a context pack summary by artifact id or path."""
+    print(json.dumps(inspect_context_pack(identifier), indent=2, sort_keys=True))
+
+
+def context_list(task_id: str) -> None:
+    """List context-pack artifacts for one task."""
+    records = list_context_packs(task_id)
+    if not records:
+        print(f"No context packs found for task {task_id}.")
+        return
+    for record in records:
+        summary = inspect_context_pack(record.artifact_id)
+        print(
+            f"{record.sequence:03d} {record.artifact_id} "
+            f"{summary['context_pack_id']} role={summary['role']} "
+            f"tokens={summary['token_estimate']}/{summary['token_budget']}"
+        )
 
 
 def run_task(task_file: str, yes: bool = False):
@@ -764,6 +832,31 @@ def main():
     run_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
     run_parser.add_argument("--yes", action="store_true", help="Apply the patch after validation")
 
+    artifact_parser = subparsers.add_parser("artifact", help="Inspect and list task artifacts")
+    artifact_subparsers = artifact_parser.add_subparsers(dest="artifact_command")
+
+    artifact_list_parser = artifact_subparsers.add_parser("list", help="List artifacts for a task")
+    artifact_list_parser.add_argument("task_id", type=str, help="Task id, e.g. T-042")
+
+    artifact_inspect_parser = artifact_subparsers.add_parser("inspect", help="Inspect one artifact")
+    artifact_inspect_parser.add_argument("identifier", type=str, help="Artifact id, metadata path, or body path")
+
+    context_parser = subparsers.add_parser("context", help="Build and inspect bounded context packs")
+    context_subparsers = context_parser.add_subparsers(dest="context_command")
+
+    context_subparsers.add_parser("refresh", help="Refresh repository maps under .devflow/context")
+
+    context_build_parser = context_subparsers.add_parser("build", help="Build a context pack artifact")
+    context_build_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
+    context_build_parser.add_argument("--role", required=True, help="Worker role, e.g. reviewer or implementer")
+    context_build_parser.add_argument("--budget", type=int, help="Token budget override")
+
+    context_inspect_parser = context_subparsers.add_parser("inspect", help="Inspect a context pack")
+    context_inspect_parser.add_argument("identifier", type=str, help="Context artifact id, metadata path, or body path")
+
+    context_list_parser = context_subparsers.add_parser("list", help="List context packs for a task")
+    context_list_parser.add_argument("task_id", type=str, help="Task id, e.g. T-042")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -806,6 +899,24 @@ def main():
             task_parser.print_help()
     elif args.command == "run":
         run_task(args.task_file, yes=args.yes)
+    elif args.command == "artifact":
+        if args.artifact_command == "list":
+            artifact_list(args.task_id)
+        elif args.artifact_command == "inspect":
+            artifact_inspect(args.identifier)
+        else:
+            artifact_parser.print_help()
+    elif args.command == "context":
+        if args.context_command == "refresh":
+            context_refresh()
+        elif args.context_command == "build":
+            context_build(args.task_file, role=args.role, budget=args.budget)
+        elif args.context_command == "inspect":
+            context_inspect(args.identifier)
+        elif args.context_command == "list":
+            context_list(args.task_id)
+        else:
+            context_parser.print_help()
     else:
         parser.print_help()
 
