@@ -38,3 +38,24 @@ class TestOllamaAdapter(unittest.TestCase):
         )
         self.assertIn("approved", res)
 
+
+class TestJSONRepair(unittest.TestCase):
+    def test_repair_clean_json(self):
+        from devflow.agents.schemas import repair_and_parse_json
+        data = repair_and_parse_json('{"status": "ready"}')
+        self.assertEqual(data["status"], "ready")
+
+    def test_repair_markdown_wrapped_json(self):
+        from devflow.agents.schemas import repair_and_parse_json
+        raw = "```json\n{\n  \"status\": \"ready\"\n}\n```"
+        data = repair_and_parse_json(raw)
+        self.assertEqual(data["status"], "ready")
+
+    def test_repair_truncated_json(self):
+        from devflow.agents.schemas import repair_and_parse_json
+        # Unterminated string inside diff, unclosed brackets/braces
+        raw = '{"status": "ready", "diff": "diff --git a/a b/a\\n+added line'
+        data = repair_and_parse_json(raw)
+        self.assertEqual(data["status"], "ready")
+        self.assertEqual(data["diff"], "diff --git a/a b/a\n+added line")
+

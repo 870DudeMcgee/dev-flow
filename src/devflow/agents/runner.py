@@ -7,7 +7,7 @@ from devflow.artifacts import write_artifact, read_artifact, ArtifactRecord
 from devflow.manager import parse_task_file
 from devflow.agents.profiles import load_agent_profile
 from devflow.agents import ollama
-from devflow.agents.schemas import validate_review_result, validate_diff_result, validate_repair_result
+from devflow.agents.schemas import validate_review_result, validate_diff_result, validate_repair_result, repair_and_parse_json
 from devflow.safety import scan_diff_for_hazards
 from devflow.failures import serialize_failure, retry_budget_for
 from devflow.manager import extract_unified_diff
@@ -83,7 +83,7 @@ def run_implement_agent(task_file: str, profile_name: str = "implementer", cwd: 
             
     if response_text is not None:
         try:
-            diff_data = json.loads(response_text)
+            diff_data = repair_and_parse_json(response_text)
             validate_diff_result(diff_data)
             
             diff_text = diff_data.get("diff", "")
@@ -198,7 +198,7 @@ def run_review_agent(task_file: str, profile_name: str = "reviewer", cwd: str = 
             
     if response_text is not None:
         try:
-            review_data = json.loads(response_text)
+            review_data = repair_and_parse_json(response_text)
             validate_review_result(review_data)
         except Exception as exc:
             review_data = {
@@ -298,7 +298,7 @@ def _query_repair_model(task_file: str, diff_text: str, failure_dict: dict, cwd:
             
     if response_text is not None:
         try:
-            repair_data = json.loads(response_text)
+            repair_data = repair_and_parse_json(response_text)
             validate_repair_result(repair_data)
             return repair_data.get("diff", "")
         except Exception:
