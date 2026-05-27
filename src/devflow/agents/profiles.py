@@ -49,18 +49,21 @@ def load_agent_profile(role: str, cwd: str = ".") -> AgentProfile:
             except Exception:
                 pass
 
+    # Local Ollama tokens are FREE — be generous. The orchestrator (cloud) stays lean
+    # by only writing skill names in the task packet; the local runner loads full skill
+    # content at dispatch time. Budgets: (max_input_tokens, max_output_tokens, temperature)
     budgets = {
-        "cartographer": (4000, 1000, 0.2),
-        "reviewer": (6000, 2000, 0.2),
-        "implementer": (12000, 4000, 0.0),
-        "test_writer": (8000, 2500, 0.2),
-        "repair": (4000, 2000, 0.3),
-        "syntax_repair": (4000, 2000, 0.1),
-        "import_repair": (4000, 2000, 0.1),
-        "test_repair": (6000, 3000, 0.2),
-        "lint_repair": (4000, 1000, 0.1),
-        "type_repair": (6000, 2000, 0.2),
-        "summarizer": (3000, 1000, 0.2)
+        "cartographer": (8000, 2000, 0.2),
+        "reviewer": (24000, 6000, 0.2),
+        "implementer": (32000, 8000, 0.0),
+        "test_writer": (24000, 6000, 0.2),
+        "repair": (16000, 6000, 0.3),
+        "syntax_repair": (16000, 4000, 0.1),
+        "import_repair": (16000, 4000, 0.1),
+        "test_repair": (24000, 8000, 0.2),
+        "lint_repair": (16000, 4000, 0.1),
+        "type_repair": (24000, 6000, 0.2),
+        "summarizer": (8000, 2000, 0.2)
     }
     
     max_in, max_out, temp = budgets.get(role, (6000, 2000, 0.2))

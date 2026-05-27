@@ -1,19 +1,40 @@
 # GitHub Copilot Instructions
 
-This repository uses the **Devflow Software Factory** workflow.
+This repository is being rebuilt into a simpler product: a local-first control room for parallel AI coding workers.
 
-Before making non-trivial code changes:
+Do not use the archived legacy workflow as the process authority for this rebuild.
 
-1. Read `AGENTS.md`.
-2. Follow `.devflow/workflow/DEVFLOW_WORKFLOW.md` if the task involves code, tests, refactors, architecture, or bug fixes.
-3. Use the smallest sufficient context.
-4. Do not scan the entire repository unless the task requires architecture-level analysis.
-5. Prefer task packets in `.devflow/tasks/`.
-6. Prefer red/green/repair for behavior changes.
-7. Emit minimal diffs.
-8. Run or request verification.
-9. Finish with a report.
+## Active Source Of Truth
 
-Do not perform unrelated cleanup.
-Do not change protected files without explicit user approval.
-Do not claim tests passed unless they were actually run.
+Read [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md) before implementation decisions and check your plan against its Periodic Self-Check section. If a proposed change does not move Dev-Flow toward the North Star, do not implement it.
+
+Read [docs/control-room-mvp.md](../docs/control-room-mvp.md) before non-trivial code changes.
+
+## Working Rules
+
+- Prefer direct implementation over ceremonial workflow.
+- Do not create legacy `.devflow/tasks/*.md` task files unless the user explicitly asks.
+- Do not follow archived staged-workflow rituals.
+- Do not delegate implementation to old local-model agent commands.
+- Preserve useful code only when it supports the new control-room MVP.
+- Keep unrelated dirty worktree changes intact.
+- Verify with the narrowest useful command and report what actually ran.
+
+## First Milestone
+
+Implement a non-AI control room with shell workers only.
+
+Required commands:
+
+```bash
+devflow init
+devflow doctor
+devflow task create "title"
+devflow task list
+devflow task show <task_id>
+devflow task run <task_id> --worker shell -- <command>
+devflow task verify <task_id> -- <command>
+devflow dashboard
+```
+
+Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, or model routing yet.

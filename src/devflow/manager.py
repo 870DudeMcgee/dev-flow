@@ -98,11 +98,14 @@ def build_task_template(
     allowed_files: List[str] | None = None,
     touched_files: List[str] | None = None,
     verification_commands: List[str] | None = None,
+    skills: List[str] | None = None,
 ) -> str:
     allowed_files = allowed_files or []
     touched_files = touched_files or []
     verification_commands = verification_commands or []
+    skills = skills or []
     branch = branch or f"devflow/task-{task_id}-{agent}" if agent else f"devflow/task-{task_id}"
+    skills_block = _list_block(skills) if skills else ""
 
     return f"""# Task: {task_id} - {title}
 Status: PENDING
@@ -114,6 +117,8 @@ Risk: {risk}
 Branch: {branch}
 Touched Files:
 {_list_block(touched_files)}
+Skills:
+{skills_block}
 
 ## 1. Objective
 
@@ -183,6 +188,7 @@ def parse_task_file(content: str) -> Dict[str, object]:
         "risk": "LOW",
         "branch": "",
         "touched_files": [],
+        "skills": [],
         "transitions": [],
     }
 
@@ -221,6 +227,10 @@ def parse_task_file(content: str) -> Dict[str, object]:
             current_header_list = "touched_files"
             if value:
                 metadata["touched_files"].append(value.strip("`"))
+        elif normalized == "skills":
+            current_header_list = "skills"
+            if value:
+                metadata["skills"].append(value.strip("`"))
         elif normalized == "transitions":
             current_header_list = "transitions"
             if value:
@@ -257,6 +267,8 @@ def parse_task_file(content: str) -> Dict[str, object]:
         "failure_handling": sections["failure_handling"],
         "execution_results": sections["execution_results"],
         "final_report": sections["final_report"],
+        # skills is already in metadata; surface it at the top level for convenience
+        "skills": metadata.get("skills", []),
     }
 
 

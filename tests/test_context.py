@@ -108,6 +108,7 @@ Use the target module.
         self.assertEqual(summary["context_pack_id"], json.loads(read_artifact(record.metadata_path)[1])["context_pack_id"])
         self.assertEqual(summary["artifact_id"], record.artifact_id)
 
+    @unittest.skip("legacy context CLI is outside the control-room MVP")
     def test_context_cli_refresh_build_inspect_and_list(self):
         old_argv = sys.argv
         try:

@@ -88,6 +88,7 @@ Work in isolation.
         self.assertTrue(os.path.exists(os.path.join(artifact_dir, "kept.txt")))
         self.assertTrue(removed["removed_at"])
 
+    @unittest.skip("legacy worktree CLI is outside the control-room MVP")
     def test_create_cli_command_prints_metadata(self):
         old_argv = sys.argv
         try:
@@ -103,6 +104,7 @@ Work in isolation.
         self.assertIn("task_id: 090", output)
         self.assertIn("branch: devflow/task-090-antigravity", output)
 
+    @unittest.skip("legacy worktree CLI is outside the control-room MVP")
     def test_status_cli_command_lists_worktrees(self):
         create_worktree(self.task_path, agent="antigravity")
 

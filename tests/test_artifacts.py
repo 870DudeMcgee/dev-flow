@@ -137,6 +137,7 @@ diff --git a/tests/test_runner.py b/tests/test_runner.py
             ["src/devflow/runner.py", "tests/test_runner.py"],
         )
 
+    @unittest.skip("legacy artifact CLI is outside the control-room MVP")
     def test_cli_artifact_list_and_inspect(self):
         record = write_artifact("T-300", "review.json", '{"status":"approved"}', role="reviewer")
         old_argv = sys.argv

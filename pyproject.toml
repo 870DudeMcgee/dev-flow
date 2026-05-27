@@ -5,10 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "devflow"
 version = "0.1.0"
-description = "A safe, file-based unified-diff task runner for AI development workflows."
+description = "A local-first control room for shell-worker AI development workflows."
 readme = "docs/agent-handoff.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+	"fastapi>=0.136",
+	"httpx>=0.28",
+	"pydantic>=2.13",
+	"typer>=0.26",
+	"uvicorn>=0.48",
+]
 
 [project.scripts]
 devflow = "devflow.cli:main"

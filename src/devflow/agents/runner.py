@@ -8,6 +8,7 @@ from devflow.manager import parse_task_file
 from devflow.agents.profiles import load_agent_profile
 from devflow.agents import ollama
 from devflow.agents.schemas import validate_review_result, validate_diff_result, validate_repair_result, repair_and_parse_json
+from devflow.agents.skills import load_skill_content
 from devflow.safety import scan_diff_for_hazards
 from devflow.failures import serialize_failure, retry_budget_for
 from devflow.manager import extract_unified_diff
@@ -44,19 +45,83 @@ def run_implement_agent(task_file: str, profile_name: str = "implementer", cwd: 
     task_id = str(task.get("task_id", "unknown"))
 
     # 3. Formulate system instruction and prompt
+    task_skills = list(task.get("skills", []))
+    injected_skills = load_skill_content(task_skills, cwd=cwd)
+
+    # Full CSS design token catalog from public/styles.css — embed verbatim so the
+    # model has zero excuse to invent colours or override these values.
+    CSS_DESIGN_TOKENS = """\
+ACTIVE SITE DESIGN SYSTEM (public/styles.css)
+==============================================
+:root {
+    --bg-dark: #030712;
+    --bg-card: rgba(15, 19, 26, 0.4);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent-indigo: #6366f1;
+    --accent-purple: hsl(263, 85%, 65%);
+    --accent-indigo-glow: hsl(217, 91%, 60%);
+    --accent-green: #10b981;
+    --accent-red: #ef4444;
+    --font-sans: 'Inter', sans-serif;
+    --font-heading: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+Theme: Dark glassmorphism. Background is near-black (#030712). Cards use
+rgba(15,19,26,0.4) with backdrop-filter:blur(20px) and border
+rgba(255,255,255,0.08). Primary accent is indigo (#6366f1)."""
+
+    # Explicit anti-pattern blacklist — these are exact patterns produced by
+    # previous model runs that violated the design system.
+    ANTI_PATTERNS = """\
+PROHIBITED PATTERNS (automatic BLOCKING finding if any appear in your output):
+  ✗ background: #e6f7ff          — light blue, violates dark theme
+  ✗ background: white            — violates dark theme
+  ✗ background: #fff             — violates dark theme
+  ✗ background-color: white      — violates dark theme
+  ✗ color: #222                  — dark text on light bg, violates dark theme
+  ✗ color: #333                  — same violation
+  ✗ border-left: ... solid blue  — unthemed border colour
+  ✗ border-left: 4px solid #1890ff — exact violation from previous run
+  ✗ <style> tags injected inline  — no inline <style> blocks, use classes
+  ✗ style="background:..."        — no inline style attributes for colour
+  ✗ style="color:..."             — no inline style attributes for colour
+  ✗ Orphaned </div> closing tags  — every <div> must have a matching opener
+  ✗ Inter, Roboto, or Arial fonts — use --font-heading / --font-sans / --font-mono
+  ✗ Generic SaaS gradients (purple→blue on white) — already have a dark theme"""
+
+    skill_section = (
+        f"\n=== INJECTED SKILLS ===\n{injected_skills}\n=== END INJECTED SKILLS ===\n"
+        if injected_skills else ""
+    )
+
     system_instruction = (
-        "You are an expert Software Engineer. Analyze the task contract and context "
-        "and provide code modifications (as a unified diff) in strict JSON format.\n\n"
-        "=== WEB APP AESTHETICS & QUALITY PROTOCOLS ===\n"
+        "You are an expert Software Engineer and Frontend Designer. Analyze the task "
+        "contract and context and provide code modifications (as a unified diff) in "
+        "strict JSON format.\n"
+        + skill_section
+        + "\n=== ACTIVE SITE DESIGN SYSTEM ===\n"
+        + CSS_DESIGN_TOKENS
+        + "\n\n=== WEB APP AESTHETICS & QUALITY PROTOCOLS ===\n"
         "When modifying HTML, CSS, or JS files:\n"
-        "1. VISUAL EXCELLENCE: Prioritize stunning, premium, modern aesthetics (glassmorphism, clean layouts, vibrant harmonized HSL color scales).\n"
-        "2. DESIGN TOKENS: Adhere strictly to the theme and CSS variables (e.g., var(--bg-dark), var(--accent-indigo), var(--border-color)) defined in the core stylesheet. Do not use generic plain colors (e.g., #e6f7ff or solid blue).\n"
-        "3. STRUCTURAL INTEGRITY & TAG CLEANLINESS: Every opened HTML tag MUST be closed correctly. Absolutely NO structural tag soup (unclosed <div>, <span>, or duplicate </nav></header> elements).\n"
-        "4. NO PLACEHOLDERS: Implement complete, functional elements. Avoid dummy notes; write meaningful, cohesive UI copy.\n\n"
-        "=== CRITICAL UNIFIED DIFF PROTOCOLS ===\n"
+        "1. VISUAL EXCELLENCE: Prioritize stunning, premium dark-mode glassmorphism aesthetics. "
+        "Use the design token variables above — never invent raw hex colours or inline styles.\n"
+        "2. DESIGN TOKENS: ALL colours MUST use var(--...) CSS variables from the :root block above. "
+        "Do NOT use any hardcoded colour values (#e6f7ff, #1890ff, white, #222, etc.).\n"
+        "3. STRUCTURAL INTEGRITY & TAG CLEANLINESS: Every opened HTML tag MUST be closed correctly "
+        "in the same diff chunk. NO orphaned closing tags, NO tag soup, NO unclosed <div>/<span>.\n"
+        "4. NO INLINE STYLES FOR THEME: Do not inject <style> blocks or style=\"...\" attributes "
+        "for colours. Use existing CSS classes (.glass, .card, .btn-primary, etc.).\n"
+        "5. NO PLACEHOLDERS: Implement complete, functional elements with real UI copy.\n\n"
+        "=== ANTI-PATTERN BLACKLIST ===\n"
+        + ANTI_PATTERNS
+        + "\n\n=== CRITICAL UNIFIED DIFF PROTOCOLS ===\n"
         "1. FORMAT: Your diff must be a standard git unified diff.\n"
-        "2. ACCURACY: The surrounding context lines (lines starting with ' ') MUST match the target files EXACTLY, character-for-character including indentation.\n"
-        "3. PATHS: Header paths must match the target files (e.g., --- public/index.html, +++ public/index.html).\n"
+        "2. ACCURACY: The surrounding context lines (lines starting with ' ') MUST match "
+        "the target files EXACTLY, character-for-character including indentation.\n"
+        "3. PATHS: Header paths must match the target files (e.g., --- public/index.html, "
+        "+++ public/index.html).\n"
         "4. NO TRUNCATION: Do not truncate code blocks or omit required lines inside diff chunks.\n\n"
         "=== OUTPUT SCHEMA ===\n"
         "Do not return markdown, only output raw JSON matching the diff_result schema:\n"
@@ -163,14 +228,31 @@ def run_review_agent(task_file: str, profile_name: str = "reviewer", cwd: str = 
     task_id = str(task.get("task_id", "unknown"))
 
     # 3. Formulate system instruction and prompt
+    task_skills = list(task.get("skills", []))
+    injected_skills = load_skill_content(task_skills, cwd=cwd)
+    skill_section = (
+        f"\n=== INJECTED SKILLS ===\n{injected_skills}\n=== END INJECTED SKILLS ===\n"
+        if injected_skills else ""
+    )
+
     system_instruction = (
-        "You are an expert Staff Code Reviewer. Analyze the task contract and context "
-        "and provide a structured review in strict JSON format. Do not return markdown, "
-        "only output raw JSON matching the review_result schema:\n\n"
-        "=== STRICT REVIEW STANDARDS ===\n"
-        "1. WEB QUALITY & DESIGN AUDIT: Flag any structural HTML violations (tag-soup, unclosed tags), poor styling (avoiding defined CSS variables), or placeholder text as BLOCKING findings.\n"
-        "2. DIFF VALIDITY: Verify that the proposed unified diff has exact context matches and valid git diff headers.\n"
-        "3. SCOPE GATES: Verify that the diff touches only allowed paths and does not introduce scope creep.\n\n"
+        "You are an expert Staff Code Reviewer and Frontend Design Auditor. Analyze the "
+        "task contract and context and provide a structured review in strict JSON format. "
+        "Do not return markdown, only output raw JSON matching the review_result schema.\n"
+        + skill_section
+        + "\n=== STRICT REVIEW STANDARDS ===\n"
+        "1. SKILL COMPLIANCE: If skills were injected above, verify the implementation "
+        "follows ALL rules defined in those skills. Any violation is a BLOCKING finding.\n"
+        "2. WEB QUALITY & DESIGN AUDIT: Flag ALL of the following as BLOCKING findings:\n"
+        "   - Hardcoded colour values (#e6f7ff, #1890ff, white, #222, etc.) instead of CSS vars\n"
+        "   - Inline <style> blocks or style=\"color:...\" / style=\"background:...\" attributes\n"
+        "   - Unclosed HTML tags, orphaned closing tags, or tag-soup structure\n"
+        "   - Placeholder text or dummy copy\n"
+        "   - Inter/Roboto/Arial fonts (must use --font-heading, --font-sans, --font-mono)\n"
+        "3. DIFF VALIDITY: Verify that the proposed unified diff has exact context matches "
+        "and valid git diff headers.\n"
+        "4. SCOPE GATES: Verify that the diff touches only allowed paths and does not "
+        "introduce scope creep.\n\n"
         "=== OUTPUT SCHEMA ===\n"
         "{\n"
         "  \"status\": \"approved\" | \"changes_requested\" | \"blocked\",\n"
@@ -277,13 +359,34 @@ def _query_repair_model(task_file: str, diff_text: str, failure_dict: dict, cwd:
     context_record = build_context_pack(task_file, role=profile.role, cwd=cwd)
     _, context_body = read_artifact(os.path.join(cwd, context_record.metadata_path))
     
+    # Parse task file to extract declared skills for injection
+    with open(os.path.join(cwd, task_file), "r", encoding="utf-8") as handle:
+        raw_task = handle.read()
+    task = parse_task_file(raw_task)
+
+    task_skills = list(task.get("skills", []))
+    injected_skills = load_skill_content(task_skills, cwd=cwd)
+    skill_section = (
+        f"\n=== INJECTED SKILLS ===\n{injected_skills}\n=== END INJECTED SKILLS ===\n"
+        if injected_skills else ""
+    )
+
+
     system_instruction = (
-        "You are an expert Software Engineer specializing in code repair. Analyze the task, the failing diff, "
-        "and the verification failure log, and return an improved corrected unified diff in strict JSON format.\n\n"
-        "=== REPAIR INSTRUCTIONS ===\n"
-        "1. IDENTIFY ROOT CAUSE: Analyze the failure classification (e.g., SYNTAX_ERROR, TEST_FAILURE) and error output to locate the precise bug.\n"
-        "2. PRESERVE DESIGN QUALITY: Ensure the repaired code preserves visual excellence, uses CSS variables, and maintains clean, closed HTML structures. Fix any visual tag-soup or layout errors.\n"
-        "3. PRECISION DIFFING: The repaired diff must be a syntactically correct unified diff with exact context matching to apply cleanly without offset or rejects.\n\n"
+        "You are an expert Software Engineer specializing in code repair. Analyze the "
+        "task, the failing diff, and the verification failure log, and return an improved "
+        "corrected unified diff in strict JSON format.\n"
+        + skill_section
+        + "\n=== REPAIR INSTRUCTIONS ===\n"
+        "1. IDENTIFY ROOT CAUSE: Analyze the failure classification (e.g., SYNTAX_ERROR, "
+        "TEST_FAILURE) and error output to locate the precise bug.\n"
+        "2. PRESERVE SKILL CONSTRAINTS: If skills were injected above, the repaired code MUST "
+        "continue to satisfy all rules in those skills. Do NOT introduce light-mode colours, "
+        "inline styles, or unclosed tags while repairing.\n"
+        "3. PRESERVE DESIGN QUALITY: Use CSS variable tokens (var(--bg-dark), var(--accent-indigo), "
+        "etc.). Never use hardcoded colours (#e6f7ff, white, #222). Maintain clean tag closure.\n"
+        "4. PRECISION DIFFING: The repaired diff must be a syntactically correct unified diff with "
+        "exact context matching to apply cleanly without offset or rejects.\n\n"
         "=== OUTPUT SCHEMA ===\n"
         "Do not return markdown, only output raw JSON matching the repair_result schema:\n"
         "{\n"

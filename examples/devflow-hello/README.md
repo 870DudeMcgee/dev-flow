@@ -1,12 +1,12 @@
-# Devflow Hello Test Project
+# Devflow Hello Example
 
-This is the smallest runnable project for proving the Devflow workflow from an orchestrator lane.
-
-It is intentionally dependency-free:
+This dependency-free example is retained as a small Python smoke project:
 
 ```bash
 python3 examples/devflow-hello/hello.py
 python3 examples/devflow-hello/test_hello.py
 ```
 
-Use it when checking that an agent can create a task packet, claim ownership, make a tiny behavior change, verify it, and report the result without touching the main package.
+The old workflow README for this example was archived under `docs/archive/legacy-devflow-software-factory-2026-05-27/examples/devflow-hello/README.md`.
+
+Use this example only as simple Python fixture material unless it is adapted for the new shell-worker control-room MVP.

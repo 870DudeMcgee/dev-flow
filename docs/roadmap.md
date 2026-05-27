@@ -2,93 +2,135 @@
 
 ## Strategic Direction
 
-- devflow should become the deterministic control plane for bounded AI software engineering across Codex, Claude Code, Copilot, Cline, Antigravity, OpenCode, local Ollama models, humans, and future tools.
-- Current strategic source of truth: `docs/superpowers/specs/2026-05-27-devflow-agentic-control-plane-spec.md`.
-- Current implementation source of truth: `docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md`.
-- Core design rule: local and cloud workers produce schema-validated artifacts; only devflow may preview, apply, verify, rollback, and report repository mutations.
-- VS Code/Copilot users can invoke the workflow through the single workspace `/devflow` skill, backed by `.github/skills/devflow/SKILL.md` and mode references under `.github/skills/devflow/references/`.
-- `examples/devflow-hello/` provides a tiny dependency-free project for proving task claim, implementation, verification, and reporting loops.
+Dev-Flow is a local-first control room for parallel AI coding workers.
 
-## MVP (Current)
+The rebuild starts from a smaller foundation than the previous software-factory design:
 
-- Canonical .devflow tree initialization
-- peer orchestrator coordination model (Codex, VS Code/Copilot, Antigravity)
-- per-task ownership and touched-file declarations
-- task claim/release/status commands
-- task new command and canonical examples
-- peer orchestrator templates in .devflow/orchestrators
-- Task schema parsing (sections 1..10)
-- Unified diff detection/apply flow
-- Protected-file gating
-- Checkpoint branch creation
-- Verification command selection (config -> auto-detect)
-- Failure classification and retry budget handling
-- Rollback behavior
-- Per-task report generation
-- Rich report audit trail
-- Artifact kernel with metadata/body storage, hashing, lineage fields, list command, and inspect command
-- Context pack compiler with deterministic repo maps and context pack artifacts
-- Review-only worker adapter with local profile loading, Ollama invocation, review result validation, and review artifacts
-- Diff-only implementer artifacts with deterministic diff validation and guard scanning
-- Failure classification and bounded repair worker command surface
-- TDD state transitions and structured verification recipes
-- Task DAG and impact analysis commands
-- Trace and eval command surface for harness evidence
-- Worktree-native parallelism with explicit create/status/remove commands and metadata
-- Architectural memory invalidation with memory list/add/inspect commands and context-pack stale-memory exclusion
-- VS Code/Copilot workspace skill discovery through `/devflow`
-- Minimal hello-world workflow smoke project under `examples/devflow-hello/`
-- Status command
-- Future model routing documented as post-MVP only
+- workers are replaceable
+- state is sacred
+- each task gets an isolated workspace
+- dashboard visibility is required early
+- context and results are durable artifacts
+- autonomy is earned through reliability
 
-## Stabilization Queue
+Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
-- no open MVP stabilization items
+North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
-Completed:
-- package metadata and CLI entrypoint
-- editable install verified with Homebrew Python 3.12
-- local macOS/Homebrew startup hang repaired by restarting `syspolicyd`
-- local Python `pyexpat` linkage repaired for Homebrew Python 3.12 and 3.14
-- local `.venv` editable-import path repaired by clearing macOS hidden flags
-- task ownership metadata parsing and reporting
-- shared-folder dirty-state guardrails
-- run approval policy: preview by default, `--yes` applies
-- glob-aware allowed-file checks
-- config default alignment
-- checkpoint-based rollback semantics
-- best-effort plan status mirroring
-- local worker health-check runbook authored
-- smoke integration proving goal/plan/task pack authored
-- smoke integration proving run executed end-to-end (claim, preview, apply, verify, report)
-- proving edge case documented: trailing blank-context diff hunks can be corrupted by extraction whitespace trimming
-- proving edge case documented: same-second preview/apply checkpoint branch collision can require immediate retry
-- agentic control plane Phase 1 artifact kernel implemented with `devflow artifact list` and `devflow artifact inspect`
-- artifact schema packaged under `src/devflow/schemas/artifact.schema.json`
-- agentic control plane Phase 2 context pack compiler implemented with `devflow context refresh/build/inspect/list`
-- repo maps generated as `.devflow/context/repo-map.short.md`, `.devflow/context/repo-map.symbols.json`, and `.devflow/context/repo-map.deps.json`
-- agentic control plane Phase 3 review-only worker adapter implemented with `devflow agent review`
-- review output is schema-validated and stored as non-mutating `review.json` artifacts
-- agentic control plane Phase 4 diff-only implementer stores schema-validated diff artifacts and supports `devflow guard scan-diff`
-- agentic control plane Phase 5 repair loop stores failure and repair artifacts without direct repo mutation
-- agentic control plane Phase 6 TDD transitions and structured verification recipes are implemented
-- agentic control plane Phase 7 task DAG and impact analysis commands are implemented
-- agentic control plane Phase 8 traces and deterministic evals are implemented
-- agentic control plane Phase 9 worktree-native parallelism is implemented with `devflow worktree create/status/remove`
-- agentic control plane Phase 10 memory invalidation engine is implemented with `.devflow/memory/` records, post-apply staling, and context-pack filtering
-- CLI decomposition objective is completed: `src/devflow/cli.py` is now parser/dispatch oriented with command logic extracted into focused modules (`task_commands.py`, `runner.py`, `worktree_commands.py`, `trace_eval_commands.py`, `resource_commands.py`, `admin_commands.py`, `lifecycle_commands.py`)
+Legacy archive: [docs/archive/legacy-devflow-software-factory-2026-05-27/README.md](archive/legacy-devflow-software-factory-2026-05-27/README.md)
 
-## Next Milestone
+## Phase 0: Documentation Reset
 
-- local AI dev team integration execution (Codex, VS Code/Copilot, Antigravity + local workers)
-- thin local dispatcher contract and health-check runbook
-- end-to-end integration proving project (`smoke-multi-agent-todo-cli`)
-- VS Code/Copilot-only audit handoff pass for smoke proving artifacts
-- devflow plan command
-- richer goal/plan/task lifecycle commands
-- stronger peer orchestrator federation automation
-- shared local model worker pool policies
-- richer risk scoring and approval policy
-- failure route targets to specialized agents
-- context/index automation
-- richer report artifacts and dashboards
+Goal: stop the old workflow docs from steering future implementation.
+
+Done when:
+
+- legacy workflow docs are archived
+- README, roadmap, handoff, AGENTS, and Copilot instructions point at the new MVP
+- old active instruction hooks are removed or rewritten
+- files to keep, bypass, create, and first patch are documented
+
+## Phase 1: Core State And CLI
+
+Goal: initialize Dev-Flow, create tasks, and show status.
+
+Commands:
+
+```bash
+devflow init
+devflow doctor
+devflow task create "title"
+devflow task list
+devflow task show <task_id>
+```
+
+Acceptance:
+
+- `.devflow/devflow.db` exists
+- `.devflow/config.yaml` exists
+- task artifact directories are created
+- CLI shows task state from SQLite and task files
+
+## Phase 2: Shell Worker Loop
+
+Goal: prove orchestration without AI.
+
+Command:
+
+```bash
+devflow task run <task_id> --worker shell -- <command>
+```
+
+Acceptance:
+
+- command runs in the assigned workspace
+- worker log is captured
+- result artifact is written
+- success, failure, and timeout statuses are accurate
+
+## Phase 3: Dashboard
+
+Goal: make the control room visible.
+
+Command:
+
+```bash
+devflow dashboard
+```
+
+Acceptance:
+
+- browser shows tasks, status, worker, latest log line, result path, and timestamps
+- page auto-refreshes
+- no frontend build tooling is required
+
+## Phase 4: Workspace Isolation
+
+Goal: ensure one task gets one safe workspace.
+
+Status: first slice implemented. Task creation now creates a real git worktree when the repo has a valid `HEAD`, with a directory fallback for non-git runtimes.
+
+Acceptance:
+
+- each task has an isolated worktree or workspace path
+- main checkout is untouched by workers
+- conflicting edits are detected later at review or merge readiness, not during worker execution
+
+## Phase 5: MVP Acceptance Gauntlet
+
+Create three shell tasks:
+
+1. one succeeds
+2. one fails
+3. one times out
+
+Pass when the CLI and dashboard show all three accurately with logs and no manual detective work.
+
+## Phase 6: Verification And Merge Readiness
+
+Goal: make Dev-Flow own verification evidence before work can be considered merge-ready.
+
+Status: first slice implemented with:
+
+```bash
+devflow task verify <task_id> -- <command>
+```
+
+Acceptance:
+
+- verification runs inside the task workspace
+- `logs/verify.log` is written
+- CLI and dashboard show verification status
+- only completed tasks with passing verification are marked merge-ready
+
+## Later, Not Now
+
+- Aider adapter
+- Hermes supervisor
+- OpenCode adapter
+- dependency scheduler
+- question resume flow
+- protected path gates
+- model routing
+- memory
+- PR automation
