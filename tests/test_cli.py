@@ -275,6 +275,91 @@ Claim from CLI.
         self.assertIn("Owner Lock: antigravity-team", updated)
         self.assertIn("- src/devflow/cli.py", updated)
 
+    def test_task_claim_cli_command_space_separated_touch(self):
+        init_workspace()
+        task_path = ".devflow/tasks/015_cli_claim_space.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 015 - CLI Claim Space
+Status: PENDING
+
+## 1. Objective
+Claim from CLI with space-separated touch paths.
+""")
+
+        old_argv = sys.argv
+        try:
+            sys.argv = [
+                "devflow",
+                "task",
+                "claim",
+                task_path,
+                "--agent",
+                "antigravity",
+                "--lock",
+                "antigravity-team",
+                "--touch",
+                "src/devflow/cli.py",
+                "tests/test_cli.py",
+            ]
+            main()
+        finally:
+            sys.argv = old_argv
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            updated = handle.read()
+        self.assertIn("Status: CLAIMED", updated)
+        self.assertIn("- src/devflow/cli.py", updated)
+        self.assertIn("- tests/test_cli.py", updated)
+
+    def test_task_new_cli_command_space_separated_args(self):
+        init_workspace()
+        task_path = ".devflow/tasks/020_new_space_separated.md"
+        if os.path.exists(task_path):
+            os.remove(task_path)
+
+        old_argv = sys.argv
+        try:
+            sys.argv = [
+                "devflow",
+                "task",
+                "new",
+                "020",
+                "Add Task Space Separated",
+                "--goal",
+                "001_devflow_mvp",
+                "--plan",
+                "001.plan.json",
+                "--agent",
+                "codex",
+                "--allowed",
+                "src/devflow/**",
+                "tests/...",
+                "--touch",
+                "src/devflow/cli.py",
+                "tests/test_cli.py",
+                "--verify",
+                "pytest tests/",
+                "flake8 src/",
+                "--output",
+                task_path,
+                "--force",
+            ]
+            main()
+        finally:
+            sys.argv = old_argv
+
+        with open(task_path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn("Status: PENDING", content)
+        self.assertIn("Goal: 001_devflow_mvp", content)
+        self.assertIn("- src/devflow/**", content)
+        self.assertIn("- tests/...", content)
+        self.assertIn("- src/devflow/cli.py", content)
+        self.assertIn("- tests/test_cli.py", content)
+        self.assertIn("- pytest tests/", content)
+        self.assertIn("- flake8 src/", content)
+
     def test_task_new_creates_canonical_task_template(self):
         init_workspace()
 

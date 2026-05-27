@@ -21,19 +21,33 @@ def load_agent_profile(role: str, cwd: str = ".") -> AgentProfile:
     cwd = os.path.abspath(cwd)
     policy_path = os.path.join(cwd, ".devflow", "orchestrators", "local-model-worker-policy.md")
     
+    profile_override = os.environ.get("LOCAL_AI_PROFILE", "").lower().strip()
+    profile_models = {
+        "studio": "qwen2.5-coder:32b-instruct",
+        "mini": "qwen2.5-coder:14b",
+        "mini-fast": "qwen2.5-coder:7b-instruct",
+        "baseline": "qwen2.5-coder:1.5b"
+    }
+
     preferred = "qwen2.5-coder:14b"
     fallbacks = ["qwen2.5-coder:7b-instruct", "qwen2.5-coder:1.5b"]
     
-    # Try parsing the preferred model from the local-model-worker-policy.md
-    if os.path.exists(policy_path):
-        try:
-            with open(policy_path, "r", encoding="utf-8") as handle:
-                text = handle.read()
-            match = re.search(r"preferred coding worker for Mac mini.*?: (qwen\S+)", text)
-            if match:
-                preferred = match.group(1).strip()
-        except Exception:
-            pass
+    if profile_override:
+        if profile_override in profile_models:
+            preferred = profile_models[profile_override]
+        else:
+            preferred = os.environ.get("LOCAL_AI_PROFILE")
+    else:
+        # Try parsing the preferred model from the local-model-worker-policy.md
+        if os.path.exists(policy_path):
+            try:
+                with open(policy_path, "r", encoding="utf-8") as handle:
+                    text = handle.read()
+                match = re.search(r"preferred coding worker for Mac mini.*?: (qwen\S+)", text)
+                if match:
+                    preferred = match.group(1).strip()
+            except Exception:
+                pass
 
     budgets = {
         "cartographer": (4000, 1000, 0.2),

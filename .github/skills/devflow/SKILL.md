@@ -25,8 +25,14 @@ Follow `PLAN -> CONTEXT -> TEST -> IMPLEMENT -> VERIFY -> REVIEW -> REPORT`.
 3. For non-trivial work, create or update a task packet under `.devflow/tasks/` and claim it with the active orchestrator, normally `vscode` for Copilot in VS Code.
 4. State allowed files, expected touched files, verification commands, and any protected-path concerns before editing.
 5. Prefer tests first for behavior changes. For docs-only or customization-only work, choose a narrow verification command that proves the repo still loads or the relevant CLI still works.
-6. Implement minimal diffs only within the task scope.
-7. Verify with the declared command, review for scope creep, and finish with a report covering files changed, tests run, result, risks, and next action.
+6. **DELEGATE Code Generation & Repairs to Local Workers**: Never write implementation code, write tests, or perform repair loops in the cloud LLM. Instead:
+   - Run the local model implementation CLI to draft the patch:
+     `PYTHONPATH=src python3 -m devflow agent implement <task_file> --profile implementer`
+   - Run the local model automated repair CLI to execute test-driven repair loops:
+     `PYTHONPATH=src python3 -m devflow agent repair <task_file> --profile repair`
+   - Read the generated JSON artifact from `.devflow/artifacts/<task_id>/` (`diff_result.json` or `repair_result.json`) to extract the proposed diff, write it to section 9 of the task markdown, and then run:
+     `PYTHONPATH=src python3 -m devflow run <task_file> --yes`
+7. Verify with the declared command, review for scope creep, and finish by publishing the report (.report.md) under `.devflow/reports/`.
 
 ## Mode References
 

@@ -68,12 +68,60 @@ else
   fi
 fi
 
+
 echo "-- API check (native/runtime on 127.0.0.1:11434)"
 if curl -sS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
   echo "[ok] Ollama API reachable"
   curl -sS http://127.0.0.1:11434/api/version
 else
   echo "[warn] Ollama API not reachable"
+  echo "[info] Attempting to launch native Ollama app..."
+  if [[ -d "/Applications/Ollama.app" ]]; then
+    open "/Applications/Ollama.app"
+    sleep 3
+    if curl -sS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+      echo "[ok] Ollama API reachable after native app launch"
+      curl -sS http://127.0.0.1:11434/api/version
+    else
+      echo "[warn] Native app launch did not start API. Trying Docker..."
+      if command -v docker >/dev/null 2>&1; then
+        docker ps | grep -q 'ollama-local' || \
+        docker run -d --name ollama-local -p 11434:11434 -v "$HOME/.ollama:/root/.ollama" ollama/ollama:latest
+        sleep 5
+        if curl -sS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+          echo "[ok] Ollama API reachable after Docker launch"
+          curl -sS http://127.0.0.1:11434/api/version
+        else
+          echo "[error] Ollama API still not reachable after all recovery attempts."
+          echo "[action] Please manually launch Ollama (native or Docker), then rerun this script."
+          exit 7
+        fi
+      else
+        echo "[error] Docker not installed. Cannot auto-recover."
+        echo "[action] Please manually launch Ollama, then rerun this script."
+        exit 7
+      fi
+    fi
+  else
+    echo "[warn] Native Ollama.app not found. Trying Docker..."
+    if command -v docker >/dev/null 2>&1; then
+      docker ps | grep -q 'ollama-local' || \
+      docker run -d --name ollama-local -p 11434:11434 -v "$HOME/.ollama:/root/.ollama" ollama/ollama:latest
+      sleep 5
+      if curl -sS http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+        echo "[ok] Ollama API reachable after Docker launch"
+        curl -sS http://127.0.0.1:11434/api/version
+      else
+        echo "[error] Ollama API still not reachable after all recovery attempts."
+        echo "[action] Please manually launch Ollama (native or Docker), then rerun this script."
+        exit 7
+      fi
+    else
+      echo "[error] Docker not installed. Cannot auto-recover."
+      echo "[action] Please manually launch Ollama, then rerun this script."
+      exit 7
+    fi
+  fi
 fi
 
 echo

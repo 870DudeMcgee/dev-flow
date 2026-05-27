@@ -51,6 +51,21 @@ from devflow.runner import (
 )
 
 
+class AppendOrNargsAction(argparse.Action):
+    """Custom argparse Action to handle both repeated options and space-separated lists."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        items = getattr(namespace, self.dest, None)
+        if items is None or items == []:
+            items = []
+        else:
+            items = list(items)
+        if isinstance(values, list):
+            items.extend(values)
+        else:
+            items.append(values)
+        setattr(namespace, self.dest, items)
+
+
 def _default_config() -> dict:
     return default_config()
 
@@ -258,9 +273,9 @@ def main():
     new_parser.add_argument("--plan", default="", help="Plan JSON filename or path")
     new_parser.add_argument("--agent", default="", help="Initial assigned orchestrator")
     new_parser.add_argument("--risk", default="LOW", help="Risk level")
-    new_parser.add_argument("--allowed", action="append", default=[], help="Allowed file path/glob; may be repeated")
-    new_parser.add_argument("--touch", action="append", default=[], help="Expected touched file/glob; may be repeated")
-    new_parser.add_argument("--verify", action="append", default=[], help="Verification command; may be repeated")
+    new_parser.add_argument("--allowed", action=AppendOrNargsAction, nargs="+", default=[], help="Allowed file path/glob; may be repeated or space-separated")
+    new_parser.add_argument("--touch", action=AppendOrNargsAction, nargs="+", default=[], help="Expected touched file/glob; may be repeated or space-separated")
+    new_parser.add_argument("--verify", action=AppendOrNargsAction, nargs="+", default=[], help="Verification command; may be repeated or space-separated")
     new_parser.add_argument("--output", help="Output task path")
     new_parser.add_argument("--force", action="store_true", help="Overwrite existing task file")
 
@@ -269,7 +284,7 @@ def main():
     claim_parser.add_argument("--agent", required=True, help="Owning orchestrator: codex, vscode, or antigravity")
     claim_parser.add_argument("--lock", required=True, help="Session/team lock identifier")
     claim_parser.add_argument("--branch", help="Branch name to write into the task header")
-    claim_parser.add_argument("--touch", action="append", default=[], help="Expected touched file or glob; may be repeated")
+    claim_parser.add_argument("--touch", action=AppendOrNargsAction, nargs="+", default=[], help="Expected touched file or glob; may be repeated or space-separated")
     claim_parser.add_argument("--force", action="store_true", help="Override an existing CLAIMED/RUNNING task")
 
     release_parser = task_subparsers.add_parser("release", help="Release a claimed task")

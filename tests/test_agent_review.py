@@ -36,7 +36,7 @@ class TestAgentReviewRunner(unittest.TestCase):
     @patch("devflow.agents.ollama.urllib.request.urlopen")
     def test_run_review_agent_success(self, mock_urlopen):
         mock_response = MagicMock()
-        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"approved\\", \\"summary\\": \\"Code looks good\\", \\"findings\\": [], \\"required_actions\\": [], \\"confidence\\": 0.9}"}'
+        mock_response.__iter__.return_value = [b'{"response": "{\\"status\\": \\"approved\\", \\"summary\\": \\"Code looks good\\", \\"findings\\": [], \\"required_actions\\": [], \\"confidence\\": 0.9}"}']
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
         record = run_review_agent(self.task_path, profile_name="reviewer")

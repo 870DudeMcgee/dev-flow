@@ -45,7 +45,7 @@ class TestAgentImplementRunner(unittest.TestCase):
                 "confidence": 0.9
             })
         }
-        mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+        mock_response.__iter__.return_value = [json.dumps(response_dict).encode("utf-8")]
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
         record = run_implement_agent(self.task_path)
@@ -76,3 +76,30 @@ class TestAgentImplementRunner(unittest.TestCase):
         result = json.loads(body)
         self.assertEqual(result["status"], "blocked")
         self.assertIn("blocked", result["status"])
+
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_run_implement_agent_with_fallback(self, mock_urlopen):
+        import urllib.error
+        mock_response_fail = urllib.error.URLError("Connection refused")
+        
+        mock_response_ok = MagicMock()
+        mock_response_ok.__enter__.return_value = mock_response_ok
+        response_dict = {
+            "response": json.dumps({
+                "status": "ready",
+                "diff": "diff --git a/src/devflow/target.py b/src/devflow/target.py\n--- a/src/devflow/target.py\n+++ b/src/devflow/target.py\n@@ -1 +1 @@\n-def foo(): pass\n+def foo():\n+    print(1)",
+                "touched_paths": ["src/devflow/target.py"],
+                "risk": "low",
+                "confidence": 0.9
+            })
+        }
+        mock_response_ok.__iter__.return_value = [json.dumps(response_dict).encode("utf-8")]
+        
+        mock_urlopen.side_effect = [mock_response_fail, mock_response_ok]
+        
+        record = run_implement_agent(self.task_path)
+        self.assertIsNotNone(record)
+        _, body = read_artifact(record.metadata_path)
+        result = json.loads(body)
+        self.assertEqual(result["status"], "ready")
+        self.assertIn("print(1)", result["diff"])

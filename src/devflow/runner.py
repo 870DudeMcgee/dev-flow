@@ -318,14 +318,16 @@ def run_task_workflow(task_file: str, yes: bool = False, cwd: str | None = None)
     protected_patterns = config.get("risk", {}).get("protected_paths", [])
     protected = protected_paths_touched(files_changed, protected_patterns)
 
-    clean, dirty_files, dirty_error = get_dirty_worktree_files(workspace)
-    if not clean:
-        print("Task blocked: git worktree is dirty. Commit or stash changes before running devflow.")
-        if dirty_error:
-            print(f"- git status error: {dirty_error}")
-        for path in dirty_files:
-            print(f"- {path}")
-        return
+    require_clean = config.get("git", {}).get("require_clean_worktree", True)
+    if require_clean:
+        clean, dirty_files, dirty_error = get_dirty_worktree_files(workspace)
+        if not clean:
+            print("Task blocked: git worktree is dirty. Commit or stash changes before running devflow.")
+            if dirty_error:
+                print(f"- git status error: {dirty_error}")
+            for path in dirty_files:
+                print(f"- {path}")
+            return
 
     report_payload = {
         "task_id": task.get("task_id", "unknown"),

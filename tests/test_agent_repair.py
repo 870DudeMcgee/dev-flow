@@ -72,7 +72,7 @@ diff --git a/target.py b/target.py
                 "confidence": 0.95
             })
         }
-        mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+        mock_response.__iter__.return_value = [json.dumps(response_dict).encode("utf-8")]
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
         record = run_repair_agent(self.task_path, max_loops=2)
@@ -95,7 +95,7 @@ diff --git a/target.py b/target.py
                 "confidence": 0.95
             })
         }
-        mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+        mock_response.__iter__.return_value = [json.dumps(response_dict).encode("utf-8")]
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
         record = run_repair_agent(self.task_path, max_loops=2)
@@ -118,7 +118,7 @@ diff --git a/target.py b/target.py
                 "confidence": 0.95
             })
         }
-        mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+        mock_response.__iter__.return_value = [json.dumps(response_dict).encode("utf-8")]
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
         record = run_repair_agent(self.task_path, max_loops=2)
