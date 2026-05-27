@@ -864,6 +864,18 @@ def main():
     agent_review_parser.add_argument("task_file", type=str, help="Path to task file")
     agent_review_parser.add_argument("--profile", default="reviewer", help="Agent profile to use")
 
+    agent_implement_parser = agent_subparsers.add_parser("implement", help="Run stateless code implementer agent")
+    agent_implement_parser.add_argument("task_file", type=str, help="Path to task file")
+    agent_implement_parser.add_argument("--profile", default="implementer", help="Agent profile to use")
+    agent_implement_parser.add_argument("--emit-diff", action="store_true", help="Emit proposed diff immediately after execution")
+
+
+    guard_parser = subparsers.add_parser("guard", help="Deterministic guard commands")
+    guard_subparsers = guard_parser.add_subparsers(dest="guard_command")
+
+    guard_scan_diff_parser = guard_subparsers.add_parser("scan-diff", help="Deterministic static hazard scan of a diff")
+    guard_scan_diff_parser.add_argument("identifier", type=str, help="Artifact ID, file path, or sequence pattern")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -930,10 +942,67 @@ def main():
             record = run_review_agent(args.task_file, profile_name=args.profile)
             print(f"Agent review completed. Artifact created: {record.artifact_id}")
             print(f"Path: {record.body_path}")
+        elif args.agent_command == "implement":
+            from devflow.agents.runner import run_implement_agent
+            record = run_implement_agent(args.task_file, profile_name=args.profile)
+            print(f"Agent implementation completed. Artifact created: {record.artifact_id}")
+            print(f"Path: {record.body_path}")
+            if args.emit_diff:
+                # Read artifact and print the diff
+                from devflow.artifacts import read_artifact
+                _, body = read_artifact(record.body_path)
+                try:
+                    diff_data = json.loads(body)
+                    print("\n--- PROPOSED DIFF ---")
+                    print(diff_data.get("diff", ""))
+                    print("---------------------")
+                except Exception:
+                    pass
         else:
             agent_parser.print_help()
+    elif args.command == "guard":
+        if args.guard_command == "scan-diff":
+            from devflow.safety import scan_diff_for_hazards
+            from devflow.artifacts import find_artifact, read_artifact
+            
+            diff_text = ""
+            try:
+                # First try finding as an artifact
+                record = find_artifact(args.identifier)
+                _, body = read_artifact(record.metadata_path)
+                try:
+                    data = json.loads(body)
+                    diff_text = data.get("diff", "")
+                except Exception:
+                    diff_text = body
+            except Exception:
+                # Fall back to checking if it's a file
+                if os.path.exists(args.identifier):
+                    with open(args.identifier, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    try:
+                        data = json.loads(content)
+                        diff_text = data.get("diff", "")
+                    except Exception:
+                        diff_text = content
+                else:
+                    print(f"Error: could not resolve identifier as an artifact or file path: {args.identifier}")
+                    sys.exit(1)
+            
+            is_clean, findings = scan_diff_for_hazards(diff_text)
+            if not is_clean:
+                print("Adversarial hazards detected in proposed diff:")
+                for finding in findings:
+                    print(f"- {finding}")
+                sys.exit(1)
+            else:
+                print("Safety scan completed: no adversarial hazards detected.")
+                sys.exit(0)
+        else:
+            guard_parser.print_help()
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()

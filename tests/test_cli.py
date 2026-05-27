@@ -821,5 +821,72 @@ Pending.
         self.assertIn("Agent review completed", output)
         self.assertTrue(len(list_artifacts("022")) > 0)
 
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_agent_implement_command(self, mock_urlopen):
+        from devflow.artifacts import list_artifacts
+        init_workspace()
+        task_path = ".devflow/tasks/023_cli_implement.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("# Task: 023 - CLI Implement\nStatus: PENDING\nTouched Files:\n- sample.txt\n## 1. Objective\nImplement.")
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"ready\\", \\"diff\\": \\"diff --git a/sample.txt b/sample.txt\\\\n--- a/sample.txt\\\\n+++ b/sample.txt\\\\n@@ -1 +1 @@\\\\n-hello\\\\n+hello world\\", \\"touched_paths\\": [\\"sample.txt\\"], \\"risk\\": \\"low\\", \\"confidence\\": 0.95}"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "agent", "implement", task_path, "--profile", "implementer", "--emit-diff"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("Agent implementation completed", output)
+        self.assertIn("--- PROPOSED DIFF ---", output)
+        self.assertTrue(len(list_artifacts("023")) > 0)
+
+    def test_guard_scan_diff_clean_file(self):
+        init_workspace()
+        diff_path = "clean.diff"
+        with open(diff_path, "w", encoding="utf-8") as f:
+            f.write("+++ b/src/example.py\n+def foo():\n+    return 1\n")
+            
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "guard", "scan-diff", diff_path]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+            
+        self.assertEqual(cm.exception.code, 0)
+        self.assertIn("Safety scan completed", output)
+
+    def test_guard_scan_diff_hazardous_file(self):
+        init_workspace()
+        diff_path = "hazardous.diff"
+        with open(diff_path, "w", encoding="utf-8") as f:
+            f.write("+++ b/src/config.py\n+API_KEY = 'secret-token-123'\n")
+            
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "guard", "scan-diff", diff_path]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+            
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("Adversarial hazards detected", output)
+
 if __name__ == "__main__":
     unittest.main()
+
