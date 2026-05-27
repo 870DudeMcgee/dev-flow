@@ -38,3 +38,12 @@ def serialize_failure(stage: str, output: str, command: str = "") -> dict:
         "command": command,
         "output": output
     }
+
+def retry_budget_for(classification: str, taxonomy: Dict[str, Dict[str, object]] | None = None) -> int:
+    """Gets the retry budget/limit for a given failure classification."""
+    rules = taxonomy or DEFAULT_TAXONOMY
+    if classification not in rules:
+        return 0
+    value = rules[classification].get("max_retries", 0)
+    return int(value) if isinstance(value, int) else 0
+

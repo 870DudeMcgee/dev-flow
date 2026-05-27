@@ -10,7 +10,8 @@ import subprocess
 from typing import Dict, List, Tuple
 
 
-from devflow.failures import DEFAULT_TAXONOMY, classify_failure
+from devflow.failures import DEFAULT_TAXONOMY, classify_failure, retry_budget_for
+
 
 
 
@@ -114,13 +115,6 @@ def paths_outside_allowed(paths: List[str], allowed_patterns: List[str]) -> List
     return sorted(set(outside))
 
 
-
-def retry_budget_for(classification: str, taxonomy: Dict[str, Dict[str, object]] | None = None) -> int:
-    rules = taxonomy or DEFAULT_TAXONOMY
-    if classification not in rules:
-        return 0
-    value = rules[classification].get("max_retries", 0)
-    return int(value) if isinstance(value, int) else 0
 
 
 def create_checkpoint_branch(cwd: str, task_id: str, branch_prefix: str) -> Tuple[bool, str, str]:

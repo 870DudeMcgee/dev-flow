@@ -8,6 +8,7 @@ import sys
 from contextlib import redirect_stdout
 from unittest.mock import patch, MagicMock
 
+from devflow.repo_map import refresh_repo_maps
 from devflow.cli import (
     claim_task,
     init_workspace,
@@ -846,6 +847,60 @@ Pending.
         self.assertIn("Agent implementation completed", output)
         self.assertIn("--- PROPOSED DIFF ---", output)
         self.assertTrue(len(list_artifacts("023")) > 0)
+
+    @patch("devflow.agents.ollama.urllib.request.urlopen")
+    def test_agent_repair_command(self, mock_urlopen):
+        from devflow.artifacts import list_artifacts
+        init_workspace()
+        
+        # Write task file with verification command
+        task_path = ".devflow/tasks/024_cli_repair.md"
+        with open(task_path, "w", encoding="utf-8") as handle:
+            handle.write("""# Task: 024 - CLI Repair
+Status: PENDING
+Touched Files:
+- sample.txt
+## 1. Objective
+Repair sample.
+## 2. Allowed Files
+- sample.txt
+## 7. Verification Commands
+- true
+## 9. Execution Results
+```diff
+diff --git a/sample.txt b/sample.txt
+--- a/sample.txt
++++ b/sample.txt
+@@ -1 +1 @@
+-hello
++hello world
+```
+""")
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"response": "{\\"status\\": \\"ready\\", \\"diff\\": \\"diff --git a/sample.txt b/sample.txt\\\\n--- a/sample.txt\\\\n+++ b/sample.txt\\\\n@@ -1 +1 @@\\\\n-hello\\\\n+hello world\\\\n\\", \\"touched_paths\\": [\\"sample.txt\\"], \\"risk\\": \\"low\\", \\"confidence\\": 0.95}"}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        # Commit task to make sure worktree is clean!
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'commit repair task' > /dev/null 2>&1")
+        refresh_repo_maps()
+        os.system("git add . > /dev/null 2>&1")
+        os.system("git commit -m 'commit maps' > /dev/null 2>&1")
+
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "agent", "repair", task_path, "--profile", "repair", "--max-loops", "2"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+
+        self.assertIn("Agent repair completed", output)
+        self.assertTrue(len(list_artifacts("024")) > 0)
+
 
     def test_guard_scan_diff_clean_file(self):
         init_workspace()

@@ -869,6 +869,12 @@ def main():
     agent_implement_parser.add_argument("--profile", default="implementer", help="Agent profile to use")
     agent_implement_parser.add_argument("--emit-diff", action="store_true", help="Emit proposed diff immediately after execution")
 
+    agent_repair_parser = agent_subparsers.add_parser("repair", help="Run automated test-driven repair loop agent")
+    agent_repair_parser.add_argument("task_file", type=str, help="Path to task file")
+    agent_repair_parser.add_argument("--profile", default="repair", help="Agent profile to use")
+    agent_repair_parser.add_argument("--max-loops", type=int, default=3, help="Maximum repair loop limit")
+
+
 
     guard_parser = subparsers.add_parser("guard", help="Deterministic guard commands")
     guard_subparsers = guard_parser.add_subparsers(dest="guard_command")
@@ -958,8 +964,14 @@ def main():
                     print("---------------------")
                 except Exception:
                     pass
+        elif args.agent_command == "repair":
+            from devflow.agents.runner import run_repair_agent
+            record = run_repair_agent(args.task_file, max_loops=args.max_loops, profile_name=args.profile)
+            print(f"Agent repair completed. Artifact created: {record.artifact_id}")
+            print(f"Path: {record.body_path}")
         else:
             agent_parser.print_help()
+
     elif args.command == "guard":
         if args.guard_command == "scan-diff":
             from devflow.safety import scan_diff_for_hazards
