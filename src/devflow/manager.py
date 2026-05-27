@@ -261,7 +261,10 @@ def parse_task_file(content: str) -> Dict[str, object]:
 
 
 def extract_unified_diff(content: str) -> str:
-    diff_match = re.search(r"```diff\n(.*?)```", content, re.DOTALL)
+    # Normalise CRLF to LF before matching so Windows-edited files work
+    normalised = content.replace("\r\n", "\n")
+    # Allow optional trailing whitespace on the opening ```diff fence line
+    diff_match = re.search(r"```diff[ \t]*\n(.*?)```", normalised, re.DOTALL)
     if not diff_match:
         return ""
     return diff_match.group(1).rstrip() + "\n"
