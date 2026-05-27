@@ -1,5 +1,5 @@
-import re
 from typing import Dict, Any
+from devflow.diagnostics import DiagnosticAnalyzer
 
 DEFAULT_TAXONOMY = {
     "PATCH_APPLY_FAILURE": {"retryable": True, "max_retries": 1},
@@ -14,29 +14,22 @@ DEFAULT_TAXONOMY = {
 
 def classify_failure(stage: str, output: str) -> str:
     """Classifies a build/test/lint failure output into a formal category."""
-    text = output.lower()
-    if stage == "patch":
-        return "PATCH_APPLY_FAILURE"
-    if "syntaxerror" in text:
-        return "SYNTAX_ERROR"
-    if "importerror" in text or "modulenotfounderror" in text:
-        return "IMPORT_ERROR"
-    if "ruff" in text or "lint" in text:
-        return "LINT_FAILURE"
-    if "mypy" in text or "type error" in text or "typeerror" in text:
-        return "TYPE_ERROR"
-    if "failed" in text or "error" in text:
-        return "TEST_FAILURE"
-
-    return "UNKNOWN_FAILURE"
+    analyzer = DiagnosticAnalyzer()
+    packet = analyzer.analyze(output, stage=stage)
+    return packet.classification
 
 def serialize_failure(stage: str, output: str, command: str = "") -> dict:
     """Serializes failure details into a structured dictionary."""
+    analyzer = DiagnosticAnalyzer()
+    packet = analyzer.analyze(output, stage=stage)
     return {
         "stage": stage,
-        "classification": classify_failure(stage, output),
+        "classification": packet.classification,
         "command": command,
-        "output": output
+        "output": output,
+        "file": packet.file,
+        "line": packet.line,
+        "message": packet.message
     }
 
 def retry_budget_for(classification: str, taxonomy: Dict[str, Dict[str, object]] | None = None) -> int:
@@ -46,4 +39,3 @@ def retry_budget_for(classification: str, taxonomy: Dict[str, Dict[str, object]]
         return 0
     value = rules[classification].get("max_retries", 0)
     return int(value) if isinstance(value, int) else 0
-
