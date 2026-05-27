@@ -97,3 +97,50 @@ def validate_diff_result(diff_data: dict) -> None:
     if risk not in allowed_risks:
         raise ValueError(f"Schema validation failure: risk '{risk}' must be one of {allowed_risks}")
 
+
+def validate_repair_result(repair_data: dict) -> None:
+    """
+    Validate the repair result data structure against our canonical schema.
+    Provides fast, dependency-free structural parsing.
+    """
+    schema_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "schemas", "repair_result.schema.json")
+    )
+    if not os.path.exists(schema_path):
+        # Fallback quick structural check
+        for key in ("status", "diff", "touched_paths", "risk", "confidence"):
+            if key not in repair_data:
+                raise ValueError(f"Repair schema error: missing required key: {key}")
+        return
+
+    with open(schema_path, "r", encoding="utf-8") as handle:
+        schema = json.load(handle)
+
+    # Perform structural validation to satisfy strategic specs without third-party dependencies
+    for key in schema.get("required", []):
+        if key not in repair_data:
+            raise ValueError(f"Schema validation failure: missing required field: {key}")
+            
+    status = repair_data.get("status")
+    allowed_statuses = schema["properties"]["status"]["enum"]
+    if status not in allowed_statuses:
+        raise ValueError(f"Schema validation failure: status '{status}' must be one of {allowed_statuses}")
+        
+    confidence = repair_data.get("confidence")
+    if not isinstance(confidence, (int, float)) or not (0 <= confidence <= 1):
+        raise ValueError(f"Schema validation failure: confidence '{confidence}' must be a float between 0.0 and 1.0")
+        
+    touched_paths = repair_data.get("touched_paths")
+    if not isinstance(touched_paths, list):
+        raise ValueError("Schema validation failure: touched_paths must be a list")
+    
+    diff_val = repair_data.get("diff")
+    if not isinstance(diff_val, str):
+        raise ValueError("Schema validation failure: diff must be a string")
+        
+    risk = repair_data.get("risk")
+    allowed_risks = schema["properties"]["risk"]["enum"]
+    if risk not in allowed_risks:
+        raise ValueError(f"Schema validation failure: risk '{risk}' must be one of {allowed_risks}")
+
+
