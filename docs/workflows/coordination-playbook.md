@@ -63,6 +63,7 @@ To avoid collisions while preserving independence:
 4. The claiming orchestrator owns planning, implementation, test repair, verification, rollback, and reporting for that task.
 5. Other orchestrators treat claimed tasks and declared touched files as read-only unless ownership is released.
 6. Cross-agent review is allowed, but review comments must not mutate the claimed task's files without handoff.
+7. Substantial parallel tasks may use explicit task worktrees created with `devflow worktree create <task-file> --agent <agent>`; this isolates the implementation lane without replacing the checkpoint branches used by `devflow run`.
 
 Suggested task status lifecycle:
 - PENDING
@@ -77,6 +78,16 @@ Run contract:
 - `devflow run <task>` validates the embedded unified diff, writes a PREVIEWED report/status, and does not apply code changes.
 - `devflow run <task> --yes` applies the patch after validation, runs verification, and writes the final report/status.
 - The git worktree must be clean before `devflow run` mutates task, report, or code state.
+
+Worktree contract:
+- `devflow worktree create <task> --agent <agent>` records task id, owner, branch, path, and base SHA in `.devflow/worktrees/index.json` and creates an isolated git worktree path under `.devflow/worktrees/`.
+- `devflow worktree status` lists recorded active, missing, and removed task worktrees for handoff.
+- `devflow worktree remove <task> --keep-artifacts` removes the isolated worktree while preserving task artifacts in the main coordination surface.
+
+Memory contract:
+- `devflow memory add --type <type> --statement <statement> --evidence <evidence> --invalidate-on <path-or-glob>` records evidence-backed architectural memory under `.devflow/memory/`.
+- `devflow run <task> --yes` marks matching active memories as `stale` with confidence `0.0` after a successful patch apply touches their invalidation paths.
+- `devflow context build <task> --role <role>` includes only active relevant memories; stale memory is kept for audit but excluded from worker context packs.
 
 Recommended task header extension:
 

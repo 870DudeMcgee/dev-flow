@@ -14,11 +14,21 @@ For this repository's ongoing work, orchestration is peer-parallel by default.
 - Route all repository mutations through the `devflow` task + unified diff + verification + report contract.
 - Human direction assigns or reassigns task ownership; there is no permanent default orchestrator.
 
+## VS Code / Copilot Invocation
+
+The workspace exposes a single discoverable `/devflow` skill at `.github/skills/devflow/SKILL.md`. Use it when you want Copilot to follow the full Devflow workflow from task classification through report; plan, implement, repair, and review guidance now lives under that skill's `references/` folder instead of separate slash commands.
+
+## Minimal Test Project
+
+`examples/devflow-hello/` is a dependency-free smoke project for proving the workflow on a tiny runnable change. Run it with `python3 examples/devflow-hello/hello.py` and verify it with `python3 examples/devflow-hello/test_hello.py`.
+
 ## Strategic Source Of Truth
 
 The next major direction is captured in `docs/superpowers/specs/2026-05-27-devflow-agentic-control-plane-spec.md`: devflow should become a deterministic, Git-and-artifact-native control plane for bounded AI software engineering across Codex, Claude Code, Copilot, Cline, Antigravity, OpenCode, local Ollama workers, and future tools.
 
-Execution should follow `docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md`. The plan starts with the artifact kernel, then context packs, review-only worker invocation, diff-only implementation, repair loops, TDD states, DAG orchestration, traces, evals, and worktree-native parallelism.
+Execution should follow `docs/plans/2026-05-27-devflow-agentic-control-plane-implementation-plan.md`. The implemented control-plane slices now include the artifact kernel, context packs, review-only worker invocation, diff-only implementation, repair loops, TDD states, DAG orchestration, traces/evals, explicit task worktrees, and architectural memory invalidation.
+
+Recent architecture deepening: `src/devflow/cli.py` has been decomposed into command-focused modules so the CLI is primarily parser/dispatch plus thin delegates. Core extracted modules include `task_commands.py`, `runner.py`, `worktree_commands.py`, `trace_eval_commands.py`, `resource_commands.py`, `admin_commands.py`, and `lifecycle_commands.py`.
 
 Design rule: workers produce artifacts; devflow validates, previews, applies, verifies, rolls back, and reports.
 
@@ -157,11 +167,44 @@ Task markdown file
   PYTHONPATH=src python3 -m devflow context list <task_id>
   ```
 
+### Memory Commands
+
+* **Add Architectural Memory**: Stores an evidence-backed memory record under `.devflow/memory/` with path or glob invalidation rules.
+  ```bash
+  PYTHONPATH=src python3 -m devflow memory add \
+    --type architecture \
+    --statement "src/devflow/context.py builds bounded worker context" \
+    --evidence "src/devflow/context.py" \
+    --invalidate-on "src/devflow/context.py"
+  ```
+* **List Or Inspect Memory**: Shows memory status, confidence, type, and statement, or prints the full JSON record.
+  ```bash
+  PYTHONPATH=src python3 -m devflow memory list
+  PYTHONPATH=src python3 -m devflow memory inspect <memory_id>
+  ```
+
+`devflow run <task> --yes` automatically marks matching active memories as `stale` with confidence `0.0` after a successful patch apply. Stale memories are excluded from generated context packs.
+
 ### Agent Commands
 
 * **Run Review-Only Worker**: Builds a bounded context pack, invokes a stateless local review worker, validates the structured review result, and stores a `review.json` artifact. Worker output remains non-mutating.
   ```bash
   PYTHONPATH=src python3 -m devflow agent review .devflow/tasks/<task_file>.md --profile reviewer
+  ```
+
+### Worktree Commands
+
+* **Create An Isolated Task Worktree**: Adds a git worktree for a task, records task id, owner, branch, path, and base SHA in `.devflow/worktrees/index.json`, and leaves the existing `devflow run` checkpoint branch behavior unchanged.
+  ```bash
+  PYTHONPATH=src python3 -m devflow worktree create .devflow/tasks/<task_file>.md --agent <agent_name>
+  ```
+* **List Task Worktrees**: Shows active, missing, and removed worktree records for audit and handoff.
+  ```bash
+  PYTHONPATH=src python3 -m devflow worktree status
+  ```
+* **Remove A Task Worktree**: Removes the git worktree and marks its metadata record removed. Use `--keep-artifacts` when task artifacts should remain under the main `.devflow/artifacts/` surface.
+  ```bash
+  PYTHONPATH=src python3 -m devflow worktree remove .devflow/tasks/<task_file>.md --keep-artifacts
   ```
 
 ---
@@ -175,9 +218,11 @@ Task markdown file
 ├── plans/                 # Secondary plan JSON indexes (status mirrored best-effort)
 ├── tasks/                 # Canonical task markdown files (executable files containing diffs)
 ├── context/               # Deterministic repo maps used to build bounded worker context packs
+├── memory/                # Evidence-backed architectural memory records with invalidation rules
 ├── artifacts/             # Schema-tracked worker/control-plane artifacts and metadata
 ├── reports/               # Auto-generated markdown reports compiled after every run
-└── orchestrators/         # Team shape specifications and local model policies
+├── orchestrators/         # Team shape specifications and local model policies
+└── worktrees/             # Explicit task worktree metadata and optional isolated worktree paths
 ```
 
 ---
