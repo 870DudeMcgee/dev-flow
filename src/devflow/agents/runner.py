@@ -5,7 +5,7 @@ from devflow.context import build_context_pack
 from devflow.artifacts import write_artifact, read_artifact, ArtifactRecord
 from devflow.manager import parse_task_file
 from devflow.agents.profiles import load_agent_profile
-from devflow.agents.ollama import invoke_local_model
+from devflow.agents import ollama
 from devflow.agents.schemas import validate_review_result, validate_diff_result, validate_repair_result
 from devflow.safety import scan_diff_for_hazards
 from devflow.failures import serialize_failure, retry_budget_for
@@ -59,7 +59,7 @@ def run_implement_agent(task_file: str, profile_name: str = "implementer", cwd: 
     
     # 4. Invoke local model
     try:
-        response_text = invoke_local_model(
+        response_text = ollama.invoke_local_model(
             model=profile.preferred_model,
             system_instruction=system_instruction,
             prompt=prompt,
@@ -155,7 +155,7 @@ def run_review_agent(task_file: str, profile_name: str = "reviewer", cwd: str = 
     
     # 4. Invoke local model
     try:
-        response_text = invoke_local_model(
+        response_text = ollama.invoke_local_model(
             model=profile.preferred_model,
             system_instruction=system_instruction,
             prompt=prompt,
@@ -236,7 +236,7 @@ def _query_repair_model(task_file: str, diff_text: str, failure_dict: dict, cwd:
     )
     
     try:
-        response_text = invoke_local_model(
+        response_text = ollama.invoke_local_model(
             model=profile.preferred_model,
             system_instruction=system_instruction,
             prompt=prompt,

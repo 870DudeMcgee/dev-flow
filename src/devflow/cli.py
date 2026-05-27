@@ -700,6 +700,149 @@ def impact_command(task_file: str) -> None:
         print(f"Reason: {report.get('split_reason')}")
 
 
+def trace_list() -> None:
+    from devflow.traces import Span
+    trace_dir = Span.LOG_DIR
+    if not os.path.isdir(trace_dir):
+        print("No traces found (logs directory does not exist).")
+        return
+
+    files = [f for f in os.listdir(trace_dir) if f.endswith(".json")]
+    if not files:
+        print("No traces found.")
+        return
+
+    print(f"{'Trace ID':<34} | {'Start Time':<20} | {'Spans':<5} | {'Duration':<10} | {'Status':<8}")
+    print("-" * 88)
+    for filename in sorted(files):
+        trace_id = filename[:-5]
+        path = os.path.join(trace_dir, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                spans = json.load(f)
+            if not spans:
+                continue
+            
+            oldest = min(spans, key=lambda s: s.get("start_time", ""))
+            start_time = oldest.get("start_time", "Unknown")[:19]
+            
+            total_duration = sum(s.get("duration_ms", 0.0) for s in spans if s.get("parent_span_id") is None)
+            if total_duration == 0:
+                total_duration = sum(s.get("duration_ms", 0.0) for s in spans)
+
+            overall_status = "SUCCESS"
+            if any(s.get("status") == "ERROR" for s in spans):
+                overall_status = "ERROR"
+
+            print(f"{trace_id:<34} | {start_time:<20} | {len(spans):<5} | {total_duration:>8.2f}ms | {overall_status:<8}")
+        except Exception:
+            pass
+
+
+def trace_inspect(trace_id: str) -> None:
+    from devflow.traces import Span
+    path = os.path.join(Span.LOG_DIR, f"{trace_id}.json")
+    if not os.path.exists(path):
+        print(f"Error: Trace ID '{trace_id}' not found.")
+        sys.exit(1)
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            spans = json.load(f)
+    except Exception as e:
+        print(f"Error reading trace data: {e}")
+        sys.exit(1)
+
+    print(f"Trace Execution Graph for ID: {trace_id}")
+    print("=" * 60)
+
+    tree: dict[str, list[dict]] = {}
+    roots = []
+    for s in spans:
+        parent = s.get("parent_span_id")
+        if not parent:
+            roots.append(s)
+        else:
+            if parent not in tree:
+                tree[parent] = []
+            tree[parent].append(s)
+
+    def print_tree(span: dict, indent: str = "", is_last: bool = True) -> None:
+        marker = "└── " if is_last else "├── "
+        status_suffix = ""
+        if span.get("status") == "ERROR":
+            status_suffix = f" [ERROR: {span.get('error_message')}]"
+        
+        duration = span.get("duration_ms", 0.0)
+        print(f"{indent}{marker}{span.get('name')} ({duration:.2f}ms){status_suffix}")
+        
+        children = tree.get(span.get("span_id"), [])
+        next_indent = indent + ("    " if is_last else "│   ")
+        for i, child in enumerate(children):
+            print_tree(child, next_indent, i == len(children) - 1)
+
+    for i, root in enumerate(roots):
+        print_tree(root, "", i == len(roots) - 1)
+
+
+def eval_run(role: str) -> None:
+    from devflow.evals import run_role_eval
+    print(f"Executing deterministic evaluations for role: {role}...")
+    print("=" * 60)
+    
+    results = run_role_eval(role, root_dir=os.getcwd())
+    if results["total"] == 0:
+        print(f"No mock fixtures found for role '{role}' under .devflow/evals/fixtures/.")
+        return
+
+    for failure in results["failures"]:
+        print(f"Fixture {failure.get('fixture')} ({failure.get('name')}): FAILED")
+        print(f"  Error: {failure.get('message')}")
+        print("-" * 40)
+
+    passed = results["passed"]
+    total = results["total"]
+    success_rate = (passed / total) * 100 if total > 0 else 0
+    print(f"\nEvaluation Summary:")
+    print(f"Passed: {passed}/{total} (Success Rate: {success_rate:.1f}%)")
+    
+    if len(results["failures"]) > 0:
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+
+def eval_compare(prompt_a: str, prompt_b: str) -> None:
+    from devflow.evals import compare_prompts
+    results = compare_prompts(prompt_a, prompt_b)
+    
+    print("Prompt Performance Comparison Report:")
+    print("=" * 60)
+    print(f"Prompt A: {results.get('prompt_a')}")
+    print(f"Prompt B: {results.get('prompt_b')}")
+    print("-" * 60)
+    
+    metrics = results.get("metrics", {})
+    a_met = metrics.get("prompt_a", {})
+    b_met = metrics.get("prompt_b", {})
+    
+    print(f"{'Metric':<20} | {'Prompt A':<15} | {'Prompt B':<15} | {'Difference':<12}")
+    print("-" * 68)
+    
+    token_diff = b_met.get("tokens", 0) - a_met.get("tokens", 0)
+    token_diff_pct = (token_diff / a_met.get("tokens", 1)) * 100
+    print(f"{'Tokens':<20} | {a_met.get('tokens'):<15} | {b_met.get('tokens'):<15} | {token_diff_pct:>+6.1f}%")
+    
+    dur_diff = b_met.get("duration_ms", 0.0) - a_met.get("duration_ms", 0.0)
+    dur_diff_pct = (dur_diff / a_met.get("duration_ms", 1.0)) * 100
+    print(f"{'Duration':<20} | {a_met.get('duration_ms'):>13.2f}ms | {b_met.get('duration_ms'):>13.2f}ms | {dur_diff_pct:>+6.1f}%")
+    
+    cost_diff = b_met.get("cost_usd", 0.0) - a_met.get("cost_usd", 0.0)
+    cost_diff_pct = (cost_diff / a_met.get("cost_usd", 1.0)) * 100
+    print(f"{'Estimated Cost':<20} | ${a_met.get('cost_usd'):<14.6f} | ${b_met.get('cost_usd'):<14.6f} | {cost_diff_pct:>+6.1f}%")
+    print("=" * 68)
+    print(f"Conclusion: {results.get('comparison')}")
+
 
 def init_workspace():
     """Initialize the canonical .devflow protocol tree."""
@@ -1109,6 +1252,20 @@ def main():
     guard_scan_diff_parser = guard_subparsers.add_parser("scan-diff", help="Deterministic static hazard scan of a diff")
     guard_scan_diff_parser.add_argument("identifier", type=str, help="Artifact ID, file path, or sequence pattern")
 
+    trace_parser = subparsers.add_parser("trace", help="Observability trace span commands")
+    trace_subparsers = trace_parser.add_subparsers(dest="trace_command")
+    trace_subparsers.add_parser("list", help="List all executed traces")
+    trace_inspect_parser = trace_subparsers.add_parser("inspect", help="Inspect a trace execution nested span tree")
+    trace_inspect_parser.add_argument("trace_id", type=str, help="Trace unique ID")
+
+    eval_parser = subparsers.add_parser("eval", help="Role prompt harness evaluation commands")
+    eval_subparsers = eval_parser.add_subparsers(dest="eval_command")
+    eval_run_parser = eval_subparsers.add_parser("run", help="Run deterministic evaluations for a role")
+    eval_run_parser.add_argument("--role", required=True, help="Agent role, e.g. implementer | reviewer | repair")
+    eval_compare_parser = eval_subparsers.add_parser("compare", help="Compare two prompt versions and display metrics")
+    eval_compare_parser.add_argument("prompt_a", type=str, help="First prompt version or path")
+    eval_compare_parser.add_argument("prompt_b", type=str, help="Second prompt version or path")
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -1254,6 +1411,20 @@ def main():
                 sys.exit(0)
         else:
             guard_parser.print_help()
+    elif args.command == "trace":
+        if args.trace_command == "list":
+            trace_list()
+        elif args.trace_command == "inspect":
+            trace_inspect(args.trace_id)
+        else:
+            trace_parser.print_help()
+    elif args.command == "eval":
+        if args.eval_command == "run":
+            eval_run(args.role)
+        elif args.eval_command == "compare":
+            eval_compare(args.prompt_a, args.prompt_b)
+        else:
+            eval_parser.print_help()
     else:
         parser.print_help()
 

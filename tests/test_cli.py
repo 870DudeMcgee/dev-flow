@@ -1135,6 +1135,116 @@ diff --git a/sample.txt b/sample.txt
         self.assertIn("Impact Analysis Report for Task 002 - Second Task", output)
         self.assertIn("Risk Level:", output)
 
+    def test_cli_traces_and_evals(self):
+        init_workspace()
+
+        # 1. Test trace list
+        # Create a mock trace file
+        os.makedirs(".devflow/logs/traces", exist_ok=True)
+        trace_id = "test_trace_123"
+        trace_file = os.path.join(".devflow/logs/traces", f"{trace_id}.json")
+        mock_trace_data = [
+            {
+                "span_id": "span-1",
+                "name": "root_op",
+                "start_time": "2026-05-27T08:00:00.000",
+                "end_time": "2026-05-27T08:00:01.000",
+                "duration_ms": 1000.0,
+                "status": "SUCCESS",
+                "parent_span_id": None,
+                "attributes": {}
+            },
+            {
+                "span_id": "span-2",
+                "name": "child_op",
+                "start_time": "2026-05-27T08:00:00.100",
+                "end_time": "2026-05-27T08:00:00.500",
+                "duration_ms": 400.0,
+                "status": "SUCCESS",
+                "parent_span_id": "span-1",
+                "attributes": {}
+            }
+        ]
+        with open(trace_file, "w", encoding="utf-8") as f:
+            json.dump(mock_trace_data, f)
+
+        # Run "devflow trace list"
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "trace", "list"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Trace ID", output)
+        self.assertIn("test_trace_123", output)
+
+        # Run "devflow trace inspect test_trace_123"
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "trace", "inspect", "test_trace_123"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Trace Execution Graph for ID: test_trace_123", output)
+        self.assertIn("root_op (1000.00ms)", output)
+        self.assertIn("child_op (400.00ms)", output)
+
+        # 2. Test eval run
+        # Create a mock evaluation fixture
+        os.makedirs(".devflow/evals/fixtures", exist_ok=True)
+        fixture_file = ".devflow/evals/fixtures/mock_cli_impl.json"
+        mock_fixture = {
+            "name": "cli_eval_test",
+            "role": "implementer",
+            "task_markdown": "# Task: 999 - CLI Task\nStatus: PENDING\nTouched Files:\n- sample.txt\n## 2. Allowed Files\n- sample.txt\n## 7. Verification Commands\n- true\n## 9. Execution Results\nPending.\n",
+            "mock_model_response": "{\n  \"status\": \"ready\",\n  \"diff\": \"```diff\\ndiff --git a/sample.txt b/sample.txt\\n--- a/sample.txt\\n+++ b/sample.txt\\n@@ -1 +1 @@\\n-hello\\n+hello world\\n```\",\n  \"touched_paths\": [\"sample.txt\"],\n  \"risk\": \"low\",\n  \"confidence\": 1.0\n}",
+            "assertions": {
+                "expected_status": "ready",
+                "must_touch_files": ["sample.txt"]
+            }
+        }
+        with open(fixture_file, "w", encoding="utf-8") as f:
+            json.dump(mock_fixture, f)
+
+        # Run "devflow eval run --role implementer" with mocked invoke_local_model
+        with patch("devflow.agents.ollama.invoke_local_model") as mock_invoke:
+            mock_invoke.return_value = mock_fixture["mock_model_response"]
+            
+            old_argv = sys.argv
+            try:
+                sys.argv = ["devflow", "eval", "run", "--role", "implementer"]
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    with self.assertRaises(SystemExit) as cm:
+                        main()
+                output = buffer.getvalue()
+            finally:
+                sys.argv = old_argv
+
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn("Passed: 1/1", output)
+
+        # 3. Test eval compare
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "eval", "compare", "Prompt A", "Prompt B"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Prompt Performance Comparison Report:", output)
+        self.assertIn("Prompt A", output)
+        self.assertIn("Prompt B", output)
+        self.assertIn("Conclusion", output)
+
 if __name__ == "__main__":
     unittest.main()
 
