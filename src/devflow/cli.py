@@ -556,6 +556,151 @@ def transition_task(task_file: str, to_state: str, reason: str = "", artifact_id
     print(f"Task {task.get('task_id', 'unknown')} transitioned from {current_status} to {target_status}.")
 
 
+def _load_all_plan_tasks(root_dir: str = ".") -> list[dict]:
+    plans_dir = os.path.join(root_dir, ".devflow", "plans")
+    if not os.path.isdir(plans_dir):
+        return []
+    all_tasks = []
+    for filename in os.listdir(plans_dir):
+        if filename.endswith(".plan.json"):
+            path = os.path.join(plans_dir, filename)
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    plan_data = json.load(handle)
+                tasks = plan_data.get("tasks", [])
+                for t in tasks:
+                    if isinstance(t, dict) and "id" in t:
+                        all_tasks.append(t)
+            except Exception:
+                pass
+    return all_tasks
+
+
+def task_ready(json_output: bool = False, root_dir: str = ".") -> None:
+    tasks = _load_all_plan_tasks(root_dir)
+    if not tasks:
+        if json_output:
+            print("[]")
+        else:
+            print("No tasks or plans found under .devflow/plans/.")
+        return
+
+    from devflow.dag import TaskDAG
+    try:
+        dag = TaskDAG(tasks, root_dir=root_dir)
+    except ValueError as e:
+        print(f"Error building graph: {e}")
+        sys.exit(1)
+
+    ready = dag.get_ready_tasks()
+    if json_output:
+        print(json.dumps(ready, indent=2))
+    else:
+        if not ready:
+            print("No ready tasks found.")
+        else:
+            print("Ready Tasks:")
+            for t in ready:
+                assigned = f" (assigned: {t.get('assigned_agent')})" if t.get('assigned_agent') else ""
+                print(f"  - [{t.get('id')}] {t.get('title')}{assigned}")
+
+
+def task_next(agent: str, root_dir: str = ".") -> None:
+    tasks = _load_all_plan_tasks(root_dir)
+    if not tasks:
+        print("No tasks or plans found under .devflow/plans/.")
+        return
+
+    from devflow.dag import TaskDAG
+    try:
+        dag = TaskDAG(tasks, root_dir=root_dir)
+    except ValueError as e:
+        print(f"Error building graph: {e}")
+        sys.exit(1)
+
+    next_task = dag.get_next_task(agent=agent)
+    if not next_task:
+        print(f"No ready tasks found for agent '{agent}'.")
+    else:
+        assigned = f" (assigned: {next_task.get('assigned_agent')})" if next_task.get('assigned_agent') else ""
+        print(f"Next Task: [{next_task.get('id')}] {next_task.get('title')}{assigned}")
+
+
+def task_graph(root_dir: str = ".") -> None:
+    tasks = _load_all_plan_tasks(root_dir)
+    if not tasks:
+        print("No tasks or plans found under .devflow/plans/.")
+        return
+
+    from devflow.dag import TaskDAG
+    try:
+        dag = TaskDAG(tasks, root_dir=root_dir)
+    except ValueError as e:
+        print(f"Error building graph: {e}")
+        return
+
+    print("Task Dependency Graph:")
+    for task_id, task in sorted(dag.tasks.items()):
+        status = task.get("status", "PENDING")
+        title = task.get("title", "Unknown")
+        assigned = f" (assigned: {task.get('assigned_agent')})" if task.get('assigned_agent') else ""
+        deps = dag.dependencies.get(task_id, [])
+        deps_str = f" [depends on: {', '.join(deps)}]" if deps else ""
+        print(f"[{task_id}] {status}: {title}{assigned}{deps_str}")
+
+
+def impact_command(task_file: str) -> None:
+    from devflow.impact import analyze_impact
+    try:
+        report = analyze_impact(task_file, os.getcwd())
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error analyzing impact: {e}")
+        sys.exit(1)
+
+    print(f"Impact Analysis Report for Task {report.get('task_id')} - {report.get('title')}")
+    print(f"======================================================================")
+    print(f"Risk Level: {report.get('risk_level')} (score: {report.get('risk_score')})")
+    print(f"Allowed Files:")
+    for f in report.get("allowed_files", []):
+        print(f"  - {f}")
+    if report.get("touched_files"):
+        print(f"Touched Files:")
+        for f in report.get("touched_files", []):
+            print(f"  - {f}")
+
+    print(f"\nWorkspace Import Usages:")
+    usages = report.get("public_interface_usages", [])
+    if not usages:
+        print("  None detected (no external files import these modules).")
+    else:
+        for u in usages:
+            print(f"  - {u}")
+
+    print(f"\nGit History Co-mutations (frequently changed together):")
+    co = report.get("co_mutations", [])
+    if not co:
+        print("  None detected.")
+    else:
+        for c in co:
+            print(f"  - {c}")
+
+    print(f"\nVerification Targets (relevant tests to run):")
+    tests = report.get("verification_targets", [])
+    if not tests:
+        print("  None detected.")
+    else:
+        for t in tests:
+            print(f"  - {t}")
+
+    if report.get("suggests_split"):
+        print(f"\nWARNING: Task Split Recommended!")
+        print(f"Reason: {report.get('split_reason')}")
+
+
+
 def init_workspace():
     """Initialize the canonical .devflow protocol tree."""
     folders = [
@@ -899,9 +1044,20 @@ def main():
     transition_parser.add_argument("--reason", default="", help="Reason for the transition")
     transition_parser.add_argument("--artifact", default="", help="Artifact ID associated with this transition")
 
+    ready_parser = task_subparsers.add_parser("ready", help="List unblocked dependency-ready tasks")
+    ready_parser.add_argument("--json", action="store_true", help="Format output as JSON list")
+
+    next_parser = task_subparsers.add_parser("next", help="Get next task to execute for an agent")
+    next_parser.add_argument("--agent", required=True, help="Agent name")
+
+    graph_parser = task_subparsers.add_parser("graph", help="Show the hierarchical task dependency graph")
+
     run_parser = subparsers.add_parser("run", help="Run a single task markdown file")
     run_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
     run_parser.add_argument("--yes", action="store_true", help="Apply the patch after validation")
+
+    impact_parser = subparsers.add_parser("impact", help="Analyze task allowed/touched files change impact")
+    impact_parser.add_argument("task_file", type=str, help="Path to canonical task markdown file")
 
     artifact_parser = subparsers.add_parser("artifact", help="Inspect and list task artifacts")
     artifact_subparsers = artifact_parser.add_subparsers(dest="artifact_command")
@@ -998,10 +1154,18 @@ def main():
                 reason=args.reason,
                 artifact_id=args.artifact
             )
+        elif args.task_command == "ready":
+            task_ready(json_output=args.json)
+        elif args.task_command == "next":
+            task_next(agent=args.agent)
+        elif args.task_command == "graph":
+            task_graph()
         else:
             task_parser.print_help()
     elif args.command == "run":
         run_task(args.task_file, yes=args.yes)
+    elif args.command == "impact":
+        impact_command(args.task_file)
     elif args.command == "artifact":
         if args.artifact_command == "list":
             artifact_list(args.task_id)

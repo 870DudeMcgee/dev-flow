@@ -1035,6 +1035,106 @@ diff --git a/sample.txt b/sample.txt
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("Error: Transition from 'PENDING' to 'REFACTOR' is invalid", output)
 
+    def test_cli_dag_and_impact(self):
+        init_workspace()
+        
+        # Write a mock plan JSON
+        mock_plan = {
+            "goal_id": "cli_dag_test",
+            "status": "ACTIVE",
+            "tasks": [
+                {
+                    "id": "001",
+                    "title": "First Task",
+                    "status": "COMPLETED",
+                    "depends_on": []
+                },
+                {
+                    "id": "002",
+                    "title": "Second Task",
+                    "status": "PENDING",
+                    "depends_on": ["001"],
+                    "assigned_agent": "antigravity"
+                }
+            ]
+        }
+        with open(".devflow/plans/001_test.plan.json", "w", encoding="utf-8") as f:
+            json.dump(mock_plan, f)
+
+        # 1. Test ready command (non-JSON)
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "ready"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Ready Tasks:", output)
+        self.assertIn("Second Task", output)
+
+        # 2. Test ready command with --json
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "ready", "--json"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        parsed_ready = json.loads(output)
+        self.assertEqual(len(parsed_ready), 1)
+        self.assertEqual(parsed_ready[0]["id"], "002")
+
+        # 3. Test next command
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "next", "--agent", "antigravity"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Next Task: [002] Second Task", output)
+
+        # 4. Test graph command
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "task", "graph"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Task Dependency Graph:", output)
+        self.assertIn("[002] PENDING: Second Task (assigned: antigravity) [depends on: 001]", output)
+
+        # 5. Create a task file to test impact command
+        new_task(
+            "002",
+            "Second Task",
+            goal="cli_dag_test",
+            allowed_files=["sample.txt"],
+            output="task_002.md"
+        )
+        
+        # Test impact command
+        old_argv = sys.argv
+        try:
+            sys.argv = ["devflow", "impact", "task_002.md"]
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                main()
+            output = buffer.getvalue()
+        finally:
+            sys.argv = old_argv
+        self.assertIn("Impact Analysis Report for Task 002 - Second Task", output)
+        self.assertIn("Risk Level:", output)
+
 if __name__ == "__main__":
     unittest.main()
 
