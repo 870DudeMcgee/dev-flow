@@ -41,6 +41,11 @@ def load_agent_profile(role: str, cwd: str = ".") -> AgentProfile:
         "implementer": (12000, 4000, 0.0),
         "test_writer": (8000, 2500, 0.2),
         "repair": (4000, 2000, 0.3),
+        "syntax_repair": (4000, 2000, 0.1),
+        "import_repair": (4000, 2000, 0.1),
+        "test_repair": (6000, 3000, 0.2),
+        "lint_repair": (4000, 1000, 0.1),
+        "type_repair": (6000, 2000, 0.2),
         "summarizer": (3000, 1000, 0.2)
     }
     
@@ -56,7 +61,8 @@ def load_agent_profile(role: str, cwd: str = ".") -> AgentProfile:
         permissions={
             "read_files": True,
             "write_files": False,
-            "emit_diff": role == "implementer",
+            "emit_diff": role in {"implementer", "repair", "syntax_repair", "import_repair", "test_repair", "lint_repair", "type_repair"},
             "run_commands": False
         }
     )
+
