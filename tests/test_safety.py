@@ -31,3 +31,12 @@ class TestSafetyScanner(unittest.TestCase):
         ok, findings = scan_diff_for_hazards(bad_diff)
         self.assertFalse(ok)
         self.assertTrue(any("socket" in f.lower() for f in findings))
+
+class TestSafetyGate(unittest.TestCase):
+    def test_ast_safety_rule_detects_eval(self):
+        from devflow.safety_gate import AstSafetyRule
+        rule = AstSafetyRule()
+        code = "x = eval(\n  '1 + 1'\n)"
+        is_clean, findings = rule.validate(code)
+        self.assertFalse(is_clean)
+        self.assertTrue(any("eval" in f.lower() for f in findings))
