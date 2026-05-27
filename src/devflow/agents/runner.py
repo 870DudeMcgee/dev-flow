@@ -20,6 +20,7 @@ from devflow.runner import (
     detect_files_from_unified_diff,
     paths_outside_allowed,
 )
+from devflow.workspace import load_config
 
 
 def run_implement_agent(task_file: str, profile_name: str = "implementer", cwd: str = ".") -> ArtifactRecord:
@@ -283,8 +284,7 @@ def run_repair_agent(task_file: str, max_loops: int = 3, profile_name: str = "re
             pass
             
     # Load config and commands
-    from devflow.cli import _load_config
-    config = _load_config()
+    config = load_config()
     commands = task.get("verification_commands") or discover_verification_commands(config, cwd)
     
     # Create checkpoint branch

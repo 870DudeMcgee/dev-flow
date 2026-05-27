@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from devflow.artifacts import ArtifactRecord, find_artifact, list_artifacts, read_artifact, write_artifact
+from devflow.memory import active_memories_for_paths
 from devflow.manager import parse_task_file
 from devflow.repo_map import CONTEXT_DIR, refresh_repo_maps
 
@@ -176,6 +177,17 @@ def build_context_pack(task_file: str, role: str, token_budget: int | None = Non
             token_budget,
         )
 
+    relevant_memory_paths = sorted(set(relevant_files + [str(path) for path in task.get("touched_files", [])]))
+    memories = active_memories_for_paths(relevant_memory_paths, cwd=cwd)
+    if memories:
+        _add_section(
+            sections,
+            "architectural_memory",
+            os.path.relpath(os.path.join(cwd, ".devflow", "memory"), cwd).replace(os.sep, "/"),
+            json.dumps(memories, indent=2, sort_keys=True),
+            token_budget,
+        )
+
     next_sequence = len([record for record in list_artifacts(task_id) if record.metadata.get("artifact_type") == "context-pack.json"]) + 1
     pack: dict[str, Any] = {
         "context_pack_id": _safe_context_id(task_id, role, next_sequence),
@@ -193,6 +205,7 @@ def build_context_pack(task_file: str, role: str, token_budget: int | None = Non
         "allowed_paths": task.get("allowed_files", []),
         "touched_paths": task.get("touched_files", []),
         "relevant_files": relevant_files,
+        "memory_records": [record["memory_id"] for record in memories],
     }
     validate_context_pack(pack)
     body = json.dumps(pack, indent=2, sort_keys=True)
