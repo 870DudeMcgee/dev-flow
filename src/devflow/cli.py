@@ -126,6 +126,7 @@ def task_show(task_id: str) -> None:
     typer.echo(f"latest_log_line: {task.latest_log_line or ''}")
     typer.echo(f"log_path: {task.log_path or ''}")
     typer.echo(f"result_path: {task.result_path or ''}")
+    typer.echo(f"worker_command: {task.worker_command or ''}")
     task_path = Path.cwd() / ".devflow" / "tasks" / task.id
     v_status = task.verification_status
     v_exit_code = task.verification_exit_code

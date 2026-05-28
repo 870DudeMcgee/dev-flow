@@ -39,6 +39,7 @@ class TaskRecord(BaseModel):
     latest_log_line: str | None = None
     log_path: str | None = None
     result_path: str | None = None
+    worker_command: str | None = None
     verification_command: str | None = None
     verification_exit_code: int | None = None
     verification_log_path: str | None = None

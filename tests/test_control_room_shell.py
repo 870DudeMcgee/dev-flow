@@ -1156,3 +1156,35 @@ def test_task_show_verification_and_next_action() -> None:
 
         finally:
             os.chdir(old_cwd)
+
+
+def test_worker_command_persistence() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "worker command test"])
+            assert created.exit_code == 0
+
+            # 1. Before running, worker_command should be empty
+            show_initial = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_initial.exit_code == 0
+            assert "worker_command: " in show_initial.output
+
+            # 2. Run with a specific command
+            run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo 'worker command test'"])
+            assert run.exit_code == 0
+
+            # 3. Assert task show prints the exact worker command
+            show_after = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_after.exit_code == 0
+            assert "worker_command:" in show_after.output
+            assert "worker command test" in show_after.output
+
+            # 4. Assert task.yaml contains the worker_command
+            task_yaml = Path(".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8")
+            assert "worker_command:" in task_yaml
+            assert "worker command test" in task_yaml
+
+        finally:
+            os.chdir(old_cwd)

@@ -136,6 +136,7 @@ def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds
     task.status = "running"
     task.worker = adapter.name
     task.timeout_seconds = timeout_seconds
+    task.worker_command = shlex.join(command)
     task.started_at = utc_now()
     task.updated_at = task.started_at
     task.last_event = "worker_started"
@@ -422,6 +423,7 @@ def _save_task(task_path: Path, task: TaskRecord) -> None:
         "latest_log_line": task.latest_log_line,
         "log_path": task.log_path,
         "result_path": task.result_path,
+        "worker_command": task.worker_command,
         "verification_command": task.verification_command,
         "verification_exit_code": task.verification_exit_code,
         "verification_log_path": task.verification_log_path,
