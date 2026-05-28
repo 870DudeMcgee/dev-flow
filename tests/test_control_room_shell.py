@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, runtime_checkable
 
 import pytest
 from typer.testing import CliRunner
@@ -12,7 +12,12 @@ from typer.testing import CliRunner
 from devflow.cli import app
 from devflow.control_room.service import get_task
 from devflow.control_room.shell_worker import ShellWorkerAdapter
-from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter, list_worker_adapters
+from devflow.control_room.worker_adapter import (
+    UnsupportedWorkerAdapter,
+    WorkerAdapter,
+    get_worker_adapter,
+    list_worker_adapters,
+)
 
 
 runner = CliRunner()
@@ -1262,3 +1267,13 @@ def test_task_log_command() -> None:
 
         finally:
             os.chdir(old_cwd)
+
+
+def test_shell_adapter_satisfies_worker_adapter_protocol() -> None:
+    adapter = get_worker_adapter("shell")
+    assert isinstance(adapter, ShellWorkerAdapter)
+    assert isinstance(adapter, runtime_checkable(WorkerAdapter))
+    assert hasattr(adapter, "name")
+    assert adapter.name == "shell"
+    assert hasattr(adapter, "run")
+    assert callable(adapter.run)
