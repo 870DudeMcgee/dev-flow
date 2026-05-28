@@ -35,33 +35,79 @@ Context boundaries are strictly dictated by your current agent role:
 * Never copy-paste unchanged code when editing a file; use precise line replacements or minimal diffs.
 * Conclude every task slice or role swap with the canonical token-optimized handoff format.
 
+## DevMode Relationship
+
+DevMode is the master engineering workflow. Token optimization is one always-on budget discipline inside DevMode, not the whole workflow.
+
+DevMode combines:
+
+* `using-superpowers` as the baseline execution discipline.
+* Matt Pocock engineering skills as routed escalation modes.
+* `skills/token-optimization/` as the shared context-budget package.
+* Dev-Flow project rules as the repo-specific operating contract.
+
+Do not eagerly load every skill. Route to specialized skills only when the task clearly needs them.
+
 ## Command Support Matrix
 
-The `/token-optimization` command behaves as a real reusable command surface across IDEs and agent platforms. The matrix below documents which tools support true slash commands, which support prompt files, and which only support repo-level instructions:
+The active VS Code entry point is DevMode. DevMode keeps token optimization lightweight and always available without requiring agents to invoke the full token-optimization skill by default. The matrix below documents which tools support true slash commands, prompt files, skills, or repo-level instructions.
 
 ## VS Code Copilot
 
-[.github/copilot-instructions.md](../.github/copilot-instructions.md) is the always-on repo instruction layer. [.github/prompts/token-optimization.prompt.md](../.github/prompts/token-optimization.prompt.md) is the manual reusable prompt or slash-command entrypoint.
+[.github/copilot-instructions.md](../.github/copilot-instructions.md) is the always-on lightweight DevMode rule. [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md) is the manual `/devmode` reusable prompt entrypoint. [.github/skills/devmode/SKILL.md](../.github/skills/devmode/SKILL.md) is the project-local DevMode skill/router.
 
-In VS Code Copilot Chat, try `/token-optimization` or use the prompt/reusable prompt UI. If the prompt does not appear, make sure the repo root is open. If working from a subfolder, enable `chat.useCustomizationsInParentRepositories`.
+The canonical shared token-optimization package remains at [skills/token-optimization/](../skills/token-optimization/). DevMode may consult it when a task has real context-bloat risk, but the default path is DevMode plus Superpowers-style discipline.
 
-Use Chat diagnostics or `Chat: Open Customizations` to verify VS Code discovered the prompt file.
+Superpowers and Matt Pocock skills are currently available from the local/user skill installs, not vendored into this repo's `.github/skills/` folder. The routed skill names are `using-superpowers`, `improve-codebase-architecture`, `grill-with-docs`, and `caveman`.
 
-The canonical behavior remains in [skills/token-optimization/SKILL.md](../skills/token-optimization/SKILL.md); the VS Code prompt is only a thin wrapper.
+In VS Code Copilot Chat, run `/devmode` or use the prompt/reusable prompt UI. If the prompt does not appear, make sure the repo root is open. If working from a subfolder, enable `chat.useCustomizationsInParentRepositories`.
+
+Recommended VS Code settings:
+
+```json
+{
+  "chat.useAgentsMdFile": true,
+  "chat.includeReferencedInstructions": true,
+  "chat.includeApplyingInstructions": true,
+  "chat.promptFiles": true,
+  "chat.promptFilesRecommendations": true,
+  "chat.useCustomizationsInParentRepositories": true
+}
+```
+
+Use Chat diagnostics or `Chat: Open Customizations` to verify VS Code discovered the DevMode prompt file.
 
 | Tool/Platform | Command/Prompt Interface | Integration Strategy |
 | :--- | :--- | :--- |
 | **Claude Code** | `/token-optimization` | Supported via [.claude/commands/token-optimization.md](.claude/commands/token-optimization.md) |
 | **Gemini CLI** | `/token-optimization` | Supported via [.gemini/commands/token-optimization.toml](.gemini/commands/token-optimization.toml) |
-| **VS Code Copilot** | Select `.github/prompts/token-optimization.prompt.md` | Supported via [.github/prompts/token-optimization.prompt.md](../.github/prompts/token-optimization.prompt.md) |
+| **VS Code Copilot** | `/devmode` or select `.github/prompts/devmode.prompt.md` | Supported via [.github/copilot-instructions.md](../.github/copilot-instructions.md), [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md), and [.github/skills/devmode/SKILL.md](../.github/skills/devmode/SKILL.md) |
 | **Antigravity IDE** | `/devmode` | Supported via [.agent/workflows/devmode.md](.agent/workflows/devmode.md) and [.agent/rules/devmode-token-first.md](.agent/rules/devmode-token-first.md) |
 | **ChatGPT Web** | No custom command support | Enforce manually by pointing the model to [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) |
 
 ## Skills, Rules, and Workflows in Antigravity
 
-It is crucial to understand how Antigravity integrates slash commands and behavior policies:
-* **Workflows** (defined under `.agent/workflows/`, such as `.agent/workflows/devmode.md`) provide direct **slash-command entrypoints** (e.g., `/devmode`) within the Antigravity user interface.
-* **Rules** (defined under `.agent/rules/`, such as `.agent/rules/devmode-token-first.md`) specify **always-on repository behavior** (DevMode Token-First guardrail) that Antigravity agents are continuously directed to follow.
-* **Skills** (defined in `skills/` or `.agent/skills/` directories, such as `skills/token-optimization/SKILL.md`) act strictly as **low-level behavior reference material** and modular capability packages, rather than the slash commands themselves. To avoid context saturation, skills are only loaded progressively on-demand when the agent detects a relevant task, rather than being loaded in every prompt.
+It is crucial to understand how Antigravity integrates slash commands, rules, and behavior policies:
+* **DevMode** is the master engineering workflow and operational baseline.
+* **Token Optimization** is one always-on budget discipline inside the DevMode master workflow.
+* **Antigravity manual command**: `/devmode` (triggered via the manual workflow file `.agent/workflows/devmode.md`)
+* **Antigravity always-on rule**: `.agent/rules/devmode-token-first.md`
+* **Shared token-optimization package**: `skills/token-optimization/` acts strictly as low-level behavior reference material and is never loaded eagerly by default to avoid token bloat.
 
-The canonical token optimization skill remains in `skills/token-optimization/`. Antigravity should not invoke it directly by default. Instead, Antigravity uses `.agent/rules/devmode-token-first.md` and `.agent/workflows/devmode.md` as the active entry points.
+## VS Code Skill Routing
+
+The repo-local DevMode skill lives at `.github/skills/devmode/SKILL.md`. It routes to installed skills by name instead of copying their full instructions into every request.
+
+Current routed skills:
+
+* `using-superpowers`: baseline disciplined execution.
+* `improve-codebase-architecture`: architecture, coupling, refactor, and codebase health work.
+* `grill-with-docs`: plan/spec/docs/assumption alignment.
+* `caveman`: simplification when a solution is overbuilt.
+* `token-optimization`: context budget and transcript discipline.
+
+Copy selected external skills into `.github/skills/` only when the repo needs portable team-shared skill definitions. Until then, keep the local/user installs as the source for Superpowers and Matt Pocock skills.
+
+## Disabled VS Code Token Prompt
+
+The old VS Code `/token-optimization` prompt is disabled at `.github/prompts-disabled/token-optimization.prompt.md`. Keep it as historical reference only. Do not restore it unless VS Code needs a separate token-optimization command again.

@@ -1,50 +1,72 @@
-# GitHub Copilot Instructions
+# DevMode Default
 
-This repository is being rebuilt into a simpler product: a local-first control room for parallel AI coding workers.
+For all development work in this repository, operate in DevMode.
 
-Do not use the archived legacy workflow as the process authority for this rebuild.
+DevMode is the master engineering workflow for this repo. It combines:
 
-## Active Source Of Truth
+- Superpowers execution discipline from `using-superpowers`
+- Matt Pocock engineering skills when relevant
+- repo-local token optimization
+- Dev-Flow project rules and verification discipline
 
-Start from [AGENTS.md](../AGENTS.md) for the repo-level operating rule.
+## Default DevMode Contract
 
-Read [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md) before implementation decisions and check your plan against its Periodic Self-Check section. If a proposed change does not move Dev-Flow toward the North Star, do not implement it.
+Use Superpowers-style disciplined execution by default:
 
-Read [docs/control-room-mvp.md](../docs/control-room-mvp.md) before non-trivial code changes.
+- clarify the task type
+- inspect only necessary context
+- make a small plan when useful
+- execute one small vertical slice
+- verify before claiming success
+- report concise evidence
 
-Use [skills/token-optimization/SKILL.md](../skills/token-optimization/SKILL.md) to activate token-optimization mode and load only the relevant subskills for the current role.
+Use token optimization at all times:
 
-## Working Rules
+- search before broad reads
+- read targeted sections before whole files
+- summarize before expanding
+- avoid repeated context
+- do not load unrelated skills or docs
 
-- Prefer direct implementation over ceremonial workflow.
-- Use concise, technical, action-oriented output.
-- Do not restate project background unless asked.
-- Search before reading large files.
-- Summarize command output before expanding into logs.
-- Preserve exact commands, failures, test counts, commit hashes, and git status.
-- Respect one-writer-at-a-time; if writer/reviewer role is unclear, ask before editing.
-- Do not create legacy `.devflow/tasks/*.md` task files unless the user explicitly asks.
-- Do not follow archived staged-workflow rituals.
-- Do not delegate implementation to old local-model agent commands.
-- Preserve useful code only when it supports the new control-room MVP.
-- Keep unrelated dirty worktree changes intact.
-- Verify with the narrowest useful command and report what actually ran.
+## Repo Guardrails
 
-## First Milestone
+- Follow [AGENTS.md](../AGENTS.md) as the repo-level operating rule.
+- Read [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md) before implementation decisions and check the Periodic Self-Check section.
+- Read [docs/control-room-mvp.md](../docs/control-room-mvp.md) before non-trivial code changes.
+- Keep the first milestone focused on shell workers only.
+- Do not use archived legacy workflows as process authority.
+- Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, or model routing yet.
 
-Implement a non-AI control room with shell workers only.
+## Skill Routing
 
-Required commands:
+Do not invoke every skill automatically. Route deliberately:
 
-```bash
-devflow init
-devflow doctor
-devflow task create "title"
-devflow task list
-devflow task show <task_id>
-devflow task run <task_id> --worker shell -- <command>
-devflow task verify <task_id> -- <command>
-devflow dashboard
-```
+- Use `using-superpowers` as the baseline development discipline.
+- Use `improve-codebase-architecture` for architecture, refactor, coupling, module boundaries, or codebase health.
+- Use `grill-with-docs` for checking plans, specs, docs, assumptions, and implementation alignment.
+- Use `caveman` when a solution is overbuilt, clever, abstract, or too complex.
+- Use `token-optimization` when context size, repeated reads, or transcript bloat are a risk.
 
-Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, or model routing yet.
+If a skill, prompt, custom agent, or workflow is not clearly needed, do not call it.
+
+## Dev-Flow Project Rules
+
+- Agents are replaceable; state is sacred.
+- Visibility is mandatory.
+- Isolation comes before autonomy.
+- Verification belongs to Dev-Flow.
+- Humans control promotion to main.
+- Prefer small vertical slices.
+- Do not implement future architecture unless the milestone requires it.
+- Do not claim success without evidence.
+
+## Output Format
+
+Use this format unless the user asks otherwise:
+
+Decision:
+Files inspected:
+Files changed:
+Verification:
+Risks:
+Next safe action:
