@@ -32,11 +32,18 @@ def test_task_packet_canonical_files_precedence_on_conflict() -> None:
 
         packet = build_task_packet("task-0001", root=root)
 
+        assert packet.workspace_path == "<workspace>"
+        assert packet.task["workspace_path"] == "<workspace>"
+        assert packet.task["workspace"] == "<workspace>"
+        assert "<task>/task.yaml" in packet.allowed_artifacts
+        assert packet.logs["worker"].path == "<task>/logs/worker.log"
+        assert packet.task["log_path"] is None
+        assert packet.task["verification_log_path"] is None
+        assert packet.task["result_path"] is None
         assert packet.task_id == "task-0001"
         assert packet.title == "Canonical title"
         assert packet.status == "created"
         assert packet.adapter == "shell"
-        assert packet.workspace_path == ".devflow/workspaces/task-0001"
         assert packet.task["title"] == "Canonical title"
         assert packet.task["status"] == "created"
         assert packet.verification["status"] == "not_run"
@@ -79,6 +86,8 @@ def test_task_packet_log_tail_truncation() -> None:
         assert "verify 1" not in packet.logs["verify"].tail
         assert packet.logs["worker"].omitted_lines == 4
         assert packet.logs["verify"].omitted_lines == 2
+        assert packet.logs["worker"].path == "<task>/logs/worker.log"
+        assert packet.logs["verify"].path == "<task>/logs/verify.log"
         assert "Tail-limited worker.log to last 2 of 6 line(s)." in packet.truncation_notes
         assert "Tail-limited verify.log to last 3 of 5 line(s)." in packet.truncation_notes
 
@@ -136,7 +145,7 @@ def test_task_packet_malformed_summary_json_falls_back() -> None:
 
         assert packet.title == "Malformed cache"
         assert packet.status == "created"
-        assert packet.workspace_path == ".devflow/workspaces/task-0001"
+        assert packet.workspace_path == "<workspace>"
         assert packet.derived_summary is None
         assert any("Ignored summary.json because it is malformed" in note for note in packet.truncation_notes)
 
@@ -230,8 +239,36 @@ def test_task_packet_ignores_stale_authoritative_summary_fields() -> None:
         # These stale fields did not influence the packet metadata or status
         assert packet.status == "created"
         assert packet.title == "Stale fields test"
-        assert packet.workspace_path == ".devflow/workspaces/task-0001"
+        assert packet.workspace_path == "<workspace>"
         assert packet.verification["status"] == "not_run"
+
+
+def test_task_packet_path_virtualization() -> None:
+    from devflow.control_room.task_packet import _virtualize_path
+    repo_root = Path("/Users/developer/project")
+    task_id = "task-0001"
+
+    # 1. Absolute POSIX path under task
+    path1 = "/Users/developer/project/.devflow/tasks/task-0001/logs/worker.log"
+    assert _virtualize_path(path1, repo_root, task_id) == "<task>/logs/worker.log"
+
+    # 2. Absolute POSIX path under workspace
+    path2 = "/Users/developer/project/.devflow/workspaces/task-0001/src/main.py"
+    assert _virtualize_path(path2, repo_root, task_id) == "<workspace>/src/main.py"
+
+    # 3. file:// absolute path
+    path3 = "file:///Users/developer/project/.devflow/tasks/task-0001/logs/verify.log"
+    assert _virtualize_path(path3, repo_root, task_id) == "<task>/logs/verify.log"
+
+    # 4. Windows absolute path with backslashes
+    path4 = "C:\\Users\\developer\\project\\.devflow\\workspaces\\task-0001\\tests\\test_core.py"
+    assert _virtualize_path(path4, repo_root, task_id) == "<workspace>/tests/test_core.py"
+
+    # 5. Outside absolute paths scrubbed
+    path5 = "/Users/developer/some-other-folder/secret.py"
+    virtualized = _virtualize_path(path5, repo_root, task_id)
+    assert "/Users/" not in virtualized
+    assert "secret.py" in virtualized
 
 
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:

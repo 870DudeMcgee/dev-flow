@@ -75,14 +75,34 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
     )
     adapter = task.worker_adapter or task.worker
 
+    # Path Virtualization Slices
+    raw_workspace_path = task.workspace_path or task.workspace
+    virtual_workspace_path = _virtualize_path(raw_workspace_path, repo_root, task.id)
+
+    task_data = task.model_dump(mode="json")
+    for k in ["workspace", "workspace_path", "log_path", "result_path", "verification_log_path"]:
+        if k in task_data and task_data[k] is not None:
+            task_data[k] = _virtualize_path(task_data[k], repo_root, task.id)
+
+    if "log_path" in verification and verification["log_path"] is not None:
+        verification["log_path"] = _virtualize_path(verification["log_path"], repo_root, task.id)
+
+    worker_log = worker_log.model_copy(update={"path": _virtualize_path(worker_log.path, repo_root, task.id)})
+    verify_log = verify_log.model_copy(update={"path": _virtualize_path(verify_log.path, repo_root, task.id)})
+
+    allowed_artifacts = [
+        _virtualize_path(p, repo_root, task.id)
+        for p in _allowed_artifacts(repo_root, task_path)
+    ]
+
     return TaskPacket(
         task_id=task.id,
         title=task.title,
         status=task.status,
         adapter=adapter,
-        workspace_path=task.workspace_path or task.workspace,
+        workspace_path=virtual_workspace_path,
         worker_adapter=adapter,
-        task=task.model_dump(mode="json"),
+        task=task_data,
         summary=_packet_summary(task, summary_data),
         recent_events=recent_events,
         verification=verification,
@@ -90,7 +110,7 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         result_summary=None,
         logs={"worker": worker_log, "verify": verify_log},
         constraints=_constraints(task),
-        allowed_artifacts=_allowed_artifacts(repo_root, task_path),
+        allowed_artifacts=allowed_artifacts,
         omitted_counts={
             "events": omitted_events,
             "malformed_events": malformed_events,
@@ -280,3 +300,109 @@ def _relative(root: Path, path: Path) -> str:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+def _normalize_to_posix(path_str: str) -> str:
+    if path_str.startswith("file://"):
+        path_str = path_str[7:]
+
+    # Check for Windows path start (e.g. C:\... or similar) or backslashes
+    if "\\" in path_str or (len(path_str) > 1 and path_str[1] == ":" and path_str[0].isalpha()):
+        from pathlib import PureWindowsPath
+        pure = PureWindowsPath(path_str)
+        parts = list(pure.parts)
+        if parts and len(parts[0]) > 1 and parts[0][1] == ":" and parts[0][0].isalpha():
+            parts[0] = "/"
+        path_str = "/".join(parts)
+        import re
+        path_str = re.sub(r'/+', '/', path_str)
+    else:
+        path_str = path_str.replace("\\", "/")
+    return path_str
+
+
+def _virtualize_path(path_str: str | None, repo_root: Path, task_id: str, workspace_path: Path | None = None) -> str | None:
+    if path_str is None:
+        return None
+    if not isinstance(path_str, str) or not path_str.strip():
+        return path_str
+
+    if path_str.startswith("<workspace>") or path_str.startswith("<task>") or path_str.startswith("<devflow>"):
+        return path_str
+
+    normalized = _normalize_to_posix(path_str)
+
+    try:
+        p = Path(normalized)
+        if not p.is_absolute():
+            abs_p = (repo_root / p).resolve()
+        else:
+            abs_p = p.resolve()
+    except Exception:
+        abs_p = None
+
+    resolved_repo = repo_root.resolve()
+    resolved_task = (resolved_repo / ".devflow" / "tasks" / task_id).resolve()
+    resolved_workspace = (workspace_path or (resolved_repo / ".devflow" / "workspaces" / task_id)).resolve()
+    resolved_devflow = (resolved_repo / ".devflow").resolve()
+
+    if abs_p is not None:
+        try:
+            rel = abs_p.relative_to(resolved_task)
+            return f"<task>/{rel.as_posix()}"
+        except ValueError:
+            pass
+
+        try:
+            rel = abs_p.relative_to(resolved_workspace)
+            return f"<workspace>/{rel.as_posix()}" if rel.as_posix() != "." else "<workspace>"
+        except ValueError:
+            pass
+
+        try:
+            rel = abs_p.relative_to(resolved_devflow)
+            return f"<devflow>/{rel.as_posix()}" if rel.as_posix() != "." else "<devflow>"
+        except ValueError:
+            pass
+
+        try:
+            rel = abs_p.relative_to(resolved_repo)
+            return rel.as_posix()
+        except ValueError:
+            pass
+
+    task_rel_prefix = f".devflow/tasks/{task_id}"
+    workspace_rel_prefix = f".devflow/workspaces/{task_id}"
+    devflow_rel_prefix = ".devflow"
+
+    clean_norm = normalized.lstrip("/")
+    if clean_norm.startswith("./"):
+        clean_norm = clean_norm[2:]
+
+    if clean_norm == task_rel_prefix:
+        return "<task>"
+    elif clean_norm.startswith(task_rel_prefix + "/"):
+        return f"<task>/{clean_norm[len(task_rel_prefix)+1:]}"
+    elif clean_norm == workspace_rel_prefix:
+        return "<workspace>"
+    elif clean_norm.startswith(workspace_rel_prefix + "/"):
+        return f"<workspace>/{clean_norm[len(workspace_rel_prefix)+1:]}"
+    elif clean_norm == devflow_rel_prefix:
+        return "<devflow>"
+    elif clean_norm.startswith(devflow_rel_prefix + "/"):
+        return f"<devflow>/{clean_norm[len(devflow_rel_prefix)+1:]}"
+
+    # Scrub potential absolute OS secrets/user paths
+    import re
+    scrubbed = normalized
+    scrubbed = re.sub(r'^[a-zA-Z]:/', '', scrubbed)
+    scrubbed = re.sub(r'^/Users/[^/]+', '<home>', scrubbed)
+    scrubbed = re.sub(r'^/home/[^/]+', '<home>', scrubbed)
+    scrubbed = re.sub(r'^/tmp', '<temp>', scrubbed)
+    scrubbed = re.sub(r'^/private/var/folders/[^/]+/[^/]+/[^/]+', '<temp>', scrubbed)
+    scrubbed = re.sub(r'^/var/folders/[^/]+/[^/]+/[^/]+', '<temp>', scrubbed)
+
+    scrubbed = re.sub(r'/+', '/', scrubbed)
+    if scrubbed.startswith('/'):
+        scrubbed = scrubbed.lstrip('/')
+    return scrubbed
