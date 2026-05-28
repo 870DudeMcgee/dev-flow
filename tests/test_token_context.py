@@ -220,3 +220,89 @@ def _skip_without_git() -> None:
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=repo, check=True, text=True, capture_output=True)
+
+
+def test_token_context_summary_logic_and_limits() -> None:
+    _skip_without_git()
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        try:
+            os.chdir(repo)
+            _git(repo, "init", "-b", "main")
+            assert runner.invoke(app, ["init"]).exit_code == 0
+
+            # Create three tasks
+            assert runner.invoke(app, ["task", "create", "Task One"]).exit_code == 0
+            assert runner.invoke(app, ["task", "create", "Task Two"]).exit_code == 0
+            assert runner.invoke(app, ["task", "create", "Task Three"]).exit_code == 0
+
+            # 1. Verification that token_context reads valid summary.json when present
+            summary_one = repo / ".devflow" / "tasks" / "task-0001" / "summary.json"
+            assert summary_one.exists()
+
+            result = runner.invoke(app, ["context", "test summary ingestion"])
+            assert result.exit_code == 0, result.output
+            body = Path(".devflow/token-context/current.md").read_text(encoding="utf-8")
+            assert "task-0001 created: Task One" in body
+            assert "task-0002 created: Task Two" in body
+            assert "task-0003 created: Task Three" in body
+
+            # 2. Missing summary.json falls back to task.yaml/canonical state
+            summary_one.unlink()
+            result_missing = runner.invoke(app, ["context", "test summary fallback"])
+            assert result_missing.exit_code == 0, result_missing.output
+            body_missing = Path(".devflow/token-context/current.md").read_text(encoding="utf-8")
+            assert "task-0001 created: Task One" in body_missing
+
+            # 3. Malformed summary.json falls back safely to task.yaml
+            summary_one.write_text("{corrupted json", encoding="utf-8")
+            result_malformed = runner.invoke(app, ["context", "test summary malformed"])
+            assert result_malformed.exit_code == 0, result_malformed.output
+            body_malformed = Path(".devflow/token-context/current.md").read_text(encoding="utf-8")
+            assert "task-0001 created: Task One" in body_malformed
+
+            # 4. Tampered summary.json (ID mismatch) does not override canonical status/identity
+            summary_one.write_text(json.dumps({
+                "task_id": "task-tampered-id",
+                "title": "Tampered Title",
+                "status": "verified",
+                "updated_at": "2026-05-28T09:00:00+00:00"
+            }), encoding="utf-8")
+
+            result_tampered = runner.invoke(app, ["context", "test summary tampered"])
+            assert result_tampered.exit_code == 0, result_tampered.output
+            body_tampered = Path(".devflow/token-context/current.md").read_text(encoding="utf-8")
+            # Should NOT show the tampered title/status, but the canonical ones from task.yaml
+            assert "task-0001 created: Task One" in body_tampered
+            assert "Tampered Title" not in body_tampered
+
+            # Restore valid summary.json
+            assert runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo restored"]).exit_code == 0
+
+            # 5. Task summaries are limited deterministically to the most recently updated tasks
+            # Let's create more tasks so we have 7 tasks total
+            assert runner.invoke(app, ["task", "create", "Task Four"]).exit_code == 0
+            assert runner.invoke(app, ["task", "create", "Task Five"]).exit_code == 0
+            assert runner.invoke(app, ["task", "create", "Task Six"]).exit_code == 0
+            assert runner.invoke(app, ["task", "create", "Task Seven"]).exit_code == 0
+
+            # Run context and check that it shows a truncation note / only shows the top 5
+            result_limit = runner.invoke(app, ["context", "test limit"])
+            assert result_limit.exit_code == 0, result_limit.output
+            body_limit = Path(".devflow/token-context/current.md").read_text(encoding="utf-8")
+
+            # It should show "Task Seven", "Task Six", "Task Five", "Task Four", "Task One"
+            # and omit Task Three and Task Two
+            assert "Task Seven" in body_limit
+            assert "Task Six" in body_limit
+            assert "Task Five" in body_limit
+            assert "Task Four" in body_limit
+            assert "Task One" in body_limit
+            assert "Task Three" not in body_limit
+            assert "Task Two" not in body_limit
+
+            # 6. Omitted task count note is visible
+            assert "and 2 more task(s) omitted" in body_limit
+        finally:
+            os.chdir(old_cwd)

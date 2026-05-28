@@ -187,12 +187,111 @@ def _changed_files(repo: Path) -> list[str]:
     return files
 
 
-def _task_summaries(start: Path) -> list[str]:
+def _task_summaries(start: Path, limit: int = 5) -> list[str]:
     try:
-        tasks = list_tasks(start)
+        tasks_dir = start / ".devflow" / "tasks"
+        if not tasks_dir.exists():
+            return []
+
+        task_infos = []
+
+        for path in sorted(tasks_dir.iterdir()):
+            if not path.is_dir():
+                continue
+
+            yaml_path = path / "task.yaml"
+            if not yaml_path.exists():
+                continue
+
+            # 1. Parse and validate canonical task.yaml first to guarantee authority
+            task_yaml_valid = False
+            yaml_id = None
+            yaml_status = None
+            yaml_title = None
+            yaml_updated = None
+
+            try:
+                content = yaml_path.read_text(encoding="utf-8")
+                id_match = re.search(r"^id:\s*(.+)$", content, re.MULTILINE)
+                status_match = re.search(r"^status:\s*(.+)$", content, re.MULTILINE)
+                title_match = re.search(r"^title:\s*(.+)$", content, re.MULTILINE)
+                updated_match = re.search(r"^updated_at:\s*(.+)$", content, re.MULTILINE)
+
+                if id_match and status_match and title_match and updated_match:
+                    def _clean(val: str) -> str:
+                        val = val.strip()
+                        if val.startswith('"') and val.endswith('"'):
+                            return val[1:-1]
+                        if val.startswith("'") and val.endswith("'"):
+                            return val[1:-1]
+                        return val
+
+                    yaml_id = _clean(id_match.group(1))
+                    yaml_status = _clean(status_match.group(1))
+                    yaml_title = _clean(title_match.group(1))
+                    yaml_updated = _clean(updated_match.group(1))
+                    task_yaml_valid = True
+            except Exception:
+                pass
+
+            if not task_yaml_valid:
+                raise ValueError("task state unreadable")
+
+            # 2. Attempt to load summary.json for token efficiency (only if task.yaml is valid)
+            task_id = yaml_id
+            task_status = yaml_status
+            task_title = yaml_title
+            updated_at_str = yaml_updated
+
+            summary_path = path / "summary.json"
+            if summary_path.exists():
+                try:
+                    data = json.loads(summary_path.read_text(encoding="utf-8"))
+                    # Hardened check: Verify task_id matches folder name and canonical values
+                    if (isinstance(data.get("task_id"), str) and
+                        data.get("task_id") == path.name and
+                        data.get("task_id") == yaml_id and
+                        isinstance(data.get("status"), str) and
+                        data.get("status") == yaml_status and
+                        isinstance(data.get("title"), str) and
+                        isinstance(data.get("updated_at"), str)):
+                        task_id = data["task_id"]
+                        task_status = data["status"]
+                        task_title = data["title"]
+                        updated_at_str = data["updated_at"]
+                except Exception:
+                    pass
+
+            try:
+                clean_ts = updated_at_str.replace("Z", "+00:00")
+                updated_at_dt = datetime.fromisoformat(clean_ts)
+            except Exception:
+                updated_at_dt = datetime.min.replace(tzinfo=timezone.utc)
+
+            task_infos.append({
+                "id": task_id,
+                "status": task_status,
+                "title": task_title,
+                "updated_at": updated_at_dt
+            })
+
+        if not task_infos:
+            return []
+
+        # Sort tasks by most recently updated first
+        task_infos.sort(key=lambda t: t["updated_at"], reverse=True)
+
+        total_tasks = len(task_infos)
+        truncated = task_infos[:limit]
+
+        lines = [f"{task['id']} {task['status']}: {task['title']}" for task in truncated]
+
+        if total_tasks > limit:
+            lines.append(f"... and {total_tasks - limit} more task(s) omitted")
+
+        return lines
     except Exception:
         return ["task state unreadable"]
-    return [f"{task.id} {task.status}: {task.title}" for task in tasks]
 
 
 def _canonical_docs(repo: Path) -> list[str]:
