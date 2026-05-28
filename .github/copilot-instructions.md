@@ -6,13 +6,23 @@ Do not use the archived legacy workflow as the process authority for this rebuil
 
 ## Active Source Of Truth
 
+Start from [AGENTS.md](../AGENTS.md) for the repo-level operating rule.
+
 Read [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md) before implementation decisions and check your plan against its Periodic Self-Check section. If a proposed change does not move Dev-Flow toward the North Star, do not implement it.
 
 Read [docs/control-room-mvp.md](../docs/control-room-mvp.md) before non-trivial code changes.
 
+Use [skills/token-optimization/SKILL.md](../skills/token-optimization/SKILL.md) to activate token-optimization mode and load only the relevant subskills for the current role.
+
 ## Working Rules
 
 - Prefer direct implementation over ceremonial workflow.
+- Use concise, technical, action-oriented output.
+- Do not restate project background unless asked.
+- Search before reading large files.
+- Summarize command output before expanding into logs.
+- Preserve exact commands, failures, test counts, commit hashes, and git status.
+- Respect one-writer-at-a-time; if writer/reviewer role is unclear, ask before editing.
 - Do not create legacy `.devflow/tasks/*.md` task files unless the user explicitly asks.
 - Do not follow archived staged-workflow rituals.
 - Do not delegate implementation to old local-model agent commands.

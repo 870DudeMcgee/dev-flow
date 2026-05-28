@@ -1,14 +1,17 @@
-# Token-Optimization Prompt
+---
+name: token-optimization
+description: Activate Dev-Flow token-efficient working mode
+agent: agent
+---
 
-Instructs the assistant to strictly adhere to the Dev-Flow token-optimization skill system and context discipline rules.
+# Token Optimization
 
-## Core Directives
+Activate Dev-Flow token-optimization mode for this session.
 
-Please immediately activate and follow the canonical Dev-Flow token-optimization meta-routing skill:
-* **Canonical Skill Path**: [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md)
+Follow the repo operating rule in [AGENTS.md](../../AGENTS.md), the canonical router in [skills/token-optimization/SKILL.md](../../skills/token-optimization/SKILL.md), and the VS Code usage notes in [docs/token-optimization.md](../../docs/token-optimization.md). Load only the subskills directly relevant to the current role and task.
 
-Assess your current activity and select the corresponding subskill:
-* **Searching code**: [skills/token-optimization/skills/search_before_reading.md](skills/token-optimization/skills/search_before_reading.md)
-* **Checking task/state**: [skills/token-optimization/skills/summarize_before_expanding.md](skills/token-optimization/skills/summarize_before_expanding.md)
-* **Structuring context for role**: [skills/token-optimization/skills/role_context_selection.md](skills/token-optimization/skills/role_context_selection.md)
-* **Formatting replies or handoffs**: [skills/token-optimization/skills/transcript_bloat_prevention.md](skills/token-optimization/skills/transcript_bloat_prevention.md) using the [docs/handoff-template.md](docs/handoff-template.md) template.
+Stay concise and technical. Avoid broad repo scans, search before reading large files, and summarize before expanding into raw source, logs, or long artifacts.
+
+Respect one-writer-at-a-time. If it is unclear whether you are acting as writer or reviewer, ask before editing.
+
+Use compact handoffs when pausing, switching roles, or finishing a task slice.
