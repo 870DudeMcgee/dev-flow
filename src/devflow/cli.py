@@ -152,6 +152,18 @@ def task_show(task_id: str) -> None:
     typer.echo(f"verification_log_path: {v_log_path or ''}")
     typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
     typer.echo(f"suggested_next_action: {_suggest_next_action(task.status, v_status, task.id)}")
+    promoted_event = _get_latest_promoted_event(task_path)
+    if promoted_event:
+        typer.echo("promoted_changes:")
+        added = promoted_event.get("added", [])
+        modified = promoted_event.get("modified", [])
+        deleted_applied = promoted_event.get("deleted_applied", [])
+        if added:
+            typer.echo(f"  added: {', '.join(added)}")
+        if modified:
+            typer.echo(f"  modified: {', '.join(modified)}")
+        if deleted_applied:
+            typer.echo(f"  deleted_applied: {', '.join(deleted_applied)}")
     packet_json = task_path / "packet.json"
     if packet_json.exists():
         rel_path = _relative(Path.cwd(), packet_json)
@@ -496,7 +508,9 @@ def _suggest_next_action(status: str, verification_status: str, task_id: str) ->
     elif status == "complete":
         return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
     elif status == "verified" or verification_status == "passed":
-        return "Task is verified. Review the result before any human-controlled promotion."
+        return f"Task is verified. Review promotion preview, then run 'devflow task promote {task_id}' when ready."
+    elif status == "promoted":
+        return "Task has been promoted. Review main checkout changes, then commit manually if appropriate."
     elif status == "verification_failed" or verification_status == "failed":
         return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
     elif status == "worker_failed":
@@ -520,6 +534,27 @@ def _echo_result_summary(path: Path) -> None:
             typer.echo(f"  {stripped}")
             return
     typer.echo("  none")
+
+
+def _get_latest_promoted_event(task_path: Path) -> dict[str, Any] | None:
+    events_file = task_path / "events.jsonl"
+    if not events_file.exists():
+        return None
+    latest_event = None
+    try:
+        with events_file.open("r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                    if event.get("event") == "task_promoted":
+                        latest_event = event
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return latest_event
 
 
 if __name__ == "__main__":

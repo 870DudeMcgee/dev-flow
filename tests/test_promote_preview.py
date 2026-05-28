@@ -568,3 +568,68 @@ def test_promote_harden_copy_ignored_path(monkeypatch: pytest.MonkeyPatch) -> No
             assert "task_promoted" not in events_text
         finally:
             os.chdir(old_cwd)
+
+
+def test_task_show_promotion_visibility() -> None:
+    import subprocess
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("delete.txt").write_text("delete me\n", encoding="utf-8")
+            Path("modify.txt").write_text("old content\n", encoding="utf-8")
+            subprocess.run(["git", "add", "delete.txt", "modify.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "visibility-test"])
+            assert created.exit_code == 0
+
+            # 1. Test unpromoted task show does not include promoted_changes
+            res_show_created = runner.invoke(app, ["task", "show", "task-0001"])
+            assert res_show_created.exit_code == 0
+            assert "promoted_changes" not in res_show_created.output
+
+            # Modify files in workspace
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "added.txt").write_text("new file\n", encoding="utf-8")
+            Path(workspace_dir / "modify.txt").write_text("new content\n", encoding="utf-8")
+            Path(workspace_dir / "delete.txt").unlink()
+
+            # Mark verified
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            # 2. Test verified task suggested next action points to devflow task promote
+            res_show_verified = runner.invoke(app, ["task", "show", "task-0001"])
+            assert res_show_verified.exit_code == 0
+            assert "Task is verified. Review promotion preview, then run 'devflow task promote task-0001' when ready." in res_show_verified.output
+            assert "promoted_changes" not in res_show_verified.output
+
+            # Promote task with deletions
+            res_promote = runner.invoke(app, ["task", "promote", "task-0001", "--apply-deletions"], input="y\n")
+            assert res_promote.exit_code == 0
+
+            # 3. Test promoted task show includes promoted added/modified/deleted_applied paths
+            res_show_promoted = runner.invoke(app, ["task", "show", "task-0001"])
+            assert res_show_promoted.exit_code == 0
+            assert "promoted_changes:" in res_show_promoted.output
+            assert "  added: added.txt" in res_show_promoted.output
+            assert "  modified: modify.txt" in res_show_promoted.output
+            assert "  deleted_applied: delete.txt" in res_show_promoted.output
+
+            # 4. Test promoted task suggested next action points to manual review/commit
+            assert "suggested_next_action: Task has been promoted. Review main checkout changes, then commit manually if appropriate." in res_show_promoted.output
+
+            # 5. Test malformed event lines do not crash task show
+            events_path = Path(".devflow/tasks/task-0001/events.jsonl")
+            events_path.write_text(events_path.read_text(encoding="utf-8") + "\nthis is a malformed json line\n", encoding="utf-8")
+            res_show_malformed = runner.invoke(app, ["task", "show", "task-0001"])
+            assert res_show_malformed.exit_code == 0
+            assert "promoted_changes:" in res_show_malformed.output
+        finally:
+            os.chdir(old_cwd)
