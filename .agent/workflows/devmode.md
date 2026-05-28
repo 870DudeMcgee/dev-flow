@@ -144,12 +144,11 @@ Only speak when:
 - reporting a verification failure
 - reporting a risk that changes the next safe action
 
-## Final Report
+## Output
 
-Report only after all steps are complete. Use this format:
+Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
 
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:

@@ -147,10 +147,9 @@ Only speak when:
 - reporting a verification failure
 - reporting a risk that changes the next safe action
 
-## Final Report
+## Output
 
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:

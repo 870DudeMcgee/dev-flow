@@ -117,7 +117,6 @@ Only speak when:
 ## Output
 
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:

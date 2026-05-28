@@ -94,7 +94,6 @@ Only speak when:
 Use this format unless the user asks otherwise:
 
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:

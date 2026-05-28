@@ -79,12 +79,11 @@ Only speak when:
 - reporting a verification failure
 - reporting a risk that changes the next safe action
 
-## Output Format
+## Output
 
-Report only after the work is done. Use this format:
+Report only after the work is done. Omit empty fields. Use this format:
 
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:

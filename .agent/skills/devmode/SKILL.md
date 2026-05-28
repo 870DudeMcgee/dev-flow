@@ -116,10 +116,9 @@ Only speak when:
 
 ## Output
 
-Report only after all work is done. Use this format:
+Report only after all work is done. Omit empty fields. Use this format:
 
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:
