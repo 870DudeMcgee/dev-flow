@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -186,7 +187,7 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
 
     task.status = "verified" if result.status == "passed" else "verification_failed"
     task.verification_status = result.status
-    task.verification_command = " ".join(command)
+    task.verification_command = shlex.join(command)
     task.verification_exit_code = result.exit_code
     task.verification_log_path = _relative(root, result.log_file)
     task.latest_log_line = result.latest_log_line

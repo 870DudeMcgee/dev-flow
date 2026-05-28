@@ -1113,24 +1113,34 @@ def test_task_show_verification_and_next_action() -> None:
             verify_fail = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "exit 3"])
             assert verify_fail.exit_code == 1
 
-            # Now verification failed, check show displays exit code and correct next action
+            # Now verification failed, check show displays exit code, command, and correct next action
             show_failed = runner.invoke(app, ["task", "show", "task-0001"])
             assert show_failed.exit_code == 0, show_failed.output
             assert "verification_status: failed" in show_failed.output
+            assert "verification_command: /bin/sh -c 'exit 3'" in show_failed.output
             assert "verification_exit_code: 3" in show_failed.output
             assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_failed.output
             assert "suggested_next_action: Fix the failure and re-run verification using 'devflow task verify task-0001 -- <command>'" in show_failed.output
+
+            # Check task.yaml contains the persisted verification_command
+            task_yaml_content = Path(".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8")
+            assert 'verification_command: "/bin/sh -c \'exit 3\'"' in task_yaml_content
 
             # Verify with passing command
             verify_pass = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "exit 0"])
             assert verify_pass.exit_code == 0
 
-            # Now verification passed, check show displays exit code and ready next action
+            # Now verification passed, check show displays exit code, command, and ready next action
             show_passed = runner.invoke(app, ["task", "show", "task-0001"])
             assert show_passed.exit_code == 0, show_passed.output
             assert "verification_status: passed" in show_passed.output
+            assert "verification_command: /bin/sh -c 'exit 0'" in show_passed.output
             assert "verification_exit_code: 0" in show_passed.output
             assert "suggested_next_action: Task is verified. Review the result before any human-controlled promotion." in show_passed.output
+
+            # Check task.yaml contains the new persisted verification_command
+            task_yaml_content_pass = Path(".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8")
+            assert 'verification_command: "/bin/sh -c \'exit 0\'"' in task_yaml_content_pass
 
             # Test missing verification.json (handles gracefully)
             v_json_path = Path(".devflow/tasks/task-0001/verification.json")
