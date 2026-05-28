@@ -44,5 +44,13 @@ The `/token-optimization` command behaves as a real reusable command surface acr
 | **Claude Code** | `/token-optimization` | Supported via [.claude/commands/token-optimization.md](.claude/commands/token-optimization.md) |
 | **Gemini CLI** | `/token-optimization` | Supported via [.gemini/commands/token-optimization.toml](.gemini/commands/token-optimization.toml) |
 | **VS Code Copilot** | Select `.github/prompts/token-optimization.prompt.md` | Supported via [.github/prompts/token-optimization.prompt.md](.github/prompts/token-optimization.prompt.md) |
-| **Antigravity IDE** | Auto-triggered via rules | Supported via [.antigravity/rules.md](.antigravity/rules.md) |
+| **Antigravity IDE** | `/token-optimization` | Supported via [.antigravity/workflows/token-optimization.md](.antigravity/workflows/token-optimization.md) |
 | **ChatGPT Web** | No custom command support | Enforce manually by pointing the model to [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) |
+
+## Skills vs Workflows in Antigravity
+
+It is crucial to understand the distinct roles of these two systems:
+* **Skills** (defined in `skills/` directories) encapsulate modular, low-level behavior and reusable guidelines.
+* **Workflows** (defined under `.antigravity/workflows/`) provide direct **slash-command entrypoints** (e.g., `/token-optimization`) within the Antigravity interface.
+
+The `/token-optimization` command requires the workflow file at `.antigravity/workflows/token-optimization.md` to be visible and invocable in Antigravity, which then instructs the active agent to follow the canonical skill at `skills/token-optimization/SKILL.md`.
