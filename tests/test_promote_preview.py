@@ -363,7 +363,116 @@ def test_promote_outside_git_repo_fails_safely() -> None:
             yaml_path.write_text(content, encoding="utf-8")
 
             res = runner.invoke(app, ["task", "promote", "task-0001"])
-            assert res.exit_code == 1, res.output
+            assert res.exit_code == 1
             assert "Repository root is not a git repository" in res.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_apply_deletions_confirmed() -> None:
+    import subprocess
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("delete.txt").write_text("delete me\n", encoding="utf-8")
+            Path("stay.txt").write_text("stay\n", encoding="utf-8")
+            subprocess.run(["git", "add", "delete.txt", "stay.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "delete-apply-test"])
+            assert created.exit_code == 0
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "delete.txt").unlink()
+
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            res = runner.invoke(app, ["task", "promote", "task-0001", "--apply-deletions"], input="y\n")
+            assert res.exit_code == 0, res.output
+            assert "Applied deletions: 1 file(s) removed." in res.output
+            assert "Promotion complete." in res.output
+
+            assert not Path("delete.txt").exists()
+            assert Path("stay.txt").exists()
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "promoted"
+
+            events_text = Path(".devflow/tasks/task-0001/events.jsonl").read_text(encoding="utf-8")
+            assert '"deleted_applied": ["delete.txt"]' in events_text
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_apply_deletions_declined() -> None:
+    import subprocess
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("delete.txt").write_text("delete me\n", encoding="utf-8")
+            subprocess.run(["git", "add", "delete.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "delete-decline-test"])
+            assert created.exit_code == 0
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "delete.txt").unlink()
+
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            res = runner.invoke(app, ["task", "promote", "task-0001", "--apply-deletions"], input="n\n")
+            assert res.exit_code == 0
+            assert "Promotion aborted." in res.output
+
+            assert Path("delete.txt").exists()
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "verified"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_apply_deletions_safety_boundaries() -> None:
+    import subprocess
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("stay.txt").write_text("stay\n", encoding="utf-8")
+            subprocess.run(["git", "add", "stay.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "safety-delete-test"])
+            assert created.exit_code == 0
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            from devflow.control_room.service import promote_task
+            task = promote_task(Path.cwd(), "task-0001", apply_deletions=True)
+            assert task.status == "promoted"
+            assert Path("stay.txt").exists()
         finally:
             os.chdir(old_cwd)

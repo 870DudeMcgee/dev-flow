@@ -675,7 +675,7 @@ def main_checkout_has_uncommitted_changes(root: Path) -> bool:
     return dirty
 
 
-def promote_task(root: Path, task_id: str, force: bool = False) -> TaskRecord:
+def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions: bool = False) -> TaskRecord:
     import shutil
     task = get_task(root, task_id)
     if task.status != "verified":
@@ -696,6 +696,7 @@ def promote_task(root: Path, task_id: str, force: bool = False) -> TaskRecord:
     main_files = _get_relative_files(root)
 
     added_files = sorted(list(workspace_files - main_files))
+    deleted_files = sorted(list(main_files - workspace_files))
     common_files = workspace_files & main_files
 
     modified_files = []
@@ -715,6 +716,24 @@ def promote_task(root: Path, task_id: str, force: bool = False) -> TaskRecord:
         dst_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_path, dst_path)
 
+    # Delete removed files if explicitly requested and safe
+    deleted_applied = []
+    if apply_deletions:
+        for name in deleted_files:
+            dst_path = root / name
+            if dst_path.exists():
+                try:
+                    dst_path.resolve().relative_to(root.resolve())
+                except ValueError:
+                    continue  # Skip files outside root boundary
+
+                if _is_ignored_path(dst_path, root):
+                    continue  # Skip ignored/control paths
+
+                if dst_path.is_file() and not dst_path.is_symlink():
+                    dst_path.unlink()
+                    deleted_applied.append(name)
+
     # Update canonical task record and event log
     task.status = "promoted"
     task.updated_at = utc_now()
@@ -724,6 +743,7 @@ def promote_task(root: Path, task_id: str, force: bool = False) -> TaskRecord:
     _append_event(root, task_id, "task_promoted", {
         "added": added_files,
         "modified": modified_files,
+        "deleted_applied": deleted_applied,
     })
 
     return task

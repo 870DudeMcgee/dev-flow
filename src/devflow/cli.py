@@ -342,6 +342,7 @@ def task_promote_preview(task_id: str) -> None:
 def task_promote(
     task_id: str,
     force: bool = typer.Option(False, "--force", help="Bypass dirty repository check."),
+    apply_deletions: bool = typer.Option(False, "--apply-deletions", help="Apply file deletions to the main checkout."),
 ) -> None:
     """Promote verified changes from the isolated workspace to the main checkout."""
     try:
@@ -415,14 +416,17 @@ def task_promote(
         return
 
     try:
-        promote_task(Path.cwd(), task_id, force=force)
+        promote_task(Path.cwd(), task_id, force=force, apply_deletions=apply_deletions)
     except Exception as exc:
         typer.echo(f"Error executing promotion: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     typer.echo("Promotion complete.")
     if deleted:
-        typer.echo("Warning: Deletions are preview-only and were not applied (deletions are deferred).")
+        if apply_deletions:
+            typer.echo(f"Applied deletions: {len(deleted)} file(s) removed.")
+        else:
+            typer.echo("Warning: Deletions are preview-only and were not applied (deletions are deferred). Use --apply-deletions to apply them.")
 
 
 # Backward-compatible names for importers while the old CLI is retired.
