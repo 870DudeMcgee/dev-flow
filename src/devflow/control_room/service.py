@@ -632,11 +632,58 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     }
 
 
-def promote_task(root: Path, task_id: str) -> TaskRecord:
+def main_checkout_has_uncommitted_changes(root: Path) -> bool:
+    import subprocess
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            raise ValueError("Error: Repository root is not a git repository.")
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("Error: Repository root is not a git repository.") from exc
+
+    try:
+        status_proc = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if status_proc.returncode != 0:
+            raise ValueError("Error: Git status command failed.")
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("Error: Git status command failed.") from exc
+
+    dirty = False
+    for line in status_proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        path_part = line[3:].strip()
+        if path_part.startswith('"') and path_part.endswith('"'):
+            path_part = path_part[1:-1]
+        if path_part.startswith(".devflow/") or path_part == ".devflow":
+            continue
+        dirty = True
+        break
+
+    return dirty
+
+
+def promote_task(root: Path, task_id: str, force: bool = False) -> TaskRecord:
     import shutil
     task = get_task(root, task_id)
     if task.status != "verified":
         raise ValueError(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.")
+
+    # Double check dirty repository status to ensure safety
+    if not force and main_checkout_has_uncommitted_changes(root):
+        raise ValueError("Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.")
 
     workspace = _absolute(root, task.workspace).resolve()
     expected = (workspaces_dir(root) / task.id).resolve()

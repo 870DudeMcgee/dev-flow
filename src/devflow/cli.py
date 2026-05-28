@@ -339,10 +339,30 @@ def task_promote_preview(task_id: str) -> None:
 
 
 @task_app.command("promote")
-def task_promote(task_id: str) -> None:
+def task_promote(
+    task_id: str,
+    force: bool = typer.Option(False, "--force", help="Bypass dirty repository check."),
+) -> None:
     """Promote verified changes from the isolated workspace to the main checkout."""
     try:
-        from devflow.control_room.service import get_task, preview_task_promotion, promote_task
+        from devflow.control_room.service import (
+            get_task,
+            main_checkout_has_uncommitted_changes,
+            preview_task_promotion,
+            promote_task,
+        )
+        # 1. Safety check for dirty main checkout
+        dirty = main_checkout_has_uncommitted_changes(Path.cwd())
+        if dirty:
+            if not force:
+                typer.echo(
+                    "Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+            else:
+                typer.echo("Warning: Bypassing safety check for uncommitted changes in main checkout.")
+
         task = get_task(Path.cwd(), task_id)
         if task.status != "verified":
             typer.echo(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.", err=True)
@@ -395,7 +415,7 @@ def task_promote(task_id: str) -> None:
         return
 
     try:
-        promote_task(Path.cwd(), task_id)
+        promote_task(Path.cwd(), task_id, force=force)
     except Exception as exc:
         typer.echo(f"Error executing promotion: {exc}", err=True)
         raise typer.Exit(code=1) from exc
