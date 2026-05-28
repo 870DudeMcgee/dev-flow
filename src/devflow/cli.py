@@ -148,6 +148,20 @@ def task_show(task_id: str) -> None:
     _echo_result_summary(task_path / "result.md")
 
 
+@task_app.command("packet")
+def task_packet(task_id: str) -> None:
+    """Build and print a task's TaskPacket as deterministic JSON."""
+    try:
+        from devflow.control_room.task_packet import build_task_packet
+        packet = build_task_packet(task_id, root=Path.cwd())
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2)
+    typer.echo(packet_json)
+
+
 @task_app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def task_run(
     ctx: typer.Context,

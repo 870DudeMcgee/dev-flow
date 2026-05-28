@@ -538,6 +538,66 @@ def test_task_packet_nested_secrets_redacted() -> None:
         assert packet.verification["secret"] == {"value": "[REDACTED]"}
 
 
+def test_task_packet_cli_command() -> None:
+    import os
+    from typer.testing import CliRunner
+    from devflow.cli import app
+
+    runner = CliRunner()
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            root = Path(tmp)
+            os.chdir(tmp)
+
+            # Create a task
+            create_result = runner.invoke(app, ["task", "create", "CLI packet preview test"])
+            assert create_result.exit_code == 0, create_result.output
+
+            # Add a secret value to log to verify redaction and virtualization
+            task_path = root / ".devflow" / "tasks" / "task-0001"
+            (task_path / "logs" / "worker.log").write_text("Failed with Bearer token_abc123\n", encoding="utf-8")
+
+            # Check files before CLI invoke to track mutation safety
+            task_yaml_before = (task_path / "task.yaml").read_text(encoding="utf-8")
+            events_before = (task_path / "events.jsonl").read_text(encoding="utf-8")
+
+            # Invoke the CLI preview command
+            result = runner.invoke(app, ["task", "packet", "task-0001"])
+            assert result.exit_code == 0, result.output
+
+            # 1. Verify valid JSON output
+            data = json.loads(result.output)
+            assert isinstance(data, dict)
+
+            # 2. Verify expected TaskPacket fields are present
+            assert data["task_id"] == "task-0001"
+            assert data["title"] == "CLI packet preview test"
+            assert data["status"] == "created"
+            assert data["worker_adapter"] == "shell"
+            assert "logs" in data
+            assert "constraints" in data
+            assert "allowed_artifacts" in data
+
+            # 3. Verify that redaction is preserved
+            # Bearer token in logs should be redacted
+            worker_log_tail = data["logs"]["worker"]["tail"]
+            assert len(worker_log_tail) == 1
+            assert "Bearer [REDACTED]" in worker_log_tail[0]
+            assert "token_abc123" not in result.output
+
+            # 4. Verify path virtualization is preserved
+            assert data["workspace_path"] == "<workspace>"
+
+            # 5. Verify mutation safety (canonical files were not changed)
+            task_yaml_before_check = (task_path / "task.yaml").read_text(encoding="utf-8")
+            events_before_check = (task_path / "events.jsonl").read_text(encoding="utf-8")
+            assert task_yaml_before == task_yaml_before_check
+            assert events_before == events_before_check
+        finally:
+            os.chdir(old_cwd)
+
+
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     lines = [
         json.dumps(
