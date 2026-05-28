@@ -175,3 +175,66 @@ Outside the frozen MVP contract:
 
 > [!IMPORTANT]
 > **Next Priority**: Return all future effort back to the core control-room MVP: shell-worker task lifecycle, workspace isolation, status visibility, verification, and future merge readiness.
+
+
+## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
+
+The first production-ready milestone of the Dev-Flow control plane is officially complete and checkpointed.
+
+* **Checkpoint Commit**: `0dffab6 feat: add task log command`
+* **Test Status**: 184 tests passing cleanly (6 skipped)
+
+### Compact Checklist of Accepted Capabilities
+
+- [x] **Task Creation**: `devflow task create` scaffolds task folders under `.devflow/tasks/` and handles dirty-git state copying safely.
+- [x] **Isolated Workspaces**: Commands run strictly inside isolated workspaces under `.devflow/workspaces/<task_id>/` without mutating the main checkout.
+- [x] **Shell Task Execution**: `devflow task run <task_id> --worker shell -- <command>` executes and captures command outcomes.
+- [x] **Worker Command Persistence**: Stores exact run command strings (`worker_command`) shell-safely.
+- [x] **Exit-Code & Timeout Propagation**: Propagates subprocess outcomes and respects customizable task execution timeouts.
+- [x] **Verification Command Persistence**: Captures and persists the shell command string used for task verification.
+- [x] **Verification Exit-Code Propagation**: Tracks and persists verification outcomes (`passed` / `failed`) and exit codes.
+- [x] **Lifecycle Visibility**:
+  - `devflow task list` provides status, updates, and compact verification states.
+  - `devflow task show <task_id>` exposes comprehensive lifecycle details, events, readiness, and next-action hints.
+- [x] **TaskPacket Projections**: `devflow task packet <task_id>` generates a deterministic JSON task context packet with virtualized paths (e.g. `<workspace>`, `<task>`) and secret redaction.
+- [x] **Read-Only Log Viewing**: `devflow task log <task_id> [--verify] [--tail N]` prints raw worker or verification logs directly to stdout without mutating task state.
+
+---
+
+### Data Surface Architecture
+
+To ensure strict engineering discipline, the data surface is stratified as follows:
+
+#### 1. Canonical State (Source of Truth)
+- `task.yaml`: Canonical current state and metadata.
+- `events.jsonl`: Append-only, timeline-exact sequence of events.
+- `questions.jsonl`: Formatted user-worker questions (when present).
+- `verification.json`: Authoritative verification summary output.
+- `logs/worker.log` & `logs/verify.log`: Raw terminal outputs representing absolute evidence of execution.
+
+#### 2. Derived State (Non-Canonical/Cache-Only)
+- `result.md`: Human-readable summary formatted by the worker or verification commands.
+- `summary.json`: Local cache of parsed data derived entirely from canonical state.
+- `packet.json`: Generated TaskPacket dump written instantly before worker executions.
+- *TaskPacket projections*: Any dynamic context structure derived from canonical properties.
+
+---
+
+### Non-MVP Boundaries (Strictly Excluded)
+
+The following areas are out-of-scope for the completed MVP and deferred:
+* **Replaceable AI Adapters**: No Codex, Aider, or Hermes adapters.
+* **Model Routing**: No dynamic LLM gateway routing or scheduling.
+* **Dashboard / Web Server**: No database-driven dashboard (text-only terminal dashboard remains static).
+* **Databases**: Relies strictly on plain filesystem architecture; no SQL/NoSQL databases.
+* **Automated Merging**: No automatic pull request creation or branch merging.
+
+---
+
+### Next Phase Outlook
+
+Future adapter development or advanced scheduling may only begin using this stable checkpoint as a solid boundary. The next phase must strictly preserve:
+1. **Local-First State**: Rely on plain-file source of truth before any database storage.
+2. **Workspace Isolation**: Ensure replaceable workers operate strictly within copied sandboxes.
+3. **Verification Ownership**: Control-plane holds authoritative ownership of verification execution.
+4. **Human-Controlled Promotion**: Keep humans at the helm of promotion and merge-readiness approvals.
