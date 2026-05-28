@@ -1,10 +1,8 @@
-# Antigravity Rules: DevMode
+# /devmode
 
-All Antigravity agents in this repository operate in DevMode.
+Activate DevMode for the current task.
 
-`/devmode` is the intended command. Antigravity loads it as a workflow/rule prompt, not as a true reusable skill loader like Superpowers.
-
-When `/devmode` is invoked, output exactly one confirmation line:
+Output exactly one line:
 
 ```text
 DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
@@ -12,7 +10,9 @@ DevMode loaded: token optimization, repo discipline, read-only/implementation ga
 
 Then continue silently. Do not output a skills-used line.
 
-## Default Contract
+Antigravity workflows are prompt/rule mechanisms, not true reusable skill loaders like Superpowers. This file is the closest reliable `/devmode` entry point for Antigravity.
+
+## Contract
 
 - Use Superpowers-style discipline: understand, search, inspect only needed files, small plan when useful, small slice, verify, concise evidence.
 - Token optimization is mandatory: no broad scans, repeated summaries, ceremonial output, unnecessary docs, unnecessary commits, extra checks, or ruff.

@@ -81,12 +81,19 @@ Default final response:
 
 ```text
 Decision:
-Skills used:
 Files changed:
 Verification:
 Risks:
 Next safe action:
 ```
+
+When `/devmode` is invoked, print exactly one activation line before silent work:
+
+```text
+DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
+```
+
+Do not print a skills-used line.
 
 Include inspected files only when the user explicitly asks for them or when they are necessary evidence.
 
@@ -124,7 +131,7 @@ Use Chat diagnostics or `Chat: Open Customizations` to verify VS Code discovered
 | **Claude Code** | `/token-optimization` | Supported via [.claude/commands/token-optimization.md](.claude/commands/token-optimization.md) |
 | **Gemini CLI** | `/token-optimization` | Supported via [.gemini/commands/token-optimization.toml](.gemini/commands/token-optimization.toml) |
 | **VS Code Copilot** | `/devmode` or select `.github/prompts/devmode.prompt.md` | Supported via [.github/copilot-instructions.md](../.github/copilot-instructions.md), [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md), and [.github/skills/devmode/SKILL.md](../.github/skills/devmode/SKILL.md) |
-| **Antigravity IDE** | `/devmode` | Supported via [.agent/workflows/devmode.md](.agent/workflows/devmode.md) and [.agent/rules/devmode-token-first.md](.agent/rules/devmode-token-first.md) |
+| **Antigravity IDE** | `/devmode` | Closest-supported prompt/rule mechanism via [.agent/workflows/devmode.md](../.agent/workflows/devmode.md), [.agent/rules/devmode-token-first.md](../.agent/rules/devmode-token-first.md), [.antigravity/workflows/devmode.md](../.antigravity/workflows/devmode.md), and [.antigravity/rules.md](../.antigravity/rules.md) |
 | **ChatGPT Web** | No custom command support | Enforce manually by pointing the model to [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) |
 
 ## Skills, Rules, and Workflows in Antigravity
@@ -132,9 +139,10 @@ Use Chat diagnostics or `Chat: Open Customizations` to verify VS Code discovered
 It is crucial to understand how Antigravity integrates slash commands, rules, and behavior policies:
 * **DevMode** is the master engineering workflow and operational baseline.
 * **Token Optimization** is one always-on budget discipline inside the DevMode master workflow.
-* **Antigravity manual command**: `/devmode` (triggered via the manual workflow file `.agent/workflows/devmode.md`)
+* **Antigravity manual command**: `/devmode` (triggered via the manual workflow file `.agent/workflows/devmode.md`, with `.antigravity/workflows/devmode.md` as the closest native workflow copy)
 * **Antigravity always-on rule**: `.agent/rules/devmode-token-first.md`
 * **Shared token-optimization package**: `skills/token-optimization/` acts strictly as low-level behavior reference material and is never loaded eagerly by default to avoid token bloat.
+* **Limitation**: Antigravity does not visibly load reusable Superpowers-style skill files here; DevMode is enforced through prompt/rule workflow files.
 
 ## VS Code Skill Routing
 

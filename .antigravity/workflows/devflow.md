@@ -1,6 +1,16 @@
 # /devflow
 
-Use this workflow for any software engineering task.
+Legacy alias only. Prefer `/devmode` for all software engineering tasks.
+
+When this workflow is invoked, activate DevMode and output exactly one confirmation line:
+
+```text
+DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
+```
+
+Then continue silently. Do not output a skills-used line.
+
+Antigravity workflows are prompt/rule mechanisms, not true reusable skill loaders like Superpowers.
 
 ## Inputs
 
@@ -26,53 +36,39 @@ Classify the task:
 If trivial, proceed with a minimal edit and report.
 If non-trivial, continue.
 
-### 2. Task packet
+### 2. Mode gate
 
-Create or update:
+Classify mode before acting:
 
-`.devflow/tasks/<task-id>.md`
-
-Include:
-
-- Objective
-- Allowed files
-- Context files
-- Acceptance criteria
-- Verification commands
-- Risk tier
-- Protected paths
-- Status
+- Read-only: audit, review, investigate, explain, plan, summarize, or unclear write permission. Do not edit, stage, commit, or create files.
+- Implementation: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, verify, and commit only when explicitly requested or permitted and verification passes.
 
 ### 3. Context
 
-Read only:
+Read only the smallest useful set:
 
 1. `AGENTS.md`
-2. `.devflow/workflow/DEVFLOW_WORKFLOW.md`
-3. Task packet
-4. Repo map
-5. Relevant tests
-6. Relevant implementation files
+2. `PRODUCT_NORTH_STAR.md` when making implementation decisions
+3. `docs/control-room-mvp.md` for non-trivial code changes
+4. Relevant tests
+5. Relevant implementation files
 
-Do not scan the entire repo unless the task is architecture-level.
+Search before broad reads. Do not scan the entire repo unless the task requires it.
 
-### 4. Plan checkpoint
+### 4. Token discipline
 
-Before editing, output:
+- No repeated summaries or ceremonial output.
+- No unnecessary docs or handoff files.
+- No ruff.
+- No extra checks beyond requested or targeted verification.
 
-- Intended files
-- Intended tests
-- Verification command
-- Risk tier
-- Stop conditions
-
-### 5. Test-first
+### 5. Test-first when useful
 
 For behavior changes, write or identify failing tests first.
 
 ### 6. Implement
 
-Make minimal changes only.
+Make minimal relevant changes only. Do not build future architecture.
 
 ### 7. Verify
 
@@ -85,15 +81,10 @@ Review for scope, safety, tests, and maintainability.
 
 ### 9. Report
 
-Write:
-
-`.devflow/reports/<task-id>.report.md`
-
-Include:
+Report compactly in chat. Do not create report or handoff files unless explicitly requested.
 
 - Summary
 - Files changed
 - Tests run
 - Result
 - Risks
-- Follow-up tasks

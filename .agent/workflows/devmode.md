@@ -19,6 +19,14 @@ Use the full workflow intelligently, not wastefully.
 
 Do not load every skill at once. Route to the right skill at the right time.
 
+On activation, output exactly one line:
+
+```text
+DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
+```
+
+Then continue silently. Do not output a skills-used line.
+
 ## Step 1: Classify the Task
 
 Classify the task as one or more of:
@@ -45,19 +53,34 @@ Use `/using-superpowers` behavior as the default execution discipline:
 - verify the result
 - report evidence
 
-## Step 3: Apply Token Optimization as a Budget Discipline
+## Step 3: Enforce Token Optimization as a Budget Discipline
 
-Always apply token optimization as lightweight process constraints:
+Token optimization is mandatory. Apply these constraints by default:
 
 - search before broad reads
+- inspect only files needed for the task
 - read targeted sections first
 - avoid re-reading known context
 - summarize before expanding
 - avoid transcript bloat
 - do not invoke unrelated skills
+- do not create handoff docs unless explicitly requested
+- do not run extra checks beyond the requested or narrowest meaningful checks
+- do not run ruff
+- do not scan the whole repo unless needed
+- do not produce repeated summaries or ceremonial output
 - stop when the next safe action is obvious
 
-## Step 4: Route to Matt Pocock Skills When Needed
+## Step 4: Gate Read-Only vs Implementation Mode
+
+Classify mode before acting:
+
+- **Read-only mode**: audit, review, investigate, explain, plan, summarize, or any request that does not explicitly allow edits. Do not edit, stage, commit, or create files. Use targeted searches and compact findings only.
+- **Implementation mode**: fix, build, update, apply, or any request that explicitly allows edits. You may edit only relevant files, must run targeted verification, and may commit only when the user asks or explicitly permits committing and verification passes.
+
+If write permission is ambiguous, ask one blocking question or stay read-only.
+
+## Step 5: Route to Matt Pocock Skills When Needed
 
 Use `improve-codebase-architecture` only when the task involves:
 
@@ -87,7 +110,7 @@ Use `caveman` only when:
 - the implementation is clever instead of obvious
 - a simpler design would satisfy the milestone
 
-## Step 5: Apply Dev-Flow Project Rules
+## Step 6: Apply Dev-Flow Project Rules
 
 For this repository:
 
@@ -100,8 +123,9 @@ For this repository:
 - Do not bypass verification.
 - Do not merge or promote automatically.
 - Do not build future architecture unless the current milestone requires it.
+- Do not add adapters, model routing, dashboard servers, databases, or merge automation unless the task explicitly requires them.
 
-## Step 6: Execute
+## Step 7: Execute
 
 Make the smallest useful change or produce the smallest useful plan.
 
@@ -109,7 +133,7 @@ Do not combine unrelated work.
 
 Do not perform broad rewrites unless explicitly requested.
 
-## Step 7: Verify
+## Step 8: Verify
 
 Run the narrowest meaningful verification command.
 

@@ -6,6 +6,14 @@ DevMode is the master engineering workflow for this repo. It combines Superpower
 
 ## Default DevMode Contract
 
+When `/devmode` is invoked, output exactly one confirmation line:
+
+```text
+DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
+```
+
+Then continue silently. Do not output a skills-used line.
+
 Use Superpowers-style disciplined execution by default:
 
 - clarify the task type
@@ -15,14 +23,29 @@ Use Superpowers-style disciplined execution by default:
 - verify before claiming success
 - report concise evidence
 
-Use token optimization at all times as a budget discipline:
+Use token optimization at all times as a mandatory budget discipline:
 
 - search before broad reads
+- inspect only files needed for the task
 - read targeted sections before whole files
 - summarize before expanding
 - avoid repeated context
+- avoid repeated summaries and ceremonial output
 - do not load unrelated skills, workflows, or docs
+- do not create handoff docs unless explicitly requested
+- do not run extra checks beyond the requested or narrowest meaningful checks
+- do not run ruff
+- do not scan the whole repo unless needed
 - stop when the next safe action is obvious
+
+## Read-Only / Implementation Gate
+
+Classify mode before acting:
+
+- Read-only prompts include audit, review, investigate, explain, plan, summarize, or unclear write permission. Do not edit, stage, commit, or create files.
+- Implementation prompts include fix, build, update, apply, or explicit permission to edit. Edit only relevant files, run targeted verification, and commit only when explicitly requested or permitted and verification passes.
+
+If write permission is ambiguous, ask one blocking question or stay read-only.
 
 ## Skill Routing
 
@@ -49,6 +72,7 @@ If a task does not clearly need a sub-skill, do not load it.
 - Prefer small vertical slices.
 - Do not implement future architecture unless the milestone requires it.
 - Do not claim success without evidence.
+- Do not add adapters, model routing, dashboard servers, databases, merge automation, or PR automation unless explicitly required.
 
 ## Silent Work Mode
 
