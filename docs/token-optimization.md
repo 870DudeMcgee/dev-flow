@@ -54,12 +54,12 @@ The canonical behavior remains in [skills/token-optimization/SKILL.md](../skills
 | **Claude Code** | `/token-optimization` | Supported via [.claude/commands/token-optimization.md](.claude/commands/token-optimization.md) |
 | **Gemini CLI** | `/token-optimization` | Supported via [.gemini/commands/token-optimization.toml](.gemini/commands/token-optimization.toml) |
 | **VS Code Copilot** | Select `.github/prompts/token-optimization.prompt.md` | Supported via [.github/prompts/token-optimization.prompt.md](../.github/prompts/token-optimization.prompt.md) |
-| **Antigravity IDE** | `/token-optimization` | Supported via [.agent/workflows/token-optimization.md](.agent/workflows/token-optimization.md) and [.agent/rules/token-optimization.md](.agent/rules/token-optimization.md) |
+| **Antigravity IDE** | `/devmode` | Supported via [.agent/workflows/devmode.md](.agent/workflows/devmode.md) and [.agent/rules/devmode-token-first.md](.agent/rules/devmode-token-first.md) |
 | **ChatGPT Web** | No custom command support | Enforce manually by pointing the model to [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) |
 
 ## Skills, Rules, and Workflows in Antigravity
 
 It is crucial to understand how Antigravity integrates slash commands and behavior policies:
-* **Workflows** (defined under `.agent/workflows/`, such as `.agent/workflows/token-optimization.md`) provide direct **slash-command entrypoints** (e.g., `/token-optimization`) within the Antigravity user interface.
-* **Rules** (defined under `.agent/rules/`, such as `.agent/rules/token-optimization.md`) specify **always-on repository behavior** that Antigravity agents are continuously directed to follow.
-* **Skills** (defined in `skills/` directories, such as `skills/token-optimization/SKILL.md`) act strictly as **low-level behavior reference material** and modular guidelines, rather than slash command triggers themselves.
+* **Workflows** (defined under `.agent/workflows/`, such as `.agent/workflows/devmode.md`) provide direct **slash-command entrypoints** (e.g., `/devmode`) within the Antigravity user interface.
+* **Rules** (defined under `.agent/rules/`, such as `.agent/rules/devmode-token-first.md`) specify **always-on repository behavior** (DevMode Token-First guardrail) that Antigravity agents are continuously directed to follow.
+* **Skills** (defined in `skills/` or `.agent/skills/` directories, such as `skills/token-optimization/SKILL.md`) act strictly as **low-level behavior reference material** and modular capability packages, rather than the slash commands themselves. To avoid context saturation, skills are only loaded progressively on-demand when the agent detects a relevant task, rather than being loaded in every prompt.
