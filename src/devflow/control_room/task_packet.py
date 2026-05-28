@@ -12,8 +12,10 @@ from devflow.control_room.service import get_task
 
 
 class TaskPacketLimits(BaseModel):
-    max_recent_events: int = Field(default=10, ge=0)
-    log_tail_lines: int = Field(default=40, ge=0)
+    recent_events_limit: int = Field(default=20, ge=0)
+    worker_log_tail_lines: int = Field(default=20, ge=0)
+    verify_log_tail_lines: int = Field(default=20, ge=0)
+    log_tail_bytes: int = Field(default=8192, ge=0)
 
 
 class TaskPacketLog(BaseModel):
@@ -21,6 +23,7 @@ class TaskPacketLog(BaseModel):
     tail: list[str]
     line_count: int
     omitted_lines: int
+    omitted_bytes: int
     truncated: bool
 
 
@@ -28,11 +31,14 @@ class TaskPacket(BaseModel):
     task_id: str
     title: str
     status: str
+    adapter: str
     workspace_path: str
     worker_adapter: str
+    task: dict[str, Any]
     summary: str | None
     recent_events: list[dict[str, Any]]
     verification: dict[str, Any]
+    derived_summary: dict[str, Any] | None
     result_summary: str | None
     logs: dict[str, TaskPacketLog]
     constraints: list[str]
@@ -49,28 +55,49 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
     notes: list[str] = []
 
     summary_data = _read_matching_summary(task_path / "summary.json", task, notes)
-    recent_events, omitted_events = _read_recent_events(task_path / "events.jsonl", packet_limits.max_recent_events, notes)
+    recent_events, omitted_events, malformed_events = _read_recent_events(task_path / "events.jsonl", packet_limits.recent_events_limit, notes)
     verification = _read_verification(task_path / "verification.json", task, notes)
-    worker_log, omitted_worker_lines = _tail_log(repo_root, task_path / "logs" / "worker.log", "worker.log", packet_limits.log_tail_lines, notes)
-    verify_log, omitted_verify_lines = _tail_log(repo_root, task_path / "logs" / "verify.log", "verify.log", packet_limits.log_tail_lines, notes)
+    worker_log = _tail_log(
+        repo_root,
+        task_path / "logs" / "worker.log",
+        "worker.log",
+        packet_limits.worker_log_tail_lines,
+        packet_limits.log_tail_bytes,
+        notes,
+    )
+    verify_log = _tail_log(
+        repo_root,
+        task_path / "logs" / "verify.log",
+        "verify.log",
+        packet_limits.verify_log_tail_lines,
+        packet_limits.log_tail_bytes,
+        notes,
+    )
+    adapter = task.worker_adapter or task.worker
 
     return TaskPacket(
         task_id=task.id,
         title=task.title,
         status=task.status,
+        adapter=adapter,
         workspace_path=task.workspace_path or task.workspace,
-        worker_adapter=task.worker_adapter or task.worker,
+        worker_adapter=adapter,
+        task=task.model_dump(mode="json"),
         summary=_packet_summary(task, summary_data),
         recent_events=recent_events,
         verification=verification,
+        derived_summary=summary_data or None,
         result_summary=None,
         logs={"worker": worker_log, "verify": verify_log},
         constraints=_constraints(task),
         allowed_artifacts=_allowed_artifacts(repo_root, task_path),
         omitted_counts={
             "events": omitted_events,
-            "worker_log_lines": omitted_worker_lines,
-            "verify_log_lines": omitted_verify_lines,
+            "malformed_events": malformed_events,
+            "worker_log_lines": worker_log.omitted_lines,
+            "worker_log_bytes": worker_log.omitted_bytes,
+            "verify_log_lines": verify_log.omitted_lines,
+            "verify_log_bytes": verify_log.omitted_bytes,
         },
         truncation_notes=notes,
     )
@@ -99,7 +126,23 @@ def _read_matching_summary(path: Path, task: TaskRecord, notes: list[str]) -> di
         if key in data and data[key] != expected:
             notes.append("Ignored summary.json because it conflicts with canonical task state.")
             return {}
-    return data
+    allowed_keys = {
+        "task_id",
+        "title",
+        "status",
+        "workspace_path",
+        "workspace_dirty",
+        "workspace_branch",
+        "workspace_commit",
+        "latest_verification_status",
+        "latest_verification_exit_code",
+        "latest_verification_log_path",
+        "merge_ready",
+        "merge_readiness_reasons",
+        "updated_at",
+        "summary",
+    }
+    return {key: data[key] for key in sorted(allowed_keys) if key in data}
 
 
 def _packet_summary(task: TaskRecord, summary_data: dict[str, Any]) -> str:
@@ -109,12 +152,18 @@ def _packet_summary(task: TaskRecord, summary_data: dict[str, Any]) -> str:
     return f"{task.id} {task.status}: {task.title}"
 
 
-def _read_recent_events(path: Path, limit: int, notes: list[str]) -> tuple[list[dict[str, Any]], int]:
+def _read_recent_events(path: Path, limit: int, notes: list[str]) -> tuple[list[dict[str, Any]], int, int]:
     if not path.exists():
-        return [], 0
+        return [], 0, 0
     events: list[dict[str, Any]] = []
     malformed_lines = 0
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        notes.append(f"events.jsonl could not be read: {exc}")
+        return [], 0, 0
+
+    for line in lines:
         if not line.strip():
             continue
         try:
@@ -134,7 +183,7 @@ def _read_recent_events(path: Path, limit: int, notes: list[str]) -> tuple[list[
     recent_events = events[-limit:] if limit else []
     if omitted_events:
         notes.append(f"Omitted {omitted_events} older event(s); included the {len(recent_events)} most recent event(s).")
-    return recent_events, omitted_events
+    return recent_events, omitted_events, malformed_lines
 
 
 def _read_verification(path: Path, task: TaskRecord, notes: list[str]) -> dict[str, Any]:
@@ -163,21 +212,54 @@ def _read_verification(path: Path, task: TaskRecord, notes: list[str]) -> dict[s
     return data
 
 
-def _tail_log(repo_root: Path, path: Path, label: str, limit: int, notes: list[str]) -> tuple[TaskPacketLog, int]:
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    omitted_lines = max(len(lines) - limit, 0)
-    tail = lines[-limit:] if limit else []
+def _tail_log(repo_root: Path, path: Path, label: str, line_limit: int, byte_limit: int, notes: list[str]) -> TaskPacketLog:
+    if not path.exists():
+        return TaskPacketLog(
+            path=_relative(repo_root, path),
+            tail=[],
+            line_count=0,
+            omitted_lines=0,
+            omitted_bytes=0,
+            truncated=False,
+        )
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        notes.append(f"{label} could not be read: {exc}")
+        return TaskPacketLog(
+            path=_relative(repo_root, path),
+            tail=[],
+            line_count=0,
+            omitted_lines=0,
+            omitted_bytes=0,
+            truncated=False,
+        )
+
+    lines = raw.decode("utf-8", errors="replace").splitlines()
+    omitted_lines = max(len(lines) - line_limit, 0)
+    tail = lines[-line_limit:] if line_limit else []
+    omitted_bytes = 0
+    if byte_limit:
+        tail_text = "\n".join(tail)
+        tail_bytes = tail_text.encode("utf-8")
+        omitted_bytes = max(len(tail_bytes) - byte_limit, 0)
+        if omitted_bytes:
+            tail = tail_bytes[-byte_limit:].decode("utf-8", errors="replace").splitlines()
+    elif tail:
+        omitted_bytes = len("\n".join(tail).encode("utf-8"))
+        tail = []
+
     if omitted_lines:
         notes.append(f"Tail-limited {label} to last {len(tail)} of {len(lines)} line(s).")
-    return (
-        TaskPacketLog(
-            path=_relative(repo_root, path),
-            tail=tail,
-            line_count=len(lines),
-            omitted_lines=omitted_lines,
-            truncated=omitted_lines > 0,
-        ),
-        omitted_lines,
+    if omitted_bytes:
+        notes.append(f"Tail-limited {label} to last {byte_limit} byte(s) of selected log text.")
+    return TaskPacketLog(
+        path=_relative(repo_root, path),
+        tail=tail,
+        line_count=len(lines),
+        omitted_lines=omitted_lines,
+        omitted_bytes=omitted_bytes,
+        truncated=omitted_lines > 0 or omitted_bytes > 0,
     )
 
 
