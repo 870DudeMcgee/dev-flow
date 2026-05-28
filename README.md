@@ -51,7 +51,7 @@ devflow task packet <task_id>
 
 Current implementation status: the shell-worker control-room slice uses filesystem task state, canonical `task.yaml`, append-only `events.jsonl`, task-local worker and verification logs, latest verification evidence, and copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`. Shell-worker writes stay in the task workspace; no SQLite database or `.devflow/worktrees/` directory is part of the MVP contract.
 
-Task packet note: `src/devflow/control_room/task_packet.py` contains a small read-only `TaskPacket` builder for future adapters. You can preview the built TaskPacket as deterministic JSON using the read-only `devflow task packet <task_id>` command, which projects canonical task artifacts into bounded context, tail-limits logs, discloses omissions, and applies robust secret redaction and path virtualization to ensure no local paths or credentials leak. It is not wired into Codex or any worker adapter.
+Task packet note: `src/devflow/control_room/task_packet.py` contains a small read-only `TaskPacket` builder for future adapters. You can preview the built TaskPacket as deterministic JSON using the read-only `devflow task packet <task_id>` command, which projects canonical task artifacts into bounded context, tail-limits logs, discloses omissions, and applies robust secret redaction and path virtualization to reduce accidental local path or credential exposure. It is not wired into Codex or any worker adapter.
 
 ## Out Of The Frozen Contract
 
