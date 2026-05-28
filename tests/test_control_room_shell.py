@@ -965,3 +965,61 @@ def test_task_summary_hardening_and_fallbacks() -> None:
             assert "task-0001" in dash_malformed_mr.output
         finally:
             os.chdir(old_cwd)
+
+
+def test_task_run_writes_packet_json() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            Path("project.txt").write_text("hello main\n", encoding="utf-8")
+
+            # Create task with a secret in the title
+            task_title = "task with Bearer ghp_supersecretgithubtoken12345"
+            created = runner.invoke(app, ["task", "create", task_title])
+            assert created.exit_code == 0, created.output
+
+            # Verify that packet.json does not exist yet
+            packet_path = Path(".devflow/tasks/task-0001/packet.json")
+            assert not packet_path.exists()
+
+            # Run the task
+            run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo 'done' > output.txt"])
+            assert run.exit_code == 0, run.output
+
+            # Proving 1: devflow task run <id> --shell ... writes packet.json
+            assert packet_path.exists()
+
+            # Proving 2: packet.json is valid JSON
+            content = packet_path.read_text(encoding="utf-8")
+            packet_data = json.loads(content)
+
+            # Proving 3: packet.json includes expected TaskPacket fields
+            assert packet_data["task_id"] == "task-0001"
+            assert "workspace_path" in packet_data
+            assert "constraints" in packet_data
+            assert "task" in packet_data
+            assert "recent_events" in packet_data
+
+            # Proving 4: packet.json uses virtualized paths
+            assert packet_data["workspace_path"] == "<workspace>"
+            assert packet_data["task"]["workspace"] == "<workspace>"
+
+            # Proving 5: packet.json redacts obvious secrets if fixture data includes them
+            # The title of the task should have been redacted in the packet data
+            assert "ghp_supersecretgithubtoken12345" not in packet_data["title"]
+            assert "[REDACTED]" in packet_data["title"]
+
+            # Proving 6: shell command still runs in the task workspace
+            assert Path(".devflow/workspaces/task-0001/output.txt").exists()
+            assert not Path("output.txt").exists()
+
+            # Proving 7: canonical state files remain authoritative
+            task_yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            assert task_yaml_path.exists()
+            task_yaml_content = task_yaml_path.read_text(encoding="utf-8")
+            assert 'status: "complete"' in task_yaml_content
+            # packet.json itself is not canonical and does not overwrite or update task.yaml canonical properties
+            assert "ghp_supersecretgithubtoken12345" in task_yaml_content  # Canonical file retains original title without redaction
+        finally:
+            os.chdir(old_cwd)

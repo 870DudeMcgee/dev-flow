@@ -141,6 +141,12 @@ def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds
     _save_task(task_path, task)
     _append_event(root, task_id, "worker_started", {"command": command, "cwd": task.workspace})
 
+    # Generate packet.json immediately before worker execution
+    from devflow.control_room.task_packet import build_task_packet
+    packet = build_task_packet(task_id, root=root)
+    packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+    (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
+
     result = adapter.run(worker_input)
     _write_result(task_path, task_id, command, result)
 
