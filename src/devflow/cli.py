@@ -223,7 +223,8 @@ def task_run(
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if task.status != "complete":
-        raise typer.Exit(code=1)
+        exit_code = task.last_exit_code if task.last_exit_code is not None else 1
+        raise typer.Exit(code=exit_code)
 
 
 @task_app.command("verify", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -250,7 +251,8 @@ def task_verify(
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if task.verification_status != "passed":
-        raise typer.Exit(code=1)
+        exit_code = task.verification_exit_code if task.verification_exit_code is not None else 1
+        raise typer.Exit(code=exit_code)
 
 
 # Backward-compatible names for importers while the old CLI is retired.

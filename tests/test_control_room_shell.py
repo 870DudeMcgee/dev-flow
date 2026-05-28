@@ -92,7 +92,7 @@ def test_frozen_shell_worker_mvp_contract() -> None:
                     "echo bad; exit 7",
                 ],
             )
-            assert failure.exit_code == 1, failure.output
+            assert failure.exit_code == 7, failure.output
 
             timeout = runner.invoke(
                 app,
@@ -284,7 +284,7 @@ def test_failed_verification_updates_canonical_task_yaml() -> None:
                 app,
                 ["task", "verify", "task-0001", "--shell", "echo nope; exit 2"],
             )
-            assert verify.exit_code == 1, verify.output
+            assert verify.exit_code == 2, verify.output
             task = get_task(Path.cwd(), "task-0001")
             assert task.status == "verification_failed"
             assert task.verification_status == "failed"
@@ -583,7 +583,7 @@ def test_verification_result_rich_metadata() -> None:
 
             # Run verify (failed)
             verify_fail = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "echo failing; exit 42"])
-            assert verify_fail.exit_code == 1
+            assert verify_fail.exit_code == 42
 
             # Check verification.json for failed run
             fail_json = json.loads(Path(".devflow/tasks/task-0001/verification.json").read_text(encoding="utf-8"))
@@ -629,7 +629,7 @@ def test_task_merge_readiness_lifecycle() -> None:
 
             # 2. Run failed verification (not ready, exit_code recorded)
             verify_fail = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "echo failing; exit 5"])
-            assert verify_fail.exit_code == 1
+            assert verify_fail.exit_code == 5
 
             fail_data = json.loads(mr_path.read_text(encoding="utf-8"))
             assert fail_data["ready"] is False
@@ -1111,7 +1111,7 @@ def test_task_show_verification_and_next_action() -> None:
 
             # Verify the task with failing command
             verify_fail = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "exit 3"])
-            assert verify_fail.exit_code == 1
+            assert verify_fail.exit_code == 3
 
             # Now verification failed, check show displays exit code, command, and correct next action
             show_failed = runner.invoke(app, ["task", "show", "task-0001"])
