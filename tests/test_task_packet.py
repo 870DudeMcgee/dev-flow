@@ -364,6 +364,99 @@ def test_task_packet_constraints_signature() -> None:
     assert any("Worker execution must stay inside <workspace>/my-task" in c for c in res)
 
 
+def test_task_packet_redaction_regression() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        # Create a task
+        create_task(root, "Redaction test")
+        task_path = root / ".devflow" / "tasks" / "task-0001"
+
+        # Now, write a custom canonical task.yaml containing secret values in fields
+        task_yaml_content = (
+            "id: task-0001\n"
+            "title: \"Task with API_KEY=super-secret-123\"\n"
+            "status: running\n"
+            "created_at: 2026-05-28T00:00:00+00:00\n"
+            "updated_at: 2026-05-28T00:00:00+00:00\n"
+            f"workspace: \"{root}/.devflow/workspaces/task-0001\"\n"
+            f"workspace_path: \"{root}/.devflow/workspaces/task-0001\"\n"
+            "worker: shell\n"
+            "verification_status: not_run\n"
+            "latest_log_line: \"Authorization: Bearer ghp_secretgithubtoken123\"\n"
+        )
+        (task_path / "task.yaml").write_text(task_yaml_content, encoding="utf-8")
+
+        # Also write verification.json containing potential secrets
+        (task_path / "verification.json").write_text(
+            json.dumps({
+                "task_id": "task-0001",
+                "status": "not_run",
+                "task_status": "running",
+                "exit_code": None,
+                "latest_log_line": "sk-proj-openai1234567890abcdef1234567890",
+                "command": "API_KEY=\"another-secret-here\" pytest",
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        # Also write events.jsonl with secret values
+        events_path = task_path / "events.jsonl"
+        events_path.write_text(
+            json.dumps({
+                "timestamp": "2026-05-28T00:00:01+00:00",
+                "task_id": "task-0001",
+                "event": "started",
+                "data": {
+                    "token": "ghp_anothergithubtoken36charsabcdefgh",
+                    "password": "my-secret-password-123",
+                }
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        # Also write logs with secrets and private key block
+        logs_path = task_path / "logs"
+        private_key = (
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIEowIBAAKCAQEA0Y3...\n"
+            "-----END RSA PRIVATE KEY-----\n"
+        )
+        (logs_path / "worker.log").write_text(
+            f"Failed with Bearer token_abc123\n{private_key}",
+            encoding="utf-8",
+        )
+        (logs_path / "verify.log").write_text(
+            "Authorization: Basic admin:secretpass\n",
+            encoding="utf-8",
+        )
+
+        # Build packet
+        packet = build_task_packet("task-0001", root=root)
+
+        # Serialize packet to check for leaks
+        serialized = json.dumps(packet.model_dump(mode="json"))
+
+        # Assert no secrets in serialized output
+        assert "super-secret-123" not in serialized
+        assert "ghp_secretgithubtoken123" not in serialized
+        assert "sk-proj-openai" not in serialized
+        assert "another-secret-here" not in serialized
+        assert "ghp_anothergithubtoken" not in serialized
+        assert "my-secret-password-123" not in serialized
+        assert "MIIEowIBAAKCAQEA0Y3" not in serialized
+        assert "token_abc123" not in serialized
+        assert "admin:secretpass" not in serialized
+
+        # Assert redacted versions are present to preserve context
+        assert packet.task["title"] == "Task with API_KEY=[REDACTED]"
+        assert packet.verification["command"] == 'API_KEY="[REDACTED]" pytest'
+        assert packet.recent_events[0]["data"]["password"] == "[REDACTED]"
+        assert packet.recent_events[0]["data"]["token"] == "[REDACTED]"
+        assert "Bearer [REDACTED]" in packet.logs["worker"].tail[0]
+        assert "Authorization: [REDACTED]" in packet.logs["verify"].tail[0]
+        assert packet.logs["worker"].tail[1] == "[REDACTED PRIVATE KEY]"
+
+
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     lines = [
         json.dumps(

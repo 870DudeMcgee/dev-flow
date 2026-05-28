@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -95,31 +96,33 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         for p in _allowed_artifacts(repo_root, task_path)
     ]
 
-    return TaskPacket(
-        task_id=task.id,
-        title=task.title,
-        status=task.status,
-        adapter=adapter,
-        workspace_path=virtual_workspace_path,
-        worker_adapter=adapter,
-        task=task_data,
-        summary=_packet_summary(task, summary_data),
-        recent_events=recent_events,
-        verification=verification,
-        derived_summary=summary_data or None,
-        result_summary=None,
-        logs={"worker": worker_log, "verify": verify_log},
-        constraints=_constraints(virtual_workspace_path or ""),
-        allowed_artifacts=allowed_artifacts,
-        omitted_counts={
-            "events": omitted_events,
-            "malformed_events": malformed_events,
-            "worker_log_lines": worker_log.omitted_lines,
-            "worker_log_bytes": worker_log.omitted_bytes,
-            "verify_log_lines": verify_log.omitted_lines,
-            "verify_log_bytes": verify_log.omitted_bytes,
-        },
-        truncation_notes=notes,
+    return _redact_secrets_in_value(
+        TaskPacket(
+            task_id=task.id,
+            title=task.title,
+            status=task.status,
+            adapter=adapter,
+            workspace_path=virtual_workspace_path,
+            worker_adapter=adapter,
+            task=task_data,
+            summary=_packet_summary(task, summary_data),
+            recent_events=recent_events,
+            verification=verification,
+            derived_summary=summary_data or None,
+            result_summary=None,
+            logs={"worker": worker_log, "verify": verify_log},
+            constraints=_constraints(virtual_workspace_path or ""),
+            allowed_artifacts=allowed_artifacts,
+            omitted_counts={
+                "events": omitted_events,
+                "malformed_events": malformed_events,
+                "worker_log_lines": worker_log.omitted_lines,
+                "worker_log_bytes": worker_log.omitted_bytes,
+                "verify_log_lines": verify_log.omitted_lines,
+                "verify_log_bytes": verify_log.omitted_bytes,
+            },
+            truncation_notes=notes,
+        )
     )
 
 
@@ -246,7 +249,9 @@ def _tail_log(repo_root: Path, path: Path, label: str, line_limit: int, byte_lim
             truncated=False,
         )
 
-    lines = raw.decode("utf-8", errors="replace").splitlines()
+    decoded = raw.decode("utf-8", errors="replace")
+    decoded = _redact_string(decoded)
+    lines = decoded.splitlines()
     omitted_lines = max(len(lines) - line_limit, 0)
     tail = lines[-line_limit:] if line_limit else []
     omitted_bytes = 0
@@ -406,3 +411,76 @@ def _virtualize_path(path_str: str | None, repo_root: Path, task_id: str, worksp
     if scrubbed.startswith('/'):
         scrubbed = scrubbed.lstrip('/')
     return scrubbed
+
+
+def _redact_string(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+
+    # 1. Bearer <token>
+    text = re.sub(r'(?i)\bbearer\s+\S+', 'Bearer [REDACTED]', text)
+
+    # 2. Authorization: <token>
+    text = re.sub(r'(?i)\bauthorization\s*:\s*(?!\s*bearer\b)[^\r\n]+', 'Authorization: [REDACTED]', text)
+
+    # 3. .env and JSON/YAML style: KEY="value" or "KEY": "value"
+    text = re.sub(
+        r'(?i)(["\']?)\b(\w*(?:key|token|secret|password|passwd)\w*)\1\s*([=:])(\s*)(["\'])(.*?)\5',
+        r'\1\2\1\3\4\5[REDACTED]\5',
+        text
+    )
+
+    # 4. .env style: KEY=value or "KEY": value
+    text = re.sub(
+        r'(?i)(["\']?)\b(\w*(?:key|token|secret|password|passwd)\w*)\1\s*([=:])(\s*)(?!\[REDACTED\])([^\s"\'`]+)',
+        r'\1\2\1\3\4[REDACTED]',
+        text
+    )
+
+    # 5. OpenAI sk-... keys
+    text = re.sub(r'\bsk-(?:proj-)?[a-zA-Z0-9_-]{12,}\b', '[REDACTED]', text)
+
+    # 6. GitHub ghp_... and other tokens
+    text = re.sub(r'\b(?:gh[pousr]_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,})\b', '[REDACTED]', text)
+
+    # 7. Private key blocks
+    text = re.sub(
+        r'(?s)-----BEGIN\s+(?:[A-Z0-9\s_-]+\s+)?PRIVATE\s+KEY-----.*?-----END\s+(?:[A-Z0-9\s_-]+\s+)?PRIVATE\s+KEY-----',
+        '[REDACTED PRIVATE KEY]',
+        text
+    )
+    text = re.sub(r'-----BEGIN\s+(?:[A-Z0-9\s_-]+\s+)?PRIVATE\s+KEY-----', '[REDACTED PRIVATE KEY HEADER]', text)
+    text = re.sub(r'-----END\s+(?:[A-Z0-9\s_-]+\s+)?PRIVATE\s+KEY-----', '[REDACTED PRIVATE KEY FOOTER]', text)
+
+    return text
+
+
+def _redact_secrets_in_value(val: Any) -> Any:
+    if isinstance(val, str):
+        return _redact_string(val)
+    elif isinstance(val, list):
+        return [_redact_secrets_in_value(item) for item in val]
+    elif isinstance(val, dict):
+        updated = {}
+        for k, v in val.items():
+            if isinstance(k, str) and re.search(r'(?i)\b\w*(?:key|token|secret|password|passwd)\w*\b', k):
+                if isinstance(v, str):
+                    updated[k] = "[REDACTED]"
+                else:
+                    updated[k] = _redact_secrets_in_value(v)
+            else:
+                updated[k] = _redact_secrets_in_value(v)
+        return updated
+    elif isinstance(val, BaseModel):
+        updated = {}
+        for field_name in type(val).model_fields:
+            field_val = getattr(val, field_name)
+            if re.search(r'(?i)\b\w*(?:key|token|secret|password|passwd)\w*\b', field_name):
+                if isinstance(field_val, str):
+                    updated[field_name] = "[REDACTED]"
+                else:
+                    updated[field_name] = _redact_secrets_in_value(field_val)
+            else:
+                updated[field_name] = _redact_secrets_in_value(field_val)
+        return val.model_copy(update=updated)
+    return val
