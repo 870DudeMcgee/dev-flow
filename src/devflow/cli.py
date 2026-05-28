@@ -93,10 +93,11 @@ def task_list() -> None:
     if not tasks:
         typer.echo("No tasks found.")
         return
-    typer.echo(f"{'Task':<10} {'Status':<20} {'Verify':<12} {'Updated':<25} Title")
-    typer.echo("-" * 92)
+    typer.echo(f"{'Task':<10} {'Status':<20} {'Verify':<16} {'Updated':<25} Title")
+    typer.echo("-" * 97)
     for task in tasks:
-        typer.echo(f"{task.id:<10} {task.status:<20} {task.verification_status:<12} {task.updated_at.isoformat():<25} {task.title}")
+        verify_token = _verify_token(task.verification_status, task.verification_exit_code)
+        typer.echo(f"{task.id:<10} {task.status:<20} {verify_token:<16} {task.updated_at.isoformat():<25} {task.title}")
 
 
 @task_app.command("show")
@@ -297,6 +298,18 @@ def _relative(root: Path, path: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
         return str(path)
+
+
+def _verify_token(verification_status: str | None, verification_exit_code: int | None) -> str:
+    """Return a compact scan-level verification token derived from task.yaml fields only."""
+    status = verification_status or "not_run"
+    if status == "passed":
+        return "passed"
+    if status == "failed":
+        if verification_exit_code is not None:
+            return f"failed(exit={verification_exit_code})"
+        return "failed"
+    return status
 
 
 def _suggest_next_action(status: str, verification_status: str, task_id: str) -> str:
