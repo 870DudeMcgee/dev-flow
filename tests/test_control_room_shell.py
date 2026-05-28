@@ -1130,7 +1130,7 @@ def test_task_show_verification_and_next_action() -> None:
             assert show_passed.exit_code == 0, show_passed.output
             assert "verification_status: passed" in show_passed.output
             assert "verification_exit_code: 0" in show_passed.output
-            assert "suggested_next_action: Task is verified and ready. Proceed with merging or submission." in show_passed.output
+            assert "suggested_next_action: Task is verified. Review the result before any human-controlled promotion." in show_passed.output
 
             # Test missing verification.json (handles gracefully)
             v_json_path = Path(".devflow/tasks/task-0001/verification.json")
@@ -1142,7 +1142,7 @@ def test_task_show_verification_and_next_action() -> None:
             assert show_graceful.exit_code == 0
             assert "verification_status: passed" in show_graceful.output
             assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_graceful.output
-            assert "suggested_next_action: Task is verified and ready. Proceed with merging or submission." in show_graceful.output
+            assert "suggested_next_action: Task is verified. Review the result before any human-controlled promotion." in show_graceful.output
 
         finally:
             os.chdir(old_cwd)

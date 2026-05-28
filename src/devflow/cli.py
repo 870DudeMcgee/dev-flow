@@ -307,7 +307,7 @@ def _suggest_next_action(status: str, verification_status: str, task_id: str) ->
     elif status == "complete":
         return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
     elif status == "verified" or verification_status == "passed":
-        return "Task is verified and ready. Proceed with merging or submission."
+        return "Task is verified. Review the result before any human-controlled promotion."
     elif status == "verification_failed" or verification_status == "failed":
         return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
     elif status == "worker_failed":
