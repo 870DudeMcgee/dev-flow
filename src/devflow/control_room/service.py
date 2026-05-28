@@ -630,3 +630,53 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
         "deleted": deleted_files,
         "diffs": diffs,
     }
+
+
+def promote_task(root: Path, task_id: str) -> TaskRecord:
+    import shutil
+    task = get_task(root, task_id)
+    if task.status != "verified":
+        raise ValueError(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.")
+
+    workspace = _absolute(root, task.workspace).resolve()
+    expected = (workspaces_dir(root) / task.id).resolve()
+    if workspace != expected:
+        raise ValueError(f"Refusing unsafe task workspace: {workspace} (expected {expected})")
+    if not workspace.is_dir():
+        raise ValueError(f"Workspace directory does not exist: {workspace}")
+
+    workspace_files = _get_relative_files(workspace)
+    main_files = _get_relative_files(root)
+
+    added_files = sorted(list(workspace_files - main_files))
+    common_files = workspace_files & main_files
+
+    modified_files = []
+    for name in sorted(list(common_files)):
+        workspace_file = workspace / name
+        main_file = root / name
+        try:
+            if workspace_file.read_bytes() != main_file.read_bytes():
+                modified_files.append(name)
+        except OSError:
+            modified_files.append(name)
+
+    # Copy added and modified files
+    for name in added_files + modified_files:
+        src_path = workspace / name
+        dst_path = root / name
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, dst_path)
+
+    # Update canonical task record and event log
+    task.status = "promoted"
+    task.updated_at = utc_now()
+    task.last_event = "task_promoted"
+
+    _save_task(task_dir(root, task_id), task)
+    _append_event(root, task_id, "task_promoted", {
+        "added": added_files,
+        "modified": modified_files,
+    })
+
+    return task

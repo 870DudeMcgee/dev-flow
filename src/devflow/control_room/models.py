@@ -16,6 +16,7 @@ TaskStatus = Literal[
     "blocked",
     "worker_failed",
     "timeout",
+    "promoted",
 ]
 
 

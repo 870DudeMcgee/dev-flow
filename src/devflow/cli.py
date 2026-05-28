@@ -338,6 +338,73 @@ def task_promote_preview(task_id: str) -> None:
             typer.echo(diff_text, nl=False)
 
 
+@task_app.command("promote")
+def task_promote(task_id: str) -> None:
+    """Promote verified changes from the isolated workspace to the main checkout."""
+    try:
+        from devflow.control_room.service import get_task, preview_task_promotion, promote_task
+        task = get_task(Path.cwd(), task_id)
+        if task.status != "verified":
+            typer.echo(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.", err=True)
+            raise typer.Exit(code=1)
+
+        res = preview_task_promotion(Path.cwd(), task_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    added = res["added"]
+    modified = res["modified"]
+    deleted = res["deleted"]
+    diffs = res["diffs"]
+
+    if not added and not modified and not deleted:
+        typer.echo("No changes to promote")
+        return
+
+    if added:
+        typer.echo("Added files:")
+        for name in added:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if modified:
+        typer.echo("Modified files:")
+        for name in modified:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if deleted:
+        typer.echo("Deleted files:")
+        for name in deleted:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    typer.echo("--- Diffs ---")
+    for name in sorted(diffs.keys()):
+        diff_text = diffs[name]
+        if diff_text:
+            typer.echo(diff_text, nl=False)
+
+    confirmed = typer.confirm("Promote these changes to the main checkout?", default=False)
+    if not confirmed:
+        typer.echo("Promotion aborted.")
+        return
+
+    try:
+        promote_task(Path.cwd(), task_id)
+    except Exception as exc:
+        typer.echo(f"Error executing promotion: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo("Promotion complete.")
+    if deleted:
+        typer.echo("Warning: Deletions are preview-only and were not applied (deletions are deferred).")
+
+
 # Backward-compatible names for importers while the old CLI is retired.
 def init_workspace() -> None:
     init_control_room(Path.cwd())

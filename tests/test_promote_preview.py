@@ -134,3 +134,90 @@ def test_promote_preview_no_changes() -> None:
             assert "No changes to promote" in res.output
         finally:
             os.chdir(old_cwd)
+
+
+def test_promote_refuses_unverified_task() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "unverified-test"])
+            assert created.exit_code == 0
+
+            res = runner.invoke(app, ["task", "promote", "task-0001"])
+            assert res.exit_code == 1
+            assert "expected 'verified'" in res.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_declined_confirmation() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            Path("file.txt").write_text("old\n", encoding="utf-8")
+
+            created = runner.invoke(app, ["task", "create", "decline-test"])
+            assert created.exit_code == 0
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "file.txt").write_text("new\n", encoding="utf-8")
+
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            res = runner.invoke(app, ["task", "promote", "task-0001"], input="n\n")
+            assert res.exit_code == 0
+            assert "Promotion aborted." in res.output
+
+            assert Path("file.txt").read_text(encoding="utf-8") == "old\n"
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "verified"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_confirmed_copies_added_and_modified_but_not_deleted() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            Path("stay.txt").write_text("unchanged\n", encoding="utf-8")
+            Path("modify.txt").write_text("old modify\n", encoding="utf-8")
+            Path("delete.txt").write_text("should stay deleted\n", encoding="utf-8")
+
+            created = runner.invoke(app, ["task", "create", "promote-test"])
+            assert created.exit_code == 0
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "added.txt").write_text("added content\n", encoding="utf-8")
+            Path(workspace_dir / "modify.txt").write_text("new modify\n", encoding="utf-8")
+            Path(workspace_dir / "delete.txt").unlink()
+
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            res = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
+            assert res.exit_code == 0, res.output
+            assert "Promotion complete." in res.output
+            assert "Warning: Deletions are preview-only" in res.output
+
+            assert Path("added.txt").read_text(encoding="utf-8") == "added content\n"
+            assert Path("modify.txt").read_text(encoding="utf-8") == "new modify\n"
+            assert Path("delete.txt").exists()
+            assert Path("delete.txt").read_text(encoding="utf-8") == "should stay deleted\n"
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "promoted"
+            assert task.last_event == "task_promoted"
+
+            events_text = Path(".devflow/tasks/task-0001/events.jsonl").read_text(encoding="utf-8")
+            assert "task_promoted" in events_text
+        finally:
+            os.chdir(old_cwd)
