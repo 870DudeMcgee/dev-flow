@@ -122,7 +122,7 @@ Human approval remains required before any promotion, copy-back, pull request, o
 
 These examples describe possible future adapters. They are explicitly not implemented by this document:
 
-- Codex adapter: a worker adapter that would run a Codex-based coding tool inside the task boundary.
+- Codex adapter: a worker adapter that would run a Codex-based coding tool inside the task boundary. The smallest future slice is sketched in [codex-adapter-brief.md](codex-adapter-brief.md).
 - Local model adapter: a worker adapter that would run a local model or local coding assistant inside the task boundary.
 - IDE adapter: a worker adapter that would coordinate an IDE-driven agent while preserving Dev-Flow state ownership.
 - Remote worker adapter: a worker adapter that would execute outside the local process while reporting through approved Dev-Flow artifacts or APIs.
