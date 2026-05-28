@@ -12,10 +12,11 @@ Before code changes:
 
 1. Read [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) and check the plan against its Periodic Self-Check section.
 2. Read [docs/control-room-mvp.md](docs/control-room-mvp.md).
-3. Inspect only the smallest relevant implementation files.
-4. Preserve useful code that supports the control-room MVP.
-5. Bypass old workflow machinery that conflicts with the MVP.
-6. Keep changes focused and verify them.
+3. Read [docs/token-optimization.md](docs/token-optimization.md) and invoke [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) to route active context, search, and transcript policies.
+4. Inspect only the smallest relevant implementation files.
+5. Preserve useful code that supports the control-room MVP.
+6. Bypass old workflow machinery that conflicts with the MVP.
+7. Keep changes focused and verify them.
 
 ## Current Product Target
 
