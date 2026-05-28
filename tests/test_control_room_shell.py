@@ -1065,3 +1065,84 @@ def test_task_run_writes_packet_json() -> None:
             assert "ghp_supersecretgithubtoken12345" in task_yaml_content  # Canonical file retains original title without redaction
         finally:
             os.chdir(old_cwd)
+
+
+def test_task_show_verification_and_next_action() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+
+            # Create a task
+            created = runner.invoke(app, ["task", "create", "verification show test"])
+            assert created.exit_code == 0
+
+            # Verify initial placeholder verification and suggested next action
+            show_initial = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_initial.exit_code == 0, show_initial.output
+            assert "verification_status: not_run" in show_initial.output
+            assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_initial.output
+            assert "suggested_next_action: Run the task using 'devflow task run task-0001 --worker shell -- <command>'" in show_initial.output
+
+            # Capture file state of task before show to prove show is read-only
+            initial_files = {}
+            task_path = Path(".devflow/tasks/task-0001")
+            for p in task_path.glob("**/*"):
+                if p.is_file():
+                    initial_files[p] = p.read_bytes()
+
+            # Execute show again
+            show_again = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_again.exit_code == 0
+
+            # Proving that task show is read-only and does not mutate files
+            for p, content in initial_files.items():
+                assert p.exists()
+                assert p.read_bytes() == content
+
+            # Run the task
+            run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo completed"])
+            assert run.exit_code == 0
+
+            # Now status is complete, check suggested next action
+            show_complete = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_complete.exit_code == 0
+            assert "suggested_next_action: Verify the task using 'devflow task verify task-0001 -- <command>'" in show_complete.output
+
+            # Verify the task with failing command
+            verify_fail = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "exit 3"])
+            assert verify_fail.exit_code == 1
+
+            # Now verification failed, check show displays exit code and correct next action
+            show_failed = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_failed.exit_code == 0, show_failed.output
+            assert "verification_status: failed" in show_failed.output
+            assert "verification_exit_code: 3" in show_failed.output
+            assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_failed.output
+            assert "suggested_next_action: Fix the failure and re-run verification using 'devflow task verify task-0001 -- <command>'" in show_failed.output
+
+            # Verify with passing command
+            verify_pass = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "exit 0"])
+            assert verify_pass.exit_code == 0
+
+            # Now verification passed, check show displays exit code and ready next action
+            show_passed = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_passed.exit_code == 0, show_passed.output
+            assert "verification_status: passed" in show_passed.output
+            assert "verification_exit_code: 0" in show_passed.output
+            assert "suggested_next_action: Task is verified and ready. Proceed with merging or submission." in show_passed.output
+
+            # Test missing verification.json (handles gracefully)
+            v_json_path = Path(".devflow/tasks/task-0001/verification.json")
+            assert v_json_path.exists()
+            v_json_path.unlink()
+
+            # Show should still work and gracefully fallback to canonical task.yaml fields
+            show_graceful = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_graceful.exit_code == 0
+            assert "verification_status: passed" in show_graceful.output
+            assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_graceful.output
+            assert "suggested_next_action: Task is verified and ready. Proceed with merging or submission." in show_graceful.output
+
+        finally:
+            os.chdir(old_cwd)

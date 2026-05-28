@@ -125,11 +125,31 @@ def task_show(task_id: str) -> None:
     typer.echo(f"latest_log_line: {task.latest_log_line or ''}")
     typer.echo(f"log_path: {task.log_path or ''}")
     typer.echo(f"result_path: {task.result_path or ''}")
-    typer.echo(f"verification_status: {task.verification_status}")
-    typer.echo(f"verification_command: {task.verification_command or ''}")
-    typer.echo(f"verification_log_path: {task.verification_log_path or ''}")
-    typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
     task_path = Path.cwd() / ".devflow" / "tasks" / task.id
+    v_status = task.verification_status
+    v_exit_code = task.verification_exit_code
+    v_log_path = task.verification_log_path
+
+    try:
+        v_json = task_path / "verification.json"
+        if v_json.exists():
+            v_data = json.loads(v_json.read_text(encoding="utf-8"))
+            if "status" in v_data:
+                v_status = v_data["status"]
+            if "exit_code" in v_data:
+                v_exit_code = v_data["exit_code"]
+            if "log_path" in v_data:
+                v_log_path = v_data["log_path"]
+    except Exception:
+        pass
+
+    typer.echo(f"verification_status: {v_status}")
+    typer.echo(f"verification_command: {task.verification_command or ''}")
+    if v_exit_code is not None:
+        typer.echo(f"verification_exit_code: {v_exit_code}")
+    typer.echo(f"verification_log_path: {v_log_path or ''}")
+    typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
+    typer.echo(f"suggested_next_action: {_suggest_next_action(task.status, v_status, task.id)}")
     packet_json = task_path / "packet.json"
     if packet_json.exists():
         rel_path = _relative(Path.cwd(), packet_json)
@@ -277,6 +297,27 @@ def _relative(root: Path, path: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
         return str(path)
+
+
+def _suggest_next_action(status: str, verification_status: str, task_id: str) -> str:
+    if status == "created":
+        return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
+    elif status == "running":
+        return "Monitor the execution or wait for the task to complete."
+    elif status == "complete":
+        return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
+    elif status == "verified" or verification_status == "passed":
+        return "Task is verified and ready. Proceed with merging or submission."
+    elif status == "verification_failed" or verification_status == "failed":
+        return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
+    elif status == "worker_failed":
+        return f"Inspect the logs, fix the failure, and re-run using 'devflow task run {task_id} --worker shell -- <command>'"
+    elif status == "timeout":
+        return f"Re-run the task with an increased timeout using 'devflow task run {task_id} --timeout-seconds <seconds> --worker shell -- <command>'"
+    elif status == "blocked":
+        return "Resolve the workspace or safety block before running again."
+    else:
+        return "Check task status and logs for the next logical step."
 
 
 def _echo_result_summary(path: Path) -> None:
