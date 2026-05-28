@@ -413,6 +413,19 @@ def _virtualize_path(path_str: str | None, repo_root: Path, task_id: str, worksp
     return scrubbed
 
 
+def _is_sensitive_key(key: str) -> bool:
+    if not isinstance(key, str):
+        return False
+    # Tight matching to avoid false positives on words like monkey, keyboard, keynote, etc.
+    # Matches:
+    # 1. Standalone secret words: key, token, secret, password, passwd, authorization, apikey
+    # 2. Key names ending with _key, _token, _secret, _password, _passwd
+    # 3. Key names starting with key_, token_, secret_, password_, passwd_
+    # 4. Standalone combinations: api_key, access_key, secret_key, access_token, refresh_token, auth_token
+    pattern = r'(?i)^_*(?:key|token|secret|password|passwd|authorization|apikey|api_?key|access_?key|secret_?key|access_?token|refresh_?token|auth_?token|\w+(?:_key|_token|_secret|_password|_passwd)|(?:key|token|secret|password|passwd)_\w+)_*$'
+    return bool(re.match(pattern, key))
+
+
 def _redact_string(text: str) -> str:
     if not isinstance(text, str):
         return text
@@ -424,16 +437,29 @@ def _redact_string(text: str) -> str:
     text = re.sub(r'(?i)\bauthorization\s*:\s*(?!\s*bearer\b)[^\r\n]+', 'Authorization: [REDACTED]', text)
 
     # 3. .env and JSON/YAML style: KEY="value" or "KEY": "value"
+    def repl_quoted(match):
+        key = match.group(2)
+        if _is_sensitive_key(key):
+            return f"{match.group(1)}{match.group(2)}{match.group(1)}{match.group(3)}{match.group(4)}{match.group(5)}[REDACTED]{match.group(5)}"
+        return match.group(0)
+
     text = re.sub(
-        r'(?i)(["\']?)\b(\w*(?:key|token|secret|password|passwd)\w*)\1\s*([=:])(\s*)(["\'])(.*?)\5',
-        r'\1\2\1\3\4\5[REDACTED]\5',
+        r'(?i)(["\']?)\b(\w+)\1\s*([=:])(\s*)(["\'])(.*?)\5',
+        repl_quoted,
         text
     )
 
     # 4. .env style: KEY=value or "KEY": value
+    def repl_unquoted(match):
+        key = match.group(2)
+        val = match.group(5)
+        if _is_sensitive_key(key) and val != "[REDACTED]":
+            return f"{match.group(1)}{match.group(2)}{match.group(1)}{match.group(3)}{match.group(4)}[REDACTED]"
+        return match.group(0)
+
     text = re.sub(
-        r'(?i)(["\']?)\b(\w*(?:key|token|secret|password|passwd)\w*)\1\s*([=:])(\s*)(?!\[REDACTED\])([^\s"\'`]+)',
-        r'\1\2\1\3\4[REDACTED]',
+        r'(?i)(["\']?)\b(\w+)\1\s*([=:])(\s*)([^\s"\'`]+)',
+        repl_unquoted,
         text
     )
 
@@ -455,32 +481,36 @@ def _redact_string(text: str) -> str:
     return text
 
 
-def _redact_secrets_in_value(val: Any) -> Any:
+def _redact_secrets_in_value(val: Any, is_under_sensitive_key: bool = False) -> Any:
     if isinstance(val, str):
+        if is_under_sensitive_key:
+            return "[REDACTED]"
         return _redact_string(val)
     elif isinstance(val, list):
-        return [_redact_secrets_in_value(item) for item in val]
+        return [_redact_secrets_in_value(item, is_under_sensitive_key) for item in val]
     elif isinstance(val, dict):
         updated = {}
         for k, v in val.items():
-            if isinstance(k, str) and re.search(r'(?i)\b\w*(?:key|token|secret|password|passwd)\w*\b', k):
+            sensitive_child = is_under_sensitive_key or _is_sensitive_key(k)
+            if sensitive_child:
                 if isinstance(v, str):
                     updated[k] = "[REDACTED]"
                 else:
-                    updated[k] = _redact_secrets_in_value(v)
+                    updated[k] = _redact_secrets_in_value(v, is_under_sensitive_key=True)
             else:
-                updated[k] = _redact_secrets_in_value(v)
+                updated[k] = _redact_secrets_in_value(v, is_under_sensitive_key=False)
         return updated
     elif isinstance(val, BaseModel):
         updated = {}
         for field_name in type(val).model_fields:
             field_val = getattr(val, field_name)
-            if re.search(r'(?i)\b\w*(?:key|token|secret|password|passwd)\w*\b', field_name):
+            sensitive_child = is_under_sensitive_key or _is_sensitive_key(field_name)
+            if sensitive_child:
                 if isinstance(field_val, str):
                     updated[field_name] = "[REDACTED]"
                 else:
-                    updated[field_name] = _redact_secrets_in_value(field_val)
+                    updated[field_name] = _redact_secrets_in_value(field_val, is_under_sensitive_key=True)
             else:
-                updated[field_name] = _redact_secrets_in_value(field_val)
+                updated[field_name] = _redact_secrets_in_value(field_val, is_under_sensitive_key=False)
         return val.model_copy(update=updated)
     return val

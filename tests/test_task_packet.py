@@ -457,6 +457,87 @@ def test_task_packet_redaction_regression() -> None:
         assert packet.logs["worker"].tail[1] == "[REDACTED PRIVATE KEY]"
 
 
+def test_task_packet_ordinary_words_not_redacted() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "Ordinary words test")
+        task_path = root / ".devflow" / "tasks" / "task-0001"
+
+        # Write task containing words like monkey, keyboard, keynote, keyframe
+        task_yaml_content = (
+            "id: task-0001\n"
+            "title: \"Ordinary words test with monkey and keyboard\"\n"
+            "status: running\n"
+            "created_at: 2026-05-28T00:00:00+00:00\n"
+            "updated_at: 2026-05-28T00:00:00+00:00\n"
+            f"workspace: \"{root}/.devflow/workspaces/task-0001\"\n"
+            f"workspace_path: \"{root}/.devflow/workspaces/task-0001\"\n"
+            "worker: shell\n"
+            "verification_status: not_run\n"
+            "latest_log_line: \"ordinary keynote and keyframe\"\n"
+        )
+        (task_path / "task.yaml").write_text(task_yaml_content, encoding="utf-8")
+
+        # Build packet
+        packet = build_task_packet("task-0001", root=root)
+
+        # Assert ordinary words are NOT redacted
+        assert "monkey" in packet.title
+        assert "keyboard" in packet.title
+        assert "keynote" in packet.task["latest_log_line"]
+        assert "keyframe" in packet.task["latest_log_line"]
+
+
+def test_task_packet_nested_secrets_redacted() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "Nested secrets test")
+        task_path = root / ".devflow" / "tasks" / "task-0001"
+
+        task_yaml_content = (
+            "id: task-0001\n"
+            "title: \"Nested secrets test\"\n"
+            "status: running\n"
+            "created_at: 2026-05-28T00:00:00+00:00\n"
+            "updated_at: 2026-05-28T00:00:00+00:00\n"
+            f"workspace: \"{root}/.devflow/workspaces/task-0001\"\n"
+            f"workspace_path: \"{root}/.devflow/workspaces/task-0001\"\n"
+            "worker: shell\n"
+            "verification_status: not_run\n"
+        )
+        (task_path / "task.yaml").write_text(task_yaml_content, encoding="utf-8")
+
+        # Also write verification.json containing potential secrets
+        # under a sensitive dict
+        (task_path / "verification.json").write_text(
+            json.dumps({
+                "task_id": "task-0001",
+                "status": "not_run",
+                "task_status": "running",
+                "exit_code": None,
+                # Add custom nested secrets under sensitive keys
+                "api_key": ["plain-secret-value", {"value": "nested-secret-value"}],
+                "secret": {"value": "wrapped-secret-value"},
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        # Build packet
+        packet = build_task_packet("task-0001", root=root)
+
+        # Serialize packet to check for leaks
+        serialized = json.dumps(packet.model_dump(mode="json"))
+
+        # Assert nested secrets are fully redacted in serialized output
+        assert "plain-secret-value" not in serialized
+        assert "nested-secret-value" not in serialized
+        assert "wrapped-secret-value" not in serialized
+
+        # Check values directly in the Pydantic packet object
+        assert packet.verification["api_key"] == ["[REDACTED]", {"value": "[REDACTED]"}]
+        assert packet.verification["secret"] == {"value": "[REDACTED]"}
+
+
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     lines = [
         json.dumps(
