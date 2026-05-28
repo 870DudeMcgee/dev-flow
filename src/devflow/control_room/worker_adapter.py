@@ -25,10 +25,16 @@ class UnsupportedWorkerAdapter(ValueError):
     pass
 
 
+def list_worker_adapters() -> list[str]:
+    """Return sorted registered worker adapter names."""
+    return sorted(_REGISTRY.keys())
+
+
 def get_worker_adapter(name: str) -> WorkerAdapter:
     adapter_cls = _REGISTRY.get(name)
     if adapter_cls is not None:
         return adapter_cls()
+    available = ", ".join(list_worker_adapters())
     raise UnsupportedWorkerAdapter(
-        f"Unsupported worker adapter '{name}'. Only 'shell' is available in the MVP."
+        f"Unsupported worker adapter '{name}'. Available adapters: {available}."
     )
