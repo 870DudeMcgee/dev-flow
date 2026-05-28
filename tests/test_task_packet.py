@@ -173,6 +173,67 @@ def test_task_packet_missing_optional_logs_do_not_crash() -> None:
         assert packet.logs["verify"].omitted_lines == 0
 
 
+def test_task_packet_ignores_stale_authoritative_summary_fields() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "Stale fields test")
+        task_path = root / ".devflow" / "tasks" / "task-0001"
+
+        # Write a summary.json that has matching metadata (identity/title/status/workspace/verification_status)
+        # but also contains stale verification/merge-readiness/authority fields.
+        (task_path / "summary.json").write_text(
+            json.dumps(
+                {
+                    "task_id": "task-0001",
+                    "title": "Stale fields test",
+                    "status": "created",
+                    "workspace_path": ".devflow/workspaces/task-0001",
+                    "latest_verification_status": "not_run",
+                    "latest_verification_exit_code": 127,
+                    "latest_verification_log_path": ".devflow/tasks/task-0001/logs/stale.log",
+                    "merge_ready": True,
+                    "merge_readiness_reasons": ["stale reason"],
+                    "summary": "harmless worker summary",
+                    "workspace_dirty": True,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        packet = build_task_packet("task-0001", root=root)
+
+        # The packet building succeeded and summary.json was NOT ignored since metadata matched
+        assert "Ignored summary.json" not in "".join(packet.truncation_notes)
+
+        # Harmless non-authoritative fields appear in the derived_summary
+        assert packet.derived_summary is not None
+        assert packet.derived_summary["summary"] == "harmless worker summary"
+        assert packet.derived_summary["workspace_dirty"] is True
+
+        # Authoritative and stale fields are filtered out and do NOT appear in derived_summary
+        prohibited_keys = {
+            "task_id",
+            "title",
+            "status",
+            "workspace_path",
+            "latest_verification_status",
+            "latest_verification_exit_code",
+            "latest_verification_log_path",
+            "merge_ready",
+            "merge_readiness_reasons",
+        }
+        for key in prohibited_keys:
+            assert key not in packet.derived_summary
+
+        # These stale fields did not influence the packet metadata or status
+        assert packet.status == "created"
+        assert packet.title == "Stale fields test"
+        assert packet.workspace_path == ".devflow/workspaces/task-0001"
+        assert packet.verification["status"] == "not_run"
+
+
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     lines = [
         json.dumps(

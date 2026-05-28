@@ -127,18 +127,9 @@ def _read_matching_summary(path: Path, task: TaskRecord, notes: list[str]) -> di
             notes.append("Ignored summary.json because it conflicts with canonical task state.")
             return {}
     allowed_keys = {
-        "task_id",
-        "title",
-        "status",
-        "workspace_path",
         "workspace_dirty",
         "workspace_branch",
         "workspace_commit",
-        "latest_verification_status",
-        "latest_verification_exit_code",
-        "latest_verification_log_path",
-        "merge_ready",
-        "merge_readiness_reasons",
         "updated_at",
         "summary",
     }
