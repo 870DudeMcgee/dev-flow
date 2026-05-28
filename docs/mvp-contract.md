@@ -4,6 +4,8 @@ Status: frozen on 2026-05-28.
 
 This is the smallest stable contract for the current Dev-Flow MVP. It freezes the shell-worker control-room behavior that docs and tests should agree on. Runtime surfaces outside this document may exist as helper or experimental code, but they are not part of the frozen MVP contract.
 
+Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md); that design document does not change this frozen MVP contract.
+
 ## Stable Commands
 
 ```bash
