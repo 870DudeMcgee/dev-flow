@@ -69,6 +69,8 @@ Future adapters may read only the task context Dev-Flow exposes. The stable read
 
 Adapters must not infer permission to read unrelated repository paths from local filesystem access alone. Visibility is controlled by the task workspace and explicit Dev-Flow exposure.
 
+The minimal future read packet for adapters is described in [task-packet-contract.md](task-packet-contract.md).
+
 ## Adapter Write Contract
 
 Future adapters may write only through approved task surfaces:

@@ -10,6 +10,8 @@ Codex should be just another worker adapter.
 
 It must conform to the same `WorkerAdapter` boundary used by the shell adapter: Dev-Flow validates the workspace, supplies Dev-Flow-owned paths, invokes the adapter, and receives a structured worker result back.
 
+Codex must receive a bounded Dev-Flow task packet, not arbitrary repository context; the packet contract is described in [task-packet-contract.md](task-packet-contract.md).
+
 Dev-Flow remains the control plane. It continues to own task state, workspace containment, logs, result summaries, verification evidence, merge-readiness decisions, and human approval gates.
 
 ## Non-Goals
