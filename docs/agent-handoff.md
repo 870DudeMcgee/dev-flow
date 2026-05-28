@@ -11,6 +11,7 @@ The previous Dev-Flow direction has been archived. It is no longer the process a
 Active source of truth:
 
 - [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
+- [docs/mvp-contract.md](mvp-contract.md)
 - [docs/control-room-mvp.md](control-room-mvp.md)
 - [docs/roadmap.md](roadmap.md)
 - [README.md](../README.md)
@@ -23,35 +24,43 @@ Archive index:
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The first milestone is a non-AI control room with shell workers only.
+The frozen MVP is a non-AI shell-worker contract with task creation, shell execution, verification, listing, and inspection.
 
-Implemented so far:
+Normal local development install:
 
-- `devflow init`
-- `devflow doctor`
+```bash
+.venv/bin/python -m pip install -e .
+```
+
+That editable install exposes the console script declared in `pyproject.toml` as `devflow = "devflow.cli:main"`.
+
+Stable MVP contract:
+
+- `devflow --help`
+- `devflow task --help`
 - `devflow task create "title"`
 - `devflow task list`
 - `devflow task show <task_id>`
-- `devflow task run <task_id> --worker shell -- <command>`
-- `devflow task verify <task_id> -- <command>`
-- `devflow dashboard`
-- SQLite task state
-- task-local logs, result, report, questions, context, and YAML artifacts
-- git worktree creation for task workspaces when possible
-- directory workspace fallback outside git repos
+- `devflow task run <task_id> --shell "echo hello > result.txt"`
+- `devflow task verify <task_id> --shell "test -f result.txt"`
+- filesystem task state with canonical `task.yaml`
+- task append-only `events.jsonl`
+- task-local worker logs, verification logs, verification JSON, and YAML artifacts
+- copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
-- merge-readiness status for completed and verified tasks
+- `verified` and `verification_failed` task statuses from verification
+- no SQLite database or `.devflow/worktrees/` directory in the MVP path
 
 ## Required MVP Commands
 
 ```bash
-devflow init
-devflow doctor
-devflow task create "title"
-devflow task list
+devflow --help
+devflow task --help
+devflow task create "example task"
+devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
-devflow task run <task_id> --worker shell -- <command>
-devflow dashboard
+devflow task list
 ```
 
 ## Implementation Posture
@@ -60,27 +69,21 @@ devflow dashboard
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
+- Treat dashboard, token-context, init/doctor helpers, worktree orchestration, databases, and AI worker adapters as outside the frozen MVP contract unless a future doc explicitly promotes them.
 - Salvage useful code only when it supports the new control-room MVP.
 - Keep unrelated dirty worktree changes intact.
 
 ## Useful Existing Code To Inspect Later
 
 - `src/devflow/cli.py`: current CLI entry point, but likely too broad.
-- `src/devflow/worktrees.py`: possible worktree isolation salvage.
 - `src/devflow/runner.py`: possible shell and verification helper salvage.
 - `src/devflow/failures.py`: possible simple failure taxonomy salvage.
 
-## Acceptance Gauntlet
+## Acceptance Check
 
-Create three shell tasks:
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, and show it. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/`, the task artifacts exist, no SQLite database is created, and no `.devflow/worktrees/` directory is created.
 
-1. one succeeds
-2. one fails
-3. one times out
-
-The CLI and dashboard must show all three accurately with status and logs.
-
-Current verification covers this gauntlet, git-worktree isolation, verification logs, and merge readiness in `tests/test_control_room_shell.py`.
+Current verification covers the frozen command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, and symlink skipping in `tests/test_control_room_shell.py`.
 
 ## Known Worktree State At Handoff
 

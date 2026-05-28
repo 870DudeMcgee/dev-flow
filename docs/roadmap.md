@@ -9,11 +9,13 @@ The rebuild starts from a smaller foundation than the previous software-factory 
 - workers are replaceable
 - state is sacred
 - each task gets an isolated workspace
-- dashboard visibility is required early
+- visibility starts with CLI output and durable filesystem evidence
 - context and results are durable artifacts
 - autonomy is earned through reliability
 
 Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
+
+Frozen MVP contract: [docs/mvp-contract.md](mvp-contract.md)
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -30,98 +32,102 @@ Done when:
 - old active instruction hooks are removed or rewritten
 - files to keep, bypass, create, and first patch are documented
 
-## Phase 1: Core State And CLI
+## Phase 1: Frozen Shell-Worker Contract
 
-Goal: initialize Dev-Flow, create tasks, and show status.
+Goal: freeze the smallest shell-worker task contract and keep docs/tests aligned with it.
+
+Local development install:
+
+```bash
+.venv/bin/python -m pip install -e .
+```
 
 Commands:
 
 ```bash
-devflow init
-devflow doctor
-devflow task create "title"
-devflow task list
+devflow --help
+devflow task --help
+devflow task create "example task"
+devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
+devflow task list
 ```
 
 Acceptance:
 
-- `.devflow/devflow.db` exists
-- `.devflow/config.yaml` exists
-- task artifact directories are created
-- CLI shows task state from SQLite and task files
+- stable task artifacts are created under `.devflow/tasks/<task_id>/`
+- worker and verification logs are captured
+- the command result stays in `.devflow/workspaces/<task_id>/`
+- CLI shows task state from canonical `task.yaml` files
+- editable install exposes the console script declared as `devflow = "devflow.cli:main"`
+- no SQLite database or `.devflow/worktrees/` directory is created
 
-## Phase 2: Shell Worker Loop
+## Phase 2: Shell Worker Safety
 
-Goal: prove orchestration without AI.
-
-Command:
-
-```bash
-devflow task run <task_id> --worker shell -- <command>
-```
+Goal: keep the shell-worker path isolated and observable without adding new runtime surfaces.
 
 Acceptance:
 
 - command runs in the assigned workspace
 - worker log is captured
-- result artifact is written
-- success, failure, and timeout statuses are accurate
-
-## Phase 3: Dashboard
-
-Goal: make the control room visible.
-
-Command:
-
-```bash
-devflow dashboard
-```
-
-Acceptance:
-
-- browser shows tasks, status, worker, latest log line, result path, and timestamps
-- page auto-refreshes
-- no frontend build tooling is required
-
-## Phase 4: Workspace Isolation
-
-Goal: ensure one task gets one safe workspace.
-
-Status: first slice implemented. Task creation now creates a real git worktree when the repo has a valid `HEAD`, with a directory fallback for non-git runtimes.
-
-Acceptance:
-
-- each task has an isolated worktree or workspace path
+- tampered workspace paths are refused
+- symlinks are skipped during scratchpad copy
 - main checkout is untouched by workers
-- conflicting edits are detected later at review or merge readiness, not during worker execution
 
-## Phase 5: MVP Acceptance Gauntlet
+## Phase 3: Future Visibility Surfaces
 
-Create three shell tasks:
+Goal: improve visibility after the frozen command/filesystem/safety contract remains stable.
 
-1. one succeeds
-2. one fails
-3. one times out
+Acceptance:
 
-Pass when the CLI and dashboard show all three accurately with logs and no manual detective work.
+- any dashboard or richer UI is proposed as a new contract change
+- no browser UI, terminal dashboard, or frontend tooling is part of the frozen MVP
 
-## Phase 6: Verification And Merge Readiness
+## Phase 4: Future Workspace Promotion
+
+Goal: decide how work leaves the scratchpad workspace when the user explicitly approves it.
+
+Status: out of the frozen MVP. Current shell-worker results remain in `.devflow/workspaces/<task_id>/`.
+
+Acceptance:
+
+- copy-back or promotion is explicit
+- main checkout remains untouched until that future feature is designed
+- git worktree orchestration remains out of scope
+
+## Phase 5: Verification And Merge Readiness
 
 Goal: make Dev-Flow own verification evidence before work can be considered merge-ready.
 
 Status: first slice implemented with:
 
 ```bash
-devflow task verify <task_id> -- <command>
+devflow task verify <task_id> --shell "test -f result.txt"
 ```
 
 Acceptance:
 
 - verification runs inside the task workspace
 - `logs/verify.log` is written
-- CLI and dashboard show verification status
-- only completed tasks with passing verification are marked merge-ready
+- CLI shows verification status
+- successful verification marks the task `verified`; failed verification marks it `verification_failed`
+
+## Phase 6: Token Context Packet
+
+Goal: help IDE agents use the smallest sufficient context without making Dev-Flow a coding agent.
+
+Status: outside the frozen MVP contract. A completed helper exists as visible planning guidance that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.
+
+Acceptance:
+
+- writes `.devflow/token-context/current.md`
+- appends `.devflow/token-context/events.jsonl`
+- records task description, mode, recommended tools, repo branch, git status, changed files, and task summaries
+- gives explicit read-first and do-not-read guidance for IDE agents
+- does not require token tools to be installed and does not enable hooks, MCP integrations, command rewrites, or model routing
+> [!IMPORTANT]
+> **Next Priority**: Return focus back to the frozen shell-worker MVP: task lifecycle, workspace isolation, CLI visibility, verification, and future merge readiness.
 
 ## Later, Not Now
 

@@ -1,6 +1,7 @@
 import pathlib
 import tomllib
 import unittest
+from importlib import import_module
 
 
 class TestPackaging(unittest.TestCase):
@@ -11,6 +12,14 @@ class TestPackaging(unittest.TestCase):
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
         self.assertEqual(data["project"]["name"], "devflow")
         self.assertEqual(data["project"]["scripts"]["devflow"], "devflow.cli:main")
+
+    def test_declared_devflow_cli_entrypoint_resolves_to_callable(self):
+        data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+        module_name, function_name = data["project"]["scripts"]["devflow"].split(":", 1)
+
+        entrypoint = getattr(import_module(module_name), function_name)
+
+        self.assertTrue(callable(entrypoint))
 
 
 if __name__ == "__main__":

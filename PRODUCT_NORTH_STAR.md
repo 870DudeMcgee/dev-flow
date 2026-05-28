@@ -376,56 +376,47 @@ The first production-worthy MVP is not a full AI swarm.
 
 The first MVP is a non-AI control room that proves the infrastructure works.
 
+The frozen shell-worker MVP contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, dashboards, AI worker adapters, and copy-back/merge behavior.
+
 Required commands:
 
 ```bash
-devflow init
-devflow doctor
-devflow task create "title"
-devflow task list
+devflow --help
+devflow task --help
+devflow task create "example task"
+devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
-devflow task run <task_id> --worker shell -- <command>
-devflow dashboard
+devflow task list
 ```
 
 Required capabilities:
 
-- create `.devflow/`
-- create local SQLite state
-- create per-task artifact folders
+- create per-task filesystem artifacts
 - run shell workers
-- capture logs
-- track success/failure/timeout
+- run verification commands
+- capture worker and verification logs
+- keep worker writes in the task workspace
 - show status in CLI
-- show status in dashboard
-- write result artifacts
+- refuse tampered workspace paths
+- skip symlinks during scratchpad copy
+- avoid SQLite databases and `.devflow/worktrees/`
 
 Required runtime shape:
 
 ```text
 .devflow/
-  devflow.db
-  config.yaml
   tasks/<task_id>/
     task.yaml
-    task.md
-    context.md
-    questions.md
-    result.md
-    report.md
+    events.jsonl
+    verification.json
     logs/
       worker.log
       verify.log
-  worktrees/
+  workspaces/<task_id>/
 ```
 
-The MVP passes when Dev-Flow can create and run three shell tasks:
-
-1. one succeeds
-2. one fails
-3. one times out
-
-The CLI and dashboard must show all three accurately.
+The MVP passes when Dev-Flow can create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, and show it while keeping `result.txt` out of the main checkout.
 
 ---
 
@@ -455,44 +446,43 @@ The control room comes first.
 
 ## Roadmap
 
-### Phase 1: Control Room Foundation
+### Phase 1: Frozen Shell-Worker Foundation
 
-Goal: prove task state, shell worker execution, logs, and dashboard.
+Goal: prove task state, shell worker execution, verification, logs, CLI visibility, and workspace-only writes.
 
 Deliverables:
 
-- `devflow init`
-- `devflow doctor`
-- `devflow task create`
+- `devflow --help`
+- `devflow task --help`
+- `devflow task create "example task"`
+- `devflow task run <task-id> --shell "echo hello > result.txt"`
+- `devflow task verify <task-id> --shell "test -f result.txt"`
 - `devflow task list`
-- `devflow task show`
-- `devflow task run --worker shell`
-- `devflow dashboard`
+- `devflow task show <task-id>`
 
 Success check:
 
 ```text
-Can I run three shell tasks and clearly see success/failure/timeout?
+Can I create, run, verify, list, and show one shell task while keeping worker writes out of the main checkout?
 ```
 
 ---
 
-### Phase 2: Workspace Isolation
+### Phase 2: Workspace Safety
 
 Goal: prevent workers from stepping on each other.
 
 Deliverables:
 
-- git worktree creation per task
-- workspace tracking
-- branch naming
-- workspace cleanup
-- changed-file detection
+- copied scratchpad workspace per task
+- tampered workspace path refusal
+- symlink skipping during scratchpad copy
+- explicit future design for copy-back or promotion
 
 Success check:
 
 ```text
-Can two tasks edit the same repo without touching the main checkout?
+Can a shell worker produce results without touching the main checkout?
 ```
 
 ---
@@ -504,11 +494,10 @@ Goal: make work reviewable and safe.
 Deliverables:
 
 - verify commands
-- protected path checks
-- allowed path checks
-- diff capture
-- report generation
-- ready_for_review status
+- verification logs
+- latest verification JSON
+- verified and verification_failed statuses
+- future protected path, diff, report, and ready_for_review design
 
 Success check:
 

@@ -11,8 +11,12 @@ def devflow_dir(root: Path) -> Path:
     return root / ".devflow"
 
 
-def db_path(root: Path) -> Path:
-    return devflow_dir(root) / "devflow.db"
+def system_dir(root: Path) -> Path:
+    return devflow_dir(root) / "system"
+
+
+def system_events_path(root: Path) -> Path:
+    return system_dir(root) / "events.jsonl"
 
 
 def config_path(root: Path) -> Path:
@@ -27,9 +31,9 @@ def task_dir(root: Path, task_id: str) -> Path:
     return tasks_dir(root) / task_id
 
 
-def worktrees_dir(root: Path) -> Path:
-    return devflow_dir(root) / "worktrees"
+def workspaces_dir(root: Path) -> Path:
+    return devflow_dir(root) / "workspaces"
 
 
 def workspace_path(root: Path, task_id: str) -> Path:
-    return worktrees_dir(root) / task_id
+    return workspaces_dir(root) / task_id

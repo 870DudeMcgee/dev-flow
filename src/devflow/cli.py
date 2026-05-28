@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import typer
 
 from devflow.control_room.dashboard import run_dashboard
 from devflow.control_room.service import create_task, doctor, get_task, init_control_room, list_tasks, run_shell_task, verify_task
+from devflow.control_room.token_context import write_context_packet
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -19,8 +21,9 @@ def init_command() -> None:
     root = Path.cwd()
     init_control_room(root)
     typer.echo("Initialized .devflow control room")
-    typer.echo("database: .devflow/devflow.db")
     typer.echo("config: .devflow/config.yaml")
+    typer.echo("tasks: .devflow/tasks")
+    typer.echo("workspaces: .devflow/workspaces")
 
 
 @app.command("doctor")
@@ -38,9 +41,37 @@ def doctor_command() -> None:
 
 
 @app.command("dashboard")
-def dashboard_command(host: str = "127.0.0.1", port: int = 8765) -> None:
-    """Run the local browser dashboard."""
-    run_dashboard(host=host, port=port)
+def dashboard_command(refresh_seconds: int = typer.Option(0, "--refresh-seconds", min=0)) -> None:
+    """Render the text-only terminal dashboard."""
+    run_dashboard(refresh_seconds=refresh_seconds)
+
+
+@app.command("context")
+def context_command(
+    task_description: str = typer.Argument(None, help="The task description to plan context for."),
+    show: bool = typer.Option(False, "--show", help="Show the current token-context packet."),
+) -> None:
+    """Write or show a visible token-context packet for an IDE agent."""
+    if show:
+        packet_path = Path.cwd() / ".devflow" / "token-context" / "current.md"
+        if not packet_path.exists():
+            typer.echo(
+                "No token-context packet found. Create one with:\n"
+                '  devflow context "<task description>"'
+            )
+            return
+        typer.echo(packet_path.read_text(encoding="utf-8"), nl=False)
+        return
+
+    if not task_description:
+        typer.echo("Error: Missing argument 'TASK_DESCRIPTION' or option '--show'.", err=True)
+        raise typer.Exit(code=1)
+
+    plan = write_context_packet(Path.cwd(), task_description)
+    typer.echo(f"Wrote {_relative(plan.repo_root, plan.packet_path)}")
+    typer.echo(f"mode: {plan.context_mode}")
+    typer.echo(f"recommended_tools: {', '.join(plan.recommended_tools)}")
+    typer.echo(f"events: {_relative(plan.repo_root, plan.events_path)}")
 
 
 @task_app.command("create")
@@ -50,23 +81,21 @@ def task_create(title: str) -> None:
     typer.echo(f"Created {task.id}: {task.title}")
     typer.echo(f"status: {task.status}")
     typer.echo(f"workspace: {task.workspace_path}")
+    if task.workspace_dirty:
+        typer.echo("Warning: Main worktree has uncommitted changes. Workspace contains dirty modifications.")
 
 
 @task_app.command("list")
 def task_list() -> None:
-    """List tasks from the control-room database."""
+    """List tasks from the control-room task files."""
     tasks = list_tasks(Path.cwd())
     if not tasks:
         typer.echo("No tasks found.")
         return
-    typer.echo(f"{'Task':<10} {'Status':<14} {'Verify':<10} {'Ready':<5} {'Worker':<8} Title")
-    typer.echo("-" * 84)
+    typer.echo(f"{'Task':<10} {'Status':<20} {'Verify':<12} {'Updated':<25} Title")
+    typer.echo("-" * 92)
     for task in tasks:
-        ready = "yes" if task.merge_ready else "no"
-        typer.echo(
-            f"{task.id:<10} {task.status:<14} {(task.verification_status or ''):<10} "
-            f"{ready:<5} {(task.worker_adapter or ''):<8} {task.title}"
-        )
+        typer.echo(f"{task.id:<10} {task.status:<20} {task.verification_status:<12} {task.updated_at.isoformat():<25} {task.title}")
 
 
 @task_app.command("show")
@@ -81,18 +110,41 @@ def task_show(task_id: str) -> None:
     typer.echo(f"task: {task.id}")
     typer.echo(f"title: {task.title}")
     typer.echo(f"status: {task.status}")
-    typer.echo(f"worker: {task.worker_adapter or ''}")
-    typer.echo(f"workspace: {task.workspace_path or ''}")
-    typer.echo(f"workspace_kind: {task.workspace_kind or ''}")
-    typer.echo(f"branch_name: {task.branch_name or ''}")
+    typer.echo(f"worker: {task.worker}")
+    typer.echo(f"workspace: {task.workspace}")
+    if task.branch_name:
+        typer.echo(f"branch_name: {task.branch_name}")
+    if task.workspace_commit:
+        typer.echo(f"workspace_commit: {task.workspace_commit}")
+    if task.workspace_dirty is not None:
+        typer.echo(f"workspace_dirty: {str(task.workspace_dirty).lower()}")
+    typer.echo(f"created_at: {task.created_at.isoformat()}")
+    typer.echo(f"updated_at: {task.updated_at.isoformat()}")
+    typer.echo(f"last_event: {task.last_event or ''}")
     typer.echo(f"latest_log_line: {task.latest_log_line or ''}")
     typer.echo(f"log_path: {task.log_path or ''}")
     typer.echo(f"result_path: {task.result_path or ''}")
-    typer.echo(f"verification_status: {task.verification_status or ''}")
+    typer.echo(f"verification_status: {task.verification_status}")
     typer.echo(f"verification_command: {task.verification_command or ''}")
     typer.echo(f"verification_log_path: {task.verification_log_path or ''}")
-    typer.echo(f"merge_ready: {'yes' if task.merge_ready else 'no'}")
-    typer.echo(f"exit_code: {task.exit_code if task.exit_code is not None else ''}")
+    typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
+    task_path = Path.cwd() / ".devflow" / "tasks" / task.id
+    mr_json = task_path / "merge-readiness.json"
+    if mr_json.exists():
+        try:
+            mr_data = json.loads(mr_json.read_text(encoding="utf-8"))
+            ready_str = "yes" if mr_data.get("ready") else "no"
+            typer.echo(f"merge_ready: {ready_str}")
+            reasons = mr_data.get("reasons", [])
+            if reasons:
+                typer.echo("readiness_reasons:")
+                for r in reasons:
+                    typer.echo(f"  - {r}")
+        except Exception:
+            pass
+    _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
+    _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
+    _echo_result_summary(task_path / "result.md")
 
 
 @task_app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -100,6 +152,7 @@ def task_run(
     ctx: typer.Context,
     task_id: str,
     worker: str = typer.Option("shell", "--worker"),
+    shell_command: str | None = typer.Option(None, "--shell"),
     timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
 ) -> None:
     """Run a task with a worker command after '--'."""
@@ -107,9 +160,11 @@ def task_run(
         typer.echo("Only the shell worker is available in the MVP.")
         raise typer.Exit(code=1)
 
-    command = list(ctx.args)
-    if command and command[0] == "--":
-        command = command[1:]
+    try:
+        command = _shell_command_or_args(shell_command, list(ctx.args), "Shell worker")
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
     try:
         task = run_shell_task(Path.cwd(), task_id, command, timeout_seconds=timeout_seconds)
     except (KeyError, ValueError) as exc:
@@ -129,12 +184,15 @@ def task_run(
 def task_verify(
     ctx: typer.Context,
     task_id: str,
+    shell_command: str | None = typer.Option(None, "--shell"),
     timeout_seconds: int = typer.Option(120, "--timeout-seconds"),
 ) -> None:
     """Run a verification command inside the task workspace."""
-    command = list(ctx.args)
-    if command and command[0] == "--":
-        command = command[1:]
+    try:
+        command = _shell_command_or_args(shell_command, list(ctx.args), "Verification")
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
     try:
         task = verify_task(Path.cwd(), task_id, command, timeout_seconds=timeout_seconds)
     except (KeyError, ValueError) as exc:
@@ -143,7 +201,6 @@ def task_verify(
 
     typer.echo(f"{task.id}: verification {task.verification_status}")
     typer.echo(f"verification_log_path: {task.verification_log_path}")
-    typer.echo(f"merge_ready: {'yes' if task.merge_ready else 'no'}")
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if task.verification_status != "passed":
@@ -161,6 +218,53 @@ def status_workspace() -> None:
 
 def main() -> None:
     app()
+
+
+def _echo_jsonl_tail(label: str, path: Path, limit: int = 5) -> None:
+    typer.echo(f"{label}:")
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        typer.echo("  none")
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()[-limit:]
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            typer.echo(f"  {line}")
+            continue
+        typer.echo(f"  {event.get('timestamp', '')} {event.get('event', '')}")
+
+
+def _shell_command_or_args(shell_command: str | None, args: list[str], label: str) -> list[str]:
+    if args and args[0] == "--":
+        args = args[1:]
+    if shell_command is not None and args:
+        raise ValueError(f"{label} accepts either --shell or a command after '--', not both.")
+    if shell_command is not None:
+        if not shell_command.strip():
+            raise ValueError(f"{label} --shell command cannot be empty.")
+        return ["/bin/sh", "-c", shell_command]
+    return args
+
+
+def _relative(root: Path, path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _echo_result_summary(path: Path) -> None:
+    typer.echo("result_summary:")
+    if not path.exists():
+        typer.echo("  none")
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and stripped not in {"## Summary", "## Status"}:
+            typer.echo(f"  {stripped}")
+            return
+    typer.echo("  none")
 
 
 if __name__ == "__main__":
