@@ -7,7 +7,7 @@ This subskill governs bounding your active context depending on your current age
 Select the appropriate bounded context profile based on your role in this slice:
 
 ### 1. Planner Role
-* **Context Limit**: [PRODUCT_NORTH_STAR.md](file:///Users/jewelbait/Desktop/Local%20AI%20Dev%20Team/PRODUCT_NORTH_STAR.md), [docs/control-room-mvp.md](file:///Users/jewelbait/Desktop/Local%20AI%20Dev%20Team/docs/control-room-mvp.md), `task.yaml`, and git diff.
+* **Context Limit**: [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md), [docs/control-room-mvp.md](docs/control-room-mvp.md), `task.yaml`, and git diff.
 * **Discipline**: Focus purely on feasibility, slice size, and planning. Avoid reading codebase files or writing code.
 
 ### 2. Writer / Implementer Role

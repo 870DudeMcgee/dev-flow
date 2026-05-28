@@ -5,8 +5,8 @@ This document outlines the context-discipline policies and strategies for all De
 ## 1. Search Before Reading
 
 * **Principle**: Targeted search is vastly cheaper and faster than reading entire files.
-* **Practice**: Always use `grep_search` or symbol queries first.
-* **Constraint**: Never read a full file (e.g., via `view_file` over hundreds of lines) when a simple grep or single symbol definition would answer your question.
+* **Practice**: Always use search tools (e.g., `rg`, `grep_search`), symbol queries, or other nearest available search utilities first.
+* **Constraint**: Never read a full file (e.g., loading hundreds of lines) when a targeted search or symbol lookup would answer your question.
 
 ## 2. Summarize Before Expanding
 
