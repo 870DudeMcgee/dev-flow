@@ -16,13 +16,19 @@ class WorkerAdapter(Protocol):
         ...
 
 
+_REGISTRY: dict[str, type[WorkerAdapter]] = {
+    "shell": ShellWorkerAdapter,
+}
+
+
 class UnsupportedWorkerAdapter(ValueError):
     pass
 
 
 def get_worker_adapter(name: str) -> WorkerAdapter:
-    if name == ShellWorkerAdapter.name:
-        return ShellWorkerAdapter()
+    adapter_cls = _REGISTRY.get(name)
+    if adapter_cls is not None:
+        return adapter_cls()
     raise UnsupportedWorkerAdapter(
         f"Unsupported worker adapter '{name}'. Only 'shell' is available in the MVP."
     )

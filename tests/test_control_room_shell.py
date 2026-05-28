@@ -221,6 +221,7 @@ def test_shell_worker_mvp_heartbeat_with_shell_command_option() -> None:
 
 
 def test_unsupported_worker_adapter_values_are_refused() -> None:
+    assert isinstance(get_worker_adapter("shell"), ShellWorkerAdapter)
     with pytest.raises(UnsupportedWorkerAdapter, match="Unsupported worker adapter 'codex'. Only 'shell' is available"):
         get_worker_adapter("codex")
 
