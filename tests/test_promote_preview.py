@@ -476,3 +476,95 @@ def test_promote_apply_deletions_safety_boundaries() -> None:
             assert Path("stay.txt").exists()
         finally:
             os.chdir(old_cwd)
+
+
+def test_promote_harden_copy_escapes_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    from devflow.control_room.service import promote_task
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("file.txt").write_text("initial\n", encoding="utf-8")
+            subprocess.run(["git", "add", "file.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "escape-test"])
+            assert created.exit_code == 0
+
+            # Manually mark verified
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            # Monkeypatch _get_relative_files to return a path that escapes root
+            from devflow.control_room import service
+            def mock_get_relative_files(base_dir: Path) -> set[str]:
+                if base_dir == Path(tmp):
+                    return {"file.txt"}
+                return {"../escaped.txt"}
+            monkeypatch.setattr(service, "_get_relative_files", mock_get_relative_files)
+
+            # Promoting should raise ValueError
+            with pytest.raises(ValueError) as excinfo:
+                promote_task(Path(tmp), "task-0001")
+            assert "escapes repository root" in str(excinfo.value)
+
+            # Ensure task status was not changed and no task_promoted event is appended
+            task = get_task(Path(tmp), "task-0001")
+            assert task.status == "verified"
+
+            events_text = (Path(".devflow/tasks/task-0001/events.jsonl")).read_text(encoding="utf-8")
+            assert "task_promoted" not in events_text
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_harden_copy_ignored_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    from devflow.control_room.service import promote_task
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("file.txt").write_text("initial\n", encoding="utf-8")
+            subprocess.run(["git", "add", "file.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "ignored-test"])
+            assert created.exit_code == 0
+
+            # Manually mark verified
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            yaml_path.write_text(content, encoding="utf-8")
+
+            # Monkeypatch _get_relative_files to return a path in .git
+            from devflow.control_room import service
+            def mock_get_relative_files(base_dir: Path) -> set[str]:
+                if base_dir == Path(tmp):
+                    return {"file.txt"}
+                return {".git/config"}
+            monkeypatch.setattr(service, "_get_relative_files", mock_get_relative_files)
+
+            # Promoting should raise ValueError
+            with pytest.raises(ValueError) as excinfo:
+                promote_task(Path(tmp), "task-0001")
+            assert "ignored/control directory" in str(excinfo.value)
+
+            # Ensure task status was not changed and no task_promoted event is appended
+            task = get_task(Path(tmp), "task-0001")
+            assert task.status == "verified"
+
+            events_text = (Path(".devflow/tasks/task-0001/events.jsonl")).read_text(encoding="utf-8")
+            assert "task_promoted" not in events_text
+        finally:
+            os.chdir(old_cwd)

@@ -709,6 +709,17 @@ def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions:
         except OSError:
             modified_files.append(name)
 
+    # Safety checks for all destination paths before copying
+    for name in added_files + modified_files:
+        dst_path = (root / name).resolve()
+        try:
+            dst_path.relative_to(root.resolve())
+        except ValueError:
+            raise ValueError(f"Refusing unsafe promotion: destination path escapes repository root: {name}")
+
+        if _is_ignored_path(dst_path, root):
+            raise ValueError(f"Refusing unsafe promotion: destination path is in an ignored/control directory: {name}")
+
     # Copy added and modified files
     for name in added_files + modified_files:
         src_path = workspace / name
