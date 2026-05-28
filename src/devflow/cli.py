@@ -130,6 +130,14 @@ def task_show(task_id: str) -> None:
     typer.echo(f"verification_log_path: {task.verification_log_path or ''}")
     typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
     task_path = Path.cwd() / ".devflow" / "tasks" / task.id
+    packet_json = task_path / "packet.json"
+    if packet_json.exists():
+        rel_path = _relative(Path.cwd(), packet_json)
+        typer.echo("packet_artifact: exists")
+        typer.echo(f"packet_path: {rel_path}")
+        typer.echo(f"packet_hint: run 'devflow task packet {task.id}' for the latest generated preview")
+    else:
+        typer.echo("packet_artifact: missing")
     mr_json = task_path / "merge-readiness.json"
     if mr_json.exists():
         try:

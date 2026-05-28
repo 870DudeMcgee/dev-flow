@@ -687,6 +687,48 @@ def test_task_show_missing_and_malformed_readiness() -> None:
             os.chdir(old_cwd)
 
 
+def test_task_show_packet_artifact_status() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "packet status task"])
+            assert created.exit_code == 0
+
+            # 1. Verify show outputs packet_artifact: missing when packet.json doesn't exist
+            show_missing = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_missing.exit_code == 0, show_missing.output
+            assert "packet_artifact: missing" in show_missing.output
+            assert "packet_path" not in show_missing.output
+            assert "packet_hint" not in show_missing.output
+
+            # Track files to verify no mutation occurs
+            initial_files = {}
+            task_path = Path(".devflow/tasks/task-0001")
+            for p in task_path.glob("**/*"):
+                if p.is_file():
+                    initial_files[p] = p.read_bytes()
+
+            # 2. Create mock packet.json
+            packet_path = task_path / "packet.json"
+            packet_path.write_text('{"mock": true}', encoding="utf-8")
+
+            # Verify show outputs packet_artifact: exists and correct details
+            show_exists = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_exists.exit_code == 0, show_exists.output
+            assert "packet_artifact: exists" in show_exists.output
+            assert "packet_path: .devflow/tasks/task-0001/packet.json" in show_exists.output
+            assert "packet_hint: run 'devflow task packet task-0001' for the latest generated preview" in show_exists.output
+
+            # 3. Verify no task files were mutated by the show command (except the mock packet.json we wrote)
+            for p, content in initial_files.items():
+                assert p.exists()
+                assert p.read_bytes() == content
+
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_dirty_workspace_readiness() -> None:
     import subprocess
     old_cwd = Path.cwd()
