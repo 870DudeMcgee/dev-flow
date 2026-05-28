@@ -34,3 +34,15 @@ Context boundaries are strictly dictated by your current agent role:
 * Avoid pasting long test outputs or full passing logs.
 * Never copy-paste unchanged code when editing a file; use precise line replacements or minimal diffs.
 * Conclude every task slice or role swap with the canonical token-optimized handoff format.
+
+## Command Support Matrix
+
+The `/token-optimization` command behaves as a real reusable command surface across IDEs and agent platforms. The matrix below documents which tools support true slash commands, which support prompt files, and which only support repo-level instructions:
+
+| Tool/Platform | Command/Prompt Interface | Integration Strategy |
+| :--- | :--- | :--- |
+| **Claude Code** | `/token-optimization` | Supported via [.claude/commands/token-optimization.md](.claude/commands/token-optimization.md) |
+| **Gemini CLI** | `/token-optimization` | Supported via [.gemini/commands/token-optimization.toml](.gemini/commands/token-optimization.toml) |
+| **VS Code Copilot** | Select `.github/prompts/token-optimization.prompt.md` | Supported via [.github/prompts/token-optimization.prompt.md](.github/prompts/token-optimization.prompt.md) |
+| **Antigravity IDE** | Auto-triggered via rules | Supported via [.antigravity/rules.md](.antigravity/rules.md) |
+| **ChatGPT Web** | No custom command support | Enforce manually by pointing the model to [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) |

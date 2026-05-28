@@ -1,0 +1,12 @@
+# Gemini Command Registration
+# Enables /token-optimization command support in compatible host systems
+
+[command]
+name = "token-optimization"
+description = "Activate the Dev-Flow token optimization skill system and context routing guidelines"
+skill_path = "skills/token-optimization/SKILL.md"
+behavior = "routing-only"
+
+[metadata]
+version = "1.0.0"
+compatibility = ["antigravity-ide", "gemini-cli"]
