@@ -1188,3 +1188,71 @@ def test_worker_command_persistence() -> None:
 
         finally:
             os.chdir(old_cwd)
+
+
+def test_task_log_command() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            # 1. Missing task fails with exit code 1
+            missing_task = runner.invoke(app, ["task", "log", "task-9999"])
+            assert missing_task.exit_code == 1
+            assert "Task not found" in missing_task.output
+
+            # 2. Create task
+            created = runner.invoke(app, ["task", "create", "log test task"])
+            assert created.exit_code == 0
+
+            # 3. Before running, log file exists but is empty
+            log_empty = runner.invoke(app, ["task", "log", "task-0001"])
+            assert log_empty.exit_code == 0
+            assert log_empty.output == ""
+
+            # 4. Run command
+            run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo 'line one' && echo 'line two' && echo 'line three'"])
+            assert run.exit_code == 0
+
+            # 5. Read worker log
+            log_full = runner.invoke(app, ["task", "log", "task-0001"])
+            assert log_full.exit_code == 0
+            assert "line one" in log_full.output
+            assert "line two" in log_full.output
+            assert "line three" in log_full.output
+
+            # 6. Read with tail
+            log_tail = runner.invoke(app, ["task", "log", "task-0001", "--tail", "2"])
+            assert log_tail.exit_code == 0
+            assert "line one" not in log_tail.output
+            assert "line two" in log_tail.output
+            assert "line three" in log_tail.output
+
+            # 7. Verification log before running verification
+            verify_empty = runner.invoke(app, ["task", "log", "task-0001", "--verify"])
+            assert verify_empty.exit_code == 0
+            assert verify_empty.output == ""
+
+            # 8. Run verification
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "echo 'verify line one' && echo 'verify line two'"])
+            assert verify.exit_code == 0
+
+            # 9. Read verification log
+            verify_full = runner.invoke(app, ["task", "log", "task-0001", "--verify"])
+            assert verify_full.exit_code == 0
+            assert "verify line one" in verify_full.output
+            assert "verify line two" in verify_full.output
+
+            # 10. Read verification log with tail
+            verify_tail = runner.invoke(app, ["task", "log", "task-0001", "--verify", "--tail", "1"])
+            assert verify_tail.exit_code == 0
+            assert "verify line one" not in verify_tail.output
+            assert "verify line two" in verify_tail.output
+
+            # 11. Test missing log file (e.g. if we delete the log file)
+            Path(".devflow/tasks/task-0001/logs/worker.log").unlink()
+            log_deleted = runner.invoke(app, ["task", "log", "task-0001"])
+            assert log_deleted.exit_code == 1
+            assert "Log file not found" in log_deleted.output
+
+        finally:
+            os.chdir(old_cwd)

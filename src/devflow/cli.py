@@ -192,6 +192,41 @@ def task_packet(task_id: str) -> None:
     typer.echo(packet_json)
 
 
+@task_app.command("log")
+def task_log(
+    task_id: str,
+    verify: bool = typer.Option(False, "--verify", help="Print the verification log instead."),
+    tail: int | None = typer.Option(None, "--tail", min=1, help="Number of lines to tail."),
+) -> None:
+    """Print the logs for a task."""
+    root = Path.cwd()
+    try:
+        task = get_task(root, task_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    log_name = "verify.log" if verify else "worker.log"
+    log_file = root / ".devflow" / "tasks" / task.id / "logs" / log_name
+
+    if not log_file.exists():
+        typer.echo(f"Log file not found: {log_file}", err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        content = log_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        typer.echo(f"Error reading log file: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    lines = content.splitlines()
+    if tail is not None:
+        lines = lines[-tail:]
+
+    for line in lines:
+        typer.echo(line)
+
+
 @task_app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def task_run(
     ctx: typer.Context,
