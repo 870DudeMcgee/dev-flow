@@ -360,6 +360,45 @@ def _append_event(root: Path, task_id: str, event_type: str, payload: dict[str, 
         handle.write(line)
 
 
+def _write_task_summary(task_path: Path, task: TaskRecord) -> None:
+    ready = False
+    reasons = []
+
+    if task.status != "verified":
+        reasons.append(f"Task status is '{task.status}', expected 'verified'")
+    if task.verification_status != "passed":
+        reasons.append(f"Verification status is '{task.verification_status}', expected 'passed'")
+    if task.verification_exit_code != 0:
+        if task.verification_exit_code is None:
+            reasons.append("Verification exit code is missing")
+        else:
+            reasons.append(f"Verification exit code is {task.verification_exit_code}, expected 0")
+
+    if not reasons:
+        ready = True
+        reasons.append("Verification passed successfully")
+
+    if task.workspace_dirty:
+        reasons.append("Warning: Workspace was created from a dirty worktree (uncommitted changes)")
+
+    payload = {
+        "task_id": task.id,
+        "title": task.title,
+        "status": task.status,
+        "workspace_path": task.workspace_path,
+        "workspace_dirty": task.workspace_dirty if task.workspace_dirty is not None else False,
+        "workspace_branch": task.branch_name,
+        "workspace_commit": task.workspace_commit,
+        "latest_verification_status": task.verification_status,
+        "latest_verification_exit_code": task.verification_exit_code,
+        "latest_verification_log_path": task.verification_log_path,
+        "merge_ready": ready,
+        "merge_readiness_reasons": reasons,
+        "updated_at": task.updated_at.isoformat(),
+    }
+    (task_path / "summary.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def _save_task(task_path: Path, task: TaskRecord) -> None:
     values = {
         "id": task.id,
@@ -388,6 +427,7 @@ def _save_task(task_path: Path, task: TaskRecord) -> None:
     lines = [f"{key}: {_yaml_scalar(value)}" for key, value in values.items()]
     task_path.mkdir(parents=True, exist_ok=True)
     (task_path / "task.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _write_task_summary(task_path, task)
 
 
 def _load_task(task_path: Path) -> TaskRecord:

@@ -365,7 +365,7 @@ def test_task_create_with_dirty_worktree() -> None:
             subprocess.run(["git", "init", "-b", "main"], check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
             subprocess.run(["git", "config", "user.name", "Test User"], check=True)
-            
+
             Path("file.txt").write_text("commit content\n", encoding="utf-8")
             subprocess.run(["git", "add", "file.txt"], check=True)
             subprocess.run(["git", "commit", "-m", "first commit"], check=True)
@@ -382,7 +382,7 @@ def test_task_create_with_dirty_worktree() -> None:
             assert task.branch_name == "main"
             assert task.workspace_dirty is True
             assert task.workspace_commit is not None
-            
+
             # The dirty content should be copied to the workspace
             assert Path(".devflow/workspaces/task-0001/file.txt").read_text(encoding="utf-8") == "dirty content\n"
         finally:
@@ -446,7 +446,7 @@ def test_task_create_clean_git_repo() -> None:
             subprocess.run(["git", "init", "-b", "main"], check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
             subprocess.run(["git", "config", "user.name", "Test User"], check=True)
-            
+
             Path("file.txt").write_text("clean content\n", encoding="utf-8")
             subprocess.run(["git", "add", "file.txt"], check=True)
             subprocess.run(["git", "commit", "-m", "first commit"], check=True)
@@ -503,7 +503,7 @@ def test_verification_result_rich_metadata() -> None:
             assert pass_json["task_status"] == "verified"
             assert pass_json["exit_code"] == 0
             assert pass_json["finished_at"] is not None
-            
+
             # Validate ISO format of finished_at
             from datetime import datetime
             datetime.fromisoformat(pass_json["finished_at"])
@@ -641,7 +641,7 @@ def test_dirty_workspace_readiness() -> None:
             subprocess.run(["git", "init", "-b", "main"], check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
             subprocess.run(["git", "config", "user.name", "Test User"], check=True)
-            
+
             Path("file.txt").write_text("commit content\n", encoding="utf-8")
             subprocess.run(["git", "add", "file.txt"], check=True)
             subprocess.run(["git", "commit", "-m", "first commit"], check=True)
@@ -650,7 +650,7 @@ def test_dirty_workspace_readiness() -> None:
 
             created = runner.invoke(app, ["task", "create", "dirty task"])
             assert created.exit_code == 0
-            
+
             mr_path = Path(".devflow/tasks/task-0001/merge-readiness.json")
             mr_data = json.loads(mr_path.read_text(encoding="utf-8"))
             assert mr_data["workspace_dirty"] is True
@@ -668,11 +668,245 @@ def test_dirty_workspace_readiness() -> None:
             assert pass_data["ready"] is True
             assert "Verification passed successfully" in pass_data["reasons"]
             assert "Warning: Workspace was created from a dirty worktree (uncommitted changes)" in pass_data["reasons"]
-            
+
             from datetime import datetime
             datetime.fromisoformat(pass_data["generated_at"])
             datetime.fromisoformat(pass_data["verification_finished_at"])
 
             assert "\\" not in pass_data["verification_log_path"]
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_task_summary_file_lifecycle() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+
+            # 1. Summary exists after task creation
+            created = runner.invoke(app, ["task", "create", "summary test task"])
+            assert created.exit_code == 0, created.output
+
+            summary_path = Path(".devflow/tasks/task-0001/summary.json")
+            assert summary_path.exists()
+
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            assert summary["task_id"] == "task-0001"
+            assert summary["title"] == "summary test task"
+            assert summary["status"] == "created"
+            assert summary["workspace_path"] == ".devflow/workspaces/task-0001"
+            assert summary["workspace_dirty"] is False
+            assert summary["workspace_branch"] is None
+            assert summary["workspace_commit"] is None
+            assert summary["latest_verification_status"] == "not_run"
+            assert summary["latest_verification_exit_code"] is None
+            assert summary["latest_verification_log_path"] is None
+            assert summary["merge_ready"] is False
+            assert len(summary["merge_readiness_reasons"]) > 0
+            assert "Task status is 'created', expected 'verified'" in summary["merge_readiness_reasons"]
+            assert summary["updated_at"] is not None
+
+            # 2. Summary updates after shell task execution
+            run = runner.invoke(
+                app,
+                [
+                    "task",
+                    "run",
+                    "task-0001",
+                    "--shell",
+                    "echo 'hello world' > file.txt",
+                ],
+            )
+            assert run.exit_code == 0, run.output
+
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            assert summary["status"] == "complete"
+            assert summary["latest_verification_status"] == "not_run"
+            assert summary["merge_ready"] is False
+
+            # 3. Summary updates after failed verification
+            verify_fail = runner.invoke(
+                app,
+                [
+                    "task",
+                    "verify",
+                    "task-0001",
+                    "--shell",
+                    "test -f non_existent_file.txt && echo verify_ok",
+                ],
+            )
+            assert verify_fail.exit_code == 1, verify_fail.output
+
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            assert summary["status"] == "verification_failed"
+            assert summary["latest_verification_status"] == "failed"
+            assert summary["latest_verification_exit_code"] is not None
+            assert summary["latest_verification_exit_code"] != 0
+            assert summary["latest_verification_log_path"] == ".devflow/tasks/task-0001/logs/verify.log"
+            assert summary["merge_ready"] is False
+            assert any("Verification exit code is" in reason for reason in summary["merge_readiness_reasons"])
+
+            # 4. Summary updates after passed verification
+            verify_pass = runner.invoke(
+                app,
+                [
+                    "task",
+                    "verify",
+                    "task-0001",
+                    "--shell",
+                    "test -f file.txt && echo verify_ok",
+                ],
+            )
+            assert verify_pass.exit_code == 0, verify_pass.output
+
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            assert summary["status"] == "verified"
+            assert summary["latest_verification_status"] == "passed"
+            assert summary["latest_verification_exit_code"] == 0
+            assert summary["latest_verification_log_path"] == ".devflow/tasks/task-0001/logs/verify.log"
+            assert summary["merge_ready"] is True
+            assert "Verification passed successfully" in summary["merge_readiness_reasons"]
+
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": "task-0001",
+                        "status": "worker_failed",
+                        "latest_verification_status": "failed",
+                        "latest_verification_exit_code": 99,
+                        "latest_verification_log_path": ".devflow/tasks/task-0001/logs/not-real.log",
+                        "merge_ready": False,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            listing = runner.invoke(app, ["task", "list"])
+            assert listing.exit_code == 0, listing.output
+            assert "task-0001" in listing.output
+            assert "verified" in listing.output
+            assert "passed" in listing.output
+
+            show = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show.exit_code == 0, show.output
+            assert "status: verified" in show.output
+            assert "verification_status: passed" in show.output
+            assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show.output
+
+            # 5. Dashboard state exposes canonical fields even if summary.json is stale or tampered.
+            dash = runner.invoke(app, ["dashboard"])
+            assert dash.exit_code == 0, dash.output
+            assert "task-0001" in dash.output
+            assert "verified" in dash.output
+            assert "passed" in dash.output
+            assert "verification_exit_code: 0" in dash.output
+            assert "verification_log: .devflow/tasks/task-0001/logs/verify.log" in dash.output
+            assert "merge_ready: yes" in dash.output
+            assert "worker_failed" not in dash.output
+            assert "not-real.log" not in dash.output
+
+            # 6. Handles missing or malformed readiness files gracefully (by still rewriting summary from task.yaml/record)
+            mr_path = Path(".devflow/tasks/task-0001/merge-readiness.json")
+            mr_path.unlink()
+
+            # Save or view dashboard again to verify robustness
+            dash_missing = runner.invoke(app, ["dashboard"])
+            assert dash_missing.exit_code == 0, dash_missing.output
+            assert "verification_exit_code: 0" in dash_missing.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_task_summary_hardening_and_fallbacks() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+
+            created = runner.invoke(app, ["task", "create", "robust task"])
+            assert created.exit_code == 0
+
+            # Ensure task creation generates files
+            summary_path = Path(".devflow/tasks/task-0001/summary.json")
+            mr_path = Path(".devflow/tasks/task-0001/merge-readiness.json")
+            v_path = Path(".devflow/tasks/task-0001/verification.json")
+
+            assert summary_path.exists()
+            assert mr_path.exists()
+            assert v_path.exists()
+
+            # 1. updated_at is a valid parseable ISO-8601 string
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            from datetime import datetime
+            dt = datetime.fromisoformat(summary["updated_at"])
+            assert dt is not None
+
+            # 2. paths are POSIX-normalized (using forward slashes)
+            assert "\\" not in summary["workspace_path"]
+            if summary["latest_verification_log_path"]:
+                assert "\\" not in summary["latest_verification_log_path"]
+
+            # 3. Dashboard renders properly when summary.json is missing
+            summary_path.unlink()
+            listing_no_summary = runner.invoke(app, ["task", "list"])
+            assert listing_no_summary.exit_code == 0
+            assert "task-0001" in listing_no_summary.output
+
+            show_no_summary = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_no_summary.exit_code == 0
+            assert "status: created" in show_no_summary.output
+
+            dash_no_summary = runner.invoke(app, ["dashboard"])
+            assert dash_no_summary.exit_code == 0
+            assert "Task" in dash_no_summary.output
+            assert "task-0001" in dash_no_summary.output
+
+            # 4. Dashboard renders properly when summary.json is malformed
+            summary_path.write_text("NOT A VALID JSON", encoding="utf-8")
+            listing_malformed_summary = runner.invoke(app, ["task", "list"])
+            assert listing_malformed_summary.exit_code == 0
+            assert "task-0001" in listing_malformed_summary.output
+
+            show_malformed_summary = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show_malformed_summary.exit_code == 0
+            assert "status: created" in show_malformed_summary.output
+
+            dash_malformed_summary = runner.invoke(app, ["dashboard"])
+            assert dash_malformed_summary.exit_code == 0
+            assert "task-0001" in dash_malformed_summary.output
+
+            # 5. summary.json falls back/generates cleanly when verification.json is missing or malformed
+            v_path.unlink()
+            run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo ok"])
+            assert run.exit_code == 0
+
+            # Recreate malformed verification.json
+            v_path.write_text("{invalid json", encoding="utf-8")
+
+            verify_pass = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "echo verify_ok"])
+            assert verify_pass.exit_code == 0
+
+            # 6. summary values match verification.json and merge-readiness.json after passed verification
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            mr_data = json.loads(mr_path.read_text(encoding="utf-8"))
+            v_data = json.loads(v_path.read_text(encoding="utf-8"))
+
+            assert summary["latest_verification_status"] == v_data["status"]
+            assert summary["latest_verification_exit_code"] == v_data["exit_code"]
+            assert summary["latest_verification_log_path"] == v_data["log_path"]
+
+            assert summary["merge_ready"] == mr_data["ready"]
+            assert summary["merge_readiness_reasons"] == mr_data["reasons"]
+            assert summary["workspace_branch"] == mr_data["workspace_branch"]
+            assert summary["workspace_commit"] == mr_data["workspace_commit"]
+            assert summary["workspace_dirty"] == mr_data["workspace_dirty"]
+
+            # 7. Dashboard renders robustly when merge-readiness.json is malformed
+            mr_path.write_text("{bad", encoding="utf-8")
+            dash_malformed_mr = runner.invoke(app, ["dashboard"])
+            assert dash_malformed_mr.exit_code == 0
+            assert "task-0001" in dash_malformed_mr.output
         finally:
             os.chdir(old_cwd)

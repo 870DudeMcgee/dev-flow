@@ -33,6 +33,10 @@ For a created task, the MVP contract is:
 
 `task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. The workspace is the only current place where shell-worker results are written.
 
+## Optional Derived State
+
+`.devflow/tasks/<task-id>/summary.json` may exist as a derived cache for visibility and token efficiency. It is not canonical state. It may be deleted and regenerated without losing information. If it is missing, stale, malformed, or disagrees with `task.yaml`, `events.jsonl`, `verification.json`, or logs, the canonical files win.
+
 ## Stable Safety Rules
 
 - Shell workers execute only in `.devflow/workspaces/<task-id>/`.
