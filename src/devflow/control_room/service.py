@@ -15,8 +15,8 @@ from devflow.control_room.paths import (
     tasks_dir,
     workspaces_dir,
 )
-from devflow.control_room.shell_worker import ShellWorkerAdapter
 from devflow.control_room.verification import VerificationResult, run_verification_command
+from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
 
 
@@ -102,7 +102,8 @@ def get_task(root: Path, task_id: str) -> TaskRecord:
     return _load_task(path)
 
 
-def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 60) -> TaskRecord:
+def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 60, worker_adapter: str = "shell") -> TaskRecord:
+    adapter = get_worker_adapter(worker_adapter)
     if not command:
         raise ValueError("Shell worker requires a command after '--'.")
     if _looks_destructive(command):
@@ -132,7 +133,7 @@ def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds
     )
 
     task.status = "running"
-    task.worker = "shell"
+    task.worker = adapter.name
     task.timeout_seconds = timeout_seconds
     task.started_at = utc_now()
     task.updated_at = task.started_at
@@ -140,7 +141,7 @@ def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds
     _save_task(task_path, task)
     _append_event(root, task_id, "worker_started", {"command": command, "cwd": task.workspace})
 
-    result = ShellWorkerAdapter().run(worker_input)
+    result = adapter.run(worker_input)
     _write_result(task_path, task_id, command, result)
 
     task.status = result.status

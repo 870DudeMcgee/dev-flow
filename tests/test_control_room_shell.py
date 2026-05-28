@@ -4,11 +4,15 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import NoReturn
 
+import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.service import get_task
+from devflow.control_room.shell_worker import ShellWorkerAdapter
+from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 
 
 runner = CliRunner()
@@ -212,6 +216,57 @@ def test_shell_worker_mvp_heartbeat_with_shell_command_option() -> None:
             assert "verification_finished" in show.output
             assert "result_summary:" in show.output
             assert "Worker completed successfully" in show.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_unsupported_worker_adapter_values_are_refused() -> None:
+    with pytest.raises(UnsupportedWorkerAdapter, match="Unsupported worker adapter 'codex'. Only 'shell' is available"):
+        get_worker_adapter("codex")
+
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "adapter refusal"])
+            assert created.exit_code == 0, created.output
+
+            run = runner.invoke(
+                app,
+                ["task", "run", "task-0001", "--worker", "codex", "--shell", "echo should-not-run"],
+            )
+            assert run.exit_code == 1, run.output
+            assert "Unsupported worker adapter 'codex'. Only 'shell' is available in the MVP." in run.output
+            assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
+            assert get_task(Path.cwd(), "task-0001").status == "created"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_verification_remains_devflow_owned_not_adapter_owned(monkeypatch: pytest.MonkeyPatch) -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            assert runner.invoke(app, ["task", "create", "verify owner"]).exit_code == 0
+            run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo hello > result.txt"])
+            assert run.exit_code == 0, run.output
+
+            def fail_if_adapter_runs(*_args: object, **_kwargs: object) -> NoReturn:
+                raise AssertionError("verification must not run through worker adapters")
+
+            monkeypatch.setattr(ShellWorkerAdapter, "run", fail_if_adapter_runs)
+
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
+            assert verify.exit_code == 0, verify.output
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "verified"
+            assert task.verification_status == "passed"
+            assert task.verification_log_path == ".devflow/tasks/task-0001/logs/verify.log"
+            verification = json.loads(Path(".devflow/tasks/task-0001/verification.json").read_text(encoding="utf-8"))
+            assert verification["status"] == "passed"
+            assert Path(verification["log_path"]).read_text(encoding="utf-8").startswith("$ /bin/sh -c test -f result.txt")
         finally:
             os.chdir(old_cwd)
 

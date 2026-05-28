@@ -8,6 +8,7 @@ import typer
 from devflow.control_room.dashboard import run_dashboard
 from devflow.control_room.service import create_task, doctor, get_task, init_control_room, list_tasks, run_shell_task, verify_task
 from devflow.control_room.token_context import write_context_packet
+from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -156,8 +157,10 @@ def task_run(
     timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
 ) -> None:
     """Run a task with a worker command after '--'."""
-    if worker != "shell":
-        typer.echo("Only the shell worker is available in the MVP.")
+    try:
+        get_worker_adapter(worker)
+    except UnsupportedWorkerAdapter as exc:
+        typer.echo(str(exc))
         raise typer.Exit(code=1)
 
     try:
@@ -166,7 +169,7 @@ def task_run(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     try:
-        task = run_shell_task(Path.cwd(), task_id, command, timeout_seconds=timeout_seconds)
+        task = run_shell_task(Path.cwd(), task_id, command, timeout_seconds=timeout_seconds, worker_adapter=worker)
     except (KeyError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
