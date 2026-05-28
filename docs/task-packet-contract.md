@@ -1,6 +1,6 @@
 # Task Packet Contract
 
-Status: design-only contract. No runtime behavior is implemented by this document.
+Status: contract with a first read-only builder slice implemented in `src/devflow/control_room/task_packet.py`. No worker adapter consumes task packets yet.
 
 This document defines the minimal read-only task packet a future worker adapter may receive from Dev-Flow. It does not change the frozen shell-worker MVP contract in [mvp-contract.md](mvp-contract.md).
 
@@ -42,9 +42,9 @@ A task packet must not include these by default:
 
 If a future packet needs any excluded content, the inclusion must be explicit, bounded, logged, and justified by Dev-Flow-owned policy.
 
-## Proposed Future Packet Shape
+## Current Packet Shape
 
-A future packet can be represented as structured data with this minimum shape:
+The first builder represents a packet as structured data with this minimum shape:
 
 ```text
 task_id: string
@@ -78,7 +78,7 @@ Suggested field meanings:
 - `omitted_counts`: counts of omitted events, log lines, files, or other bounded sections.
 - `truncation_notes`: human-readable notes explaining what was omitted and why.
 
-The exact serialization format is future work. JSON is likely the simplest first format, but this contract does not require an implementation choice.
+The current implementation returns Pydantic models in memory. Serialized packet files and adapter handoff are future work.
 
 ## Token Limits And Truncation
 
@@ -118,17 +118,17 @@ Workers may use the packet to understand assigned work. They must not treat it a
 - Adapters may write only through approved worker output paths and workspace-local artifacts.
 - Adapters must treat omitted-count and truncation notes as boundaries, not invitations to fetch everything else.
 
-## Future Implementation Slice, For Later
+## First Implementation Slice
 
-The smallest useful implementation should be narrow and test-first:
+The first useful implementation is narrow and test-first:
 
-1. Add a `TaskPacket` data structure.
-2. Add a task-packet builder that reads canonical task artifacts and optional derived summaries.
-3. Add tests for bounded recent events and tail-limited logs.
-4. Add tests for `summary.json` fallback when the cache is missing, malformed, stale, or conflicts with canonical files.
-5. Add tests for omitted counts and truncation notes.
-6. Add tests proving canonical files take precedence over packet or summary conflicts.
-7. Keep the packet builder unused by Codex until a later explicit adapter integration pass.
+1. Added a `TaskPacket` data structure.
+2. Added a task-packet builder that reads canonical task artifacts and optional derived summaries.
+3. Added tests for bounded recent events and tail-limited logs.
+4. Added tests for `summary.json` fallback when the cache is missing, malformed, stale, or conflicts with canonical files.
+5. Added tests for omitted counts and truncation notes.
+6. Added tests proving canonical files take precedence over derived summary conflicts.
+7. Kept the packet builder unused by Codex and all other adapters.
 
 This slice should not change current shell-worker CLI behavior.
 

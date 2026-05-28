@@ -50,6 +50,8 @@ devflow task show <task_id>
 
 Current implementation status: the shell-worker control-room slice uses filesystem task state, canonical `task.yaml`, append-only `events.jsonl`, task-local worker and verification logs, latest verification evidence, and copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`. Shell-worker writes stay in the task workspace; no SQLite database or `.devflow/worktrees/` directory is part of the MVP contract.
 
+Task packet note: `src/devflow/control_room/task_packet.py` contains a small read-only `TaskPacket` builder for future adapters. It projects canonical task artifacts into bounded context, tail-limits logs, discloses omissions, and treats `summary.json` as derived/cache only. It is not wired into Codex or any worker adapter.
+
 ## Out Of The Frozen Contract
 
 The runtime may still contain helper or experimental surfaces from in-progress work, but the frozen MVP docs and focused tests should not depend on them. Dashboard, token-context (completed purely as a visible planning helper that recommends context strategy without executing token tools, routing models, installing hooks, or changing core behavior), `devflow init`, `devflow doctor`, AI worker adapters, git worktree orchestration, database-backed state, copy-back, merge, and PR automation are outside this freeze unless a future contract explicitly promotes them.

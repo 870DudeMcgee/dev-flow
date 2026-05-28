@@ -50,6 +50,7 @@ Stable MVP contract:
 - verification command execution inside task workspaces
 - `verified` and `verification_failed` task statuses from verification
 - no SQLite database or `.devflow/worktrees/` directory in the MVP path
+- read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is not consumed by Codex or any worker adapter
 
 ## Required MVP Commands
 
@@ -83,7 +84,7 @@ devflow task list
 
 Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, and show it. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/`, the task artifacts exist, no SQLite database is created, and no `.devflow/worktrees/` directory is created.
 
-Current verification covers the frozen command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, and symlink skipping in `tests/test_control_room_shell.py`.
+Current verification covers the frozen command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, and symlink skipping in `tests/test_control_room_shell.py`. Focused task-packet projection coverage lives in `tests/test_task_packet.py`.
 
 ## Known Worktree State At Handoff
 

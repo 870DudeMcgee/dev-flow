@@ -126,6 +126,20 @@ Acceptance:
 - records task description, mode, recommended tools, repo branch, git status, changed files, and task summaries
 - gives explicit read-first and do-not-read guidance for IDE agents
 - does not require token tools to be installed and does not enable hooks, MCP integrations, command rewrites, or model routing
+
+## Phase 7: Task Packet Projection
+
+Goal: give future worker adapters a bounded, read-only task projection without making packets a new source of truth.
+
+Status: first builder slice implemented in `src/devflow/control_room/task_packet.py`. It reads canonical task files, bounds recent events, tail-limits worker and verification logs, reports omitted counts/truncation notes, and ignores missing, malformed, or conflicting `summary.json` cache data. No adapter consumes it yet.
+
+Acceptance:
+
+- `task.yaml`, `events.jsonl`, `verification.json`, `worker.log`, and `verify.log` remain canonical
+- `summary.json` is derived/cache only
+- packet generation is read-only and file-based
+- Codex is not wired in
+
 > [!IMPORTANT]
 > **Next Priority**: Return focus back to the frozen shell-worker MVP: task lifecycle, workspace isolation, CLI visibility, verification, and future merge readiness.
 
