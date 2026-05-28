@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 import json
+import difflib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -529,3 +530,103 @@ def _looks_destructive(command: list[str]) -> bool:
     text = " ".join(command).lower()
     blocked_fragments = ("rm -rf /", "rm -fr /", "mkfs", "diskutil erase", ":(){", "dd if=")
     return any(fragment in text for fragment in blocked_fragments)
+
+
+def _is_ignored_path(path: Path, base_dir: Path) -> bool:
+    try:
+        rel = path.relative_to(base_dir)
+    except ValueError:
+        return True
+    ignored_names = {".git", ".devflow", ".venv", "__pycache__", ".pytest_cache"}
+    for part in rel.parts:
+        if part in ignored_names:
+            return True
+    return False
+
+
+def _get_relative_files(base_dir: Path) -> set[str]:
+    rel_files = set()
+    if not base_dir.is_dir():
+        return rel_files
+    for p in base_dir.rglob("*"):
+        if p.is_file() and not p.is_symlink() and not _is_ignored_path(p, base_dir):
+            try:
+                rel = p.relative_to(base_dir)
+                rel_files.add(rel.as_posix())
+            except ValueError:
+                pass
+    return rel_files
+
+
+def _is_binary_file(path: Path | None) -> bool:
+    if not path or not path.exists():
+        return False
+    try:
+        with path.open("rb") as f:
+            chunk = f.read(1024)
+            return b"\0" in chunk
+    except OSError:
+        return True
+
+
+def _generate_file_diff(name: str, path_a: Path | None, path_b: Path | None) -> str:
+    is_a_binary = _is_binary_file(path_a)
+    is_b_binary = _is_binary_file(path_b)
+    if is_a_binary or is_b_binary:
+        return f"Binary files a/{name} and b/{name} differ\n"
+
+    try:
+        lines_a = path_a.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if path_a else []
+        lines_b = path_b.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if path_b else []
+        diff = difflib.unified_diff(
+            lines_a,
+            lines_b,
+            fromfile=f"a/{name}",
+            tofile=f"b/{name}",
+        )
+        return "".join(diff)
+    except Exception as exc:
+        return f"Error generating diff for {name}: {exc}\n"
+
+
+def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
+    task = get_task(root, task_id)
+    workspace = _absolute(root, task.workspace).resolve()
+    expected = (workspaces_dir(root) / task.id).resolve()
+    if workspace != expected:
+        raise ValueError(f"Refusing unsafe task workspace: {workspace} (expected {expected})")
+    if not workspace.is_dir():
+        raise ValueError(f"Workspace directory does not exist: {workspace}")
+
+    workspace_files = _get_relative_files(workspace)
+    main_files = _get_relative_files(root)
+
+    added_files = sorted(list(workspace_files - main_files))
+    deleted_files = sorted(list(main_files - workspace_files))
+    common_files = workspace_files & main_files
+
+    modified_files = []
+    for name in sorted(list(common_files)):
+        workspace_file = workspace / name
+        main_file = root / name
+        try:
+            if workspace_file.read_bytes() != main_file.read_bytes():
+                modified_files.append(name)
+        except OSError:
+            modified_files.append(name)
+
+    diffs: dict[str, str] = {}
+    for name in added_files:
+        diffs[name] = _generate_file_diff(name, None, workspace / name)
+    for name in modified_files:
+        diffs[name] = _generate_file_diff(name, root / name, workspace / name)
+    for name in deleted_files:
+        diffs[name] = _generate_file_diff(name, root / name, None)
+
+    return {
+        "task_id": task.id,
+        "added": added_files,
+        "modified": modified_files,
+        "deleted": deleted_files,
+        "diffs": diffs,
+    }

@@ -291,6 +291,53 @@ def task_verify(
         raise typer.Exit(code=exit_code)
 
 
+@task_app.command("promote-preview")
+def task_promote_preview(task_id: str) -> None:
+    """Preview changes that would be promoted from the isolated task workspace."""
+    try:
+        from devflow.control_room.service import preview_task_promotion
+        res = preview_task_promotion(Path.cwd(), task_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    added = res["added"]
+    modified = res["modified"]
+    deleted = res["deleted"]
+    diffs = res["diffs"]
+
+    if not added and not modified and not deleted:
+        typer.echo("No changes to promote")
+        return
+
+    if added:
+        typer.echo("Added files:")
+        for name in added:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if modified:
+        typer.echo("Modified files:")
+        for name in modified:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if deleted:
+        typer.echo("Deleted files:")
+        for name in deleted:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    typer.echo("--- Diffs ---")
+    for name in sorted(diffs.keys()):
+        diff_text = diffs[name]
+        if diff_text:
+            typer.echo(diff_text, nl=False)
+
+
 # Backward-compatible names for importers while the old CLI is retired.
 def init_workspace() -> None:
     init_control_room(Path.cwd())
