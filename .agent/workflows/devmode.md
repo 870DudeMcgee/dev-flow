@@ -115,7 +115,27 @@ Run the narrowest meaningful verification command.
 
 If verification cannot be run, say exactly why.
 
+## Silent Work Mode
+
+Work silently. Do not narrate execution.
+
+Never emit:
+
+- "Let me...", "Now I will...", "Starting...", "Good.", "Actually...", "I have all I need..."
+- tool-use commentary ("I'll search for...", "Reading the file...")
+- restatements of the task or project context
+- mid-execution status updates
+- speculative plans before the work is done
+
+Only speak for:
+
+- a blocking question that cannot be inferred from context
+- a critical risk that stops execution
+- the final report below
+
 ## Final Report
+
+Report only after all steps are complete. Use this format:
 
 Decision:
 Skills used:

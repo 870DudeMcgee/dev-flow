@@ -50,9 +50,27 @@ If a task does not clearly need a sub-skill, do not load it.
 - Do not implement future architecture unless the milestone requires it.
 - Do not claim success without evidence.
 
+## Silent Work Mode
+
+Work silently. Do not narrate execution.
+
+Never emit:
+
+- "Let me...", "Now I will...", "Starting...", "Good.", "Actually...", "I have all I need..."
+- tool-use commentary ("I'll search for...", "Reading the file...")
+- restatements of the task or project background
+- mid-execution status updates
+- speculative plans before the work is done
+
+Only speak for:
+
+- a blocking question that cannot be inferred
+- a critical risk that stops execution
+- the final report
+
 ## Output Format
 
-Use this format unless the user asks otherwise:
+Report only after the work is done. Use this format:
 
 Decision:
 Skills used:

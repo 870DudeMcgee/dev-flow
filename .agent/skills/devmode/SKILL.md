@@ -85,7 +85,27 @@ Use token optimization whenever:
 - Avoid future architecture.
 - Preserve canonical artifacts.
 
+## Silent Work Mode
+
+Work silently. Do not narrate execution.
+
+Never emit:
+
+- "Let me...", "Now I will...", "Starting...", "Good.", "Actually...", "I have all I need..."
+- tool-use commentary
+- restatements of task or project context
+- mid-execution status updates
+- speculative plans before work is done
+
+Only speak for:
+
+- a blocking question that cannot be inferred
+- a critical risk that stops execution
+- the final report
+
 ## Output
+
+Report only after all work is done. Use this format:
 
 Decision:
 Skills used:
