@@ -129,6 +129,7 @@ The first useful implementation is narrow and test-first:
 5. Added tests for omitted counts and truncation notes.
 6. Added tests proving canonical files take precedence over derived summary conflicts.
 7. Kept the packet builder unused by Codex and all other adapters.
+8. Added `devflow task packet <task_id>` CLI subcommand for a read-only deterministic preview of built task packets with path virtualization and secret redaction.
 
 This slice should not change current shell-worker CLI behavior.
 
@@ -140,7 +141,7 @@ This contract does not define or implement:
 - provider APIs;
 - prompt orchestration;
 - model selection;
-- secrets handling;
+- Codex-side secrets credentials management (only basic packet-side redaction is implemented);
 - copy-back;
 - merge automation;
 - pull request automation;

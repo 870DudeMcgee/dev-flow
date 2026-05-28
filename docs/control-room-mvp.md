@@ -48,6 +48,7 @@ devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task list
 devflow task show <task_id>
+devflow task packet <task_id>
 ```
 
 Existing helper commands may remain during the rebuild, but docs and focused MVP tests should treat only the list above as frozen.

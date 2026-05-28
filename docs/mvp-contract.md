@@ -16,6 +16,7 @@ devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task verify <task-id> --shell "test -f result.txt"
 devflow task list
 devflow task show <task-id>
+devflow task packet <task-id>
 ```
 
 `devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace.
