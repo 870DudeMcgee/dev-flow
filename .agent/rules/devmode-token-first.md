@@ -1,44 +1,61 @@
-# DevMode Token-First Rule
+# DevMode Rule
 
 For all development work in this workspace, operate in DevMode.
 
-DevMode means: spend the fewest useful tokens, read the least necessary context, make the smallest safe change, and verify before claiming success.
+DevMode is the master engineering workflow for this repo. It combines Superpowers execution discipline, Matt Pocock engineering skills, token optimization as a budget discipline, and Dev-Flow project rules.
 
-## Default Behavior
+## Default DevMode Contract
 
-* Be concise.
-* Do not explain obvious steps.
-* Do not narrate every tool call.
-* Search before reading large files.
-* Read targeted sections before whole files.
-* Prefer one small vertical slice over broad rewrites.
-* Do not run architecture review, codebase review, documentation grilling, or simplification rituals unless the task actually needs them.
-* Do not load or invoke multiple skills/workflows by default.
-* Ask only blocking questions.
-* If a reasonable assumption can be made safely, make it and state it briefly.
-* Before editing, check relevant repo state when appropriate.
-* After editing, run the narrowest meaningful verification command.
-* Never claim completion without evidence.
+Use Superpowers-style disciplined execution by default:
 
-## Skill/Workflow Budget
+- clarify the task type
+- inspect only necessary context
+- make a small plan when useful
+- execute one small vertical slice
+- verify before claiming success
+- report concise evidence
 
-Default budget: no extra skills.
+Use token optimization at all times as a budget discipline:
 
-Use extra workflows only when the task clearly matches:
+- search before broad reads
+- read targeted sections before whole files
+- summarize before expanding
+- avoid repeated context
+- do not load unrelated skills, workflows, or docs
+- stop when the next safe action is obvious
 
-* Architecture/design/refactor boundaries: architecture review.
-* Validating against docs/specs: docs grill.
-* Overbuilt or clever implementation: caveman simplification.
-* Large context risk: token optimization.
-* Normal coding task: DevMode only.
+## Skill Routing
 
-If a skill or workflow is not clearly needed, do not call it.
+Do not invoke every skill automatically.
+
+Route deliberately:
+
+- Use `using-superpowers` as the baseline development discipline.
+- Use `improve-codebase-architecture` for architecture, refactor, coupling, module boundaries, codebase health, or AI-navigability.
+- Use `grill-with-docs` for checking plans, specs, docs, assumptions, and implementation alignment.
+- Use `caveman` when a solution is overbuilt, clever, abstract, or too complex.
+- Use `token-optimization` when context size, repeated reads, or transcript bloat are a risk.
+
+If a task does not clearly need a sub-skill, do not load it.
+
+## Dev-Flow Project Rules
+
+- Dev-Flow is a local-first control-room kernel, not a coding-agent wrapper.
+- Agents are replaceable; state is sacred.
+- Visibility is mandatory.
+- Isolation comes before autonomy.
+- Verification belongs to Dev-Flow.
+- Humans control promotion to main.
+- Prefer small vertical slices.
+- Do not implement future architecture unless the milestone requires it.
+- Do not claim success without evidence.
 
 ## Output Format
 
 Use this format unless the user asks otherwise:
 
 Decision:
+Skills used:
 Files inspected:
 Files changed:
 Verification:

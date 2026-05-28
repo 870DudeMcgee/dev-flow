@@ -6,76 +6,119 @@ description: Activate DevMode master engineering workflow
 
 Run DevMode for this task.
 
-## Goal
+DevMode is the master engineering workflow. It includes:
 
-Complete the user's development task with the smallest safe amount of context, the fewest useful tokens, and concrete verification evidence.
+- Superpowers `/using-superpowers` disciplined execution
+- Matt Pocock engineering skills when relevant
+- repo-local token optimization as a budget discipline
+- Dev-Flow project rules
 
-## Operating Rules
+## Prime Directive
 
-1. Classify the task.
-2. Decide whether this is:
-   * implementation
-   * bug fix
-   * test work
-   * documentation
-   * architecture/design
-   * code review
-   * cleanup/refactor
-   * investigation only
-3. Identify the minimum files needed.
-4. Search before broad reads.
-5. Read only targeted sections first.
-6. Do not load unrelated skills, workflows, docs, or prior conversations.
-7. Make the smallest safe vertical change.
-8. Do not combine unrelated refactors with the requested task.
-9. Verify with the narrowest meaningful command.
-10. Report only useful evidence.
+Use the full workflow intelligently, not wastefully.
 
-## Routing Rules
+Do not load every skill at once. Route to the right skill at the right time.
 
-Use DevMode alone for normal implementation.
+## Step 1: Classify the Task
 
-Use architecture review only when the task involves:
-* boundaries
-* coupling
-* long-term design
-* major refactors
-* unclear ownership
-* module structure
+Classify the task as one or more of:
 
-Use docs-grill behavior only when the task involves:
-* checking alignment with project docs
-* reviewing a proposed plan
-* verifying whether an implementation matches a spec
-* challenging assumptions
+- implementation
+- bug fix
+- test work
+- documentation
+- architecture/design
+- code review
+- cleanup/refactor
+- investigation
+- planning
+- verification
 
-Use caveman simplification only when:
-* the solution is over-abstracted
-* the code is clever instead of clear
-* the implementation is larger than the problem
-* the agent starts proposing frameworks, abstractions, or future architecture not needed for the current slice
+## Step 2: Apply Baseline Superpowers Discipline
 
-Use token optimization behavior always, but only as lightweight process constraints:
-* search before reading
-* summarize before expanding
-* avoid repeated context
-* avoid transcript bloat
-* choose narrow role/context
+Use `/using-superpowers` behavior as the default execution discipline:
 
-## Hard Stops
+- understand the task
+- inspect the minimum relevant context
+- make a short plan when useful
+- execute in small vertical slices
+- verify the result
+- report evidence
 
-Do not:
-* read the whole repo unless the task truly requires it
-* run multiple review rituals by default
-* produce long plans before inspecting relevant context
-* rewrite unrelated files
-* create future architecture unless requested
-* claim tests passed without running or explaining verification
-* keep talking when the next action should be a focused edit/check
+## Step 3: Apply Token Optimization as a Budget Discipline
 
-## Final Response Format
+Always apply token optimization as lightweight process constraints:
+
+- search before broad reads
+- read targeted sections first
+- avoid re-reading known context
+- summarize before expanding
+- avoid transcript bloat
+- do not invoke unrelated skills
+- stop when the next safe action is obvious
+
+## Step 4: Route to Matt Pocock Skills When Needed
+
+Use `improve-codebase-architecture` only when the task involves:
+
+- architecture
+- module boundaries
+- coupling
+- codebase health
+- refactor direction
+- testability
+- AI-navigability
+- long-term maintainability
+
+Use `grill-with-docs` only when the task involves:
+
+- challenging a plan
+- checking against docs
+- checking against ADRs
+- validating assumptions
+- verifying spec alignment
+- reviewing whether an implementation actually matches the intended design
+
+Use `caveman` only when:
+
+- the solution is overbuilt
+- abstractions are premature
+- the model proposes too many moving parts
+- the implementation is clever instead of obvious
+- a simpler design would satisfy the milestone
+
+## Step 5: Apply Dev-Flow Project Rules
+
+For this repository:
+
+- Dev-Flow is a local-first control-room kernel, not a coding-agent wrapper.
+- The filesystem is the source of truth.
+- `task.yaml` is canonical task state.
+- `events.jsonl`, `questions.jsonl`, logs, and `verification.json` are evidence.
+- `summary.json` and packets are derived, not authoritative.
+- Do not invent state.
+- Do not bypass verification.
+- Do not merge or promote automatically.
+- Do not build future architecture unless the current milestone requires it.
+
+## Step 6: Execute
+
+Make the smallest useful change or produce the smallest useful plan.
+
+Do not combine unrelated work.
+
+Do not perform broad rewrites unless explicitly requested.
+
+## Step 7: Verify
+
+Run the narrowest meaningful verification command.
+
+If verification cannot be run, say exactly why.
+
+## Final Report
 
 Decision:
+Skills used:
 Files inspected:
 Files changed:
 Verification:
