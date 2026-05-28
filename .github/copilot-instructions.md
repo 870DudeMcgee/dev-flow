@@ -60,12 +60,41 @@ If a skill, prompt, custom agent, or workflow is not clearly needed, do not call
 - Do not implement future architecture unless the milestone requires it.
 - Do not claim success without evidence.
 
+## Silent Work Mode
+
+Run DevMode silently.
+
+Use Superpowers, Matt Pocock skills, token optimization, and Dev-Flow rules internally. Do not narrate the workflow.
+
+Do not produce progress narration unless the user explicitly asks for a live walkthrough.
+
+Avoid phrases like:
+
+- "I'll..."
+- "I'm going to..."
+- "I'm reading..."
+- "I'm checking..."
+- "Let me..."
+- "Good..."
+- "Actually..."
+- "Now I..."
+- "Starting..."
+- "Completed..."
+- "The plan is..."
+
+Only speak when:
+
+- asking a blocking question
+- reporting the final result
+- reporting a verification failure
+- reporting a risk that changes the next safe action
+
 ## Output Format
 
 Use this format unless the user asks otherwise:
 
 Decision:
-Files inspected:
+Skills used:
 Files changed:
 Verification:
 Risks:

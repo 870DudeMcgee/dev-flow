@@ -48,6 +48,48 @@ DevMode combines:
 
 Do not eagerly load every skill. Route to specialized skills only when the task clearly needs them.
 
+## Silent Work Mode
+
+DevMode must run silently across VS Code and Antigravity.
+
+Agents use Superpowers, Matt Pocock skills, token optimization, and Dev-Flow rules internally. They must not narrate that workflow.
+
+Do not produce progress narration unless the user explicitly asks for a live walkthrough.
+
+Avoid phrases like:
+
+* "I'll..."
+* "I'm going to..."
+* "I'm reading..."
+* "I'm checking..."
+* "Let me..."
+* "Good..."
+* "Actually..."
+* "Now I..."
+* "Starting..."
+* "Completed..."
+* "The plan is..."
+
+Agent messages are allowed only for:
+
+* a blocking question
+* the final result
+* a verification failure
+* a risk that changes the next safe action
+
+Default final response:
+
+```text
+Decision:
+Skills used:
+Files changed:
+Verification:
+Risks:
+Next safe action:
+```
+
+Include inspected files only when the user explicitly asks for them or when they are necessary evidence.
+
 ## Command Support Matrix
 
 The active VS Code entry point is DevMode. DevMode keeps token optimization lightweight and always available without requiring agents to invoke the full token-optimization skill by default. The matrix below documents which tools support true slash commands, prompt files, skills, or repo-level instructions.

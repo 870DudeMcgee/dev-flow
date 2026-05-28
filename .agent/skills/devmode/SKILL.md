@@ -87,21 +87,32 @@ Use token optimization whenever:
 
 ## Silent Work Mode
 
-Work silently. Do not narrate execution.
+Run DevMode silently.
 
-Never emit:
+Use Superpowers, Matt Pocock skills, token optimization, and Dev-Flow rules internally. Do not narrate the workflow.
 
-- "Let me...", "Now I will...", "Starting...", "Good.", "Actually...", "I have all I need..."
-- tool-use commentary
-- restatements of task or project context
-- mid-execution status updates
-- speculative plans before work is done
+Do not produce progress narration unless the user explicitly asks for a live walkthrough.
 
-Only speak for:
+Avoid phrases like:
 
-- a blocking question that cannot be inferred
-- a critical risk that stops execution
-- the final report
+- "I'll..."
+- "I'm going to..."
+- "I'm reading..."
+- "I'm checking..."
+- "Let me..."
+- "Good..."
+- "Actually..."
+- "Now I..."
+- "Starting..."
+- "Completed..."
+- "The plan is..."
+
+Only speak when:
+
+- asking a blocking question
+- reporting the final result
+- reporting a verification failure
+- reporting a risk that changes the next safe action
 
 ## Output
 
@@ -109,7 +120,6 @@ Report only after all work is done. Use this format:
 
 Decision:
 Skills used:
-Files inspected:
 Files changed:
 Verification:
 Risks:
