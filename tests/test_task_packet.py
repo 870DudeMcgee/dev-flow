@@ -271,6 +271,87 @@ def test_task_packet_path_virtualization() -> None:
     assert "secret.py" in virtualized
 
 
+def test_task_packet_full_packet_path_leak_regression() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        # Create a task
+        create_task(root, "Regression leak test")
+        task_path = root / ".devflow" / "tasks" / "task-0001"
+
+        # Now, write a custom canonical task.yaml containing absolute paths
+        # that could leak if not virtualized, including /Users/, /tmp/, Windows drives C:\, backslashes, file://
+        task_yaml_content = (
+            "id: task-0001\n"
+            "title: \"Regression leak test\"\n"
+            "status: running\n"
+            "created_at: 2026-05-28T00:00:00+00:00\n"
+            "updated_at: 2026-05-28T00:00:00+00:00\n"
+            f"workspace: \"{root}/.devflow/workspaces/task-0001\"\n"
+            "worker: shell\n"
+            "verification_status: not_run\n"
+            f"workspace_path: \"{root}/.devflow/workspaces/task-0001\"\n"
+            "log_path: \"/Users/developer/project/.devflow/tasks/task-0001/logs/worker.log\"\n"
+            "result_path: \"/tmp/task-0001/result.md\"\n"
+            "verification_log_path: \"C:\\\\Users\\\\developer\\\\project\\\\.devflow\\\\tasks\\\\task-0001\\\\logs\\\\verify.log\"\n"
+            "verification_command: \"pytest\"\n"
+            "latest_log_line: \"Finished\"\n"
+        )
+        (task_path / "task.yaml").write_text(task_yaml_content, encoding="utf-8")
+
+        # Also write verification.json containing potential leaks in path fields
+        (task_path / "verification.json").write_text(
+            json.dumps({
+                "task_id": "task-0001",
+                "workspace": f"{root}/.devflow/workspaces/task-0001",
+                "command": ["pytest"],
+                "status": "not_run",
+                "task_status": "running",
+                "exit_code": None,
+                "latest_log_line": "Finished",
+                "log_path": "file:///Users/developer/project/.devflow/tasks/task-0001/logs/verify.log",
+                "finished_at": None,
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        # Also write summary.json with some matching metadata and workspace paths
+        (task_path / "summary.json").write_text(
+            json.dumps({
+                "task_id": "task-0001",
+                "title": "Regression leak test",
+                "status": "running",
+                "workspace_path": f"{root}/.devflow/workspaces/task-0001",
+                "latest_verification_status": "not_run",
+                "summary": "harmless summary with no local path",
+                "workspace_dirty": False,
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        # Let's generate a task packet
+        packet = build_task_packet("task-0001", root=root)
+
+        # Serialize the entire packet output
+        serialized = json.dumps(packet.model_dump(mode="json"))
+
+        # Verify that the constraint actually contains the virtualized path
+        assert any("<workspace>" in c for c in packet.constraints)
+
+        # Verify that no absolute OS-specific paths leaked anywhere in the serialized packet
+        # 1. Assert no "/Users/"
+        assert "/Users/" not in serialized
+        # 2. Assert no "/tmp/"
+        assert "/tmp/" not in serialized
+        # 3. Assert no "file://"
+        assert "file://" not in serialized
+        # 4. Assert no Windows drive paths like "C:\"
+        assert "C:\\" not in serialized
+        assert "C:/" not in serialized
+        # 5. Assert no backslash-heavy Windows paths
+        assert "\\Users\\" not in serialized
+        assert "C:\\Users" not in serialized
+
+
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     lines = [
         json.dumps(
