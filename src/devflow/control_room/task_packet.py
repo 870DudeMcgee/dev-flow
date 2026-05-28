@@ -109,7 +109,7 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         derived_summary=summary_data or None,
         result_summary=None,
         logs={"worker": worker_log, "verify": verify_log},
-        constraints=_constraints(task, virtual_workspace_path),
+        constraints=_constraints(virtual_workspace_path or ""),
         allowed_artifacts=allowed_artifacts,
         omitted_counts={
             "events": omitted_events,
@@ -274,13 +274,12 @@ def _tail_log(repo_root: Path, path: Path, label: str, line_limit: int, byte_lim
     )
 
 
-def _constraints(task: TaskRecord, workspace_path: str | None = None) -> list[str]:
-    ws_path = workspace_path or (task.workspace_path or task.workspace or "")
+def _constraints(virtual_workspace_path: str) -> list[str]:
     return [
         "Task packets are derived read-only projections, not state stores.",
         "task.yaml, events.jsonl, verification.json, worker.log, and verify.log remain canonical.",
         "summary.json is derived/cache only and cannot override canonical state.",
-        f"Worker execution must stay inside {ws_path}.",
+        f"Worker execution must stay inside {virtual_workspace_path}.",
         "Dev-Flow owns verification, merge readiness, and human approval gates.",
     ]
 

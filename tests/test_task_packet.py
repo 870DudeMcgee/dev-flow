@@ -352,6 +352,18 @@ def test_task_packet_full_packet_path_leak_regression() -> None:
         assert "C:\\Users" not in serialized
 
 
+def test_task_packet_constraints_signature() -> None:
+    from devflow.control_room.task_packet import _constraints
+    import inspect
+
+    sig = inspect.signature(_constraints)
+    assert len(sig.parameters) == 1
+    assert "virtual_workspace_path" in sig.parameters
+
+    res = _constraints("<workspace>/my-task")
+    assert any("Worker execution must stay inside <workspace>/my-task" in c for c in res)
+
+
 def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     lines = [
         json.dumps(
