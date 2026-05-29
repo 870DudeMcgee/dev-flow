@@ -158,6 +158,11 @@ Acceptance:
 - supervisor can review worker handoffs
 - supervisor cannot directly edit, commit, push, merge, or mutate task state outside explicit Dev-Flow commands
 
+Related design contracts:
+- [docs/workflow-preview.md](workflow-preview.md)
+- [docs/worker-permission-modes.md](worker-permission-modes.md)
+- [docs/dynamic-worker-orchestration.md](dynamic-worker-orchestration.md)
+
 > [!IMPORTANT]
 > **Next Priority**: Return focus back to the frozen shell-worker MVP: task lifecycle, workspace isolation, CLI visibility, verification, and future merge readiness.
 

@@ -251,3 +251,13 @@ Dev-Flow should eventually support:
 * multi-project visibility
 
 The control room comes first. Intelligence plugs in later.
+
+### Design-To-Contract Bridge
+
+The next design layer is documented separately:
+
+- [docs/workflow-preview.md](workflow-preview.md) defines the human-reviewable plan created before workers are created or run.
+- [docs/worker-permission-modes.md](worker-permission-modes.md) defines task-scoped permission modes such as `read_only`, `workspace_write`, `verify_only`, and `promotion_candidate`.
+- [docs/dynamic-worker-orchestration.md](dynamic-worker-orchestration.md) defines the future direction for decomposing goals into isolated worker tasks while preserving local state, replaceable workers, and human-controlled promotion.
+
+These documents are design contracts only. They do not imply current runtime implementation.
