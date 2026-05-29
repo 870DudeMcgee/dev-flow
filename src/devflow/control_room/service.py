@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import shlex
 import json
-import difflib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from devflow.control_room.models import TaskRecord, WorkerInput, WorkerResult
 from devflow.control_room.paths import (
+    absolute_path,
+    relative_path,
     config_path,
     devflow_dir,
     system_dir,
@@ -17,17 +18,47 @@ from devflow.control_room.paths import (
     tasks_dir,
     workspaces_dir,
 )
+from devflow.control_room.persistence import (
+    append_event,
+    get_task,
+    list_tasks,
+    load_task,
+    save_task,
+    timestamp,
+    utc_now,
+)
+from devflow.control_room.promotion import (
+    main_checkout_has_uncommitted_changes,
+    _get_relative_files,
+)
 from devflow.control_room.verification import VerificationResult, run_verification_command
 from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
 
 
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+# Dynamic compatibility shims and mappings
+_save_task = save_task
+_load_task = load_task
+_append_event = append_event
+_relative = relative_path
+_absolute = absolute_path
 
 
-def timestamp() -> str:
-    return utc_now().isoformat()
+def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
+    import devflow.control_room.promotion as promotion
+    # Forward monkeypatch if service._get_relative_files was overridden in a test
+    if _get_relative_files is not promotion._get_relative_files:
+        promotion._get_relative_files = _get_relative_files
+    return promotion.preview_task_promotion(root, task_id)
+
+
+def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions: bool = False) -> TaskRecord:
+    import devflow.control_room.promotion as promotion
+    # Forward monkeypatch if service._get_relative_files was overridden in a test
+    if _get_relative_files is not promotion._get_relative_files:
+        promotion._get_relative_files = _get_relative_files
+    return promotion.promote_task(root, task_id, force=force, apply_deletions=apply_deletions)
+
 
 
 def init_control_room(root: Path) -> None:
@@ -86,22 +117,6 @@ def create_task(root: Path, title: str) -> TaskRecord:
     _write_merge_readiness(root, task_path, record)
     return record
 
-
-def list_tasks(root: Path) -> list[TaskRecord]:
-    if not tasks_dir(root).exists():
-        return []
-    records = []
-    for path in sorted(tasks_dir(root).iterdir()):
-        if path.is_dir() and (path / "task.yaml").exists():
-            records.append(_load_task(path))
-    return records
-
-
-def get_task(root: Path, task_id: str) -> TaskRecord:
-    path = task_dir(root, task_id)
-    if not (path / "task.yaml").exists():
-        raise KeyError(f"Task not found: {task_id}")
-    return _load_task(path)
 
 
 def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 60, worker_adapter: str = "shell") -> TaskRecord:
@@ -358,148 +373,7 @@ def _next_task_id(root: Path) -> str:
     return f"task-{(max(existing) if existing else 0) + 1:04d}"
 
 
-def _append_event(root: Path, task_id: str, event_type: str, payload: dict[str, Any]) -> None:
-    event = {"timestamp": timestamp(), "task_id": task_id, "event": event_type, **payload}
-    line = json.dumps(event, sort_keys=True) + "\n"
-    task_events = task_dir(root, task_id) / "events.jsonl"
-    task_events.parent.mkdir(parents=True, exist_ok=True)
-    with task_events.open("a", encoding="utf-8") as handle:
-        handle.write(line)
-    system_events_path(root).parent.mkdir(parents=True, exist_ok=True)
-    with system_events_path(root).open("a", encoding="utf-8") as handle:
-        handle.write(line)
 
-
-def _write_task_summary(task_path: Path, task: TaskRecord) -> None:
-    ready = False
-    reasons = []
-
-    if task.status != "verified":
-        reasons.append(f"Task status is '{task.status}', expected 'verified'")
-    if task.verification_status != "passed":
-        reasons.append(f"Verification status is '{task.verification_status}', expected 'passed'")
-    if task.verification_exit_code != 0:
-        if task.verification_exit_code is None:
-            reasons.append("Verification exit code is missing")
-        else:
-            reasons.append(f"Verification exit code is {task.verification_exit_code}, expected 0")
-
-    if not reasons:
-        ready = True
-        reasons.append("Verification passed successfully")
-
-    if task.workspace_dirty:
-        reasons.append("Warning: Workspace was created from a dirty worktree (uncommitted changes)")
-
-    payload = {
-        "task_id": task.id,
-        "title": task.title,
-        "status": task.status,
-        "workspace_path": task.workspace_path,
-        "workspace_dirty": task.workspace_dirty if task.workspace_dirty is not None else False,
-        "workspace_branch": task.branch_name,
-        "workspace_commit": task.workspace_commit,
-        "latest_verification_status": task.verification_status,
-        "latest_verification_exit_code": task.verification_exit_code,
-        "latest_verification_log_path": task.verification_log_path,
-        "merge_ready": ready,
-        "merge_readiness_reasons": reasons,
-        "updated_at": task.updated_at.isoformat(),
-    }
-    (task_path / "summary.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
-def _save_task(task_path: Path, task: TaskRecord) -> None:
-    values = {
-        "id": task.id,
-        "title": task.title,
-        "status": task.status,
-        "created_at": task.created_at.isoformat(),
-        "updated_at": task.updated_at.isoformat(),
-        "workspace": task.workspace,
-        "worker": task.worker,
-        "last_event": task.last_event,
-        "last_exit_code": task.last_exit_code,
-        "verification_status": task.verification_status,
-        "latest_log_line": task.latest_log_line,
-        "log_path": task.log_path,
-        "result_path": task.result_path,
-        "worker_command": task.worker_command,
-        "verification_command": task.verification_command,
-        "verification_exit_code": task.verification_exit_code,
-        "verification_log_path": task.verification_log_path,
-        "timeout_seconds": task.timeout_seconds,
-        "started_at": task.started_at.isoformat() if task.started_at else None,
-        "finished_at": task.finished_at.isoformat() if task.finished_at else None,
-        "branch_name": task.branch_name,
-        "workspace_commit": task.workspace_commit,
-        "workspace_dirty": task.workspace_dirty,
-    }
-    lines = [f"{key}: {_yaml_scalar(value)}" for key, value in values.items()]
-    task_path.mkdir(parents=True, exist_ok=True)
-    (task_path / "task.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    _write_task_summary(task_path, task)
-
-
-def _load_task(task_path: Path) -> TaskRecord:
-    data = _read_yaml_scalars(task_path / "task.yaml")
-    required = ["id", "title", "status", "created_at", "updated_at", "workspace", "worker", "verification_status"]
-    missing = [key for key in required if key not in data]
-    if missing:
-        raise ValueError(f"missing keys in {task_path / 'task.yaml'}: {', '.join(missing)}")
-    for key in ("created_at", "updated_at", "started_at", "finished_at"):
-        if data.get(key):
-            data[key] = datetime.fromisoformat(str(data[key]))
-    return TaskRecord(**data)
-
-
-def _read_yaml_scalars(path: Path) -> dict[str, Any]:
-    data: dict[str, Any] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if ":" not in line:
-            raise ValueError(f"invalid task.yaml line: {line}")
-        key, value = line.split(":", 1)
-        data[key.strip()] = _parse_yaml_scalar(value.strip())
-    return data
-
-
-def _yaml_scalar(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    return json.dumps(str(value))
-
-
-def _parse_yaml_scalar(value: str) -> Any:
-    if value == "null":
-        return None
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    if value.startswith('"'):
-        return json.loads(value)
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _relative(root: Path, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
-
-
-def _absolute(root: Path, path: str) -> Path:
-    value = Path(path)
-    return value if value.is_absolute() else root / value
 
 
 def _resolve_task_workspace(root: Path, task: TaskRecord) -> Path:
@@ -532,229 +406,4 @@ def _looks_destructive(command: list[str]) -> bool:
     return any(fragment in text for fragment in blocked_fragments)
 
 
-def _is_ignored_path(path: Path, base_dir: Path) -> bool:
-    try:
-        rel = path.relative_to(base_dir)
-    except ValueError:
-        return True
-    ignored_names = {".git", ".devflow", ".venv", "__pycache__", ".pytest_cache"}
-    for part in rel.parts:
-        if part in ignored_names:
-            return True
-    return False
 
-
-def _get_relative_files(base_dir: Path) -> set[str]:
-    rel_files = set()
-    if not base_dir.is_dir():
-        return rel_files
-    for p in base_dir.rglob("*"):
-        if p.is_file() and not p.is_symlink() and not _is_ignored_path(p, base_dir):
-            try:
-                rel = p.relative_to(base_dir)
-                rel_files.add(rel.as_posix())
-            except ValueError:
-                pass
-    return rel_files
-
-
-def _is_binary_file(path: Path | None) -> bool:
-    if not path or not path.exists():
-        return False
-    try:
-        with path.open("rb") as f:
-            chunk = f.read(1024)
-            return b"\0" in chunk
-    except OSError:
-        return True
-
-
-def _generate_file_diff(name: str, path_a: Path | None, path_b: Path | None) -> str:
-    is_a_binary = _is_binary_file(path_a)
-    is_b_binary = _is_binary_file(path_b)
-    if is_a_binary or is_b_binary:
-        return f"Binary files a/{name} and b/{name} differ\n"
-
-    try:
-        lines_a = path_a.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if path_a else []
-        lines_b = path_b.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True) if path_b else []
-        diff = difflib.unified_diff(
-            lines_a,
-            lines_b,
-            fromfile=f"a/{name}",
-            tofile=f"b/{name}",
-        )
-        return "".join(diff)
-    except Exception as exc:
-        return f"Error generating diff for {name}: {exc}\n"
-
-
-def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
-    task = get_task(root, task_id)
-    workspace = _absolute(root, task.workspace).resolve()
-    expected = (workspaces_dir(root) / task.id).resolve()
-    if workspace != expected:
-        raise ValueError(f"Refusing unsafe task workspace: {workspace} (expected {expected})")
-    if not workspace.is_dir():
-        raise ValueError(f"Workspace directory does not exist: {workspace}")
-
-    workspace_files = _get_relative_files(workspace)
-    main_files = _get_relative_files(root)
-
-    added_files = sorted(list(workspace_files - main_files))
-    deleted_files = sorted(list(main_files - workspace_files))
-    common_files = workspace_files & main_files
-
-    modified_files = []
-    for name in sorted(list(common_files)):
-        workspace_file = workspace / name
-        main_file = root / name
-        try:
-            if workspace_file.read_bytes() != main_file.read_bytes():
-                modified_files.append(name)
-        except OSError:
-            modified_files.append(name)
-
-    diffs: dict[str, str] = {}
-    for name in added_files:
-        diffs[name] = _generate_file_diff(name, None, workspace / name)
-    for name in modified_files:
-        diffs[name] = _generate_file_diff(name, root / name, workspace / name)
-    for name in deleted_files:
-        diffs[name] = _generate_file_diff(name, root / name, None)
-
-    return {
-        "task_id": task.id,
-        "added": added_files,
-        "modified": modified_files,
-        "deleted": deleted_files,
-        "diffs": diffs,
-    }
-
-
-def main_checkout_has_uncommitted_changes(root: Path) -> bool:
-    import subprocess
-    try:
-        inside = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if inside.returncode != 0 or inside.stdout.strip() != "true":
-            raise ValueError("Error: Repository root is not a git repository.")
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise ValueError("Error: Repository root is not a git repository.") from exc
-
-    try:
-        status_proc = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if status_proc.returncode != 0:
-            raise ValueError("Error: Git status command failed.")
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise ValueError("Error: Git status command failed.") from exc
-
-    dirty = False
-    for line in status_proc.stdout.splitlines():
-        if not line.strip():
-            continue
-        path_part = line[3:].strip()
-        if path_part.startswith('"') and path_part.endswith('"'):
-            path_part = path_part[1:-1]
-        if path_part.startswith(".devflow/") or path_part == ".devflow":
-            continue
-        dirty = True
-        break
-
-    return dirty
-
-
-def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions: bool = False) -> TaskRecord:
-    import shutil
-    task = get_task(root, task_id)
-    if task.status != "verified":
-        raise ValueError(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.")
-
-    # Double check dirty repository status to ensure safety
-    if not force and main_checkout_has_uncommitted_changes(root):
-        raise ValueError("Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.")
-
-    workspace = _absolute(root, task.workspace).resolve()
-    expected = (workspaces_dir(root) / task.id).resolve()
-    if workspace != expected:
-        raise ValueError(f"Refusing unsafe task workspace: {workspace} (expected {expected})")
-    if not workspace.is_dir():
-        raise ValueError(f"Workspace directory does not exist: {workspace}")
-
-    workspace_files = _get_relative_files(workspace)
-    main_files = _get_relative_files(root)
-
-    added_files = sorted(list(workspace_files - main_files))
-    deleted_files = sorted(list(main_files - workspace_files))
-    common_files = workspace_files & main_files
-
-    modified_files = []
-    for name in sorted(list(common_files)):
-        workspace_file = workspace / name
-        main_file = root / name
-        try:
-            if workspace_file.read_bytes() != main_file.read_bytes():
-                modified_files.append(name)
-        except OSError:
-            modified_files.append(name)
-
-    # Safety checks for all destination paths before copying
-    for name in added_files + modified_files:
-        dst_path = (root / name).resolve()
-        try:
-            dst_path.relative_to(root.resolve())
-        except ValueError:
-            raise ValueError(f"Refusing unsafe promotion: destination path escapes repository root: {name}")
-
-        if _is_ignored_path(dst_path, root):
-            raise ValueError(f"Refusing unsafe promotion: destination path is in an ignored/control directory: {name}")
-
-    # Copy added and modified files
-    for name in added_files + modified_files:
-        src_path = workspace / name
-        dst_path = root / name
-        dst_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_path, dst_path)
-
-    # Delete removed files if explicitly requested and safe
-    deleted_applied = []
-    if apply_deletions:
-        for name in deleted_files:
-            dst_path = root / name
-            if dst_path.exists():
-                try:
-                    dst_path.resolve().relative_to(root.resolve())
-                except ValueError:
-                    continue  # Skip files outside root boundary
-
-                if _is_ignored_path(dst_path, root):
-                    continue  # Skip ignored/control paths
-
-                if dst_path.is_file() and not dst_path.is_symlink():
-                    dst_path.unlink()
-                    deleted_applied.append(name)
-
-    # Update canonical task record and event log
-    task.status = "promoted"
-    task.updated_at = utc_now()
-    task.last_event = "task_promoted"
-
-    _save_task(task_dir(root, task_id), task)
-    _append_event(root, task_id, "task_promoted", {
-        "added": added_files,
-        "modified": modified_files,
-        "deleted_applied": deleted_applied,
-    })
-
-    return task

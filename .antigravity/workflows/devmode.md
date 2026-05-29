@@ -10,19 +10,42 @@ DevMode loaded: token optimization, repo discipline, read-only/implementation ga
 
 Then continue silently. Do not output a skills-used line.
 
-Antigravity workflows are prompt/rule mechanisms, not true reusable skill loaders like Superpowers. This file is the closest reliable `/devmode` entry point for Antigravity.
+---
 
-## Contract
+## 🛡️ The Four Iron Laws
 
-- Use Superpowers-style discipline: understand, search, inspect only needed files, small plan when useful, small slice, verify, concise evidence.
-- Token optimization is mandatory: no broad scans, repeated summaries, ceremonial output, unnecessary docs, unnecessary commits, extra checks, or ruff.
-- Follow `AGENTS.md`, `PRODUCT_NORTH_STAR.md`, and `docs/control-room-mvp.md` for repo direction.
-- Do not use archived `.devflow/workflow/**` or legacy software-factory docs as process authority.
-- Do not add adapters, model routing, dashboard servers, databases, merge automation, or PR automation unless explicitly required.
+```text
+NO ACTION WITHOUT MODE CLASSIFICATION FIRST
+NO BROAD READS WITHOUT TARGETED SEARCH FIRST
+NO CODE WITHOUT FAILING TESTS FIRST
+NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
+```
 
-## Mode Gate
+---
 
-- Read-only prompts: audit, review, investigate, explain, plan, summarize, or unclear write permission. Do not edit, stage, commit, or create files.
-- Implementation prompts: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, run targeted verification, and commit only when explicitly requested or permitted and verification passes.
+## ⚙️ Gating & Routing
 
-If write permission is ambiguous, ask one blocking question or stay read-only.
+### 1. Task Intake & Mode Gate
+Classify the task and classify the mode before taking any action:
+- **Read-only mode**: audit, review, investigate, explain, plan, summarize, or unclear write permission. **Do not edit, stage, commit, or create files.** Use targeted searches and compact findings only.
+- **Implementation mode**: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, run targeted verification, and commit only when permitted and verification passes.
+
+*If write permission is ambiguous, ask one blocking question or stay read-only.*
+
+### 2. Route to DevMode Skills
+Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply means you should check it.
+- Use `devmode:using-devmode` as the master bootstrap.
+- Route to specific skills under `.agent/skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
+
+### 3. Silent Work Mode & Output
+Run DevMode silently. Do not narrate the workflow. Avoid progress phrases.
+
+Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
+
+```text
+Decision:
+Files changed:
+Verification:
+Risks:
+Next safe action:
+```

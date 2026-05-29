@@ -6,16 +6,11 @@ description: Activate DevMode master engineering workflow
 
 Run DevMode for this task.
 
-DevMode is the master engineering workflow. It includes:
-
-- Superpowers `/using-superpowers` disciplined execution
-- Matt Pocock engineering skills when relevant
-- repo-local token optimization as a budget discipline
-- Dev-Flow project rules
+DevMode is the master engineering framework. It combines Jesse Vincent's Superpowers disciplines, token optimization as an always-on budget discipline, and local Dev-Flow project rules.
 
 ## Prime Directive
 
-Use the full workflow intelligently, not wastefully.
+Use the full framework intelligently, not wastefully.
 
 Do not load every skill at once. Route to the right skill at the right time.
 
@@ -27,153 +22,50 @@ DevMode loaded: token optimization, repo discipline, read-only/implementation ga
 
 Then continue silently. Do not output a skills-used line.
 
-## Step 1: Classify the Task
+---
 
-Classify the task as one or more of:
+## 🛡️ The Four Iron Laws
 
-- implementation
-- bug fix
-- test work
-- documentation
-- architecture/design
-- code review
-- cleanup/refactor
-- investigation
-- planning
-- verification
+```text
+NO ACTION WITHOUT MODE CLASSIFICATION FIRST
+NO BROAD READS WITHOUT TARGETED SEARCH FIRST
+NO CODE WITHOUT FAILING TESTS FIRST
+NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
+```
 
-## Step 2: Apply Baseline Superpowers Discipline
+Any violation of these rules requires the agent to **immediately delete the non-compliant work, apologize, and start over**.
 
-Use `/using-superpowers` behavior as the default execution discipline:
+---
 
-- understand the task
-- inspect the minimum relevant context
-- make a short plan when useful
-- execute in small vertical slices
-- verify the result
-- report evidence
+## Step 1: Classify the Task & Mode Gate
 
-## Step 3: Enforce Token Optimization as a Budget Discipline
+Classify the task and classify the mode before taking any action:
+- **Read-only mode**: audit, review, investigate, explain, plan, summarize, or unclear write permission. **Do not edit, stage, commit, or create files.** Use targeted searches and compact findings only.
+- **Implementation mode**: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, run targeted verification, and commit only when permitted and verification passes.
 
-Token optimization is mandatory. Apply these constraints by default:
+*If write permission is ambiguous, ask one blocking question or stay read-only.*
 
-- search before broad reads
-- inspect only files needed for the task
-- read targeted sections first
-- avoid re-reading known context
-- summarize before expanding
-- avoid transcript bloat
-- do not invoke unrelated skills
-- do not create handoff docs unless explicitly requested
-- do not run extra checks beyond the requested or narrowest meaningful checks
-- do not run ruff
-- do not scan the whole repo unless needed
-- do not produce repeated summaries or ceremonial output
-- stop when the next safe action is obvious
+---
 
-## Step 4: Gate Read-Only vs Implementation Mode
+## Step 2: Route to DevMode Skills
 
-Classify mode before acting:
+Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply means you should check it.
 
-- **Read-only mode**: audit, review, investigate, explain, plan, summarize, or any request that does not explicitly allow edits. Do not edit, stage, commit, or create files. Use targeted searches and compact findings only.
-- **Implementation mode**: fix, build, update, apply, or any request that explicitly allows edits. You may edit only relevant files, must run targeted verification, and may commit only when the user asks or explicitly permits committing and verification passes.
+- Use `devmode:using-devmode` as the master bootstrap.
+- Route to specific skills under `.agent/skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
 
-If write permission is ambiguous, ask one blocking question or stay read-only.
+---
 
-## Step 5: Route to Matt Pocock Skills When Needed
+## Step 3: Silent Work Mode & Output
 
-Use `improve-codebase-architecture` only when the task involves:
-
-- architecture
-- module boundaries
-- coupling
-- codebase health
-- refactor direction
-- testability
-- AI-navigability
-- long-term maintainability
-
-Use `grill-with-docs` only when the task involves:
-
-- challenging a plan
-- checking against docs
-- checking against ADRs
-- validating assumptions
-- verifying spec alignment
-- reviewing whether an implementation actually matches the intended design
-
-Use `caveman` only when:
-
-- the solution is overbuilt
-- abstractions are premature
-- the model proposes too many moving parts
-- the implementation is clever instead of obvious
-- a simpler design would satisfy the milestone
-
-## Step 6: Apply Dev-Flow Project Rules
-
-For this repository:
-
-- Dev-Flow is a local-first control-room kernel, not a coding-agent wrapper.
-- The filesystem is the source of truth.
-- `task.yaml` is canonical task state.
-- `events.jsonl`, `questions.jsonl`, logs, and `verification.json` are evidence.
-- `summary.json` and packets are derived, not authoritative.
-- Do not invent state.
-- Do not bypass verification.
-- Do not merge or promote automatically.
-- Do not build future architecture unless the current milestone requires it.
-- Do not add adapters, model routing, dashboard servers, databases, or merge automation unless the task explicitly requires them.
-
-## Step 7: Execute
-
-Make the smallest useful change or produce the smallest useful plan.
-
-Do not combine unrelated work.
-
-Do not perform broad rewrites unless explicitly requested.
-
-## Step 8: Verify
-
-Run the narrowest meaningful verification command.
-
-If verification cannot be run, say exactly why.
-
-## Silent Work Mode
-
-Run DevMode silently.
-
-Use Superpowers, Matt Pocock skills, token optimization, and Dev-Flow rules internally. Do not narrate the workflow.
-
-Do not produce progress narration unless the user explicitly asks for a live walkthrough.
-
-Avoid phrases like:
-
-- "I'll..."
-- "I'm going to..."
-- "I'm reading..."
-- "I'm checking..."
-- "Let me..."
-- "Good..."
-- "Actually..."
-- "Now I..."
-- "Starting..."
-- "Completed..."
-- "The plan is..."
-
-Only speak when:
-
-- asking a blocking question
-- reporting the final result
-- reporting a verification failure
-- reporting a risk that changes the next safe action
-
-## Output
+Run DevMode silently. Do not narrate the workflow. Avoid progress phrases (*"I'll..."*, *"I'm going to..."*).
 
 Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
 
+```text
 Decision:
 Files changed:
 Verification:
 Risks:
 Next safe action:
+```

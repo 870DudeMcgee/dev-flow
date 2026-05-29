@@ -10,81 +10,49 @@ DevMode loaded: token optimization, repo discipline, read-only/implementation ga
 
 Then continue silently. Do not output a skills-used line.
 
-Antigravity workflows are prompt/rule mechanisms, not true reusable skill loaders like Superpowers.
+---
 
-## Inputs
+## 🛡️ The Four Iron Laws
 
-- User goal
-- Current repository state
-- Optional task ID
+```text
+NO ACTION WITHOUT MODE CLASSIFICATION FIRST
+NO BROAD READS WITHOUT TARGETED SEARCH FIRST
+NO CODE WITHOUT FAILING TESTS FIRST
+NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
+```
+
+---
 
 ## Steps
 
-### 1. Intake
+### 1. Intake & Mode Gate
+Classify the task and classify the mode before taking any action:
+- **Read-only mode**: audit, review, investigate, explain, plan, summarize, or unclear write permission. **Do not edit, stage, commit, or create files.** Use targeted searches and compact findings only.
+- **Implementation mode**: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, run targeted verification, and commit only when permitted and verification passes.
 
-Classify the task:
+*If write permission is ambiguous, ask one blocking question or stay read-only.*
 
-- trivial
-- bug fix
-- feature
-- refactor
-- docs
-- test
-- investigation
-- high-risk
+### 2. Context & Token Budget
+- Search before broad reads.
+- Target specific sections before opening full files.
+- No repeated context, transcript bloat, or summaries.
+- No ceremonial progress narration or skill-loading announcements.
+- Stop when the next safe action is obvious.
 
-If trivial, proceed with a minimal edit and report.
-If non-trivial, continue.
+### 3. Route to DevMode Skills
+Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply means you should check it.
+- Use `devmode:using-devmode` as the master bootstrap.
+- Route to specific skills under `.agent/skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
 
-### 2. Mode gate
+### 4. Silent Work Mode & Output
+Run DevMode silently. Do not narrate the workflow. Avoid progress phrases.
 
-Classify mode before acting:
+Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
 
-- Read-only: audit, review, investigate, explain, plan, summarize, or unclear write permission. Do not edit, stage, commit, or create files.
-- Implementation: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, verify, and commit only when explicitly requested or permitted and verification passes.
-
-### 3. Context
-
-Read only the smallest useful set:
-
-1. `AGENTS.md`
-2. `PRODUCT_NORTH_STAR.md` when making implementation decisions
-3. `docs/control-room-mvp.md` for non-trivial code changes
-4. Relevant tests
-5. Relevant implementation files
-
-Search before broad reads. Do not scan the entire repo unless the task requires it.
-
-### 4. Token discipline
-
-- No repeated summaries or ceremonial output.
-- No unnecessary docs or handoff files.
-- No ruff.
-- No extra checks beyond requested or targeted verification.
-
-### 5. Test-first when useful
-
-For behavior changes, write or identify failing tests first.
-
-### 6. Implement
-
-Make minimal relevant changes only. Do not build future architecture.
-
-### 7. Verify
-
-Run targeted verification.
-If failure occurs, classify it and repair with a bounded loop.
-
-### 8. Review
-
-Review for scope, safety, tests, and maintainability.
-
-### 9. Report
-
-Report compactly in chat. Do not create report or handoff files unless explicitly requested.
-
-- Summary
-- Files changed
-- Tests run
-- Result
-- Risks
+```text
+Decision:
+Files changed:
+Verification:
+Risks:
+Next safe action:
+```

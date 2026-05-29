@@ -8,8 +8,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devflow.control_room.models import TaskRecord
-from devflow.control_room.paths import task_dir
+from devflow.control_room.paths import relative_path, task_dir
 from devflow.control_room.service import get_task
+
+_relative = relative_path
 
 
 class TaskPacketLimits(BaseModel):
@@ -300,11 +302,7 @@ def _allowed_artifacts(repo_root: Path, task_path: Path) -> list[str]:
     return [_relative(repo_root, path) for path in candidates if path.exists()]
 
 
-def _relative(root: Path, path: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+
 
 
 def _normalize_to_posix(path_str: str) -> str:

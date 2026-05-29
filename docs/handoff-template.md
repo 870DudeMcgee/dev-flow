@@ -1,15 +1,23 @@
-# Dev-Flow Agent Handoff Template
+# DevMode Handoff Template
 
-Use this format to conclude any task slice, role swap, or when transferring control to another agent. Keep answers extremely short and action-oriented. Do not include raw diffs or full logs unless explicitly requested.
+Use this template to coordinate between agent sessions, shifts, or workers. Keep handoffs short enough to paste into a new chat without dragging the entire previous conversation forward.
 
-```markdown
-Objective: [Short description of the slice completed]
-Files changed: [List of files changed or created]
-Commands run: [Exact commands executed]
-Tests: [Concise results of test runs]
-Commit: [Commit hash and/or summary of commit]
-Working tree: [Clean / short description of dirty state]
-Key decisions: [Crucial technical decisions or assumptions]
-Known risks: [Potential failure modes or edge cases]
-Next safe action: [Immediate next step for the next agent]
-```
+## Status
+
+[complete | in-progress | blocked | needs-review | failed]
+
+## Files Changed
+
+- path/to/file (what changed)
+
+## Verification
+
+- `command run`: pass/fail + actual output logs
+
+## Risks
+
+- Specific technical risks, limitations, or potential side-effects
+
+## Next Safe Action
+
+- The single, concrete next action to take

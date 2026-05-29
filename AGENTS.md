@@ -1,23 +1,8 @@
 # Dev-Flow & DevMode Agent Operating Rules
 
-This repository combines the high-discipline **DevMode** framework with the **Dev-Flow** control room kernel development goals.
+All agent operations in this repository are governed by the canonical [docs/devmode-contract.md](docs/devmode-contract.md).
 
-All agent operations in this repository are subject to these rules.
-
----
-
-## 🛡️ The Four Iron Laws
-
-DevMode-compliant agents are bound by these four immutable laws:
-
-```text
-NO ACTION WITHOUT MODE CLASSIFICATION FIRST
-NO BROAD READS WITHOUT TARGETED SEARCH FIRST
-NO CODE WITHOUT FAILING TESTS FIRST
-NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE
-```
-
-Any violation of these rules requires the agent to **pause, correct the non-compliant approach, and re-verify the task systematically**.
+DevMode guides behavior only inside the host tool’s allowed instruction hierarchy and does not outrank higher-level platform, system, developer, safety, or explicit user instructions.
 
 ---
 
@@ -65,62 +50,38 @@ Before making any code changes, perform these checks:
 
 ---
 
-## ⚙️ Execution Gating & Budgeting
+## 🛡️ One Writer At A Time
 
-### 1. Mode Gate
-Classify the task before taking any action:
-- **Read-only mode**: audit, review, investigate, explain, plan, summarize, or unclear write permission. **Do not edit, stage, commit, or create files.** Use targeted searches and compact findings only.
-- **Implementation mode**: fix, build, update, apply, or explicit permission to edit. Edit only relevant files, run targeted verification, and commit only when permitted and verification passes.
-
-*If write permission is ambiguous, ask one blocking question or stay read-only.*
-
-### 2. Token Budget (Always On)
-- Search before broad reads.
-- Target specific sections before opening full files.
-- No repeated context, transcript bloat, or summaries.
-- No ceremonial progress narration or skill-loading announcements.
-- Stop when the next safe action is obvious.
-
-### 3. One Writer At A Time
-Only one agent may edit files at a time. Other agents may review, inspect, or plan. The worktree must be clean before switching writers.
+Only one developer agent may edit files in the repository at a time. Other agents may review, inspect, or plan in a read-only capacity. The worktree must be clean and verified before switching active writers.
 
 ---
 
-## 🔍 Verification & Handoff Protocols
+## 🤫 Silent Work Mode
 
-### 1. Verification Before Completion
-Never claim done or complete without running verification commands and reading the actual output. **Evidence before assertions always.**
+Operate silently without narration or progress commentary. Speak only to ask a blocking question, report a verification failure, or document a risk that changes the next safe action.
 
-### 2. Silent Work Mode
-Run DevMode silently. Use skills internally. Do not narrate the workflow. Avoid phrases like *"I'll..."*, *"I'm going to..."*, *"Let me..."*, *"Completed..."*. Only speak when:
-- Asking a blocking question.
-- Reporting the final result.
-- Reporting a verification failure.
-- Reporting a risk that changes the next safe action.
+---
 
-### 3. Handoff Format
-Every handoff or task completion report must use this format:
+## Standard Handoff Format
 
-```markdown
+Every task completion report, status update, or shift handoff must use the standard headings defined in [docs/handoff-template.md](docs/handoff-template.md). Keep handoffs short enough to paste into a new chat without dragging the entire previous conversation forward.
+
 ## Status
+
 [complete | in-progress | blocked | needs-review | failed]
 
 ## Files Changed
-- path/to/file (what changed)
+
+- path/to/file (summary of what changed)
 
 ## Verification
-- `command run`: pass/fail + result
+
+- `command run`: pass/fail + actual output logs
 
 ## Risks
-- Known issues or limitations
+
+- Specific technical risks, limitations, or side-effects
 
 ## Next Safe Action
-- The single next thing to do
-```
 
----
-
-## 📦 Skill Reference
-
-Specialized disciplines live under [skills/](file:///Users/jewelbait/Desktop/Local%20AI%20Dev%20Team/skills) and [.agent/skills/](file:///Users/jewelbait/Desktop/Local%20AI%20Dev%20Team/.agent/skills).
-Each skill has a `SKILL.md` with YAML metadata for auto-discovery. See `devmode:using-devmode` for the master bootstrap.
+- The single, concrete next action to take

@@ -37,3 +37,16 @@ def workspaces_dir(root: Path) -> Path:
 
 def workspace_path(root: Path, task_id: str) -> Path:
     return workspaces_dir(root) / task_id
+
+
+def relative_path(root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def absolute_path(root: Path, path: str) -> Path:
+    value = Path(path)
+    return value if value.is_absolute() else root / value
+
