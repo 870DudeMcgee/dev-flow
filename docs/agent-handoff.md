@@ -15,6 +15,10 @@ Active source of truth:
 - [docs/control-room-mvp.md](control-room-mvp.md)
 - [docs/roadmap.md](roadmap.md)
 - [README.md](../README.md)
+- [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
+- [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
+- [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+
 
 Archive index:
 

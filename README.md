@@ -74,6 +74,20 @@ Harness-specific files should route agents to the contract instead of duplicatin
 
 ---
 
+## DevMode vs Dev-Flow
+
+DevMode is the portable discipline layer for agent behavior.
+Dev-Flow is the local-first control room that owns task state, worker isolation, verification evidence, and human-controlled promotion.
+
+See [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md).
+
+For the complete operating structure, see:
+- [docs/devflow-operating-model.md](docs/devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
+- [docs/read-only-control-room-agent.md](docs/read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
+- [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+
+---
+
 ## 📦 Skill Inventory by Gate
 
 DevMode includes a curated library of **20 specialized skills** organized under the four operational gates:

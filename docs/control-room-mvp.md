@@ -9,6 +9,12 @@ The long-term product North Star lives at [PRODUCT_NORTH_STAR.md](../PRODUCT_NOR
 
 This document is the near-term MVP authority: it narrows the North Star into the first production-worthy control-room slice. The current frozen command, filesystem, and safety contract lives at [docs/mvp-contract.md](mvp-contract.md).
 
+For details on the project's design and boundaries:
+- [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
+- [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
+- [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+
+
 ## Product Direction
 
 Dev-Flow is being rebuilt as a local-first control room for parallel AI coding workers.

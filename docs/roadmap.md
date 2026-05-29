@@ -19,6 +19,12 @@ Frozen MVP contract: [docs/mvp-contract.md](mvp-contract.md)
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
+Operating Model Boundaries:
+- [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
+- [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
+- [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+
+
 Legacy archive: [docs/archive/legacy-devflow-software-factory-2026-05-27/README.md](archive/legacy-devflow-software-factory-2026-05-27/README.md)
 
 ## Phase 0: Documentation Reset
@@ -139,6 +145,18 @@ Acceptance:
 - `summary.json` is derived/cache only
 - packet generation is read-only and file-based
 - Codex is not wired in
+
+## Future Phase: Read-Only Supervisor / Control-Room Agent
+
+Goal: allow a main chat or supervisor agent to inspect Dev-Flow state, draft task specs, review worker evidence, and recommend promotion without mutating repo files or bypassing Dev-Flow state.
+
+Status: design only.
+
+Acceptance:
+- supervisor can inspect status and artifacts read-only
+- supervisor can propose task specs
+- supervisor can review worker handoffs
+- supervisor cannot directly edit, commit, push, merge, or mutate task state outside explicit Dev-Flow commands
 
 > [!IMPORTANT]
 > **Next Priority**: Return focus back to the frozen shell-worker MVP: task lifecycle, workspace isolation, CLI visibility, verification, and future merge readiness.
