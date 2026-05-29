@@ -19,6 +19,21 @@ TaskStatus = Literal[
     "promoted",
 ]
 
+WorkerPermissionMode = Literal[
+    "read_only",
+    "workspace_write",
+    "verify_only",
+    "promotion_candidate",
+]
+
+ALLOWED_PERMISSION_MODES: list[WorkerPermissionMode] = [
+    "read_only",
+    "workspace_write",
+    "verify_only",
+    "promotion_candidate",
+]
+
+
 
 class TaskRecord(BaseModel):
     id: str
