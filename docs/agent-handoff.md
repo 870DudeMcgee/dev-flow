@@ -26,6 +26,17 @@ Dev-Flow is not the main coding brain. It coordinates replaceable workers and ow
 
 The frozen MVP is a non-AI shell-worker contract with task creation, shell execution, verification, listing, and inspection.
 
+## Code Architecture Boundary
+
+The repository enforces a strict boundary between active and legacy code. Future agents must respect these rules:
+
+1. **Active Core (`src/devflow/control_room/`):** This is the ONLY authoritative directory for active product code. All new control-room logic, features, and active implementations must be built here.
+2. **Quarantined Legacy (`src/devflow/_legacy/`):** All legacy software-factory modules, runners, evaluators, memory systems, and agents are quarantined here. **New features or code changes must NEVER be added to this directory.**
+3. **Compatibility Shims (top-level `src/devflow/*.py`):** These shims exist strictly to satisfy legacy import paths and tests. They dynamically proxy to legacy modules using `sys.modules[__name__] = _legacy_module`. They are temporary compatibility bridges; active control-room code must never import or depend on them.
+4. **Canonical State:** The canonical runtime state of Dev-Flow is stored strictly as filesystem artifacts (e.g. `task.yaml`, `events.jsonl`, and task logs), NOT in memory, databases, or legacy summaries.
+
+
+
 Normal local development install:
 
 ```bash

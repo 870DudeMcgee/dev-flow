@@ -4,6 +4,14 @@ Dev-Flow is being rebuilt as a local-first control room for parallel AI coding w
 
 The current product direction is intentionally smaller than the previous software-factory design. Dev-Flow should coordinate replaceable workers, not become the worker itself.
 
+## Active Code Boundary
+
+> [!IMPORTANT]
+> **Active Code Directory**: All new features and control-room logic must be developed strictly inside `src/devflow/control_room/`.
+> **Legacy Quarantine**: Legacy software-factory modules reside in `src/devflow/_legacy/`. **Do NOT edit, extend, or build new features in `_legacy/`.**
+> **Compatibility Bridges**: Top-level `src/devflow/*.py` files are shims to preserve old import paths and must not be imported by active code.
+> Detailed documentation is maintained in [docs/agent-handoff.md](docs/agent-handoff.md).
+
 ## Active Source Of Truth
 
 - [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) defines the product identity, end-state, and drift checks for implementation decisions.
