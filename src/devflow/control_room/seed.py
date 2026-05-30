@@ -1,0 +1,445 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+BOOTSTRAP_GOAL = "bootstrap-devflow-filesystem"
+
+REQUIRED_SUCCESS_CRITERIA = [
+    "project-context-exists",
+    "context-classification-exists",
+    "layered-context-exists",
+    "bootstrap-goal-exists",
+    "registries-exist",
+    "locks-explained",
+    "reports-marked-derived",
+    "docs-reference-structure",
+]
+
+DIRECTORIES = [
+    ".devflow/project",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/tasks",
+    ".devflow/context/active",
+    ".devflow/context/reference",
+    ".devflow/context/archived",
+    ".devflow/context/deprecated",
+    ".devflow/context/rejected",
+    ".devflow/layers/product",
+    ".devflow/layers/architecture",
+    ".devflow/layers/implementation",
+    ".devflow/layers/verification",
+    ".devflow/layers/operations",
+    ".devflow/workers/profiles",
+    ".devflow/models",
+    ".devflow/locks",
+    ".devflow/reports/daily",
+    ".devflow/reports/task-summaries",
+    ".devflow/reports/model-scorecards",
+    ".devflow/archive/superseded",
+    ".devflow/archive/experiments",
+    ".devflow/archive/old-plans",
+    ".devflow/tasks",
+]
+
+JSONL_FILES = [
+    ".devflow/project/decisions.jsonl",
+    ".devflow/project/open-questions.jsonl",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/events.jsonl",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/questions.jsonl",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/decisions.jsonl",
+    ".devflow/layers/architecture/decisions.jsonl",
+    ".devflow/models/scoreboard.jsonl",
+]
+
+JSON_FILES = [
+    f".devflow/goals/{BOOTSTRAP_GOAL}/success.json",
+]
+
+SEED_FILES = {
+    ".devflow/project/project.yaml": """id: devflow
+name: Dev-Flow
+status: rebuilding_control_room
+purpose: "Local-first control room for parallel AI coding workers."
+canonical_state_note: "Machine-readable runtime and planning state lives under .devflow/project, .devflow/goals, .devflow/tasks, and related YAML/JSON/JSONL files."
+current_active_goal: bootstrap-devflow-filesystem
+authority_note: "Human instructions and active source-of-truth docs outrank derived reports. Reports and summaries are useful evidence, not canonical authority."
+source_documents:
+  - PRODUCT_NORTH_STAR.md
+  - docs/mvp-contract.md
+  - docs/control-room-mvp.md
+  - docs/devflow-control-loop-contracts.md
+""",
+    ".devflow/project/vision.md": """# Vision
+
+Dev-Flow is a local-first control room for parallel AI coding workers.
+""",
+    ".devflow/project/current-state.md": """# Current State
+
+Status: rebuilding the control-room MVP around filesystem state, shell workers, isolated workspaces, verification, and human-controlled promotion.
+""",
+    ".devflow/project/architecture.md": """# Architecture
+
+Dev-Flow owns durable state, workspaces, locks, status, logs, reports, verification, and merge readiness. Workers are replaceable executors.
+""",
+    ".devflow/project/glossary.md": """# Glossary
+
+- Control room: Dev-Flow's local-first coordination layer.
+- Worker: A replaceable executor such as the current shell worker.
+- Canonical state: Machine-readable YAML, JSON, and JSONL files that define current truth.
+""",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/goal.yaml": f"""id: {BOOTSTRAP_GOAL}
+status: active
+objective: "Establish the initial Dev-Flow filesystem/context structure and align documentation with the control-loop architecture."
+constraints:
+  - preserve existing repository content
+  - avoid broad refactors
+  - do not implement autonomous runners, model routing, dashboards, or swarm behavior
+  - keep canonical state machine-readable
+  - keep Markdown concise and orienting
+  - classify stale, deprecated, rejected, and archived context instead of deleting history
+success_criteria:
+  - id: project-context-exists
+    description: ".devflow/project/ exists with project orientation files."
+    verification:
+      type: file_exists
+      path: .devflow/project/project.yaml
+  - id: context-classification-exists
+    description: ".devflow/context/ separates active, reference, archived, deprecated, and rejected material."
+    verification:
+      type: file_exists
+      path: .devflow/context/active/README.md
+  - id: layered-context-exists
+    description: ".devflow/layers/ contains product, architecture, implementation, verification, and operations layers."
+    verification:
+      type: file_exists
+      path: .devflow/layers/architecture/contracts.md
+  - id: bootstrap-goal-exists
+    description: "The bootstrap filesystem goal exists with canonical goal files."
+    verification:
+      type: file_exists
+      path: .devflow/goals/bootstrap-devflow-filesystem/goal.yaml
+  - id: registries-exist
+    description: "Model and worker registries exist as schema-oriented placeholders."
+    verification:
+      type: file_exists
+      path: .devflow/workers/registry.yaml
+  - id: locks-explained
+    description: ".devflow/locks/ explains lock purpose without creating live lock state."
+    verification:
+      type: file_exists
+      path: .devflow/locks/README.md
+  - id: reports-marked-derived
+    description: "Reports are clearly marked as non-authoritative derived material."
+    verification:
+      type: file_exists
+      path: .devflow/reports/README.md
+  - id: docs-reference-structure
+    description: "Repository docs reference the seeded .devflow structure."
+    verification:
+      type: file_contains
+      path: docs/devflow-control-loop-contracts.md
+      text: "The initial repository seed for this structure lives under `.devflow/`."
+iteration_policy:
+  max_attempts_per_task: 3
+  escalate_after_failures: 3
+  require_verification: true
+  require_human_completion_approval: true
+""",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/status.md": """# Status
+
+Status: active
+
+The bootstrap filesystem/context structure exists and can be repaired by `devflow init`.
+""",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/success.json": json.dumps(
+        {
+            "goal_id": BOOTSTRAP_GOAL,
+            "status": "pending",
+            "criteria": [
+                {"id": criteria_id, "status": "pending"}
+                for criteria_id in REQUIRED_SUCCESS_CRITERIA
+            ],
+        },
+        indent=2,
+    )
+    + "\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/active.md": "# Active Context\n\nUse the control-room MVP docs as current authority.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/relevant-files.md": "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n- docs/mvp-contract.md\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/constraints.md": "# Constraints\n\nKeep changes focused on shell-worker control-room behavior and durable filesystem state.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/deferred-ideas.md": "# Deferred Ideas\n\nAI adapters, model routing, dashboards, databases, and autonomous control loops remain deferred.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/rejected-ideas.md": "# Rejected Ideas\n\nDo not revive legacy software-factory ceremonies as process authority.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/tasks/README.md": "# Goal Tasks\n\nTask references for this goal live here when needed.\n",
+    ".devflow/context/active/README.md": "# Active Context\n\nCurrent guidance promoted for use by workers.\n",
+    ".devflow/context/reference/README.md": "# Reference Context\n\nUseful background that is not current canonical state.\n",
+    ".devflow/context/archived/README.md": "# Archived Context\n\nHistorical material preserved for audit, not active instruction.\n",
+    ".devflow/context/deprecated/README.md": "# Deprecated Context\n\nSuperseded guidance that should not drive new work.\n",
+    ".devflow/context/rejected/README.md": "# Rejected Context\n\nIdeas explicitly rejected so they are not rediscovered as current plans.\n",
+    ".devflow/layers/product/vision.md": "# Product Vision\n\nA local-first control room for parallel AI coding workers.\n",
+    ".devflow/layers/product/user-problems.md": "# User Problems\n\nParallel AI coding work needs visibility, isolation, recoverability, and reviewable results.\n",
+    ".devflow/layers/product/success-metrics.md": "# Success Metrics\n\nShell-worker tasks can be created, run, verified, listed, shown, and reviewed without mutating the main checkout.\n",
+    ".devflow/layers/architecture/system-map.md": "# System Map\n\nFilesystem state is the source of truth. CLI commands operate on tasks, workspaces, logs, verification, and reports.\n",
+    ".devflow/layers/architecture/boundaries.md": "# Boundaries\n\nDev-Flow is not a model wrapper, coding agent, dashboard-first product, or legacy workflow ceremony.\n",
+    ".devflow/layers/architecture/state-model.md": "# State Model\n\nCanonical state lives in YAML, JSON, and JSONL files. Derived reports are non-authoritative.\n",
+    ".devflow/layers/architecture/contracts.md": """# Contracts
+
+Active contracts:
+
+- [../../../docs/mvp-contract.md](../../../docs/mvp-contract.md) freezes the current shell-worker MVP behavior.
+- [../../../docs/devflow-control-loop-contracts.md](../../../docs/devflow-control-loop-contracts.md) describes the durable control-loop architecture and target filesystem/context shape.
+
+When these contracts disagree, prefer the frozen MVP for current runtime behavior and the control-loop document for the next architecture target.
+""",
+    ".devflow/layers/implementation/current-slice.md": "# Current Slice\n\nKeep the shell-worker MVP stable while making the seeded filesystem contract reproducible.\n",
+    ".devflow/layers/implementation/file-map.md": "# File Map\n\n- src/devflow/control_room/: control-room runtime services.\n- tests/: focused behavior tests.\n",
+    ".devflow/layers/implementation/known-gaps.md": "# Known Gaps\n\nMerge readiness is still human-controlled. AI adapters and scheduling remain out of scope.\n",
+    ".devflow/layers/implementation/active-constraints.md": "# Active Constraints\n\nAvoid broad rewrites, databases, dashboards, and model routing in this slice.\n",
+    ".devflow/layers/verification/verification-strategy.md": "# Verification Strategy\n\nPrefer focused pytest coverage and shell-worker acceptance checks.\n",
+    ".devflow/layers/verification/commands.md": "# Verification Commands\n\n- .venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
+    ".devflow/layers/verification/known-failures.md": "# Known Failures\n\nRecord current known failures here when they are validated.\n",
+    ".devflow/layers/operations/workflow.md": "# Workflow\n\nUse small, verifiable changes against the active control-room MVP.\n",
+    ".devflow/layers/operations/agent-coordination.md": "# Agent Coordination\n\nWorkers should operate from bounded task context and isolated workspaces.\n",
+    ".devflow/layers/operations/recovery.md": "# Recovery\n\nFailures should leave clear logs, status, and next actions.\n",
+    ".devflow/layers/operations/promotion.md": "# Promotion\n\nHumans control promotion to the main checkout.\n",
+    ".devflow/workers/registry.yaml": """version: 1
+authority: "Placeholder registry for worker definitions. No worker availability is claimed until a future command or human registers one."
+permission_modes:
+  - read_only
+  - review_only
+  - test_only
+  - workspace_write
+  - verify_only
+workers: []
+schema_intent:
+  worker_id: "Stable worker identifier."
+  kind: "Execution adapter kind, such as shell, codex, aider, or local_model."
+  profile: "Permission and resource profile under .devflow/workers/profiles/."
+  enabled: "Whether Dev-Flow may consider the worker available."
+""",
+    ".devflow/workers/profiles/README.md": "# Worker Profiles\n\nFuture worker permission profiles live here.\n",
+    ".devflow/models/registry.yaml": """version: 1
+authority: "Placeholder registry for model metadata. No model availability or quality claim is recorded here yet."
+models: []
+schema_intent:
+  model_id: "Stable model identifier."
+  provider: "Provider or runtime, such as local, OpenAI, Anthropic, or other future adapters."
+  intended_use: "Planner, implementer, reviewer, debugger, or other bounded role."
+  enabled: "Whether Dev-Flow may consider the model available."
+  notes: "Human-readable constraints or setup notes."
+""",
+    ".devflow/locks/README.md": "# Locks\n\nLive lock files will coordinate write ownership. No live locks are seeded by default.\n",
+    ".devflow/reports/README.md": """# Reports
+
+Reports are derived summaries generated from canonical state and evidence.
+
+Reports are useful for review and orientation, but they are never authoritative. If a report disagrees with YAML, JSON, JSONL, events, logs, or verification artifacts, the canonical files win.
+""",
+    ".devflow/reports/daily/README.md": "# Daily Reports\n\nDerived daily summaries live here.\n",
+    ".devflow/reports/task-summaries/README.md": "# Task Summaries\n\nDerived task summaries live here.\n",
+    ".devflow/reports/model-scorecards/README.md": "# Model Scorecards\n\nDerived model scorecards live here.\n",
+    ".devflow/archive/README.md": "# Archive\n\nHistorical material lives here and is not active instruction.\n",
+    ".devflow/archive/superseded/README.md": "# Superseded\n\nSuperseded context lives here.\n",
+    ".devflow/archive/experiments/README.md": "# Experiments\n\nExperimental notes live here.\n",
+    ".devflow/archive/old-plans/README.md": "# Old Plans\n\nOld plans live here.\n",
+    ".devflow/tasks/README.md": "# Tasks\n\nRuntime task directories live here.\n",
+}
+
+
+def initialize_seed(root: Path) -> None:
+    for directory in DIRECTORIES:
+        (root / directory).mkdir(parents=True, exist_ok=True)
+
+    for path, content in SEED_FILES.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_text(content, encoding="utf-8")
+
+    for path in JSONL_FILES:
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch(exist_ok=True)
+
+
+def validate_seed_contract(root: Path) -> list[str]:
+    errors: list[str] = []
+
+    for directory in DIRECTORIES:
+        path = root / directory
+        if not path.is_dir():
+            errors.append(f"{directory}: missing directory")
+
+    for path in SEED_FILES:
+        target = root / path
+        if not target.is_file():
+            errors.append(f"{path}: missing file")
+
+    for path in JSONL_FILES:
+        target = root / path
+        if not target.is_file():
+            errors.append(f"{path}: missing file")
+            continue
+        _validate_jsonl(path, target, errors)
+
+    for path in JSON_FILES:
+        target = root / path
+        if not target.is_file():
+            errors.append(f"{path}: missing file")
+            continue
+        _validate_json(path, target, errors)
+
+    _validate_project_yaml(root / ".devflow/project/project.yaml", errors)
+    _validate_goal_yaml(root / f".devflow/goals/{BOOTSTRAP_GOAL}/goal.yaml", errors)
+    _validate_empty_registry(root / ".devflow/workers/registry.yaml", "workers", errors)
+    _validate_empty_registry(root / ".devflow/models/registry.yaml", "models", errors)
+    _validate_reports_readme(root / ".devflow/reports/README.md", errors)
+    return errors
+
+
+def _validate_json(display_path: str, path: Path, errors: list[str]) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"{display_path}: invalid JSON: {exc.msg}")
+        return
+    if display_path.endswith("/success.json"):
+        if payload.get("goal_id") != BOOTSTRAP_GOAL:
+            errors.append(f"{display_path}: goal_id must be {BOOTSTRAP_GOAL}")
+        if not isinstance(payload.get("criteria"), list) or not payload["criteria"]:
+            errors.append(f"{display_path}: criteria must be a non-empty list")
+
+
+def _validate_jsonl(display_path: str, path: Path, errors: list[str]) -> None:
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"{display_path}:{line_number}: invalid JSONL: {exc.msg}")
+
+
+def _validate_project_yaml(path: Path, errors: list[str]) -> None:
+    display_path = ".devflow/project/project.yaml"
+    if not path.exists():
+        return
+    data = _read_simple_yaml_map(path)
+    for key in ("id", "name", "status", "purpose", "current_active_goal", "source_documents"):
+        if key not in data:
+            errors.append(f"{display_path}: missing {key}")
+    if data.get("id") != "devflow":
+        errors.append(f"{display_path}: id must be devflow")
+    if data.get("current_active_goal") != BOOTSTRAP_GOAL:
+        errors.append(f"{display_path}: current_active_goal must be {BOOTSTRAP_GOAL}")
+    if not isinstance(data.get("source_documents"), list) or not data["source_documents"]:
+        errors.append(f"{display_path}: source_documents must be a non-empty list")
+
+
+def _validate_goal_yaml(path: Path, errors: list[str]) -> None:
+    display_path = f".devflow/goals/{BOOTSTRAP_GOAL}/goal.yaml"
+    if not path.exists():
+        return
+    data = _read_simple_yaml_map(path)
+    for key in ("id", "status", "objective", "constraints", "success_criteria", "iteration_policy"):
+        if key not in data:
+            errors.append(f"{display_path}: missing {key}")
+    if data.get("id") != BOOTSTRAP_GOAL:
+        errors.append(f"{display_path}: id must be {BOOTSTRAP_GOAL}")
+    if not isinstance(data.get("constraints"), list) or not data["constraints"]:
+        errors.append(f"{display_path}: constraints must be a non-empty list")
+    if not isinstance(data.get("success_criteria"), list) or not data["success_criteria"]:
+        errors.append(f"{display_path}: success_criteria must be a non-empty list")
+    else:
+        criteria_ids = set()
+        for item in data["success_criteria"]:
+            if isinstance(item, dict):
+                criteria_ids.add(item.get("id"))
+            elif isinstance(item, str) and item.startswith("id:"):
+                criteria_ids.add(_strip_yaml_quotes(item.split(":", 1)[1].strip()))
+        missing_ids = [item for item in REQUIRED_SUCCESS_CRITERIA if item not in criteria_ids]
+        if missing_ids:
+            errors.append(
+                f"{display_path}: missing success_criteria ids: {', '.join(missing_ids)}"
+            )
+
+
+def _validate_empty_registry(path: Path, list_key: str, errors: list[str]) -> None:
+    display_path = f".devflow/{'workers' if list_key == 'workers' else 'models'}/registry.yaml"
+    if not path.exists():
+        return
+    data = _read_simple_yaml_map(path)
+    if data.get("version") != 1:
+        errors.append(f"{display_path}: version must be 1")
+    if data.get(list_key) != []:
+        errors.append(f"{display_path}: {list_key} must be an empty placeholder list")
+    authority = str(data.get("authority", "")).lower()
+    if list_key == "workers" and "no worker availability is claimed" not in authority:
+        errors.append(f"{display_path}: authority must avoid worker availability claims")
+    if list_key == "models" and "no model availability" not in authority:
+        errors.append(f"{display_path}: authority must avoid model availability claims")
+    if not isinstance(data.get("schema_intent"), dict) or not data["schema_intent"]:
+        errors.append(f"{display_path}: schema_intent must be a non-empty map")
+
+
+def _validate_reports_readme(path: Path, errors: list[str]) -> None:
+    display_path = ".devflow/reports/README.md"
+    if not path.exists():
+        return
+    content = path.read_text(encoding="utf-8").lower()
+    if "derived" not in content or "never authoritative" not in content:
+        errors.append(f"{display_path}: reports must be marked derived and never authoritative")
+
+
+def _read_simple_yaml_map(path: Path) -> dict[str, object]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    data: dict[str, object] = {}
+    current_key: str | None = None
+
+    for raw_line in lines:
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        if not raw_line.startswith(" ") and ":" in raw_line:
+            key, value = raw_line.split(":", 1)
+            current_key = key.strip()
+            data[current_key] = _parse_simple_yaml_value(value.strip())
+            continue
+        if current_key and raw_line.startswith("  - "):
+            existing = data.setdefault(current_key, [])
+            if not isinstance(existing, list):
+                existing = []
+                data[current_key] = existing
+            existing.append(_strip_yaml_quotes(raw_line.strip()[2:].strip()))
+            continue
+        if current_key and raw_line.startswith("  ") and ":" in raw_line:
+            existing_map = data.setdefault(current_key, {})
+            if isinstance(existing_map, list):
+                continue
+            if not isinstance(existing_map, dict):
+                existing_map = {}
+                data[current_key] = existing_map
+            key, value = raw_line.strip().split(":", 1)
+            existing_map[key.strip()] = _parse_simple_yaml_value(value.strip())
+
+    return data
+
+
+def _parse_simple_yaml_value(value: str) -> object:
+    if value == "":
+        return {}
+    if value == "[]":
+        return []
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        return _strip_yaml_quotes(value)
+
+
+def _strip_yaml_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value

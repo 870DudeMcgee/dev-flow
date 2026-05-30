@@ -1,0 +1,72 @@
+{
+  "goal_id": "bootstrap-devflow-filesystem",
+  "status": "verified_awaiting_human_review",
+  "criteria": [
+    {
+      "id": "project-context-exists",
+      "status": "passed",
+      "evidence": [
+        ".devflow/project/project.yaml"
+      ]
+    },
+    {
+      "id": "context-classification-exists",
+      "status": "passed",
+      "evidence": [
+        ".devflow/context/active/README.md",
+        ".devflow/context/reference/README.md",
+        ".devflow/context/archived/README.md",
+        ".devflow/context/deprecated/README.md",
+        ".devflow/context/rejected/README.md"
+      ]
+    },
+    {
+      "id": "layered-context-exists",
+      "status": "passed",
+      "evidence": [
+        ".devflow/layers/product/vision.md",
+        ".devflow/layers/architecture/contracts.md",
+        ".devflow/layers/implementation/current-slice.md",
+        ".devflow/layers/verification/verification-strategy.md",
+        ".devflow/layers/operations/workflow.md"
+      ]
+    },
+    {
+      "id": "bootstrap-goal-exists",
+      "status": "passed",
+      "evidence": [
+        ".devflow/goals/bootstrap-devflow-filesystem/goal.yaml"
+      ]
+    },
+    {
+      "id": "registries-exist",
+      "status": "passed",
+      "evidence": [
+        ".devflow/workers/registry.yaml",
+        ".devflow/models/registry.yaml"
+      ]
+    },
+    {
+      "id": "locks-explained",
+      "status": "passed",
+      "evidence": [
+        ".devflow/locks/README.md"
+      ]
+    },
+    {
+      "id": "reports-marked-derived",
+      "status": "passed",
+      "evidence": [
+        ".devflow/reports/README.md"
+      ]
+    },
+    {
+      "id": "docs-reference-structure",
+      "status": "passed",
+      "evidence": [
+        "docs/devflow-control-loop-contracts.md",
+        "README.md"
+      ]
+    }
+  ]
+}

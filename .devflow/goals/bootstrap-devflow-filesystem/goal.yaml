@@ -1,0 +1,57 @@
+id: bootstrap-devflow-filesystem
+status: active
+objective: "Establish the initial Dev-Flow filesystem/context structure and align documentation with the control-loop architecture."
+constraints:
+  - preserve existing repository content
+  - avoid broad refactors
+  - do not implement autonomous runners, model routing, dashboards, or swarm behavior
+  - keep canonical state machine-readable
+  - keep Markdown concise and orienting
+  - classify stale, deprecated, rejected, and archived context instead of deleting history
+success_criteria:
+  - id: project-context-exists
+    description: ".devflow/project/ exists with project orientation files."
+    verification:
+      type: file_exists
+      path: .devflow/project/project.yaml
+  - id: context-classification-exists
+    description: ".devflow/context/ separates active, reference, archived, deprecated, and rejected material."
+    verification:
+      type: file_exists
+      path: .devflow/context/active/README.md
+  - id: layered-context-exists
+    description: ".devflow/layers/ contains product, architecture, implementation, verification, and operations layers."
+    verification:
+      type: file_exists
+      path: .devflow/layers/architecture/contracts.md
+  - id: bootstrap-goal-exists
+    description: "The bootstrap filesystem goal exists with canonical goal files."
+    verification:
+      type: file_exists
+      path: .devflow/goals/bootstrap-devflow-filesystem/goal.yaml
+  - id: registries-exist
+    description: "Model and worker registries exist as schema-oriented placeholders."
+    verification:
+      type: file_exists
+      path: .devflow/workers/registry.yaml
+  - id: locks-explained
+    description: ".devflow/locks/ explains lock purpose without creating live lock state."
+    verification:
+      type: file_exists
+      path: .devflow/locks/README.md
+  - id: reports-marked-derived
+    description: "Reports are clearly marked as non-authoritative derived material."
+    verification:
+      type: file_exists
+      path: .devflow/reports/README.md
+  - id: docs-reference-structure
+    description: "Repository docs reference the seeded .devflow structure."
+    verification:
+      type: file_contains
+      path: docs/devflow-control-loop-contracts.md
+      text: "The initial repository seed for this structure lives under `.devflow/`."
+iteration_policy:
+  max_attempts_per_task: 3
+  escalate_after_failures: 3
+  require_verification: true
+  require_human_completion_approval: true

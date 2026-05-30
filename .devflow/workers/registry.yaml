@@ -1,0 +1,14 @@
+version: 1
+authority: "Placeholder registry for worker definitions. No worker availability is claimed until a future command or human registers one."
+permission_modes:
+  - read_only
+  - review_only
+  - test_only
+  - workspace_write
+  - verify_only
+workers: []
+schema_intent:
+  worker_id: "Stable worker identifier."
+  kind: "Execution adapter kind, such as shell, codex, aider, or local_model."
+  profile: "Permission and resource profile under .devflow/workers/profiles/."
+  enabled: "Whether Dev-Flow may consider the worker available."

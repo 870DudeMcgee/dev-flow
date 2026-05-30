@@ -19,6 +19,7 @@ from devflow.control_room.persistence import (
     save_task,
     utc_now,
 )
+from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
 
 
 def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
@@ -108,8 +109,9 @@ def main_checkout_has_uncommitted_changes(root: Path) -> bool:
 
 def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions: bool = False) -> TaskRecord:
     task = get_task(root, task_id)
-    if task.status != "verified":
-        raise ValueError(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.")
+    task_path = task_dir(root, task_id)
+    if promotion_readiness_errors(task, task_path):
+        raise ValueError(format_promotion_refusal(task, task_path))
 
     # Double check dirty repository status to ensure safety
     if not force and main_checkout_has_uncommitted_changes(root):

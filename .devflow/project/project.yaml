@@ -1,0 +1,12 @@
+id: devflow
+name: Dev-Flow
+status: rebuilding_control_room
+purpose: "Local-first control room for parallel AI coding workers."
+canonical_state_note: "Machine-readable runtime and planning state lives under .devflow/project, .devflow/goals, .devflow/tasks, and related YAML/JSON/JSONL files."
+current_active_goal: bootstrap-devflow-filesystem
+authority_note: "Human instructions and active source-of-truth docs outrank derived reports. Reports and summaries are useful evidence, not canonical authority."
+source_documents:
+  - PRODUCT_NORTH_STAR.md
+  - docs/mvp-contract.md
+  - docs/control-room-mvp.md
+  - docs/devflow-control-loop-contracts.md
