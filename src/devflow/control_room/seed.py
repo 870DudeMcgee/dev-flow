@@ -57,6 +57,13 @@ JSON_FILES = [
     f".devflow/goals/{BOOTSTRAP_GOAL}/success.json",
 ]
 
+IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER = (
+    "<!-- devflow:context-contract implementation-known-gaps@1 -->"
+)
+IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER = (
+    "<!-- devflow:context-contract implementation-current-slice@1 -->"
+)
+
 SEED_FILES = {
     ".devflow/project/project.yaml": """id: devflow
 name: Dev-Flow
@@ -191,9 +198,9 @@ Active contracts:
 
 When these contracts disagree, prefer the frozen MVP for current runtime behavior and the control-loop document for the next architecture target.
 """,
-    ".devflow/layers/implementation/current-slice.md": "# Current Slice\n\nKeep the shell-worker MVP stable while making the seeded filesystem contract reproducible.\n",
+    ".devflow/layers/implementation/current-slice.md": f"# Current Slice\n\n{IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER}\n\nKeep the shell-worker MVP stable while making seeded filesystem context current, detectable, and congruent with runtime seed validation.\n",
     ".devflow/layers/implementation/file-map.md": "# File Map\n\n- src/devflow/control_room/: control-room runtime services.\n- tests/: focused behavior tests.\n",
-    ".devflow/layers/implementation/known-gaps.md": "# Known Gaps\n\nMerge readiness is still human-controlled. AI adapters and scheduling remain out of scope.\n",
+    ".devflow/layers/implementation/known-gaps.md": f"# Known Gaps\n\n{IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER}\n\nMerge readiness is still human-controlled. AI adapters and scheduling remain out of scope.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
     ".devflow/layers/implementation/active-constraints.md": "# Active Constraints\n\nAvoid broad rewrites, databases, dashboards, and model routing in this slice.\n",
     ".devflow/layers/verification/verification-strategy.md": "# Verification Strategy\n\nPrefer focused pytest coverage and shell-worker acceptance checks.\n",
     ".devflow/layers/verification/commands.md": "# Verification Commands\n\n- .venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
@@ -245,6 +252,25 @@ Reports are useful for review and orientation, but they are never authoritative.
     ".devflow/tasks/README.md": "# Tasks\n\nRuntime task directories live here.\n",
 }
 
+CONTEXT_CONGRUENCE_RULES = [
+    {
+        "path": ".devflow/layers/implementation/known-gaps.md",
+        "marker": IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER,
+        "forbidden": [
+            "No schema validation exists yet",
+            "No command creates or repairs this structure deterministically",
+        ],
+    },
+    {
+        "path": ".devflow/layers/implementation/current-slice.md",
+        "marker": IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER,
+        "forbidden": [
+            "Current implementation slice: seed the `.devflow/` filesystem/context structure",
+            "No runtime automation is part of this slice.",
+        ],
+    },
+]
+
 
 def initialize_seed(root: Path) -> None:
     for directory in DIRECTORIES:
@@ -294,6 +320,7 @@ def validate_seed_contract(root: Path) -> list[str]:
     _validate_empty_registry(root / ".devflow/workers/registry.yaml", "workers", errors)
     _validate_empty_registry(root / ".devflow/models/registry.yaml", "models", errors)
     _validate_reports_readme(root / ".devflow/reports/README.md", errors)
+    _validate_context_congruence(root, errors)
     return errors
 
 
@@ -389,6 +416,21 @@ def _validate_reports_readme(path: Path, errors: list[str]) -> None:
     content = path.read_text(encoding="utf-8").lower()
     if "derived" not in content or "never authoritative" not in content:
         errors.append(f"{display_path}: reports must be marked derived and never authoritative")
+
+
+def _validate_context_congruence(root: Path, errors: list[str]) -> None:
+    for rule in CONTEXT_CONGRUENCE_RULES:
+        display_path = str(rule["path"])
+        path = root / display_path
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8")
+        marker = str(rule["marker"])
+        if marker not in content:
+            errors.append(f"{display_path}: missing context contract marker: {marker}")
+        for forbidden in rule["forbidden"]:
+            if forbidden in content:
+                errors.append(f"{display_path}: stale context contradicts runtime: {forbidden}")
 
 
 def _read_simple_yaml_map(path: Path) -> dict[str, object]:

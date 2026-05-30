@@ -118,16 +118,62 @@ def test_devflow_init_creates_and_repairs_seed_without_overwriting_user_files() 
             _assert_machine_readable_files(Path.cwd())
             _assert_reports_are_non_authoritative(Path.cwd())
             _assert_registries_make_no_availability_claims(Path.cwd())
+            assert validate_seed_contract(Path.cwd()) == []
 
             project_yaml = Path(".devflow/project/project.yaml")
             user_edited_content = project_yaml.read_text(encoding="utf-8") + "user_note: keep this edit\n"
             project_yaml.write_text(user_edited_content, encoding="utf-8")
+            known_gaps = Path(".devflow/layers/implementation/known-gaps.md")
+            current_slice = Path(".devflow/layers/implementation/current-slice.md")
+            user_edited_known_gaps = (
+                known_gaps.read_text(encoding="utf-8") + "\nUser note: keep this context edit.\n"
+            )
+            user_edited_current_slice = (
+                current_slice.read_text(encoding="utf-8") + "\nUser note: keep this context edit.\n"
+            )
+            known_gaps.write_text(user_edited_known_gaps, encoding="utf-8")
+            current_slice.write_text(user_edited_current_slice, encoding="utf-8")
             Path(".devflow/models/scoreboard.jsonl").unlink()
 
             second = runner.invoke(app, ["init"])
             assert second.exit_code == 0, second.output
             assert project_yaml.read_text(encoding="utf-8") == user_edited_content
+            assert known_gaps.read_text(encoding="utf-8") == user_edited_known_gaps
+            assert current_slice.read_text(encoding="utf-8") == user_edited_current_slice
             assert Path(".devflow/models/scoreboard.jsonl").exists()
+            assert validate_seed_contract(Path.cwd()) == []
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_devflow_init_preserves_stale_context_markdown_and_contract_reports_drift() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            result = runner.invoke(app, ["init"])
+            assert result.exit_code == 0, result.output
+
+            known_gaps = Path(".devflow/layers/implementation/known-gaps.md")
+            stale_known_gaps = (
+                "# Known Gaps\n\n"
+                "- No schema validation exists yet for the seeded `.devflow/` YAML, JSON, and JSONL files.\n"
+            )
+            known_gaps.write_text(stale_known_gaps, encoding="utf-8")
+
+            second = runner.invoke(app, ["init"])
+            assert second.exit_code == 0, second.output
+            assert known_gaps.read_text(encoding="utf-8") == stale_known_gaps
+
+            errors = validate_seed_contract(Path.cwd())
+            assert (
+                ".devflow/layers/implementation/known-gaps.md: missing context contract marker: "
+                "<!-- devflow:context-contract implementation-known-gaps@1 -->"
+            ) in errors
+            assert (
+                ".devflow/layers/implementation/known-gaps.md: stale context contradicts runtime: "
+                "No schema validation exists yet"
+            ) in errors
         finally:
             os.chdir(old_cwd)
 
@@ -161,6 +207,63 @@ def test_seed_schema_validation_reports_contract_drift() -> None:
             os.chdir(old_cwd)
 
 
+def test_seed_context_congruence_reports_stale_known_gaps_claims() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            result = runner.invoke(app, ["init"])
+            assert result.exit_code == 0, result.output
+
+            Path(".devflow/layers/implementation/known-gaps.md").write_text(
+                "# Known Gaps\n\n"
+                "- No schema validation exists yet for the seeded `.devflow/` YAML, JSON, and JSONL files.\n"
+                "- No command creates or repairs this structure deterministically.\n",
+                encoding="utf-8",
+            )
+
+            errors = validate_seed_contract(Path.cwd())
+            assert (
+                ".devflow/layers/implementation/known-gaps.md: stale context contradicts runtime: "
+                "No schema validation exists yet"
+            ) in errors
+            assert (
+                ".devflow/layers/implementation/known-gaps.md: stale context contradicts runtime: "
+                "No command creates or repairs this structure deterministically"
+            ) in errors
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_seed_context_congruence_reports_stale_current_slice_claims() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            result = runner.invoke(app, ["init"])
+            assert result.exit_code == 0, result.output
+
+            Path(".devflow/layers/implementation/current-slice.md").write_text(
+                "# Current Slice\n\n"
+                "Current implementation slice: seed the `.devflow/` filesystem/context structure "
+                "and keep it aligned with the control-loop contracts.\n\n"
+                "No runtime automation is part of this slice.\n",
+                encoding="utf-8",
+            )
+
+            errors = validate_seed_contract(Path.cwd())
+            assert (
+                ".devflow/layers/implementation/current-slice.md: stale context contradicts runtime: "
+                "Current implementation slice: seed the `.devflow/` filesystem/context structure"
+            ) in errors
+            assert (
+                ".devflow/layers/implementation/current-slice.md: stale context contradicts runtime: "
+                "No runtime automation is part of this slice."
+            ) in errors
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_devflow_doctor_reports_seed_schema_drift() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -181,6 +284,28 @@ def test_devflow_doctor_reports_seed_schema_drift() -> None:
             assert doctor.exit_code == 1
             assert "missing: seed contract" in doctor.output
             assert ".devflow/workers/registry.yaml: workers must be an empty placeholder list" in doctor.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_devflow_doctor_reports_stale_seeded_context() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            result = runner.invoke(app, ["init"])
+            assert result.exit_code == 0, result.output
+
+            Path(".devflow/layers/implementation/known-gaps.md").write_text(
+                "# Known Gaps\n\n"
+                "- No schema validation exists yet for the seeded `.devflow/` YAML, JSON, and JSONL files.\n",
+                encoding="utf-8",
+            )
+
+            doctor = runner.invoke(app, ["doctor"])
+            assert doctor.exit_code == 1
+            assert "missing: seed contract" in doctor.output
+            assert ".devflow/layers/implementation/known-gaps.md: stale context contradicts runtime" in doctor.output
         finally:
             os.chdir(old_cwd)
 

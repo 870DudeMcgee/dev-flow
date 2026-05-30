@@ -1,5 +1,5 @@
 # Current Slice
 
-Current implementation slice: seed the `.devflow/` filesystem/context structure and keep it aligned with the control-loop contracts.
+<!-- devflow:context-contract implementation-current-slice@1 -->
 
-No runtime automation is part of this slice.
+Keep the shell-worker MVP stable while making seeded filesystem context current, detectable, and congruent with runtime seed validation.
