@@ -8,8 +8,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devflow.control_room.models import TaskRecord
-from devflow.control_room.paths import relative_path, task_dir
-from devflow.control_room.service import get_task
+from devflow.control_room.paths import relative_path
+from devflow.control_room.status_projection import TaskStatusProjection, build_task_status_projection
 
 _relative = relative_path
 
@@ -53,13 +53,14 @@ class TaskPacket(BaseModel):
 def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, root: Path | None = None) -> TaskPacket:
     repo_root = (root or Path.cwd()).resolve()
     packet_limits = limits or TaskPacketLimits()
-    task = get_task(repo_root, task_id)
-    task_path = task_dir(repo_root, task_id)
+    projection = build_task_status_projection(repo_root, task_id)
+    task = projection.task
+    task_path = projection.task_path
     notes: list[str] = []
 
     summary_data = _read_matching_summary(task_path / "summary.json", task, notes)
     recent_events, omitted_events, malformed_events = _read_recent_events(task_path / "events.jsonl", packet_limits.recent_events_limit, notes)
-    verification = _read_verification(task_path / "verification.json", task, notes)
+    verification = _read_verification(task_path / "verification.json", task, projection, notes)
     worker_log = _tail_log(
         repo_root,
         task_path / "logs" / "worker.log",
@@ -202,14 +203,19 @@ def _read_recent_events(path: Path, limit: int, notes: list[str]) -> tuple[list[
     return recent_events, omitted_events, malformed_lines
 
 
-def _read_verification(path: Path, task: TaskRecord, notes: list[str]) -> dict[str, Any]:
+def _read_verification(
+    path: Path,
+    task: TaskRecord,
+    projection: TaskStatusProjection,
+    notes: list[str],
+) -> dict[str, Any]:
     fallback = {
         "task_id": task.id,
-        "status": task.verification_status,
+        "status": projection.verification_status,
         "task_status": task.status,
-        "exit_code": task.verification_exit_code,
-        "log_path": task.verification_log_path,
-        "command": task.verification_command,
+        "exit_code": projection.verification_exit_code,
+        "log_path": projection.verification_log_path,
+        "command": projection.verification_command,
         "latest_log_line": task.latest_log_line,
     }
     if not path.exists():
@@ -225,7 +231,7 @@ def _read_verification(path: Path, task: TaskRecord, notes: list[str]) -> dict[s
     if data.get("task_id") not in (None, task.id):
         notes.append("verification.json task_id did not match task.yaml; task.yaml verification fields were used.")
         return fallback
-    return data
+    return {**fallback, **data}
 
 
 def _tail_log(repo_root: Path, path: Path, label: str, line_limit: int, byte_limit: int, notes: list[str]) -> TaskPacketLog:

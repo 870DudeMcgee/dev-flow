@@ -11,11 +11,11 @@ from devflow.control_room.service import (
     doctor,
     get_task,
     init_control_room,
-    list_tasks,
     promotion_readiness_errors,
     run_shell_task,
     verify_task,
 )
+from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 
@@ -98,15 +98,18 @@ def task_create(title: str) -> None:
 @task_app.command("list")
 def task_list() -> None:
     """List tasks from the control-room task files."""
-    tasks = list_tasks(Path.cwd())
-    if not tasks:
+    projections = list_task_status_projections(Path.cwd())
+    if not projections:
         typer.echo("No tasks found.")
         return
     typer.echo(f"{'Task':<10} {'Status':<20} {'Verify':<16} {'Updated':<25} Title")
     typer.echo("-" * 97)
-    for task in tasks:
-        verify_token = _verify_token(task.verification_status, task.verification_exit_code)
-        typer.echo(f"{task.id:<10} {task.status:<20} {verify_token:<16} {task.updated_at.isoformat():<25} {task.title}")
+    for projection in projections:
+        task = projection.task
+        typer.echo(
+            f"{task.id:<10} {task.status:<20} {projection.verify_token:<16} "
+            f"{task.updated_at.isoformat():<25} {task.title}"
+        )
 
 
 @task_app.command("show")
@@ -118,6 +121,8 @@ def task_show(task_id: str) -> None:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
+    projection = build_task_status_projection(Path.cwd(), task_id, task=task)
+    task_path = projection.task_path
     typer.echo(f"task: {task.id}")
     typer.echo(f"title: {task.title}")
     typer.echo(f"status: {task.status}")
@@ -136,35 +141,14 @@ def task_show(task_id: str) -> None:
     typer.echo(f"log_path: {task.log_path or ''}")
     typer.echo(f"result_path: {task.result_path or ''}")
     typer.echo(f"worker_command: {task.worker_command or ''}")
-    task_path = Path.cwd() / ".devflow" / "tasks" / task.id
-    v_status = task.verification_status
-    v_exit_code = task.verification_exit_code
-    v_log_path = task.verification_log_path
 
-    try:
-        v_json = task_path / "verification.json"
-        if v_json.exists():
-            v_data = json.loads(v_json.read_text(encoding="utf-8"))
-            if "status" in v_data:
-                v_status = v_data["status"]
-            if "exit_code" in v_data:
-                v_exit_code = v_data["exit_code"]
-            if "log_path" in v_data:
-                v_log_path = v_data["log_path"]
-    except Exception:
-        pass
-
-    typer.echo(f"verification_status: {v_status}")
-    typer.echo(f"verification_command: {task.verification_command or ''}")
-    if v_exit_code is not None:
-        typer.echo(f"verification_exit_code: {v_exit_code}")
-    typer.echo(f"verification_log_path: {v_log_path or ''}")
+    typer.echo(f"verification_status: {projection.verification_status}")
+    typer.echo(f"verification_command: {projection.verification_command or ''}")
+    if projection.verification_exit_code is not None:
+        typer.echo(f"verification_exit_code: {projection.verification_exit_code}")
+    typer.echo(f"verification_log_path: {projection.verification_log_path or ''}")
     typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
-    promotion_errors = promotion_readiness_errors(task, task_path)
-    typer.echo(
-        f"suggested_next_action: "
-        f"{_suggest_next_action(task.status, v_status, task.id, promotion_ready=not promotion_errors)}"
-    )
+    typer.echo(f"suggested_next_action: {projection.suggested_next_action}")
     promoted_event = _get_latest_promoted_event(task_path)
     if promoted_event:
         typer.echo("promoted_changes:")
@@ -185,19 +169,13 @@ def task_show(task_id: str) -> None:
         typer.echo(f"packet_hint: run 'devflow task packet {task.id}' for the latest generated preview")
     else:
         typer.echo("packet_artifact: missing")
-    mr_json = task_path / "merge-readiness.json"
-    if mr_json.exists():
-        try:
-            mr_data = json.loads(mr_json.read_text(encoding="utf-8"))
-            ready_str = "yes" if mr_data.get("ready") else "no"
-            typer.echo(f"merge_ready: {ready_str}")
-            reasons = mr_data.get("reasons", [])
-            if reasons:
-                typer.echo("readiness_reasons:")
-                for r in reasons:
-                    typer.echo(f"  - {r}")
-        except Exception:
-            pass
+    if projection.merge_ready is not None:
+        ready_str = "yes" if projection.merge_ready else "no"
+        typer.echo(f"merge_ready: {ready_str}")
+        if projection.readiness_reasons:
+            typer.echo("readiness_reasons:")
+            for reason in projection.readiness_reasons:
+                typer.echo(f"  - {reason}")
     _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
     _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
     _echo_result_summary(task_path / "result.md")
@@ -502,45 +480,6 @@ def _relative(root: Path, path: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
         return str(path)
-
-
-def _verify_token(verification_status: str | None, verification_exit_code: int | None) -> str:
-    """Return a compact scan-level verification token derived from task.yaml fields only."""
-    status = verification_status or "not_run"
-    if status == "passed":
-        return "passed"
-    if status == "failed":
-        if verification_exit_code is not None:
-            return f"failed(exit={verification_exit_code})"
-        return "failed"
-    return status
-
-
-def _suggest_next_action(
-    status: str, verification_status: str, task_id: str, promotion_ready: bool = False
-) -> str:
-    if status == "created":
-        return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
-    elif status == "running":
-        return "Monitor the execution or wait for the task to complete."
-    elif status == "complete":
-        return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
-    elif status == "promoted":
-        return "Task has been promoted. Review main checkout changes, then commit manually if appropriate."
-    elif status == "verified" and promotion_ready:
-        return f"Task is verified. Review promotion preview, then run 'devflow task promote {task_id}' when ready."
-    elif status == "verified" or verification_status == "passed":
-        return "Task is verified, but promotion readiness evidence is incomplete. Re-run verification before promotion."
-    elif status == "verification_failed" or verification_status == "failed":
-        return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
-    elif status == "worker_failed":
-        return f"Inspect the logs, fix the failure, and re-run using 'devflow task run {task_id} --worker shell -- <command>'"
-    elif status == "timeout":
-        return f"Re-run the task with an increased timeout using 'devflow task run {task_id} --timeout-seconds <seconds> --worker shell -- <command>'"
-    elif status == "blocked":
-        return "Resolve the workspace or safety block before running again."
-    else:
-        return "Check task status and logs for the next logical step."
 
 
 def _echo_result_summary(path: Path) -> None:

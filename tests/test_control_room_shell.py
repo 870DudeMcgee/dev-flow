@@ -1020,6 +1020,102 @@ def test_task_summary_hardening_and_fallbacks() -> None:
             os.chdir(old_cwd)
 
 
+def test_status_projection_keeps_cli_and_dashboard_on_canonical_state() -> None:
+    from devflow.control_room.status_projection import build_task_status_projection
+
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            assert runner.invoke(app, ["task", "create", "projection task"]).exit_code == 0
+            assert runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done"]).exit_code == 0
+            assert runner.invoke(app, ["task", "verify", "task-0001", "--shell", "echo ok"]).exit_code == 0
+
+            task_path = Path(".devflow/tasks/task-0001")
+            (task_path / "summary.json").write_text(
+                json.dumps(
+                    {
+                        "task_id": "task-0001",
+                        "title": "projection task",
+                        "status": "worker_failed",
+                        "workspace_path": ".devflow/workspaces/task-0001",
+                        "latest_verification_status": "failed",
+                        "latest_verification_exit_code": 99,
+                        "latest_verification_log_path": "not-real.log",
+                        "merge_ready": False,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            projection = build_task_status_projection(Path.cwd(), "task-0001")
+            assert projection.task.status == "verified"
+            assert projection.verification_status == "passed"
+            assert projection.verification_exit_code == 0
+            assert projection.verification_log_path == ".devflow/tasks/task-0001/logs/verify.log"
+            assert projection.merge_ready is True
+
+            listing = runner.invoke(app, ["task", "list"])
+            assert listing.exit_code == 0, listing.output
+            assert "task-0001" in listing.output
+            assert "verified" in listing.output
+            assert "passed" in listing.output
+            assert "worker_failed" not in listing.output
+            assert "failed(exit=99)" not in listing.output
+
+            show = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show.exit_code == 0, show.output
+            assert "status: verified" in show.output
+            assert "verification_status: passed" in show.output
+            assert "verification_exit_code: 0" in show.output
+            assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show.output
+            assert (
+                "suggested_next_action: Task is verified. Review promotion preview, "
+                "then run 'devflow task promote task-0001' when ready."
+            ) in show.output
+            assert "not-real.log" not in show.output
+
+            dashboard = runner.invoke(app, ["dashboard"])
+            assert dashboard.exit_code == 0, dashboard.output
+            assert "task-0001" in dashboard.output
+            assert "verified" in dashboard.output
+            assert "passed" in dashboard.output
+            assert "verification_exit_code: 0" in dashboard.output
+            assert "verification_log: .devflow/tasks/task-0001/logs/verify.log" in dashboard.output
+            assert "merge_ready: yes" in dashboard.output
+            assert "worker_failed" not in dashboard.output
+            assert "not-real.log" not in dashboard.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_status_projection_views_do_not_mutate_task_artifacts() -> None:
+    from devflow.control_room.status_projection import list_task_status_projections
+
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            assert runner.invoke(app, ["task", "create", "readonly projection"]).exit_code == 0
+            assert runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done"]).exit_code == 0
+            assert runner.invoke(app, ["task", "verify", "task-0001", "--shell", "echo ok"]).exit_code == 0
+
+            task_path = Path(".devflow/tasks/task-0001")
+            before = {path: path.read_bytes() for path in task_path.glob("**/*") if path.is_file()}
+
+            projections = list_task_status_projections(Path.cwd())
+            assert [projection.task.id for projection in projections] == ["task-0001"]
+            assert runner.invoke(app, ["task", "list"]).exit_code == 0
+            assert runner.invoke(app, ["task", "show", "task-0001"]).exit_code == 0
+            assert runner.invoke(app, ["dashboard"]).exit_code == 0
+
+            after = {path: path.read_bytes() for path in task_path.glob("**/*") if path.is_file()}
+            assert after == before
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_task_run_writes_packet_json() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:

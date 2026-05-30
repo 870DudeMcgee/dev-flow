@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from devflow.control_room.service import create_task
+from devflow.control_room.service import create_task, verify_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
 
 
@@ -241,6 +241,36 @@ def test_task_packet_ignores_stale_authoritative_summary_fields() -> None:
         assert packet.title == "Stale fields test"
         assert packet.workspace_path == "<workspace>"
         assert packet.verification["status"] == "not_run"
+
+
+def test_task_packet_verification_uses_projection_fallbacks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "Projection-backed verification")
+        verify_task(root, "task-0001", ["echo", "ok"])
+        task_path = root / ".devflow" / "tasks" / "task-0001"
+
+        (task_path / "verification.json").write_text(
+            json.dumps(
+                {
+                    "task_id": "task-0001",
+                    "status": "passed",
+                    "note": "preserve packet-specific fields",
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        packet = build_task_packet("task-0001", root=root)
+
+        assert packet.verification["status"] == "passed"
+        assert packet.verification["task_status"] == "verified"
+        assert packet.verification["exit_code"] == 0
+        assert packet.verification["log_path"] == "<task>/logs/verify.log"
+        assert packet.verification["command"] == "echo ok"
+        assert packet.verification["note"] == "preserve packet-specific fields"
 
 
 def test_task_packet_path_virtualization() -> None:

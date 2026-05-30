@@ -1,9 +1,8 @@
 """Tests for `devflow task list` verification visibility.
 
-Canonical state: task.yaml only.
-verification.json is NOT read by task list (it is read by task show).
+Task list uses the shared control-room status projection.
 These tests confirm:
-- list displays verification status when available (from task.yaml)
+- list displays verification status when available
 - list handles missing / no-verification-yet gracefully
 - list is read-only and does not mutate task files
 - list does not depend on packet.json or summary.json
@@ -17,37 +16,38 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from devflow.cli import app, _verify_token
+from devflow.cli import app
+from devflow.control_room.status_projection import format_verify_token
 from devflow.control_room.service import create_task, get_task
 
 runner = CliRunner()
 
 
 # ---------------------------------------------------------------------------
-# _verify_token unit tests (pure function, no I/O)
+# verify token unit tests (pure function, no I/O)
 # ---------------------------------------------------------------------------
 
 
 def test_verify_token_not_run() -> None:
-    assert _verify_token("not_run", None) == "not_run"
+    assert format_verify_token("not_run", None) == "not_run"
 
 
 def test_verify_token_passed() -> None:
-    assert _verify_token("passed", 0) == "passed"
-    assert _verify_token("passed", None) == "passed"
+    assert format_verify_token("passed", 0) == "passed"
+    assert format_verify_token("passed", None) == "passed"
 
 
 def test_verify_token_failed_with_exit_code() -> None:
-    token = _verify_token("failed", 2)
+    token = format_verify_token("failed", 2)
     assert token == "failed(exit=2)"
 
 
 def test_verify_token_failed_without_exit_code() -> None:
-    assert _verify_token("failed", None) == "failed"
+    assert format_verify_token("failed", None) == "failed"
 
 
 def test_verify_token_none_status_defaults_to_not_run() -> None:
-    assert _verify_token(None, None) == "not_run"
+    assert format_verify_token(None, None) == "not_run"
 
 
 # ---------------------------------------------------------------------------
