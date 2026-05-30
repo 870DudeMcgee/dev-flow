@@ -13,6 +13,7 @@ TaskStatus = Literal[
     "complete",
     "verified",
     "verification_failed",
+    "failed",
     "blocked",
     "worker_failed",
     "timeout",
@@ -85,6 +86,7 @@ class WorkerInput(BaseModel):
     result_file: Path
     log_file: Path
     command: list[str]
+    env: dict[str, str] = Field(default_factory=dict)
     timeout_seconds: int = Field(default=60, ge=1)
 
     model_config = {"arbitrary_types_allowed": True}

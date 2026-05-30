@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,7 @@ class ShellWorkerAdapter:
             proc = subprocess.Popen(
                 worker_input.command,
                 cwd=worker_input.workspace_path,
+                env=os.environ | worker_input.env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 text=True,

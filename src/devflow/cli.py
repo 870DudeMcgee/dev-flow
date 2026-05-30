@@ -16,6 +16,7 @@ from devflow.control_room.service import (
     verify_task,
 )
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
+from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once
 from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 
@@ -54,6 +55,46 @@ def doctor_command() -> None:
 def dashboard_command(refresh_seconds: int = typer.Option(0, "--refresh-seconds", min=0)) -> None:
     """Render the text-only terminal dashboard."""
     run_dashboard(refresh_seconds=refresh_seconds)
+
+
+@app.command("supervise")
+def supervise_command(
+    once: bool = typer.Option(False, "--once"),
+    task_id: str | None = typer.Option(None, "--task"),
+    worker_command: str = typer.Option(DEFAULT_WORKER_COMMAND, "--worker-command"),
+    timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
+) -> None:
+    """Run one supervisor pass over runnable tasks."""
+    if not once:
+        typer.echo("supervise currently requires --once for this MVP slice.")
+        raise typer.Exit(code=1)
+
+    try:
+        tasks = supervise_once(
+            Path.cwd(),
+            task_id=task_id,
+            worker_command=worker_command,
+            timeout_seconds=timeout_seconds,
+        )
+    except (KeyError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    if not tasks:
+        typer.echo("No runnable tasks.")
+        return
+
+    exit_code = 0
+    for task in tasks:
+        typer.echo(f"{task.id}: {task.status}")
+        typer.echo(f"log_path: {task.log_path}")
+        typer.echo(f"result_path: {task.result_path}")
+        if task.latest_log_line:
+            typer.echo(f"latest_log_line: {task.latest_log_line}")
+        if task.status != "complete":
+            exit_code = task.last_exit_code if task.last_exit_code is not None else 1
+    if exit_code:
+        raise typer.Exit(code=exit_code)
 
 
 @app.command("context")

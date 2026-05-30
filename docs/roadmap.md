@@ -160,25 +160,28 @@ Acceptance:
 - packet generation is read-only and file-based
 - Codex is not wired in
 
-## Future Phase: Read-Only Supervisor / Control-Room Agent
+## Phase 8: Minimal Ollama Supervisor Loop
 
-Goal: allow a main chat or supervisor agent to inspect Dev-Flow state, draft task specs, review worker evidence, and recommend promotion without mutating repo files or bypassing Dev-Flow state.
+Goal: run local Ollama workers through task-specific control-room folders using the existing shell-worker path.
 
 Status: design only.
 
 Acceptance:
-- supervisor can inspect status and artifacts read-only
-- supervisor can propose task specs
-- supervisor can review worker handoffs
-- supervisor cannot directly edit, commit, push, merge, or mutate task state outside explicit Dev-Flow commands
+- supervisor runs one explicit pass with `devflow supervise --once`
+- supervisor can target one task with `--task <task_id>`
+- worker command receives `DEVFLOW_TASK_ID`, `DEVFLOW_TASK_DIR`, and `DEVFLOW_WORKSPACE`
+- task folder remains the control envelope for prompts, logs, questions, packets, and reports
+- workspace remains the edit sandbox for repo file changes
+- CLI dashboard remains the operational visibility surface
+- verification and promotion remain explicit human-controlled steps
+- no Codex agent, model router, dependency scheduler, web dashboard, or automatic merge behavior is introduced
 
 Related design contracts:
-- [docs/workflow-preview.md](workflow-preview.md)
-- [docs/worker-permission-modes.md](worker-permission-modes.md)
-- [docs/dynamic-worker-orchestration.md](dynamic-worker-orchestration.md)
+- [docs/superpowers/specs/2026-05-30-ollama-supervisor-loop-design.md](superpowers/specs/2026-05-30-ollama-supervisor-loop-design.md)
+- [docs/superpowers/plans/2026-05-30-ollama-supervisor-loop.md](superpowers/plans/2026-05-30-ollama-supervisor-loop.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Keep focus on the shell-worker control room: task lifecycle, workspace isolation, CLI/dashboard visibility, verification, human-controlled promotion, and merge readiness.
+> **Next Priority**: Keep focus on the shell-worker control room plus the minimal Ollama supervisor loop. Do not expand into complex scheduling, Codex agents, web dashboards, model routing, or legacy workflow machinery.
 
 ## Later, Not Now
 

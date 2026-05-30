@@ -122,7 +122,14 @@ def create_task(root: Path, title: str) -> TaskRecord:
 
 
 
-def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 60, worker_adapter: str = "shell") -> TaskRecord:
+def run_shell_task(
+    root: Path,
+    task_id: str,
+    command: list[str],
+    timeout_seconds: int = 60,
+    worker_adapter: str = "shell",
+    env: dict[str, str] | None = None,
+) -> TaskRecord:
     adapter = get_worker_adapter(worker_adapter)
     if not command:
         raise ValueError("Shell worker requires a command after '--'.")
@@ -149,6 +156,7 @@ def run_shell_task(root: Path, task_id: str, command: list[str], timeout_seconds
         result_file=task_path / "result.md",
         log_file=task_path / "logs" / "worker.log",
         command=command,
+        env=env or {},
         timeout_seconds=timeout_seconds,
     )
 
@@ -394,4 +402,3 @@ def _looks_destructive(command: list[str]) -> bool:
     text = " ".join(command).lower()
     blocked_fragments = ("rm -rf /", "rm -fr /", "mkfs", "diskutil erase", ":(){", "dd if=")
     return any(fragment in text for fragment in blocked_fragments)
-
