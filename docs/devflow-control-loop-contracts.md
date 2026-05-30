@@ -1,5 +1,7 @@
 # Dev-Flow: Unified Control-Loop Architecture
 
+Status: reference architecture. This document describes the longer-term control-loop shape and is not the active runtime contract. For current implementation authority, use [mvp-contract.md](mvp-contract.md) and [control-room-mvp.md](control-room-mvp.md).
+
 Dev-Flow is a local-first, filesystem-backed control room for AI software development.
 
 It is not a coding agent.
@@ -87,11 +89,19 @@ Dev-Flow clearly distinguishes authoritative truth from mere evidence:
 
 ## 3. Canonical Filesystem/Context Structure
 
+Define the intended Dev-Flow filesystem structure in enough detail that both humans and workers can tell where state, context, history, and decisions belong.
+
+Core idea:
+
 Dev-Flow's filesystem is not a dumping ground. It is the durable context layer. Each level should contain only the information relevant to that level, and the structure should make the next safe action obvious without requiring a model to reread the entire project.
 
-This is the intended durable structure for the control room. The frozen shell-worker MVP may implement a smaller runtime subset, but new filesystem work should move toward this shape unless a newer active contract explicitly supersedes it.
+This structure defines both runtime state and living project context. It must not be flattened into generic `docs/`, workflows, or `AGENTS.md` discipline. The nested `.devflow/` structure is the core product model.
+
+This is the intended durable structure for the control room. The current shell-worker control-room contract may implement a smaller runtime subset, but new filesystem work should move toward this shape unless a newer active contract explicitly supersedes it.
 
 The initial repository seed for this structure lives under `.devflow/`. Its active bootstrap goal is `.devflow/goals/bootstrap-devflow-filesystem/`, and its project-level orientation starts at `.devflow/project/project.yaml`.
+
+Proposed high-level structure:
 
 ```text
 .devflow/
@@ -242,6 +252,7 @@ The initial repository seed for this structure lives under `.devflow/`. Its acti
 - Human-readable markdown explains intent, context, and rationale.
 - Old plans must be preserved but clearly classified so workers do not follow stale instructions.
 - The structure must support living development: new gaps, pivots, deferred ideas, rejected ideas, and updated decisions should have obvious homes.
+- Do not flatten product memory into generic docs, workflows, or agent instructions; `.devflow/` is the durable control-room context model.
 
 ### Context Congruence
 
@@ -283,6 +294,13 @@ This keeps the system clean without losing history.
 ### Filesystem Design Principle
 
 The filesystem should reduce context load, not increase it. A worker should be able to open the smallest relevant folder and understand its job without absorbing the entire project history.
+
+### Structure Acceptance Criteria
+
+- The document defines the layered filesystem/context structure.
+- The document explains active, reference, archived, deprecated, and rejected context.
+- The document defines context congruence, context promotion, and context demotion.
+- The document treats the filesystem as Dev-Flow's durable context layer, not just storage.
 
 ---
 

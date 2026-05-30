@@ -1,5 +1,7 @@
 # TaskPacket Phase Milestone Checkpoint
 
+Status: historical checkpoint. For the current task packet contract, use [task-packet-contract.md](task-packet-contract.md). This milestone note must not be used to add worker-adapter consumption or runtime behavior beyond the active shell-worker control room.
+
 This document records the successful completion of the **TaskPacket Phase** milestone for Dev-Flow.
 
 ## Completed Capabilities

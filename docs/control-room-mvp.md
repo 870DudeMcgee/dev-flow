@@ -7,7 +7,7 @@ Status: Active source of truth
 
 The long-term product North Star lives at [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md). Read it before implementation decisions and check proposed changes against its Periodic Self-Check section.
 
-This document is the near-term MVP authority: it narrows the North Star into the first production-worthy control-room slice. The current frozen command, filesystem, and safety contract lives at [docs/mvp-contract.md](mvp-contract.md).
+This document is the near-term MVP authority: it narrows the North Star into the first production-worthy control-room slice. The current command, filesystem, and safety contract lives at [docs/mvp-contract.md](mvp-contract.md).
 
 For details on the project's design and boundaries:
 - [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
@@ -40,24 +40,31 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 4. Context is durable artifacts, not hidden magic memory.
 5. Autonomy is earned by reliable status, logs, recovery, and reviewable results.
 
-## Frozen Shell-Worker MVP Contract
+## Current Shell-Worker Control-Room Contract
 
-The current stable MVP is the shell-worker path only.
+The current stable milestone is the shell-worker control-room path. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, and human-controlled promotion from isolated workspaces.
 
 Stable commands:
 
 ```bash
 devflow --help
+devflow init
+devflow doctor
+devflow dashboard
 devflow task --help
 devflow task create "example task"
+devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task list
 devflow task show <task_id>
 devflow task packet <task_id>
+devflow task log <task_id>
+devflow task promote-preview <task_id>
+devflow task promote <task_id>
 ```
 
-Existing helper commands may remain during the rebuild, but docs and focused MVP tests should treat only the list above as frozen.
+The preferred shell-worker form is `devflow task run <task_id> --worker shell -- <command>`. The `--shell "<command>"` form remains supported.
 
 Do not implement these in the first milestone:
 
@@ -69,8 +76,9 @@ Do not implement these in the first milestone:
 - local model routing
 - old task-packet workflow orchestration
 - PR automation
-- dashboard UI
+- browser or web dashboard UI
 - token-context routing helpers
+- automatic commit, push, merge, or pull request creation
 
 ## Runtime Structure
 
@@ -88,7 +96,7 @@ Do not implement these in the first milestone:
 
 The filesystem is the source of truth. `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw evidence. Worker and verification commands run only inside `.devflow/workspaces/<task_id>/`.
 
-The frozen MVP does not create a SQLite database or `.devflow/worktrees/` directory. Shell-worker results stay in the task workspace unless a future explicit copy/promote feature is added.
+The current control-room contract does not create a SQLite database or `.devflow/worktrees/` directory. Shell-worker results stay in the task workspace until a human explicitly previews and promotes verified changes.
 
 ## Files To Keep Or Salvage Later
 
@@ -146,19 +154,22 @@ The first code patch should prove a single vertical slice:
 2. `devflow task create "example task"` creates the stable task artifacts and isolated workspace directory.
 3. `devflow task run <task_id> --shell "echo hello > result.txt"` runs in the task workspace, captures `logs/worker.log`, and marks the task complete.
 4. `devflow task verify <task_id> --shell "test -f result.txt"` runs in the same task workspace, captures `logs/verify.log`, writes `verification.json`, and marks the task verified.
-5. `devflow task list` and `devflow task show <task_id>` expose the current state from task files.
+5. `devflow task list`, `devflow task show <task_id>`, and `devflow dashboard` expose the current state from task files.
+6. `devflow task promote-preview <task_id>` shows the isolated workspace changes that would be promoted.
+7. `devflow task promote <task_id>` copies verified, human-approved changes back to the main checkout without staging, committing, pushing, or opening a pull request.
 
 Only after that slice stays stable should new runtime behavior be promoted into the contract.
 
 ## Acceptance Gauntlet
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, and show it. The command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No AI worker adapters, dashboard UI, database, or worktree orchestration are part of this acceptance test.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No AI worker adapters, browser/web dashboard UI, database, or worktree orchestration are part of this acceptance test.
 
 ## Current Implementation Status
 
 Implemented:
 
 - shell-worker control-room CLI
+- init and doctor commands for the local control-room seed structure
 - filesystem task state with canonical `task.yaml`
 - per-task artifact directories
 - append-only task and system `events.jsonl`
@@ -170,10 +181,13 @@ Implemented:
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - tampered workspace refusal before shell or verification commands execute
 - symlink skipping during scratchpad copy
+- text-only terminal dashboard
+- promotion preview from isolated workspace changes
+- human-controlled promotion of verified changes to the main checkout
 
-Outside the frozen MVP contract:
+Outside the current product contract:
 
-- dashboard UI
+- browser or web dashboard UI
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
 - AI worker adapters
 - SQLite or other databases
@@ -234,6 +248,10 @@ The following areas are out-of-scope for the completed MVP and deferred:
 * **Dashboard / Web Server**: No database-driven dashboard (text-only terminal dashboard remains static).
 * **Databases**: Relies strictly on plain filesystem architecture; no SQL/NoSQL databases.
 * **Automated Merging**: No automatic pull request creation or branch merging.
+
+### Dogfooding Requirement
+
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add AI adapters, local model routing, autonomous scheduling, or old workflow machinery before the shell-worker control room remains stable.
 
 ---
 

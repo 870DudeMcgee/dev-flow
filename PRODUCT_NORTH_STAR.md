@@ -382,18 +382,25 @@ The first production-worthy MVP is not a full AI swarm.
 
 The first MVP is a non-AI control room that proves the infrastructure works.
 
-The frozen shell-worker MVP contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, dashboards, AI worker adapters, and copy-back/merge behavior.
+The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, browser/web dashboards, AI worker adapters, model routing, and automatic merge or pull-request behavior.
 
 Required commands:
 
 ```bash
 devflow --help
+devflow init
+devflow doctor
+devflow dashboard
 devflow task --help
 devflow task create "example task"
-devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
 devflow task list
+devflow task packet <task_id>
+devflow task log <task_id>
+devflow task promote-preview <task_id>
+devflow task promote <task_id>
 ```
 
 Required capabilities:
@@ -404,8 +411,11 @@ Required capabilities:
 - capture worker and verification logs
 - keep worker writes in the task workspace
 - show status in CLI
+- show status in the text-only terminal dashboard
 - refuse tampered workspace paths
 - skip symlinks during scratchpad copy
+- preview promotion from isolated workspace changes
+- promote verified changes only after explicit human approval
 - avoid SQLite databases and `.devflow/worktrees/`
 
 Required runtime shape:
@@ -422,7 +432,7 @@ Required runtime shape:
   workspaces/<task_id>/
 ```
 
-The MVP passes when Dev-Flow can create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, and show it while keeping `result.txt` out of the main checkout.
+The MVP passes when Dev-Flow can create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, `result.txt` must stay out of the main checkout.
 
 ---
 
@@ -452,24 +462,31 @@ The control room comes first.
 
 ## Roadmap
 
-### Phase 1: Frozen Shell-Worker Foundation
+### Phase 1: Shell-Worker Foundation
 
 Goal: prove task state, shell worker execution, verification, logs, CLI visibility, and workspace-only writes.
 
 Deliverables:
 
 - `devflow --help`
+- `devflow init`
+- `devflow doctor`
+- `devflow dashboard`
 - `devflow task --help`
 - `devflow task create "example task"`
-- `devflow task run <task-id> --shell "echo hello > result.txt"`
+- `devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"`
 - `devflow task verify <task-id> --shell "test -f result.txt"`
 - `devflow task list`
 - `devflow task show <task-id>`
+- `devflow task packet <task-id>`
+- `devflow task log <task-id>`
+- `devflow task promote-preview <task-id>`
+- `devflow task promote <task-id>`
 
 Success check:
 
 ```text
-Can I create, run, verify, list, and show one shell task while keeping worker writes out of the main checkout?
+Can I create, run, verify, list, show, dashboard, preview, and explicitly promote one shell task while keeping worker writes out of the main checkout until human promotion?
 ```
 
 ---

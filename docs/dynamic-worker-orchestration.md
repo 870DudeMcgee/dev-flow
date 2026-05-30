@@ -1,5 +1,7 @@
 # Dynamic Worker Orchestration
 
+Status: future/reference design. This is not the active MVP runtime contract. The current product supports shell workers only; dynamic task decomposition, non-shell adapters, and richer orchestration require a future contract change.
+
 This document outlines the design for spawning, managing, and observing replaceable Worker Agents dynamically under the Dev-Flow control room. It maps out how high-level goals translate to isolated worker executions, how real-time feedback loops are recorded, and how human-in-the-loop questioning functions safely.
 
 ## Core Design Principles

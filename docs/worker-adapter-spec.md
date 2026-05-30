@@ -1,5 +1,7 @@
 # Dev-Flow Worker Adapter Specification
 
+Status: historical/reference design. The active MVP contract is [mvp-contract.md](mvp-contract.md); the current future-adapter boundary is [adapter-contract.md](adapter-contract.md). This document must not be used to expand runtime behavior beyond the shell-worker control room.
+
 ## 1. Core Principle: Replaceable Intelligence, Sacred State
 
 In the Dev-Flow ecosystem, **workers are replaceable execution engines**. Coding intelligence—whether it is a simple shell runner, a local LLM, or a state-of-the-art agent like Aider or Claude Code—is decoupled from the control plane. 

@@ -1,25 +1,36 @@
-# Shell-Worker MVP Contract
+# Current Control-Room Product Contract
 
-Status: frozen on 2026-05-28.
+Status: active, reconciled on 2026-05-30.
 
-This is the smallest stable contract for the current Dev-Flow MVP. It freezes the shell-worker control-room behavior that docs and tests should agree on. Runtime surfaces outside this document may exist as helper or experimental code, but they are not part of the frozen MVP contract.
+This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Runtime surfaces outside this document may exist as helper or experimental code, but they are not part of this current product contract.
 
-Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md); that design document does not change this frozen MVP contract.
+Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md); that design document does not change this current product contract.
 
 ## Stable Commands
 
 ```bash
 devflow --help
+devflow init
+devflow doctor
+devflow dashboard
 devflow task --help
 devflow task create "example task"
+devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task verify <task-id> --shell "test -f result.txt"
 devflow task list
 devflow task show <task-id>
 devflow task packet <task-id>
+devflow task log <task-id>
+devflow task promote-preview <task-id>
+devflow task promote <task-id>
 ```
 
-`devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace.
+`devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
+
+`devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
+
+`devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion is not automatic and does not stage, commit, push, open a pull request, or bypass verification readiness checks.
 
 ## Stable Filesystem Artifacts
 
@@ -40,26 +51,32 @@ For a created task, the MVP contract is:
 
 `.devflow/tasks/<task-id>/summary.json` may exist as a derived cache for visibility and token efficiency. It is not canonical state. It may be deleted and regenerated without losing information. If it is missing, stale, malformed, or disagrees with `task.yaml`, `events.jsonl`, `verification.json`, or logs, the canonical files win.
 
+`.devflow/tasks/<task-id>/packet.json` may exist as a generated TaskPacket dump. It is derived state and is written immediately before a worker execution when needed. Dynamic TaskPacket projections are also derived state.
+
+`.devflow/tasks/<task-id>/result.md` may exist as a human-readable result summary. It is not canonical state.
+
 ## Stable Safety Rules
 
 - Shell workers execute only in `.devflow/workspaces/<task-id>/`.
 - Verification commands execute only in `.devflow/workspaces/<task-id>/`.
 - Tampered task workspace paths are refused before command execution.
 - Symlinks are skipped during scratchpad copy.
-- Shell-worker results do not write into the main checkout unless a future explicit copy/promote feature is added.
+- Shell-worker results do not write into the main checkout.
+- Promotion to the main checkout is explicit, human-confirmed, and gated on verification readiness.
+- Promotion refuses unsafe workspace paths and blocks dirty main-checkout changes unless explicitly forced.
 - No SQLite database is created.
 - No `.devflow/worktrees/` directory is created.
 - Legacy agent, memory, DAG, trace, worktree, database, and software-factory systems remain bypassed for this MVP path.
 
-## Out Of The Frozen Contract
+## Out Of The Current Contract
 
-- Browser or terminal dashboards.
-- Token-context helper (purely a completed visible planning helper that recommends context strategy; does not execute token tools, route models, install hooks, or change shell-worker/verification/merge behavior).
+- Browser or web dashboards.
+- Token-context helper as runtime authority. The helper may exist as visible planning guidance, but it does not execute token tools, route models, install hooks, or change shell-worker, verification, or promotion behavior.
 - AI worker adapters.
 - Git worktree orchestration.
 - SQLite or any other database.
-- Automatic merge, copy-back, or PR automation.
+- Automatic merge, automatic copy-back, commit, push, or PR automation.
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Next Priority**: Future work must focus on the core control-room MVP: shell-worker task lifecycle, workspace isolation, status visibility, verification, and merge readiness.
+> **Next Priority**: Future work must keep strengthening the control-room loop: shell-worker task lifecycle, workspace isolation, status visibility, verification evidence, human-controlled promotion, and merge readiness.

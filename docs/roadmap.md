@@ -15,7 +15,7 @@ The rebuild starts from a smaller foundation than the previous software-factory 
 
 Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
-Frozen MVP contract: [docs/mvp-contract.md](mvp-contract.md)
+Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -38,9 +38,9 @@ Done when:
 - old active instruction hooks are removed or rewritten
 - files to keep, bypass, create, and first patch are documented
 
-## Phase 1: Frozen Shell-Worker Contract
+## Phase 1: Shell-Worker Contract
 
-Goal: freeze the smallest shell-worker task contract and keep docs/tests aligned with it.
+Goal: keep the shell-worker task contract and docs/tests aligned.
 
 Local development install:
 
@@ -52,12 +52,19 @@ Commands:
 
 ```bash
 devflow --help
+devflow init
+devflow doctor
+devflow dashboard
 devflow task --help
 devflow task create "example task"
-devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
 devflow task list
+devflow task packet <task_id>
+devflow task log <task_id>
+devflow task promote-preview <task_id>
+devflow task promote <task_id>
 ```
 
 Acceptance:
@@ -67,6 +74,8 @@ Acceptance:
 - the command result stays in `.devflow/workspaces/<task_id>/`
 - CLI shows task state from canonical `task.yaml` files
 - editable install exposes the console script declared as `devflow = "devflow.cli:main"`
+- text-only terminal dashboard reads canonical task state
+- promotion preview and human-controlled promotion are available for verified tasks
 - no SQLite database or `.devflow/worktrees/` directory is created
 
 ## Phase 2: Shell Worker Safety
@@ -81,26 +90,31 @@ Acceptance:
 - symlinks are skipped during scratchpad copy
 - main checkout is untouched by workers
 
-## Phase 3: Future Visibility Surfaces
+## Phase 3: Visibility Surfaces
 
-Goal: improve visibility after the frozen command/filesystem/safety contract remains stable.
-
-Acceptance:
-
-- any dashboard or richer UI is proposed as a new contract change
-- no browser UI, terminal dashboard, or frontend tooling is part of the frozen MVP
-
-## Phase 4: Future Workspace Promotion
-
-Goal: decide how work leaves the scratchpad workspace when the user explicitly approves it.
-
-Status: out of the frozen MVP. Current shell-worker results remain in `.devflow/workspaces/<task_id>/`.
+Goal: improve visibility while preserving filesystem-backed control-room state.
 
 Acceptance:
 
-- copy-back or promotion is explicit
-- main checkout remains untouched until that future feature is designed
+- text-only terminal dashboard remains active and read-only
+- browser UI, web dashboard, or frontend tooling requires a future contract change
+
+## Phase 4: Workspace Promotion
+
+Goal: keep work in the scratchpad workspace until the user explicitly approves promotion.
+
+Status: first human-controlled promotion slice is active.
+
+Acceptance:
+
+- promotion preview is explicit
+- promotion requires verified readiness and human confirmation
+- main checkout remains untouched until explicit human promotion
 - git worktree orchestration remains out of scope
+
+## Dogfooding Requirement
+
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. The purpose is to exercise task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality while building Dev-Flow itself. This requirement does not authorize AI adapters, model routing, autonomous scheduling, databases, or old workflow machinery.
 
 ## Phase 5: Verification And Merge Readiness
 
@@ -123,7 +137,7 @@ Acceptance:
 
 Goal: help IDE agents use the smallest sufficient context without making Dev-Flow a coding agent.
 
-Status: outside the frozen MVP contract. A completed helper exists as visible planning guidance that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.
+Status: outside the current runtime contract. A completed helper exists as visible planning guidance that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, promotion, or verification behavior.
 
 Acceptance:
 
@@ -164,7 +178,7 @@ Related design contracts:
 - [docs/dynamic-worker-orchestration.md](dynamic-worker-orchestration.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Return focus back to the frozen shell-worker MVP: task lifecycle, workspace isolation, CLI visibility, verification, and future merge readiness.
+> **Next Priority**: Keep focus on the shell-worker control room: task lifecycle, workspace isolation, CLI/dashboard visibility, verification, human-controlled promotion, and merge readiness.
 
 ## Later, Not Now
 

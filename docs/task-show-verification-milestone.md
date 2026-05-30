@@ -1,5 +1,7 @@
 # CLI Verification Visibility Milestone Checkpoint
 
+Status: historical checkpoint. This records completed behavior only; current authority remains [mvp-contract.md](mvp-contract.md) and [control-room-mvp.md](control-room-mvp.md).
+
 This document records the successful completion of the **CLI Verification Visibility** milestone. This slice enhances CLI task transparency and observability during task lifecycle states using only existing canonical data.
 
 ## Completed Capabilities
@@ -39,4 +41,4 @@ This document records the successful completion of the **CLI Verification Visibi
   - The suggested next action for verified tasks explicitly guides: `Task is verified. Review the result before any human-controlled promotion.`
 * **No Future Out-Of-Scope Architecture**:
   - No database dependencies or local model routers are added.
-  - External adapters (Codex, Aider, Hermes), merge automation, terminal dashboards, and PR automation remain completely out of scope.
+  - External adapters (Codex, Aider, Hermes), browser/web dashboards, automatic merge behavior, and PR automation remain completely out of scope.

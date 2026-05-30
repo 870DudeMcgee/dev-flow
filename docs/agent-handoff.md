@@ -28,7 +28,7 @@ Archive index:
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The frozen MVP is a non-AI shell-worker contract with task creation, shell execution, verification, listing, and inspection.
+The current milestone is a non-AI shell-worker control-room contract with task creation, shell execution, verification, visibility, and human-controlled promotion.
 
 ## Code Architecture Boundary
 
@@ -49,34 +49,50 @@ Normal local development install:
 
 That editable install exposes the console script declared in `pyproject.toml` as `devflow = "devflow.cli:main"`.
 
-Stable MVP contract:
+Current product contract:
 
 - `devflow --help`
+- `devflow init`
+- `devflow doctor`
+- `devflow dashboard`
 - `devflow task --help`
 - `devflow task create "title"`
 - `devflow task list`
 - `devflow task show <task_id>`
-- `devflow task run <task_id> --shell "echo hello > result.txt"`
+- `devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"`
 - `devflow task verify <task_id> --shell "test -f result.txt"`
+- `devflow task packet <task_id>`
+- `devflow task log <task_id>`
+- `devflow task promote-preview <task_id>`
+- `devflow task promote <task_id>`
 - filesystem task state with canonical `task.yaml`
 - task append-only `events.jsonl`
 - task-local worker logs, verification logs, verification JSON, and YAML artifacts
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
 - `verified` and `verification_failed` task statuses from verification
+- text-only terminal dashboard from canonical task artifacts
+- human-controlled promotion preview and promotion from isolated workspaces
 - no SQLite database or `.devflow/worktrees/` directory in the MVP path
 - read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is not consumed by Codex or any worker adapter
 
-## Required MVP Commands
+## Required Current Commands
 
 ```bash
 devflow --help
+devflow init
+devflow doctor
+devflow dashboard
 devflow task --help
 devflow task create "example task"
-devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
 devflow task list
+devflow task packet <task_id>
+devflow task log <task_id>
+devflow task promote-preview <task_id>
+devflow task promote <task_id>
 ```
 
 ## Implementation Posture
@@ -85,7 +101,8 @@ devflow task list
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
-- Treat dashboard, token-context, init/doctor helpers, worktree orchestration, databases, and AI worker adapters as outside the frozen MVP contract unless a future doc explicitly promotes them.
+- Treat browser/web dashboards, token-context runtime routing, worktree orchestration, databases, and AI worker adapters as outside the current contract unless a future doc explicitly promotes them.
+- Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Salvage useful code only when it supports the new control-room MVP.
 - Keep unrelated dirty worktree changes intact.
 
@@ -97,9 +114,9 @@ devflow task list
 
 ## Acceptance Check
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, and show it. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/`, the task artifacts exist, no SQLite database is created, and no `.devflow/worktrees/` directory is created.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/` before promotion, the task artifacts exist, no SQLite database is created, and no `.devflow/worktrees/` directory is created.
 
-Current verification covers the frozen command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, and symlink skipping in `tests/test_control_room_shell.py`. Focused task-packet projection coverage lives in `tests/test_task_packet.py`.
+Current verification covers the command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, symlink skipping, dashboard projection, and promotion safety in the focused tests. Focused task-packet projection coverage lives in `tests/test_task_packet.py`.
 
 ## Known Worktree State At Handoff
 

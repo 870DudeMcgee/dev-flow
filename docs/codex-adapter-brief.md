@@ -2,7 +2,7 @@
 
 Status: design-only brief. No runtime behavior is implemented by this document.
 
-This brief defines the smallest future Codex worker adapter slice that could fit inside the current Dev-Flow control-room model. It does not change the frozen shell-worker MVP contract in [mvp-contract.md](mvp-contract.md).
+This brief defines the smallest future Codex worker adapter slice that could fit inside the current Dev-Flow control-room model. It does not change the current shell-worker control-room contract in [mvp-contract.md](mvp-contract.md).
 
 ## Goal
 

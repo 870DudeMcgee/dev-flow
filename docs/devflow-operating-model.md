@@ -27,7 +27,7 @@ The main chat/control-room agent plans and reviews in read-only mode.
 
 Worker agents perform mutating work only inside isolated task-owned spaces.
 
-Dev-Flow owns state, visibility, verification, and promotion readiness.
+Dev-Flow owns state, visibility, verification, promotion readiness, and human-controlled promotion.
 
 ## Roles
 
@@ -234,7 +234,7 @@ It proves:
 * CLI visibility
 * canonical filesystem state
 
-AI worker adapters, git worktree orchestration, dashboard expansion, scheduling, and automated promotion are future layers unless explicitly promoted into the active contract.
+AI worker adapters, git worktree orchestration, browser/web dashboard expansion, scheduling, automatic commits, automatic pull requests, and automated promotion are future layers unless explicitly promoted into the active contract. The current text-only terminal dashboard and human-controlled promotion commands are active contract surfaces.
 
 ## Future Direction
 

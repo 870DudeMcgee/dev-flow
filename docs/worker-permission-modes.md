@@ -1,5 +1,7 @@
 # Worker Permission Modes
 
+Status: reference security model. The current runtime authority is [mvp-contract.md](mvp-contract.md) and remains limited to shell-worker control-room behavior unless a future contract explicitly promotes more permission modes.
+
 ## Purpose
 
 This document defines the security boundaries, write constraints, and execution permissions applied to replaceable Worker Agents within Dev-Flow. It establishes clear gates preventing AI workers from polluting core files, escaping isolation, or silently corrupting system settings.

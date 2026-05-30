@@ -1,5 +1,7 @@
 # Harness Compatibility Matrix
 
+Status: DevMode integration reference. This is not a Dev-Flow product contract and must not be used to expand the shell-worker control-room MVP.
+
 This document provides a compatibility matrix for DevMode integration across various AI development environments and harnesses.
 
 | AI Harness / IDE | Support Status | Configuration Files | Automatic Discovery | Notes |

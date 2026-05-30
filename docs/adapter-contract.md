@@ -2,7 +2,7 @@
 
 Status: post-MVP design document.
 
-This document defines the contract future worker adapters must follow. It uses the existing shell worker as the reference implementation and does not add runtime behavior beyond the frozen shell-worker MVP.
+This document defines the contract future worker adapters must follow. It uses the existing shell worker as the reference implementation and does not add runtime behavior beyond the current shell-worker control-room contract.
 
 Dev-Flow owns task state, workspace boundaries, verification evidence, and merge readiness. Worker adapters are replaceable execution engines that operate inside those boundaries.
 

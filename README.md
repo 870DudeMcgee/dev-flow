@@ -1,189 +1,147 @@
-# 🌿 DevMode
+# Dev-Flow
 
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Based on Superpowers](https://img.shields.io/badge/based%20on-Superpowers-green.svg)](https://github.com/obra/superpowers)
-[![Harnesses supported](https://img.shields.io/badge/harnesses-Gemini%20%7C%20Claude%20%7C%20Cursor%20%7C%20Codex%20%7C%20OpenCode-purple.svg)](#installation)
+Dev-Flow is a local-first control room for parallel AI coding workers.
 
-> **DevMode** is a high-discipline, token-efficient, and multi-IDE agentic engineering framework. It extends the core rules of Jesse Vincent's **Superpowers** to enforce mode classification, strict token-budget rationing, clean git worktree boundary protection, and rigorous verification gates.
+It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-```
-                  +-----------------------------------+
-                  |           Agent Invoked           |
-                  +-----------------------------------+
-                                    |
-                                    v
-                  +-----------------------------------+
-                  |     skills/using-devmode/         |  <--- Mandatory Bootstrap
-                  +-----------------------------------+
-                                    |
-            +-----------------------+-----------------------+
-            |                                               |
-            v                                               v
-+-----------------------+                       +-----------------------+
-|  MODE: INVESTIGATION  |                       |  MODE: IMPLEMENTATION |
-|  - token-budget       |                       |  - test-driven-dev    |
-|  - workspace-isolation|                       |  - systematic-debug   |
-|  - explore-first      |                       |  - verify-before-done |
-+-----------------------+                       +-----------------------+
-            |                                               |
-            +-----------------------+-----------------------+
-                                    v
-                  +-----------------------------------+
-                  |       skills/worker-handoff/      |  <--- Structured Handoff
-                  +-----------------------------------+
+Workers are replaceable. The current product milestone supports shell workers only.
+
+## Current Product Contract
+
+The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md).
+
+Stable commands:
+
+```bash
+devflow --help
+devflow init
+devflow doctor
+devflow dashboard
+devflow task --help
+devflow task create "example task"
+devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
+devflow task run <task-id> --shell "echo hello > result.txt"
+devflow task verify <task-id> --shell "test -f result.txt"
+devflow task list
+devflow task show <task-id>
+devflow task packet <task-id>
+devflow task log <task-id>
+devflow task promote-preview <task-id>
+devflow task promote <task-id>
 ```
 
----
+The current control-room MVP intentionally excludes AI worker adapters, browser or web dashboards, database state, git worktree orchestration, model routing, automatic copy-back, commits, pushes, pull requests, and legacy software-factory workflow machinery.
 
-## 📖 Table of Contents
+## Runtime Shape
 
-- [🌿 The Core Philosophy](#-the-core-philosophy)
-- [🛡️ The Four Iron Laws](#️-the-four-iron-laws)
-- [📦 Available Skills (20 total)](#-available-skills-20-total)
-- [⚙️ Installation & Harness Setup](#️-installation--harness-setup)
-- [🤝 Contributing & TDD-for-Skills](#-contributing--tdd-for-skills)
-- [⚖️ Attribution & Licensing](#️-attribution--licensing)
+Dev-Flow stores durable task state as local filesystem artifacts:
 
----
+```text
+.devflow/
+  tasks/<task-id>/
+    task.yaml
+    events.jsonl
+    verification.json
+    logs/
+      worker.log
+      verify.log
+  workspaces/<task-id>/
+```
 
-## 🌿 The Core Philosophy
+`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Shell worker output stays in `.devflow/workspaces/<task-id>/` until a human explicitly previews and promotes verified changes.
 
-AI agents are extremely powerful, but left to their own devices, they suffer from **context expansion bloat**, **lazy verification loops**, and **symptom-oriented patching**. 
+## Durable Context Structure
 
-DevMode converts the agent's environment into a **high-leverage discipline harness**:
+The broader `.devflow/` tree is also the durable context layer for the control room. It contains project orientation, active goals, classified context, layered product and architecture notes, worker/model registries, lock documentation, derived reports, and preserved archive material.
 
-1. **Discipline First**: No code is written without a TDD failing test first. No bug is fixed without systematic root-cause investigation first.
-2. **Context Rationing**: Broad file reads and generic directory searches are strictly gated by the `token-budget` skill. The agent must search first and read selectively.
-3. **Workspace Isolation**: Agents operate in clean, isolated, git-protected worktrees or task branches, preventing state pollution.
-4. **Independent Seams**: Code is decomposed into deep modules with small interfaces, maximizing testability and AI comprehension.
+Start with:
 
----
+- [.devflow/project/project.yaml](.devflow/project/project.yaml): machine-readable project orientation.
+- [.devflow/goals/bootstrap-devflow-filesystem/goal.yaml](.devflow/goals/bootstrap-devflow-filesystem/goal.yaml): active bootstrap filesystem goal.
+- [.devflow/context/active/README.md](.devflow/context/active/README.md): context classification entry point.
+- [.devflow/layers/architecture/contracts.md](.devflow/layers/architecture/contracts.md): layer-local contract pointers.
+- [docs/devflow-control-loop-contracts.md](docs/devflow-control-loop-contracts.md): reference architecture for the target structure.
 
-## DevMode Contract
+## Quick Start
 
-DevMode is governed by the canonical contract in [docs/devmode-contract.md](docs/devmode-contract.md).
+Install locally from the repository root:
 
-The short version:
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -e .
+```
 
-1. Mode Gate — classify the task before acting.
-2. Context Gate — search before broad reads.
-3. Change Gate — isolate edits and choose the right workflow.
-4. Verification Gate — provide fresh evidence before claiming completion.
+Initialize the control-room structure:
 
-Harness-specific files should route agents to the contract instead of duplicating the full rules.
+```bash
+.venv/bin/python -m devflow.cli init
+.venv/bin/python -m devflow.cli doctor
+```
 
----
+Create, run, verify, inspect, and preview one shell task:
 
-## DevMode vs Dev-Flow
+```bash
+TASK_ID=$(.venv/bin/python -m devflow.cli task create "write hello result" | sed -n 's/^Created \(task-[^:]*\):.*/\1/p')
+.venv/bin/python -m devflow.cli task run "$TASK_ID" --worker shell -- /bin/sh -c "echo hello > result.txt"
+.venv/bin/python -m devflow.cli task verify "$TASK_ID" --shell "test -f result.txt"
+.venv/bin/python -m devflow.cli task show "$TASK_ID"
+.venv/bin/python -m devflow.cli dashboard
+.venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
+```
 
-DevMode is the portable discipline layer for agent behavior.
-Dev-Flow is the local-first control room that owns task state, worker isolation, verification evidence, and human-controlled promotion.
+Promotion is explicit and human-controlled:
 
-See [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md).
+```bash
+.venv/bin/python -m devflow.cli task promote "$TASK_ID"
+```
 
-For the complete operating structure, see:
-- [docs/devflow-operating-model.md](docs/devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
-- [docs/read-only-control-room-agent.md](docs/read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
-- [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+Use promotion only after reviewing the preview and verification evidence.
 
----
+## DevMode Relationship
 
-## 📦 Skill Inventory by Gate
+DevMode is the portable discipline layer for agent behavior: mode gating, search-before-read context discipline, focused changes, and verification before completion.
 
-DevMode includes a curated library of **20 specialized skills** organized under the four operational gates:
+Dev-Flow is the product in this repository: the local-first control room that owns task state, worker isolation, logs, verification evidence, and promotion readiness.
 
-### 1. Mode Gate Skills
-*   [**`using-devmode`**](skills/using-devmode/SKILL.md): The master session bootstrap. Dictates mode gating and skill routing.
-*   [**`brainstorming`**](skills/brainstorming/SKILL.md): Multi-approach visual exploration before design doc creation.
-*   [**`writing-plans`**](skills/writing-plans/SKILL.md): Bite-sized, zero-placeholder implementation checklists.
-*   [**`executing-plans`**](skills/executing-plans/SKILL.md): Plan execution inside the current session with review gating.
+The boundary is documented in [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md). DevMode guides humans and agents working in this repo; it is not the Dev-Flow runtime.
 
-### 2. Context Gate Skills
-*   [**`token-budget`**](skills/token-budget/SKILL.md): Strict token economics. Replaces lazy read loops with search-first patterns.
-*   [**`token-optimization`**](skills/token-optimization/SKILL.md): Project-local lightweight context and search-policy management.
-*   [**`grill-with-docs`**](skills/grill-with-docs/SKILL.md): Interactive spec refinement using `CONTEXT.md` and `ADRs`.
+## Active References
 
-### 3. Change Gate Skills
-*   [**`test-driven-development`**](skills/test-driven-development/SKILL.md): Strict RED-GREEN-REFACTOR loops. No code without tests.
-*   [**`systematic-debugging`**](skills/systematic-debugging/SKILL.md): Investigate before fixing. Includes `root-cause-tracing` and `defense-in-depth` modules.
-*   [**`workspace-isolation`**](skills/workspace-isolation/SKILL.md): Strict workspace boundaries. Prevents edits leaking to protected directories.
-*   [**`using-git-worktrees`**](skills/using-git-worktrees/SKILL.md): Seamlessly provisioning isolated git worktrees.
-*   [**`subagent-driven-development`**](skills/subagent-driven-development/SKILL.md): Isolated subagent execution with independent spec and quality reviewers.
-*   [**`dispatching-parallel-agents`**](skills/dispatching-parallel-agents/SKILL.md): Orchestrating parallel non-dependent sub-tasks.
-*   [**`improve-codebase-architecture`**](skills/improve-codebase-architecture/SKILL.md): Surfacing shallow modules and generating visual deepening reviews.
-*   [**`writing-skills`**](skills/writing-skills/SKILL.md): Applying TDD to process documentation (RED-GREEN-REFACTOR for skills).
+- [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md): long-term product identity and self-checks.
+- [docs/mvp-contract.md](docs/mvp-contract.md): stable current command, filesystem, and safety contract.
+- [docs/control-room-mvp.md](docs/control-room-mvp.md): near-term MVP authority.
+- [docs/roadmap.md](docs/roadmap.md): current sequencing and deferred work.
+- [docs/agent-handoff.md](docs/agent-handoff.md): orientation for future agents.
+- [docs/devflow-operating-model.md](docs/devflow-operating-model.md): role split between human, main chat agent, Dev-Flow kernel, worker agents, and DevMode.
 
-### 4. Verification Gate Skills
-*   [**`verification-before-completion`**](skills/verification-before-completion/SKILL.md): Concrete evidence checking before claiming completion.
-*   [**`worker-handoff`**](skills/worker-handoff/SKILL.md): Rigorous task handoff protocol using verified evidence.
-*   [**`requesting-code-review`**](skills/requesting-code-review/SKILL.md): Preparing clean PR reviews.
-*   [**`receiving-code-review`**](skills/receiving-code-review/SKILL.md): Implementing feedback with technical rigor.
-*   [**`finishing-a-development-branch`**](skills/finishing-a-development-branch/SKILL.md): Automated branch verification and merge readiness.
+## Development Boundary
 
----
+Active control-room code belongs under:
 
-## ⚙️ Installation & Harness Setup
+```text
+src/devflow/control_room/
+```
 
-DevMode can be integrated with major AI coding harnesses (such as Claude Code, Gemini, Cursor, Codex, and OpenCode) via symlinks, prompts, or custom loader configurations. Follow the setup instructions for your specific environment below:
+Legacy software-factory files are quarantined under:
 
-### 1. Claude Code
-Claude Code automatically scans `.claude-plugin/plugin.json` to load custom skills.
-1. Clone this repository into your project root:
-   ```bash
-   git clone https://github.com/870DudeMcgee/devmode.git .devmode
-   ```
-2. Symlink the `.claude-plugin` config:
-   ```bash
-   ln -s .devmode/.claude-plugin .claude-plugin
-   ```
-3. Symlink the `skills` folder:
-   ```bash
-   ln -s .devmode/skills skills
-   ```
+```text
+src/devflow/_legacy/
+```
 
-### 2. Gemini CLI
-Gemini CLI uses a bootstrap config mapping.
-1. Reference `gemini-extension.json` in your global config.
-2. Gemini CLI will automatically load `GEMINI.md` as its starting prompt context, bootstrap-loading `using-devmode`.
+Do not add new product features under top-level compatibility shims or `_legacy/`.
 
-### 3. Cursor
-Cursor respects directory instruction prompts.
-1. Link Cursor's system prompt instructions to `.devmode/skills/using-devmode/SKILL.md` to trigger full framework awareness on every new chat session.
+## Verification
 
-### 4. Codex
-1. Copy or link `.codex-plugin/` directory to your project root.
-2. Codex will discover the UI metadata and register DevMode skills.
+Focused control-room verification:
 
-### 5. OpenCode
-Follow instructions in `.opencode/INSTALL.md` to set up the bootstrap loader.
+```bash
+.venv/bin/python -m pytest tests/test_architecture_boundaries.py tests/test_devflow_init_structure.py tests/test_control_room_shell.py tests/test_promote_preview.py tests/test_task_packet.py -q
+```
 
-### 6. VS Code / GitHub Copilot
-DevMode includes experimental VS Code / GitHub Copilot guidance:
+Current development should keep strengthening the control-room loop: shell-worker task lifecycle, workspace isolation, status visibility, verification evidence, human-controlled promotion, and merge readiness.
 
-- `.github/copilot-instructions.md`
-- `.github/instructions/devmode.instructions.md`
-- `.github/prompts/devmode-plan.prompt.md`
-- `.github/prompts/devmode-review.prompt.md`
-- `docs/vscode-copilot.md`
+## License
 
-See `docs/vscode-copilot.md` for setup and usage.
+Dev-Flow is released under the [MIT License](LICENSE).
 
----
-
-## 🤝 Contributing & TDD-for-Skills
-
-We love contributions! However, to maintain the rigorous discipline of DevMode, **all skill additions and modifications MUST follow the TDD-for-Skills process**:
-
-1. **RED Phase**: Write a pressure scenario (under the `/tests` folder) that triggers the failure you want to prevent. Run an agent without your changes and verify it fails.
-2. **GREEN Phase**: Implement your skill in `skills/your-skill/SKILL.md` to address the specific excuse or loophole. Run the agent with the skill and verify it now complies.
-3. **REFACTOR Phase**: Plug any remaining loopholes by updating the rationalization table in your skill.
-
-For complete guidelines, read [**`writing-skills`**](skills/writing-skills/SKILL.md) and the [**Contributing Guide**](CONTRIBUTING.md).
-
----
-
-## ⚖️ Attribution & Licensing
-
-DevMode is released under the [MIT License](LICENSE).
-
-It is based heavily on [**Superpowers**](https://github.com/obra/superpowers) by [Jesse Vincent](https://blog.fsck.com) and the team at [Prime Radiant](https://primeradiant.com). We are deeply grateful for their trailblazing work on AI agent discipline. Comprehensive attribution details can be found in [ATTRIBUTION.md](ATTRIBUTION.md).
+This repository also contains DevMode skill and harness material influenced by [Superpowers](https://github.com/obra/superpowers). Attribution details are in [ATTRIBUTION.md](ATTRIBUTION.md).

@@ -1,5 +1,7 @@
 # Dev-Flow Workflow Preview
 
+Status: conceptual/reference walkthrough. This document is not an implementation contract. Use [mvp-contract.md](mvp-contract.md), [control-room-mvp.md](control-room-mvp.md), and [devflow-operating-model.md](devflow-operating-model.md) for current authority.
+
 ## Purpose
 
 This document provides a conceptual walkthrough of the end-to-end developer experience under the redefined Dev-Flow operating model. It illustrates how a human developer coordinates AI-assisted work with absolute safety, visibility, and control.
