@@ -28,9 +28,11 @@ from devflow.control_room.persistence import (
     utc_now,
 )
 from devflow.control_room.promotion import (
-    main_checkout_has_uncommitted_changes,
     _get_relative_files,
+    main_checkout_has_uncommitted_changes,
 )
+from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors, readiness_state
+from devflow.control_room.seed import initialize_seed, validate_seed_contract
 from devflow.control_room.verification import VerificationResult, run_verification_command
 from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
@@ -63,6 +65,7 @@ def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions:
 
 def init_control_room(root: Path) -> None:
     devflow_dir(root).mkdir(parents=True, exist_ok=True)
+    initialize_seed(root)
     system_dir(root).mkdir(parents=True, exist_ok=True)
     tasks_dir(root).mkdir(parents=True, exist_ok=True)
     workspaces_dir(root).mkdir(parents=True, exist_ok=True)
@@ -224,6 +227,7 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
 
 
 def doctor(root: Path) -> list[tuple[str, bool, str]]:
+    seed_errors = validate_seed_contract(root)
     checks = [
         ("runtime directory", devflow_dir(root).exists(), str(devflow_dir(root))),
         ("config", config_path(root).exists(), str(config_path(root))),
@@ -232,6 +236,10 @@ def doctor(root: Path) -> list[tuple[str, bool, str]]:
         ("tasks directory", tasks_dir(root).exists(), str(tasks_dir(root))),
         ("workspaces directory", workspaces_dir(root).exists(), str(workspaces_dir(root))),
     ]
+    if seed_errors:
+        checks.append(("seed contract", False, "; ".join(seed_errors)))
+    elif devflow_dir(root).exists():
+        checks.append(("seed contract", True, ".devflow seed contract"))
     if tasks_dir(root).exists():
         for path in sorted(tasks_dir(root).iterdir()):
             if not path.is_dir():
@@ -310,25 +318,7 @@ def _write_merge_readiness(root: Path, task_path: Path, task: TaskRecord) -> Non
         except Exception:
             pass
 
-    ready = False
-    reasons = []
-
-    if task.status != "verified":
-        reasons.append(f"Task status is '{task.status}', expected 'verified'")
-    if task.verification_status != "passed":
-        reasons.append(f"Verification status is '{task.verification_status}', expected 'passed'")
-    if task.verification_exit_code != 0:
-        if task.verification_exit_code is None:
-            reasons.append("Verification exit code is missing")
-        else:
-            reasons.append(f"Verification exit code is {task.verification_exit_code}, expected 0")
-
-    if not reasons:
-        ready = True
-        reasons.append("Verification passed successfully")
-
-    if task.workspace_dirty:
-        reasons.append("Warning: Workspace was created from a dirty worktree (uncommitted changes)")
+    ready, reasons = readiness_state(task, task_path)
 
     payload = {
         "task_id": task.id,
@@ -404,6 +394,4 @@ def _looks_destructive(command: list[str]) -> bool:
     text = " ".join(command).lower()
     blocked_fragments = ("rm -rf /", "rm -fr /", "mkfs", "diskutil erase", ":(){", "dd if=")
     return any(fragment in text for fragment in blocked_fragments)
-
-
 

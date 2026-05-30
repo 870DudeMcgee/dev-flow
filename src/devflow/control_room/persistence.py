@@ -13,6 +13,7 @@ from devflow.control_room.paths import (
     task_dir,
     tasks_dir,
 )
+from devflow.control_room.readiness import readiness_state
 
 
 def utc_now() -> datetime:
@@ -127,25 +128,7 @@ def append_event(root: Path, task_id: str, event_type: str, payload: dict[str, A
 
 
 def _write_task_summary(task_path: Path, task: TaskRecord) -> None:
-    ready = False
-    reasons = []
-
-    if task.status != "verified":
-        reasons.append(f"Task status is '{task.status}', expected 'verified'")
-    if task.verification_status != "passed":
-        reasons.append(f"Verification status is '{task.verification_status}', expected 'passed'")
-    if task.verification_exit_code != 0:
-        if task.verification_exit_code is None:
-            reasons.append("Verification exit code is missing")
-        else:
-            reasons.append(f"Verification exit code is {task.verification_exit_code}, expected 0")
-
-    if not reasons:
-        ready = True
-        reasons.append("Verification passed successfully")
-
-    if task.workspace_dirty:
-        reasons.append("Warning: Workspace was created from a dirty worktree (uncommitted changes)")
+    ready, reasons = readiness_state(task, task_path)
 
     payload = {
         "task_id": task.id,

@@ -1,0 +1,1 @@
+{"id":"architecture-decision-001","status":"accepted","decision":"Use .devflow/ as the durable context layer for project, goal, task, classified context, layered knowledge, registries, locks, reports, and archive areas.","rationale":"This makes state visible and keeps workers from rereading unrelated project history.","supersedes":[]}

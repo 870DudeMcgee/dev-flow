@@ -6,7 +6,16 @@ import json
 import typer
 
 from devflow.control_room.dashboard import run_dashboard
-from devflow.control_room.service import create_task, doctor, get_task, init_control_room, list_tasks, run_shell_task, verify_task
+from devflow.control_room.service import (
+    create_task,
+    doctor,
+    get_task,
+    init_control_room,
+    list_tasks,
+    promotion_readiness_errors,
+    run_shell_task,
+    verify_task,
+)
 from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 
@@ -151,7 +160,11 @@ def task_show(task_id: str) -> None:
         typer.echo(f"verification_exit_code: {v_exit_code}")
     typer.echo(f"verification_log_path: {v_log_path or ''}")
     typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
-    typer.echo(f"suggested_next_action: {_suggest_next_action(task.status, v_status, task.id)}")
+    promotion_errors = promotion_readiness_errors(task, task_path)
+    typer.echo(
+        f"suggested_next_action: "
+        f"{_suggest_next_action(task.status, v_status, task.id, promotion_ready=not promotion_errors)}"
+    )
     promoted_event = _get_latest_promoted_event(task_path)
     if promoted_event:
         typer.echo("promoted_changes:")
@@ -359,10 +372,12 @@ def task_promote(
     """Promote verified changes from the isolated workspace to the main checkout."""
     try:
         from devflow.control_room.service import (
+            format_promotion_refusal,
             get_task,
             main_checkout_has_uncommitted_changes,
             preview_task_promotion,
             promote_task,
+            promotion_readiness_errors,
         )
         # 1. Safety check for dirty main checkout
         dirty = main_checkout_has_uncommitted_changes(Path.cwd())
@@ -377,8 +392,9 @@ def task_promote(
                 typer.echo("Warning: Bypassing safety check for uncommitted changes in main checkout.")
 
         task = get_task(Path.cwd(), task_id)
-        if task.status != "verified":
-            typer.echo(f"Refusing to promote task '{task_id}': status is '{task.status}', expected 'verified'.", err=True)
+        task_path = Path.cwd() / ".devflow" / "tasks" / task.id
+        if promotion_readiness_errors(task, task_path):
+            typer.echo(format_promotion_refusal(task, task_path), err=True)
             raise typer.Exit(code=1)
 
         res = preview_task_promotion(Path.cwd(), task_id)
@@ -500,17 +516,21 @@ def _verify_token(verification_status: str | None, verification_exit_code: int |
     return status
 
 
-def _suggest_next_action(status: str, verification_status: str, task_id: str) -> str:
+def _suggest_next_action(
+    status: str, verification_status: str, task_id: str, promotion_ready: bool = False
+) -> str:
     if status == "created":
         return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
     elif status == "running":
         return "Monitor the execution or wait for the task to complete."
     elif status == "complete":
         return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
-    elif status == "verified" or verification_status == "passed":
-        return f"Task is verified. Review promotion preview, then run 'devflow task promote {task_id}' when ready."
     elif status == "promoted":
         return "Task has been promoted. Review main checkout changes, then commit manually if appropriate."
+    elif status == "verified" and promotion_ready:
+        return f"Task is verified. Review promotion preview, then run 'devflow task promote {task_id}' when ready."
+    elif status == "verified" or verification_status == "passed":
+        return "Task is verified, but promotion readiness evidence is incomplete. Re-run verification before promotion."
     elif status == "verification_failed" or verification_status == "failed":
         return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
     elif status == "worker_failed":

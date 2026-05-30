@@ -15,6 +15,38 @@ from devflow.control_room.service import get_task
 runner = CliRunner()
 
 
+def _mark_task_verified_with_evidence(task_id: str = "task-0001") -> None:
+    task_path = Path(".devflow/tasks") / task_id
+    yaml_path = task_path / "task.yaml"
+    content = yaml_path.read_text(encoding="utf-8")
+    content = content.replace('status: "created"', 'status: "verified"')
+    content = content.replace('verification_status: "not_run"', 'verification_status: "passed"')
+    content = content.replace("verification_exit_code: null", "verification_exit_code: 0")
+    content = content.replace(
+        "verification_log_path: null",
+        f'verification_log_path: ".devflow/tasks/{task_id}/logs/verify.log"',
+    )
+    yaml_path.write_text(content, encoding="utf-8")
+    (task_path / "verification.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "workspace": f".devflow/workspaces/{task_id}",
+                "command": ["true"],
+                "status": "passed",
+                "task_status": "verified",
+                "exit_code": 0,
+                "latest_log_line": "",
+                "log_path": f".devflow/tasks/{task_id}/logs/verify.log",
+                "finished_at": "2026-05-30T00:00:00+00:00",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_promote_preview_missing_task() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -154,7 +186,44 @@ def test_promote_refuses_unverified_task() -> None:
 
             res = runner.invoke(app, ["task", "promote", "task-0001"])
             assert res.exit_code == 1
+            assert "Refusing to promote task 'task-0001'" in res.output
             assert "expected 'verified'" in res.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_refuses_stale_verification_json_even_when_task_yaml_is_verified() -> None:
+    import subprocess
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+            Path("file.txt").write_text("old\n", encoding="utf-8")
+            subprocess.run(["git", "add", "file.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            created = runner.invoke(app, ["task", "create", "stale-evidence-gate-test"])
+            assert created.exit_code == 0
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "file.txt").write_text("new\n", encoding="utf-8")
+
+            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
+            content = yaml_path.read_text(encoding="utf-8")
+            content = content.replace('status: "created"', 'status: "verified"')
+            content = content.replace('verification_status: "not_run"', 'verification_status: "passed"')
+            content = content.replace("verification_exit_code: null", "verification_exit_code: 0")
+            yaml_path.write_text(content, encoding="utf-8")
+
+            promoted = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
+            assert promoted.exit_code == 1
+            assert "Refusing to promote task 'task-0001'" in promoted.output
+            assert "verification.json status is 'not_run', expected 'passed'" in promoted.output
+
+            assert Path("file.txt").read_text(encoding="utf-8") == "old\n"
         finally:
             os.chdir(old_cwd)
 
@@ -178,10 +247,7 @@ def test_promote_declined_confirmation() -> None:
             workspace_dir = Path(".devflow/workspaces/task-0001")
             Path(workspace_dir / "file.txt").write_text("new\n", encoding="utf-8")
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001"], input="n\n")
             assert res.exit_code == 0
@@ -218,10 +284,7 @@ def test_promote_confirmed_copies_added_and_modified_but_not_deleted() -> None:
             Path(workspace_dir / "modify.txt").write_text("new modify\n", encoding="utf-8")
             Path(workspace_dir / "delete.txt").unlink()
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
             assert res.exit_code == 0, res.output
@@ -259,10 +322,7 @@ def test_promote_dirty_checkout_blocks_by_default() -> None:
             created = runner.invoke(app, ["task", "create", "dirty-test"])
             assert created.exit_code == 0
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             Path("dirty.txt").write_text("dirty content\n", encoding="utf-8")
 
@@ -295,10 +355,7 @@ def test_promote_dirty_checkout_force_bypasses() -> None:
             workspace_dir = Path(".devflow/workspaces/task-0001")
             Path(workspace_dir / "added.txt").write_text("added\n", encoding="utf-8")
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             Path("dirty.txt").write_text("dirty content\n", encoding="utf-8")
 
@@ -334,10 +391,7 @@ def test_promote_devflow_only_dirtiness_does_not_block() -> None:
             workspace_dir = Path(".devflow/workspaces/task-0001")
             Path(workspace_dir / "added.txt").write_text("added\n", encoding="utf-8")
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
             assert res.exit_code == 0, res.output
@@ -357,10 +411,7 @@ def test_promote_outside_git_repo_fails_safely() -> None:
             created = runner.invoke(app, ["task", "create", "non-git-test"])
             assert created.exit_code == 0
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001"])
             assert res.exit_code == 1
@@ -389,10 +440,7 @@ def test_promote_apply_deletions_confirmed() -> None:
             workspace_dir = Path(".devflow/workspaces/task-0001")
             Path(workspace_dir / "delete.txt").unlink()
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001", "--apply-deletions"], input="y\n")
             assert res.exit_code == 0, res.output
@@ -430,10 +478,7 @@ def test_promote_apply_deletions_declined() -> None:
             workspace_dir = Path(".devflow/workspaces/task-0001")
             Path(workspace_dir / "delete.txt").unlink()
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001", "--apply-deletions"], input="n\n")
             assert res.exit_code == 0
@@ -465,10 +510,7 @@ def test_promote_apply_deletions_safety_boundaries() -> None:
 
             workspace_dir = Path(".devflow/workspaces/task-0001")
 
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             from devflow.control_room.service import promote_task
             task = promote_task(Path.cwd(), "task-0001", apply_deletions=True)
@@ -496,10 +538,7 @@ def test_promote_harden_copy_escapes_root(monkeypatch: pytest.MonkeyPatch) -> No
             assert created.exit_code == 0
 
             # Manually mark verified
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             # Monkeypatch _get_relative_files to return a path that escapes root
             from devflow.control_room import service
@@ -542,10 +581,7 @@ def test_promote_harden_copy_ignored_path(monkeypatch: pytest.MonkeyPatch) -> No
             assert created.exit_code == 0
 
             # Manually mark verified
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             # Monkeypatch _get_relative_files to return a path in .git
             from devflow.control_room import service
@@ -599,10 +635,7 @@ def test_task_show_promotion_visibility() -> None:
             Path(workspace_dir / "delete.txt").unlink()
 
             # Mark verified
-            yaml_path = Path(".devflow/tasks/task-0001/task.yaml")
-            content = yaml_path.read_text(encoding="utf-8")
-            content = content.replace('status: "created"', 'status: "verified"')
-            yaml_path.write_text(content, encoding="utf-8")
+            _mark_task_verified_with_evidence()
 
             # 2. Test verified task suggested next action points to devflow task promote
             res_show_verified = runner.invoke(app, ["task", "show", "task-0001"])

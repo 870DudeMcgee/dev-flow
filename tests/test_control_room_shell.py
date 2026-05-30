@@ -621,9 +621,9 @@ def test_task_merge_readiness_lifecycle() -> None:
             mr_data = json.loads(mr_path.read_text(encoding="utf-8"))
             assert mr_data["task_id"] == "task-0001"
             assert mr_data["ready"] is False
-            assert "Task status is 'created', expected 'verified'" in mr_data["reasons"]
-            assert "Verification status is 'not_run', expected 'passed'" in mr_data["reasons"]
-            assert "Verification exit code is missing" in mr_data["reasons"]
+            assert "status is 'created', expected 'verified'" in mr_data["reasons"]
+            assert "verification status is 'not_run', expected 'passed'" in mr_data["reasons"]
+            assert "verification exit code is missing" in mr_data["reasons"]
             assert mr_data["verification_finished_at"] is None
             assert mr_data["generated_at"] is not None
 
@@ -632,7 +632,7 @@ def test_task_merge_readiness_lifecycle() -> None:
             assert show.exit_code == 0
             assert "merge_ready: no" in show.output
             assert "readiness_reasons:" in show.output
-            assert "  - Task status is 'created', expected 'verified'" in show.output
+            assert "  - status is 'created', expected 'verified'" in show.output
 
             # Run task
             run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done"])
@@ -644,8 +644,8 @@ def test_task_merge_readiness_lifecycle() -> None:
 
             fail_data = json.loads(mr_path.read_text(encoding="utf-8"))
             assert fail_data["ready"] is False
-            assert "Task status is 'verification_failed', expected 'verified'" in fail_data["reasons"]
-            assert "Verification exit code is 5, expected 0" in fail_data["reasons"]
+            assert "status is 'verification_failed', expected 'verified'" in fail_data["reasons"]
+            assert "verification exit code is 5, expected 0" in fail_data["reasons"]
             assert fail_data["verification_exit_code"] == 5
             assert fail_data["verification_finished_at"] is not None
             assert fail_data["verification_log_path"] == ".devflow/tasks/task-0001/logs/verify.log"
@@ -812,7 +812,7 @@ def test_task_summary_file_lifecycle() -> None:
             assert summary["latest_verification_log_path"] is None
             assert summary["merge_ready"] is False
             assert len(summary["merge_readiness_reasons"]) > 0
-            assert "Task status is 'created', expected 'verified'" in summary["merge_readiness_reasons"]
+            assert "status is 'created', expected 'verified'" in summary["merge_readiness_reasons"]
             assert summary["updated_at"] is not None
 
             # 2. Summary updates after shell task execution
@@ -853,7 +853,7 @@ def test_task_summary_file_lifecycle() -> None:
             assert summary["latest_verification_exit_code"] != 0
             assert summary["latest_verification_log_path"] == ".devflow/tasks/task-0001/logs/verify.log"
             assert summary["merge_ready"] is False
-            assert any("Verification exit code is" in reason for reason in summary["merge_readiness_reasons"])
+            assert any("verification exit code is" in reason for reason in summary["merge_readiness_reasons"])
 
             # 4. Summary updates after passed verification
             verify_pass = runner.invoke(
@@ -1163,7 +1163,7 @@ def test_task_show_verification_and_next_action() -> None:
             assert show_graceful.exit_code == 0
             assert "verification_status: passed" in show_graceful.output
             assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_graceful.output
-            assert "suggested_next_action: Task is verified. Review promotion preview, then run 'devflow task promote task-0001' when ready." in show_graceful.output
+            assert "suggested_next_action: Task is verified, but promotion readiness evidence is incomplete. Re-run verification before promotion." in show_graceful.output
 
         finally:
             os.chdir(old_cwd)
