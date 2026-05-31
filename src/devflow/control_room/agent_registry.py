@@ -162,6 +162,14 @@ def load_provider_registry(root: Path) -> ProviderRegistry:
                             errors.append(f"providers.{provider_id}.{loc}: {item['msg']}")
                         continue
 
+                    if provider_def.api_key_env is not None:
+                        val = provider_def.api_key_env
+                        if val.startswith("sk-") or not val.isupper() or not all(c.isalnum() or c == '_' for c in val):
+                            errors.append(
+                                f"providers.{provider_id}.api_key_env must be an uppercase environment variable name, "
+                                f"not a literal secret value: '{val}'"
+                            )
+
                     providers[provider_id] = provider_def
                     source_paths[provider_id] = file_path
                 except Exception as exc:
@@ -341,19 +349,19 @@ def load_agent_registry(root: Path) -> AgentRegistry:
     registry_path = root / ".devflow/agents/registry.yaml"
     if registry_path.exists():
         payload = _read_registry_file(registry_path)
-        return _build_registry(registry_path, payload)
+        return _build_registry(registry_path, payload, root=root)
 
     seed_registry_path = root / ".devflow/workers/registry.yaml"
     if seed_registry_path.exists():
         payload = _read_registry_file(seed_registry_path)
         if payload.get("workers") == [] and "agents" not in payload:
             return AgentRegistry(version=_registry_version(payload), source_path=seed_registry_path)
-        return _build_registry(seed_registry_path, payload)
+        return _build_registry(seed_registry_path, payload, root=root)
 
     return AgentRegistry()
 
 
-def _build_registry(source_path: Path, payload: dict[str, object]) -> AgentRegistry:
+def _build_registry(source_path: Path, payload: dict[str, object], root: Path | None = None) -> AgentRegistry:
     errors: list[str] = []
     version = _registry_version(payload)
     if version != 1:
@@ -371,6 +379,18 @@ def _build_registry(source_path: Path, payload: dict[str, object]) -> AgentRegis
         errors.append("agents must be a map")
         raw_agents = {}
 
+    providers = None
+    roles = None
+    if root is not None:
+        try:
+            providers = load_provider_registry(root)
+        except Exception:
+            pass
+        try:
+            roles = load_role_registry(root)
+        except Exception:
+            pass
+
     agents: dict[str, AgentDefinition] = {}
     for agent_id, raw_agent in raw_agents.items():
         if not isinstance(agent_id, str):
@@ -387,7 +407,7 @@ def _build_registry(source_path: Path, payload: dict[str, object]) -> AgentRegis
                 errors.append(f"agents.{agent_id}.{loc}: {item['msg']}")
             continue
         agents[agent_id] = agent
-        errors.extend(_validate_agent_policy(agent))
+        errors.extend(_validate_agent_policy(agent, providers=providers, roles=roles))
 
     if default_agent_id is not None:
         default_agent = agents.get(default_agent_id)
@@ -407,15 +427,53 @@ def _build_registry(source_path: Path, payload: dict[str, object]) -> AgentRegis
     )
 
 
-def _validate_agent_policy(agent: AgentDefinition) -> list[str]:
+def _validate_agent_policy(
+    agent: AgentDefinition,
+    providers: ProviderRegistry | None = None,
+    roles: RoleRegistry | None = None,
+) -> list[str]:
     errors: list[str] = []
     prefix = f"agents.{agent.id}"
+    
     if agent.can_promote:
         errors.append(f"{prefix}.can_promote must be false")
+        
     if agent.tier == "frontier" and agent.default_mode == "workspace_write":
         errors.append(f"{prefix}.frontier agents cannot use workspace_write")
+        
     if agent.tier == "frontier" and agent.can_run_shell:
         errors.append(f"{prefix}.frontier agents cannot run shell commands")
+
+    # P1 Hardening Validations
+    if providers is not None and providers.providers:
+        if agent.provider not in providers.providers:
+            errors.append(f"{prefix}.provider '{agent.provider}' does not exist in provider registry")
+            
+    if roles is not None and roles.roles:
+        if agent.role not in roles.roles:
+            errors.append(f"{prefix}.role '{agent.role}' does not exist in role registry")
+
+    ALLOWED_ADAPTERS = {"shell", "manual", "ollama_chat", "openai_responses", "openai_compatible", "anthropic_messages", "manual_packet", "gemini", "openai_chat"}
+    if agent.adapter not in ALLOWED_ADAPTERS:
+        errors.append(f"{prefix}.adapter '{agent.adapter}' is unsupported. Allowed: {sorted(list(ALLOWED_ADAPTERS))}")
+
+    if agent.tier == "frontier" and agent.default_mode not in {"read_only", "frontier_read_only", "manual_packet_only"}:
+        errors.append(f"{prefix}.default_mode '{agent.default_mode}' is not compatible with frontier tier")
+
+    for path in agent.can_touch:
+        if not (path.startswith("<workspace>/") or path.startswith("<task>/") or path == "<workspace>" or path == "<task>"):
+            errors.append(f"{prefix}.can_touch cannot include main checkout path: '{path}'")
+
+    if not any(".git" in path for path in agent.cannot_touch):
+        agent.cannot_touch.append(".git/**")
+
+    if agent.tier == "local" and agent.can_use_network:
+        errors.append(f"{prefix}.local agents cannot have can_use_network: true")
+
+    if agent.can_run_shell:
+        if agent.default_mode != "verify_only" and agent.adapter != "shell":
+            errors.append(f"{prefix}.can_run_shell is true but is not aligned with verify_only mode or shell adapter")
+
     return errors
 
 

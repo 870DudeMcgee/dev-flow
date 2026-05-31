@@ -61,8 +61,23 @@ class ManualWorkerAdapter:
             )
         else:
             # Non-interactive / Background runner
+            import json
+            from devflow.control_room.persistence import timestamp
+
+            event = {
+                "timestamp": timestamp(),
+                "event": "manual_packet_generated",
+                "status": "awaiting_human",
+                "summary": "Manual instructions generated. Awaiting human workspace changes.",
+            }
+            try:
+                with worker_input.context_file.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(event) + "\n")
+            except Exception:
+                pass
+
             return WorkerResult(
-                status="complete",
+                status="blocked",
                 summary="Manual instructions generated. Awaiting human workspace changes.",
                 exit_code=0,
                 latest_log_line=latest,

@@ -93,7 +93,7 @@ class WorkerInput(BaseModel):
 
 
 class WorkerResult(BaseModel):
-    status: Literal["complete", "worker_failed", "timeout"]
+    status: Literal["complete", "worker_failed", "timeout", "blocked"]
     summary: str
     exit_code: int | None = None
     latest_log_line: str | None = None

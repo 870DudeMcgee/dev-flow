@@ -52,49 +52,56 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
         except Exception:
             pass
 
-    # 1. First run pass metrics
+    evidence: list[str] = []
     verify_finished_events = [e for e in events if e.get("event") == "verification_finished"]
-    first_run_pass = False
-    if len(verify_finished_events) <= 1:
-        # Check if task is complete, verified, or verification passed
-        if task.status in ("verified", "complete") or task.verification_status == "passed" or task.last_exit_code == 0:
-            first_run_pass = True
+
+    # 1. First run pass metrics
+    has_verification = len(verify_finished_events) > 0 or task.verification_status != "not_run"
+    if not has_verification:
+        evidence.append("missing verification run")
+        first_run_pass = "unknown"
+    else:
+        first_run_pass = False
+        if len(verify_finished_events) <= 1:
+            if task.status in ("verified", "complete") or task.verification_status == "passed" or task.last_exit_code == 0:
+                first_run_pass = True
 
     # 2. Boundary violations metrics
-    boundary_violations = False
-    changed_files: list[str] = []
-    try:
-        status_proc = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if status_proc.returncode == 0:
-            for line in status_proc.stdout.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                path_part = stripped[3:].strip() if len(stripped) > 3 else stripped
-                if not path_part.startswith(".devflow"):
-                    changed_files.append(path_part)
-    except Exception:
-        pass
+    if task.status == "created" and not has_verification:
+        boundary_violations = "unknown"
+    else:
+        boundary_violations = False
+        changed_files: list[str] = []
+        try:
+            status_proc = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if status_proc.returncode == 0:
+                for line in status_proc.stdout.splitlines():
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    path_part = stripped[3:].strip() if len(stripped) > 3 else stripped
+                    if not path_part.startswith(".devflow"):
+                        changed_files.append(path_part)
+        except Exception:
+            pass
 
-    # Load worker agent rules
-    registry = load_agent_registry(root)
-    worker_agent = registry.agents.get(worker_agent_id)
-    if worker_agent is not None:
-        cannot_touch_patterns = worker_agent.cannot_touch
-        for cf in changed_files:
-            # Check against cannot_touch patterns
-            for pat in cannot_touch_patterns:
-                # Basic pattern wildcard converter: e.g. .git/** to .git/
-                clean_pat = pat.replace("**", "").replace("*", "")
-                if cf.startswith(clean_pat):
-                    boundary_violations = True
-                    break
+        # Load worker agent rules
+        registry = load_agent_registry(root)
+        worker_agent = registry.agents.get(worker_agent_id)
+        if worker_agent is not None:
+            cannot_touch_patterns = worker_agent.cannot_touch
+            for cf in changed_files:
+                for pat in cannot_touch_patterns:
+                    clean_pat = pat.replace("**", "").replace("*", "")
+                    if cf.startswith(clean_pat):
+                        boundary_violations = True
+                        break
 
     # 3. Frontier escalation needed
     frontier_escalation_needed = False
@@ -111,8 +118,7 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
             pass
 
     # 5. Cost avoided
-    # Baseline cost: Frontier Architect ($0.75) + Frontier Worker ($0.75) = $1.50
-    # Tier costs: Frontier ($0.75), Strong Local ($0.07), Local ($0.00)
+    registry = load_agent_registry(root)
     def _tier_cost(agent_id: str) -> float:
         agent = registry.agents.get(agent_id)
         if agent is None:
@@ -137,20 +143,34 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
         context_limit_exceeded = True
 
     # 7. Review mistakes found
-    review_mistakes_found = False
-    for e in events:
-        if e.get("event") == "review_rejected" or "mistake" in str(e).lower() or "correction" in str(e).lower():
-            review_mistakes_found = True
+    has_review = any(e.get("event") in ("review_approved", "review_rejected") for e in events) or (task_dir(root, task_id) / "result.md").exists()
+    if not has_review:
+        evidence.append("no review artifact")
+        review_mistakes_found = "unknown"
+    else:
+        review_mistakes_found = False
+        for e in events:
+            if e.get("event") == "review_rejected" or "mistake" in str(e).lower() or "correction" in str(e).lower():
+                review_mistakes_found = True
 
-    # Overall rating
-    overall_rating = 1.0
-    if not first_run_pass:
-        overall_rating -= 0.3
-    if boundary_violations:
-        overall_rating -= 0.5
-    if review_mistakes_found:
-        overall_rating -= 0.2
-    overall_rating = max(0.1, min(1.0, round(overall_rating, 2)))
+    # Overall rating & Confidence
+    confidence = "high"
+    if not has_verification or not has_review:
+        confidence = "low"
+
+    cost_avoided_usd = cost_avoided if (has_verification or has_review) else None
+
+    if not has_verification and not has_review:
+        overall_rating = "unknown"
+    else:
+        rating_val = 1.0
+        if first_run_pass is False:
+            rating_val -= 0.3
+        if boundary_violations is True:
+            rating_val -= 0.5
+        if review_mistakes_found is True:
+            rating_val -= 0.2
+        overall_rating = max(0.1, min(1.0, round(rating_val, 2)))
 
     return {
         "scorecard": {
@@ -161,8 +181,10 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
             "context_limit_exceeded": context_limit_exceeded,
             "review_mistakes_found": review_mistakes_found,
             "latency_seconds": latency_seconds,
-            "cost_avoided_usd": cost_avoided,
+            "cost_avoided_usd": cost_avoided_usd,
             "overall_quality_rating": overall_rating,
+            "confidence": confidence,
+            "evidence": evidence,
         }
     }
 
@@ -188,6 +210,15 @@ def save_scorecard(root: Path, task_id: str, scorecard_data: dict[str, Any]) -> 
             lines.append(f"  {key}: {val_str}")
         elif isinstance(val, (int, float)):
             lines.append(f"  {key}: {val}")
+        elif val is None:
+            lines.append(f"  {key}: null")
+        elif isinstance(val, list):
+            lines.append(f"  {key}:")
+            if not val:
+                lines.append("    - none")
+            else:
+                for item in val:
+                    lines.append(f"    - {item}")
         else:
             lines.append(f"  {key}: {val}")
 

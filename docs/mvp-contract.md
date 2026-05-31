@@ -2,7 +2,7 @@
 
 Status: active, reconciled on 2026-05-30.
 
-This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Runtime surfaces outside this document may exist as helper or experimental code, but they are not part of this current product contract.
+This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
 
 Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The next registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md). These design documents do not change this current product contract.
 
@@ -25,6 +25,23 @@ devflow task log <task-id>
 devflow task promote-preview <task-id>
 devflow task promote <task-id>
 ```
+
+## Implemented But Experimental Transition Commands
+The following CLI commands represent the transition layer. They are fully implemented but are classified as experimental and restricted to read-only/manual planning/auditing aids:
+
+```bash
+devflow agent list
+devflow agent show <agent-id>
+devflow agent packet <task-id> <agent-id>
+devflow task fit <task-id>
+devflow task pack <task-id> <role>
+devflow task scout <task-id> <role>
+devflow task route <task-id>
+devflow task scorecard <task-id>
+```
+
+Wait, `devflow task run <task-id> --worker <agent-id>` resolves to a named agent and is also experimental.
+
 
 `devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
 

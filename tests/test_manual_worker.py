@@ -38,7 +38,7 @@ def test_manual_worker_non_interactive(tmp_path: Path) -> None:
     
     result = adapter.run(worker_input)
 
-    assert result.status == "complete"
+    assert result.status == "blocked"
     assert "Awaiting human" in result.summary
     assert result.exit_code == 0
     assert log_file.exists()

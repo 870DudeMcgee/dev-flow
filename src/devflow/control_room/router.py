@@ -65,6 +65,11 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
                 eligible.append(agent)
 
         if not eligible:
+            if not enabled_agents:
+                # Extreme fallback if registry is completely empty
+                return "deterministic-shell"
+            if role_name in ("planner", "reviewer"):
+                raise ValueError(f"No enabled agents found for role '{role_name}' matching keywords: {keyword_filters}")
             # Fall back to any enabled agents if none match keyword filters
             eligible = list(enabled_agents)
 
@@ -84,14 +89,49 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
         compat_agents.sort(key=lambda a: _resolve_tier_cost(a.tier))
         chosen_agent = compat_agents[0]
 
-        # Record rejected agents
+        # Record rejected agents with precise rejection reasons
         for a in enabled_agents:
-            if any(kf in a.role.lower() or kf in a.id.lower() for kf in keyword_filters):
-                if a.id != chosen_agent.id:
-                    rejected.append({
-                        "agent": a.id,
-                        "reason": f"tier cost ({a.tier}) exceeds selected ({chosen_agent.tier}) or tier mismatch"
-                    })
+            if a.id == chosen_agent.id:
+                continue
+
+            matches_keywords = any(kf in a.role.lower() or kf in a.id.lower() for kf in keyword_filters)
+            if not matches_keywords:
+                rejected.append({
+                    "agent": a.id,
+                    "reason": f"role mismatch (role and ID keywords do not match {role_name} filters: {keyword_filters})"
+                })
+                continue
+
+            total_context = rs.get("total_context_estimate", 0)
+            max_context_ceiling = 32000 if a.tier == "local" else (48000 if a.tier == "strong_local" else 128000)
+            if total_context > max_context_ceiling:
+                rejected.append({
+                    "agent": a.id,
+                    "reason": f"context-window mismatch (context estimate {total_context} exceeds tier {a.tier} ceiling {max_context_ceiling})"
+                })
+                continue
+
+            task_risk_high = tf.get("code_edit_risk", "low") in ("high", "critical") or tf.get("architectural_risk", "low") in ("high", "critical")
+            if task_risk_high and a.tier == "local":
+                rejected.append({
+                    "agent": a.id,
+                    "reason": f"risk mismatch (high task risk requires strong local or frontier tier, got local agent {a.id})"
+                })
+                continue
+
+            chosen_cost = _resolve_tier_cost(chosen_agent.tier)
+            agent_cost = _resolve_tier_cost(a.tier)
+            recommended_cost = _resolve_tier_cost(recommended_tier)
+            if agent_cost < recommended_cost:
+                rejected.append({
+                    "agent": a.id,
+                    "reason": f"tier mismatch (agent tier {a.tier} is below recommended {recommended_tier})"
+                })
+            else:
+                rejected.append({
+                    "agent": a.id,
+                    "reason": f"cost ceiling (agent tier {a.tier} exceeds chosen {chosen_agent.tier})"
+                })
 
         return chosen_agent.id
 

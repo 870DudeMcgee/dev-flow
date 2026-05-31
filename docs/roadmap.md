@@ -166,7 +166,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: architecture document created; implementation not started.
+Status: Transition layer (registry, manual worker, CLI commands, context packing, and conservative routing) implemented as an experimental, non-authoritative planning aid. Full provider-backed execution is not active.
 
 Sequence:
 - architecture document only

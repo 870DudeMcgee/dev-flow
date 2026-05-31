@@ -513,11 +513,20 @@ def task_run(
     timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
 ) -> None:
     """Run a task with a worker command after '--'."""
-    try:
-        get_worker_adapter(worker)
-    except UnsupportedWorkerAdapter as exc:
-        typer.echo(str(exc))
-        raise typer.Exit(code=1)
+    from devflow.control_room.agent_registry import load_agent_registry
+    from devflow.control_room.worker_adapter import list_worker_adapters, UnsupportedWorkerAdapter
+
+    registry = load_agent_registry(Path.cwd())
+    valid_agents = list(registry.agents.keys())
+    valid_adapters = list_worker_adapters()
+
+    if worker not in valid_agents:
+        from devflow.control_room.worker_adapter import get_worker_adapter
+        try:
+            get_worker_adapter(worker)
+        except UnsupportedWorkerAdapter as exc:
+            typer.echo(str(exc))
+            raise typer.Exit(code=1) from exc
 
     try:
         command = _shell_command_or_args(shell_command, list(ctx.args), "Shell worker")

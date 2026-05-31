@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import subprocess
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +12,39 @@ from devflow.control_room.paths import task_dir
 from devflow.control_room.estimator import estimate_task_fit, save_task_fit
 
 
+def _get_authority(path_rel: str) -> str:
+    """Return the authority taxonomy rating of a file path."""
+    path_lower = path_rel.lower()
+    if "archive" in path_lower or "quarantine" in path_lower or "_legacy" in path_lower:
+        return "archive"
+    if "rejected" in path_lower:
+        return "rejected"
+    if path_rel.startswith(".devflow/project/") or path_rel == "PRODUCT_NORTH_STAR.md":
+        return "canonical"
+    if path_rel.startswith("src/"):
+        return "canonical"
+    if path_rel.startswith("tests/"):
+        return "canonical"
+    if path_rel.startswith(".devflow/layers/"):
+        return "experimental"
+    if path_rel.startswith(".devflow/tasks/") or path_rel.startswith(".devflow/workspaces/"):
+        return "derived"
+    return "active"
+
+
+def _get_sha256(path: Path) -> str:
+    """Compute truncated SHA256 hash of a file's content."""
+    try:
+        if not path.exists():
+            return "null"
+        content = path.read_bytes()
+        return hashlib.sha256(content).hexdigest()[:12]
+    except Exception:
+        return "null"
+
+
 def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
-    """Deterministic role-based context pack builder manifest generator."""
+    """Deterministic role-based context pack builder and physical packet generator."""
     allowed_roles = ("planner", "worker", "reviewer")
     if role not in allowed_roles:
         raise ValueError(f"Invalid role: '{role}'. Must be one of: {', '.join(allowed_roles)}")
@@ -22,12 +55,10 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
         fit_data = estimate_task_fit(root, task_id)
         save_task_fit(root, task_id, fit_data)
     else:
-        # Re-compute to ensure we have the latest repository and workspace state
         fit_data = estimate_task_fit(root, task_id)
 
     task = get_task(root, task_id)
     tf = fit_data.get("task_fit", {})
-    rs = fit_data.get("repo_scan", {})
     context_layer = tf.get("context_layer", "L1")
 
     # Find files in repo to build packs
@@ -42,8 +73,6 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
                 description = desc_match.group(1).strip().strip('"\'')
         except Exception:
             pass
-
-    combined_text = f"{title}\n{description}".lower()
 
     # Find changed files via git
     changed_files: list[Path] = []
@@ -132,6 +161,7 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
 
     includes: list[str] = []
     excludes: list[str] = []
+    sources_metadata: list[dict[str, Any]] = []
     total_tokens = 4000  # Default overhead
 
     def _rel(path: Path) -> str:
@@ -146,95 +176,106 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
         except Exception:
             return 0
 
+    def _add_include(path: Path, reason: str) -> None:
+        path_rel = _rel(path)
+        auth = _get_authority(path_rel)
+        if auth in ("archive", "rejected"):
+            _add_exclude(path, f"excluded due to {auth} authority level")
+            return
+        tokens = _estimate_tokens(path)
+        sha = _get_sha256(path)
+        content = ""
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+
+        includes.append(f"{path_rel} [authority: {auth}] ({tokens} tokens)")
+        sources_metadata.append({
+            "path": path_rel,
+            "authority": auth,
+            "mode": "full",
+            "token_estimate": tokens,
+            "sha_or_mtime": sha,
+            "reason_included": reason,
+            "reason_excluded": None,
+            "content": content
+        })
+        nonlocal total_tokens
+        total_tokens += tokens
+
+    def _add_exclude(path: Path, reason: str) -> None:
+        path_rel = _rel(path)
+        auth = _get_authority(path_rel)
+        tokens = _estimate_tokens(path)
+        excludes.append(f"{path_rel} [authority: {auth}] ({reason})")
+        sources_metadata.append({
+            "path": path_rel,
+            "authority": auth,
+            "mode": "omitted",
+            "token_estimate": tokens,
+            "sha_or_mtime": None,
+            "reason_included": None,
+            "reason_excluded": reason,
+            "content": ""
+        })
+
     if role == "planner":
         # 1. Planner includes high-level specs, repo maps, task history, but EXCLUDES full source code
-        # Include task definition
-        task_yaml = task_yaml_path
-        if task_yaml.exists():
-            t_yaml_tokens = _estimate_tokens(task_yaml)
-            includes.append(f"{_rel(task_yaml)} ({t_yaml_tokens} tokens)")
-            total_tokens += t_yaml_tokens
+        if task_yaml_path.exists():
+            _add_include(task_yaml_path, "canonical task definition")
 
-        # Include strategic vision docs
         for sf in strategic_files:
-            sf_tokens = _estimate_tokens(sf)
-            includes.append(f"{_rel(sf)} ({sf_tokens} tokens)")
-            total_tokens += sf_tokens
+            _add_include(sf, "strategic vision document")
 
-        # Include project specific docs (.devflow/project/ etc.)
         for pd in project_docs:
-            pd_tokens = _estimate_tokens(pd)
-            includes.append(f"{_rel(pd)} ({pd_tokens} tokens)")
-            total_tokens += pd_tokens
+            _add_include(pd, "project roadmap/plan doc")
 
-        # Include events.jsonl
         events_file = task_dir(root, task_id) / "events.jsonl"
         if events_file.exists():
-            ev_tokens = _estimate_tokens(events_file)
-            includes.append(f"{_rel(events_file)} ({ev_tokens} tokens)")
-            total_tokens += ev_tokens
+            _add_include(events_file, "task run events log history")
 
-        # Include repo-map index description (mock mapping of filenames, very small token footprint)
+        # Exclude raw source files/tests from the planner
         all_src_files = []
         try:
             src_dir = root / "src"
             if src_dir.exists() and src_dir.is_dir():
                 for f in src_dir.glob("**/*.py"):
                     if f.is_file():
-                        all_src_files.append(_rel(f))
+                        all_src_files.append(f)
         except Exception:
             pass
-        repo_map_tokens = len(all_src_files) * 5
-        includes.append(f"repo-map.md (estimated file structure index - {repo_map_tokens} tokens)")
-        total_tokens += repo_map_tokens
 
-        # Exclude raw source files/tests from the planner
-        for src_file in all_src_files:
-            excludes.append(f"{src_file} (raw python implementation)")
+        for sf in all_src_files:
+            _add_exclude(sf, "excluded from planner to prevent raw code context leak")
         for rf in relevant_files:
-            rf_rel = _rel(rf)
-            if rf.suffix == ".py" and not any(rf_rel in exc for exc in excludes):
-                excludes.append(f"{rf_rel} (raw python implementation)")
+            if rf.suffix == ".py" and rf not in all_src_files:
+                _add_exclude(rf, "excluded from planner to prevent raw code context leak")
         for tf_path in test_files:
-            tf_rel = _rel(tf_path)
-            if not any(tf_rel in exc for exc in excludes):
-                excludes.append(f"{tf_rel} (raw test file content)")
+            _add_exclude(tf_path, "excluded raw test file from planner")
 
     elif role == "worker":
         # 2. Worker includes full contents of relevant source files, related tests, task definition
-        task_yaml = task_yaml_path
-        if task_yaml.exists():
-            t_yaml_tokens = _estimate_tokens(task_yaml)
-            includes.append(f"{_rel(task_yaml)} ({t_yaml_tokens} tokens)")
-            total_tokens += t_yaml_tokens
+        if task_yaml_path.exists():
+            _add_include(task_yaml_path, "canonical task definition")
 
-        # Include full relevant source files
         for rf in relevant_files:
             if rf.is_file() and rf.suffix == ".py":
-                rf_tokens = _estimate_tokens(rf)
-                includes.append(f"{_rel(rf)} ({rf_tokens} tokens)")
-                total_tokens += rf_tokens
+                _add_include(rf, "active source file to edit")
 
-        # Include test files
         for tf_path in test_files:
             if tf_path.is_file():
-                tf_tokens = _estimate_tokens(tf_path)
-                includes.append(f"{_rel(tf_path)} ({tf_tokens} tokens)")
-                total_tokens += tf_tokens
+                _add_include(tf_path, "related test coverage")
 
-        # Exclude high-level strategy and vision docs
         for sf in strategic_files:
-            excludes.append(f"{_rel(sf)} (strategic project spec)")
+            _add_exclude(sf, "excluded high-level strategy specs from worker")
         for pd in project_docs:
-            excludes.append(f"{_rel(pd)} (strategic layered design)")
+            _add_exclude(pd, "excluded strategic layered design from worker")
 
     elif role == "reviewer":
         # 3. Reviewer includes task definition, git diff, result logs
-        task_yaml = task_yaml_path
-        if task_yaml.exists():
-            t_yaml_tokens = _estimate_tokens(task_yaml)
-            includes.append(f"{_rel(task_yaml)} ({t_yaml_tokens} tokens)")
-            total_tokens += t_yaml_tokens
+        if task_yaml_path.exists():
+            _add_include(task_yaml_path, "canonical task definition")
 
         # Include git diff
         diff_tokens = 0
@@ -248,30 +289,23 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
             )
             if diff_proc.returncode == 0 and diff_proc.stdout.strip():
                 diff_tokens = len(diff_proc.stdout) // 4
-                includes.append(f"git-diff.patch (active worktree modifications - {diff_tokens} tokens)")
-                total_tokens += diff_tokens
+                diff_path = task_dir(root, task_id) / "git-diff.patch"
+                diff_path.write_text(diff_proc.stdout, encoding="utf-8")
+                _add_include(diff_path, "git diff of changes to review")
         except Exception:
             pass
 
-        # Include worker logs
         worker_log = task_dir(root, task_id) / "logs" / "worker.log"
         if worker_log.exists():
-            wl_tokens = _estimate_tokens(worker_log)
-            includes.append(f"{_rel(worker_log)} ({wl_tokens} tokens)")
-            total_tokens += wl_tokens
+            _add_include(worker_log, "worker output log")
 
-        # Include result.md summary
         result_md = task_dir(root, task_id) / "result.md"
         if result_md.exists():
-            rm_tokens = _estimate_tokens(result_md)
-            includes.append(f"{_rel(result_md)} ({rm_tokens} tokens)")
-            total_tokens += rm_tokens
+            _add_include(result_md, "result summary markdown")
 
-        # Exclude high-level strategy
         for sf in strategic_files:
-            excludes.append(f"{_rel(sf)} (strategic project spec)")
+            _add_exclude(sf, "excluded high-level strategy from reviewer")
 
-    # Return structured context pack details
     return {
         "context_pack": {
             "role": role,
@@ -279,30 +313,73 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
             "includes": includes,
             "excludes": excludes,
             "estimated_tokens": total_tokens,
+            "sources_metadata": sources_metadata,
         }
     }
 
 
 def save_context_pack(root: Path, task_id: str, role: str, pack_data: dict[str, Any]) -> None:
-    """Save the context pack data into context-pack-<role>.yaml inside the task directory."""
+    """Save context pack details into YAML, human-readable MD, and machine-readable JSON packets."""
     task_directory = task_dir(root, task_id)
     task_directory.mkdir(parents=True, exist_ok=True)
-    yaml_file = task_directory / f"context-pack-{role}.yaml"
+    cp = pack_data.get("context_pack", {})
 
+    # 1. Save .yaml manifest
+    yaml_file = task_directory / f"context-pack-{role}.yaml"
     lines = []
     lines.append("context_pack:")
-    
-    cp = pack_data.get("context_pack", {})
     lines.append(f"  role: {cp.get('role', '')}")
     lines.append(f"  context_layer: {cp.get('context_layer', '')}")
     lines.append(f"  estimated_tokens: {cp.get('estimated_tokens', 0)}")
-
     lines.append("  includes:")
     for inc in cp.get("includes", []):
         lines.append(f"    - {inc}")
-
     lines.append("  excludes:")
     for exc in cp.get("excludes", []):
         lines.append(f"    - {exc}")
-
     yaml_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # 2. Save .json complete packet
+    json_file = task_directory / f"context-pack-{role}.json"
+    json_file.write_text(json.dumps(pack_data, indent=2) + "\n", encoding="utf-8")
+
+    # 3. Save .md physical packet
+    md_file = task_directory / f"context-pack-{role}.md"
+    md_lines = []
+    md_lines.append(f"# Context Pack for Task: {task_id}")
+    md_lines.append(f"- **Role**: {cp.get('role', '').upper()}")
+    md_lines.append(f"- **Context Layer**: {cp.get('context_layer', 'L1')}")
+    md_lines.append(f"- **Estimated Token Size**: {cp.get('estimated_tokens', 0)}")
+    md_lines.append("\n---\n")
+
+    md_lines.append("## Included Sources\n")
+    metadata = cp.get("sources_metadata", [])
+    included_entries = [m for m in metadata if m.get("mode") == "full"]
+    if not included_entries:
+        md_lines.append("None included.\n")
+    else:
+        for item in included_entries:
+            md_lines.append(f"### File: `{item['path']}`")
+            md_lines.append(f"- **Authority Level**: `{item['authority']}`")
+            md_lines.append(f"- **Mode**: `{item['mode']}`")
+            md_lines.append(f"- **Token Estimate**: {item['token_estimate']}")
+            md_lines.append(f"- **SHA256 Hash**: `{item['sha_or_mtime']}`")
+            md_lines.append(f"- **Reason Included**: {item['reason_included']}")
+            md_lines.append("\n#### Content:\n")
+            md_lines.append("```python" if item["path"].endswith(".py") else "```markdown")
+            md_lines.append(item["content"])
+            md_lines.append("```\n")
+
+    md_lines.append("---\n")
+    md_lines.append("## Excluded Sources\n")
+    excluded_entries = [m for m in metadata if m.get("mode") == "omitted"]
+    if not excluded_entries:
+        md_lines.append("None excluded.\n")
+    else:
+        for item in excluded_entries:
+            md_lines.append(f"- **File**: `{item['path']}`")
+            md_lines.append(f"  - **Authority Level**: `{item['authority']}`")
+            md_lines.append(f"  - **Reason Excluded**: {item['reason_excluded']}")
+            md_lines.append(f"  - **Token Estimate**: {item['token_estimate']}\n")
+
+    md_file.write_text("\n".join(md_lines) + "\n", encoding="utf-8")

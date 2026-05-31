@@ -4,33 +4,26 @@ Dev-Flow is a local-first control room for parallel AI coding workers.
 
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-Workers are replaceable. The current runtime supports shell workers only; the next architecture direction is a registry and adapter runtime that keeps future local, remote, and manual workers behind one permissioned contract, followed by task-fit/context routing that selects the cheapest capable agent by role.
+Workers are replaceable. The current runtime supports shell workers only, along with an experimental transition layer (registries, manual worker, deterministic task-fit/context packing, and conservative capability routing).
 
 ## Current Product Contract
 
 The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md).
 
-Stable commands:
+### Stable Commands
+- **Initialization & Diagnostics**: `devflow init`, `devflow doctor`
+- **Dashboard**: `devflow dashboard`
+- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 
-```bash
-devflow --help
-devflow init
-devflow doctor
-devflow dashboard
-devflow task --help
-devflow task create "example task"
-devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
-devflow task run <task-id> --shell "echo hello > result.txt"
-devflow task verify <task-id> --shell "test -f result.txt"
-devflow task list
-devflow task show <task-id>
-devflow task packet <task-id>
-devflow task log <task-id>
-devflow task promote-preview <task-id>
-devflow task promote <task-id>
-```
+### Experimental Transition Commands
+- **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent packet`
+- **Task Estimation**: `devflow task fit`, `devflow task pack`
+- **Scouting & Routing**: `devflow task scout`, `devflow task route`, `devflow task scorecard`
 
-The current control-room MVP intentionally excludes enabled non-shell adapters, browser or web dashboards, database state, git worktree orchestration, autonomous routing, task-fit/context routing runtime, automatic copy-back, commits, pushes, pull requests, and legacy software-factory workflow machinery. The future registry and adapter-runtime direction is design-only in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md), with task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
+These transition commands are allowed only as read-only/manual planning aids until promoted into the stable contract.
+
+The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, git worktree orchestration, and autonomous scheduling/routing. The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
 
 ## Runtime Shape
 
