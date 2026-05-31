@@ -56,6 +56,21 @@ Only one developer agent may edit files in the repository at a time. Other agent
 
 ---
 
+## ✅ Milestone Closure Discipline
+
+Every major feature, milestone, or direction change must end with a clean checkpoint:
+
+1. Update the active docs first so future agents do not inherit stale or conflicting context.
+2. Remove junk, outdated archive references, and confusing dead plans from the active repo.
+3. Run focused verification plus any broader suite needed for the blast radius.
+4. Confirm the tree is clean after commit.
+5. Merge the work to `main` and push the remote branch/mainline when explicitly approved.
+6. Write a compact handoff using [docs/handoff-template.md](docs/handoff-template.md), with one concrete next safe action.
+
+Archived or quarantined material must stay outside the active repo unless it is intentionally restored as current, non-archived source.
+
+---
+
 ## 🤫 Silent Work Mode
 
 Operate silently without narration or progress commentary. Speak only to ask a blocking question, report a verification failure, or document a risk that changes the next safe action.

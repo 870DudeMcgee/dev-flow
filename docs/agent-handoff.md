@@ -104,6 +104,7 @@ devflow task promote <task_id>
 - Treat browser/web dashboards, token-context runtime routing, worktree orchestration, databases, and enabled non-shell worker adapters as outside the current contract unless a future implementation explicitly promotes them.
 - Future non-shell worker work must follow the registry sequence: registry loading, agent list/show/packet commands, manual adapter, shell alignment, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
+- Close every meaningful milestone or product-direction change by aligning active docs, removing stale context, verifying, committing, merging to `main`, pushing, and writing a compact handoff with one next safe action.
 - Salvage useful code only when it supports the new control-room MVP.
 - Keep unrelated dirty worktree changes intact.
 
