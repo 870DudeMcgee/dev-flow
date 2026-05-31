@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path
 from devflow.control_room.status_projection import TaskStatusProjection, build_task_status_projection
+from devflow.control_room.agent_registry import AgentDefinition
 
 _relative = relative_path
 
@@ -127,6 +128,27 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
             truncation_notes=notes,
         )
     )
+
+
+def build_agent_packet(
+    task_id: str,
+    agent: AgentDefinition,
+    *,
+    root: Path | None = None,
+) -> TaskPacket:
+    packet = build_task_packet(task_id, root=root)
+    can_see = agent.can_see or []
+
+    if "task_packet" not in can_see:
+        packet = packet.model_copy(update={"task": {}})
+    if "assigned_workspace" not in can_see:
+        packet = packet.model_copy(update={"workspace_path": "[REDACTED]"})
+    if "recent_events" not in can_see:
+        packet = packet.model_copy(update={"recent_events": []})
+    if "verification_summary" not in can_see and "verification_plan" not in can_see:
+        packet = packet.model_copy(update={"verification": {}})
+
+    return packet
 
 
 def _read_matching_summary(path: Path, task: TaskRecord, notes: list[str]) -> dict[str, Any]:

@@ -1,0 +1,444 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+import json
+from devflow.control_room.agent_registry import (
+    AgentRegistryError,
+    load_agent_registry,
+    load_provider_registry,
+    load_role_registry,
+    AgentDefinition,
+)
+from devflow.control_room.seed import initialize_seed
+from devflow.control_room.service import create_task
+from devflow.control_room.task_packet import build_agent_packet
+
+
+def test_valid_agent_registry_loads_enabled_default_agent(tmp_path: Path) -> None:
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        """version: 1
+default_agent: local-shell
+agents:
+  local-shell:
+    provider: shell
+    model: local-shell
+    adapter: shell
+    role: test_runner
+    tier: local
+    default_mode: verify_only
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - ".git/**"
+    can_run_shell: true
+    can_use_network: false
+    can_promote: false
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    registry = load_agent_registry(tmp_path)
+
+    assert registry.version == 1
+    assert registry.default_agent_id == "local-shell"
+    assert registry.default_agent().id == "local-shell"
+    assert registry.enabled_agent_ids() == ["local-shell"]
+    agent = registry.require_agent("local-shell")
+    assert agent.adapter == "shell"
+    assert agent.default_mode == "verify_only"
+    assert agent.can_touch == ["<workspace>/**"]
+
+
+def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    seeded_registry = load_agent_registry(tmp_path)
+    assert seeded_registry.default_agent() is None
+    assert seeded_registry.enabled_agent_ids() == []
+
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        """version: 1
+default_agent: local-shell
+agents:
+  disabled-local:
+    provider: ollama
+    model: qwen3:36b
+    adapter: ollama_chat
+    role: local_senior_worker
+    tier: local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: false
+  local-shell:
+    provider: shell
+    model: local-shell
+    adapter: shell
+    role: test_runner
+    tier: local
+    default_mode: verify_only
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+    can_run_shell: true
+    can_use_network: false
+    can_promote: false
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    registry = load_agent_registry(tmp_path)
+
+    assert sorted(registry.agents) == ["disabled-local", "local-shell"]
+    assert registry.enabled_agent_ids() == ["local-shell"]
+    assert registry.default_agent().id == "local-shell"
+    assert registry.require_agent("disabled-local").enabled is False
+
+
+def test_agent_registry_validation_errors_report_bad_policy(tmp_path: Path) -> None:
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        """version: 1
+default_agent: missing-agent
+agents:
+  bad:
+    provider: openai
+    model: gpt-5
+    adapter: openai_responses
+    role: frontier_code_reviewer
+    tier: frontier
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+    can_run_shell: true
+    can_use_network: true
+    can_promote: true
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentRegistryError) as exc_info:
+        load_agent_registry(tmp_path)
+
+    message = str(exc_info.value)
+    assert ".devflow/agents/registry.yaml" in message
+    assert "default_agent 'missing-agent' is not defined" in message
+    assert "agents.bad.can_promote must be false" in message
+    assert "agents.bad.frontier agents cannot use workspace_write" in message
+    assert "agents.bad.frontier agents cannot run shell commands" in message
+
+
+def test_valid_provider_registry_loads_and_enabled_providers(tmp_path: Path) -> None:
+    providers_dir = tmp_path / ".devflow/providers"
+    providers_dir.mkdir(parents=True)
+    
+    (providers_dir / "openai.yaml").write_text(
+        """provider: openai
+adapter: openai_responses
+base_url: https://api.openai.com/v1
+api_key_env: OPENAI_API_KEY
+default_timeout_seconds: 120
+enabled: true
+""",
+        encoding="utf-8",
+    )
+    (providers_dir / "ollama.yaml").write_text(
+        """provider: ollama
+adapter: ollama_chat
+base_url: http://127.0.0.1:11434
+default_timeout_seconds: 300
+enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    registry = load_provider_registry(tmp_path)
+
+    assert sorted(registry.providers.keys()) == ["ollama", "openai"]
+    assert registry.enabled_provider_ids() == ["openai"]
+    assert registry.require_provider("openai").adapter == "openai_responses"
+    assert registry.require_provider("openai").base_url == "https://api.openai.com/v1"
+    assert registry.require_provider("openai").api_key_env == "OPENAI_API_KEY"
+    assert registry.require_provider("openai").default_timeout_seconds == 120
+    assert registry.require_provider("ollama").enabled is False
+
+
+def test_provider_registry_validation_errors(tmp_path: Path) -> None:
+    providers_dir = tmp_path / ".devflow/providers"
+    providers_dir.mkdir(parents=True)
+    
+    (providers_dir / "bad-provider.yaml").write_text(
+        """provider: 123
+adapter: []
+default_timeout_seconds: "not-an-int"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentRegistryError) as exc_info:
+        load_provider_registry(tmp_path)
+
+    message = str(exc_info.value)
+    assert ".devflow/providers" in message
+    assert "providers.bad-provider.provider: Input should be a valid string" in message
+    assert "providers.bad-provider.adapter: Input should be a valid string" in message
+    assert "providers.bad-provider.default_timeout_seconds: Input should be a valid integer" in message
+
+
+def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    seeded_registry = load_provider_registry(tmp_path)
+    assert seeded_registry.enabled_provider_ids() == []
+
+
+def test_valid_role_registry_loads_and_enabled_roles(tmp_path: Path) -> None:
+    roles_path = tmp_path / ".devflow/agents/roles.yaml"
+    roles_path.parent.mkdir(parents=True)
+    roles_path.write_text(
+        """version: 1
+roles:
+  local_senior_worker:
+    description: "Local senior worker for implementation tasks"
+    enabled: true
+  disabled_role:
+    description: "A role that is disabled"
+    enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    registry = load_role_registry(tmp_path)
+
+    assert sorted(registry.roles.keys()) == ["disabled_role", "local_senior_worker"]
+    assert registry.enabled_role_ids() == ["local_senior_worker"]
+    assert registry.require_role("local_senior_worker").description == "Local senior worker for implementation tasks"
+    assert registry.require_role("disabled_role").enabled is False
+
+
+def test_role_registry_validation_errors(tmp_path: Path) -> None:
+    roles_path = tmp_path / ".devflow/agents/roles.yaml"
+    roles_path.parent.mkdir(parents=True)
+    roles_path.write_text(
+        """version: 2
+roles:
+  bad_role:
+    description: []
+    enabled: "not-a-bool"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentRegistryError) as exc_info:
+        load_role_registry(tmp_path)
+
+    message = str(exc_info.value)
+    assert ".devflow/agents/roles.yaml" in message
+    assert "version must be 1" in message
+    assert "roles.bad_role.description: Input should be a valid string" in message
+    assert "roles.bad_role.enabled: Input should be a valid boolean" in message
+
+
+def test_role_registry_disabled_default_seed_behavior(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    seeded_registry = load_role_registry(tmp_path)
+    assert seeded_registry.enabled_role_ids() == []
+
+
+def test_build_agent_packet_redacts_by_permissions(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "Security bounded task")
+    task_id = task.id
+
+    agent = AgentDefinition(
+        id="limited-agent",
+        provider="shell",
+        model="limited",
+        adapter="shell",
+        role="tester",
+        tier="local",
+        default_mode="verify_only",
+        workspace="isolated_task_workspace",
+        can_see=["verification_plan"],
+        can_touch=[],
+        cannot_touch=[],
+        enabled=True,
+    )
+
+    packet = build_agent_packet(task_id, agent, root=tmp_path)
+
+    assert packet.workspace_path == "[REDACTED]"
+    assert packet.task == {}
+    assert packet.recent_events == []
+    assert packet.verification != {}
+
+    senior_agent = AgentDefinition(
+        id="senior-agent",
+        provider="ollama",
+        model="qwen",
+        adapter="ollama_chat",
+        role="senior",
+        tier="local",
+        default_mode="workspace_write",
+        workspace="isolated_task_workspace",
+        can_see=["task_packet", "assigned_workspace", "recent_events", "verification_summary"],
+        can_touch=[],
+        cannot_touch=[],
+        enabled=True,
+    )
+
+    full_packet = build_agent_packet(task_id, senior_agent, root=tmp_path)
+    assert full_packet.workspace_path != "[REDACTED]"
+    assert full_packet.task != {}
+    assert full_packet.recent_events != []
+
+
+def test_agent_cli_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    initialize_seed(tmp_path)
+
+    from devflow.cli import app
+    from typer.testing import CliRunner
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["agent", "list"])
+    assert result.exit_code == 0
+    assert "No agents defined in registry." in result.output
+
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        """version: 1
+default_agent: qwen-agent
+agents:
+  qwen-agent:
+    provider: ollama
+    model: qwen3:36b
+    adapter: ollama_chat
+    role: local_senior_worker
+    tier: local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    list_result = runner.invoke(app, ["agent", "list"])
+    assert list_result.exit_code == 0
+    assert "qwen-agent" in list_result.output
+    assert "ollama" in list_result.output
+    assert "local_senior_worker" in list_result.output
+
+    show_result = runner.invoke(app, ["agent", "show", "qwen-agent"])
+    assert show_result.exit_code == 0
+    assert "agent: qwen-agent" in show_result.output
+    assert "provider: ollama" in show_result.output
+    assert "model: qwen3:36b" in show_result.output
+    assert "role: local_senior_worker" in show_result.output
+
+    task = create_task(tmp_path, "Agent CLI packet task")
+    packet_result = runner.invoke(app, ["agent", "packet", task.id, "qwen-agent"])
+    assert packet_result.exit_code == 0
+    packet_json = json.loads(packet_result.output)
+    assert packet_json["task_id"] == task.id
+    assert packet_json["task"] != {}
+    assert packet_json["workspace_path"] == "[REDACTED]"
+
+
+def test_shell_alignment_resolves_and_logs_under_agent_dir(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    task = create_task(tmp_path, "Shell alignment test")
+
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        """version: 1
+default_agent: qwen-agent
+agents:
+  qwen-agent:
+    provider: shell
+    model: qwen-coder
+    adapter: shell
+    role: local_senior_worker
+    tier: local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+    can_run_shell: true
+    can_use_network: false
+    can_promote: false
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    from devflow.control_room.service import run_shell_task
+    task_res = run_shell_task(
+        tmp_path,
+        task.id,
+        ["echo", "aligned"],
+        worker_adapter="qwen-agent"
+    )
+
+    assert task_res.status == "complete"
+    assert task_res.worker == "qwen-agent"
+
+    agent_dir = tmp_path / ".devflow/tasks" / task.id / "agents" / "qwen-agent"
+    assert agent_dir.exists()
+    assert (agent_dir / "logs" / "worker.log").exists()
+    assert (agent_dir / "result.md").exists()
+    assert (agent_dir / "packet.json").exists()
+
+    packet_json = json.loads((agent_dir / "packet.json").read_text(encoding="utf-8"))
+    assert packet_json["task_id"] == task.id
+    assert packet_json["task"] != {}
+    assert packet_json["workspace_path"] != "[REDACTED]"
+
+
+

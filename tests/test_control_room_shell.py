@@ -227,14 +227,15 @@ def test_shell_worker_mvp_heartbeat_with_shell_command_option() -> None:
 
 
 def test_unsupported_worker_adapter_values_are_refused() -> None:
-    assert list_worker_adapters() == ["shell"]
+    assert list_worker_adapters() == ["manual", "shell"]
     assert isinstance(get_worker_adapter("shell"), ShellWorkerAdapter)
     with pytest.raises(UnsupportedWorkerAdapter) as excinfo:
         get_worker_adapter("codex")
     err_msg = str(excinfo.value)
     assert "codex" in err_msg
     assert "shell" in err_msg
-    assert "Unsupported worker adapter 'codex'. Available adapters: shell." in err_msg
+    assert "manual" in err_msg
+    assert "Unsupported worker adapter 'codex'. Available adapters: manual, shell." in err_msg
 
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -248,7 +249,7 @@ def test_unsupported_worker_adapter_values_are_refused() -> None:
                 ["task", "run", "task-0001", "--worker", "codex", "--shell", "echo should-not-run"],
             )
             assert run.exit_code == 1, run.output
-            assert "Unsupported worker adapter 'codex'. Available adapters: shell." in run.output
+            assert "Unsupported worker adapter 'codex'. Available adapters: manual, shell." in run.output
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
             assert get_task(Path.cwd(), "task-0001").status == "created"
         finally:

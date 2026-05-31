@@ -94,7 +94,7 @@ A worker may be a shell command today and an AI coding tool later.
 
 Workers receive bounded task context and operate inside task-owned isolation boundaries.
 
-Future agents are not personalities. They are permissioned execution contracts resolved through the Agent Registry and Adapter Runtime architecture in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md): provider, model, role, adapter, workspace, allowed context, allowed writes, evidence trail, and routing rules.
+Future agents are not personalities. They are permissioned execution contracts resolved through the Agent Registry and Adapter Runtime architecture in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md): provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence trail, and routing rules. Future routing must follow [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md): classify task fit, estimate context and risk, build role-specific context packs, then select the cheapest capable agent for each role.
 
 A worker should produce:
 

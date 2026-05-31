@@ -19,6 +19,7 @@ Active source of truth:
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter runtime direction.
+- [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the future task-fit, context-estimation, model-capability, context-pack, scout, and routing-quality design.
 
 
 Archive note: legacy software-factory archives are quarantined outside the active repository tree. Do not recreate or consult in-repo archive copies as process authority.
@@ -75,6 +76,7 @@ Current product contract:
 - no SQLite database or `.devflow/worktrees/` directory in the MVP path
 - read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is not consumed by a non-shell worker adapter
 - design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
+- design-only task-fit/context routing architecture; not active runtime behavior yet
 
 ## Required Current Commands
 
@@ -101,8 +103,8 @@ devflow task promote <task_id>
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
-- Treat browser/web dashboards, token-context runtime routing, worktree orchestration, databases, and enabled non-shell worker adapters as outside the current contract unless a future implementation explicitly promotes them.
-- Future non-shell worker work must follow the registry sequence: registry loading, agent list/show/packet commands, manual adapter, shell alignment, local adapter, provider adapters, routing, and metrics.
+- Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, worktree orchestration, databases, and enabled non-shell worker adapters as outside the current contract unless a future implementation explicitly promotes them.
+- Future non-shell worker work must follow the registry sequence: registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Close every meaningful milestone or product-direction change by aligning active docs, removing stale context, verifying, committing, merging to `main`, pushing, and writing a compact handoff with one next safe action.
 - Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.

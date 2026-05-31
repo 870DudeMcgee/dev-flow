@@ -4,6 +4,7 @@ from typing import Protocol
 
 from devflow.control_room.models import WorkerInput, WorkerResult
 from devflow.control_room.shell_worker import ShellWorkerAdapter
+from devflow.control_room.manual_worker import ManualWorkerAdapter
 
 
 class WorkerAdapter(Protocol):
@@ -18,6 +19,7 @@ class WorkerAdapter(Protocol):
 
 _REGISTRY: dict[str, type[WorkerAdapter]] = {
     "shell": ShellWorkerAdapter,
+    "manual": ManualWorkerAdapter,
 }
 
 

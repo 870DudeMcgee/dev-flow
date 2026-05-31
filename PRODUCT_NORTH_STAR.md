@@ -384,7 +384,7 @@ The first MVP is a non-AI control room that proves the infrastructure works.
 
 The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, browser/web dashboards, enabled non-shell adapters, autonomous routing, and automatic merge or pull-request behavior.
 
-The next architecture direction is [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md). It defines agents as permissioned execution contracts bound to provider, model, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. It is design-only until implementation explicitly starts with registry loading, manual packets, and shell alignment.
+The next architecture direction is [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md). It defines agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md) extends that direction with task-fit scoring, context estimation, layered context packs, scout roles, and routing-quality feedback. These documents are design-only until implementation explicitly starts with registry loading, manual packets, shell alignment, task-fit/context estimation, context pack building, and conservative routing.
 
 Required commands:
 
@@ -584,9 +584,12 @@ Build in this order:
 - `agent list`, `agent show`, and `agent packet`
 - manual adapter
 - shell adapter alignment
+- deterministic task-fit and context-size estimator
+- role-based context pack builder
 - Ollama/Qwen local adapter
 - OpenAI-compatible local or remote adapter
 - native provider adapters
+- local scout reports as optional evidence
 - routing engine
 - metrics
 

@@ -17,7 +17,7 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Next architecture direction: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
+Next architecture direction: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing defined in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -164,7 +164,7 @@ Acceptance:
 
 ## Phase 8: Agent Registry And Adapter Runtime
 
-Goal: make replaceable agents real by defining durable provider, agent, role, permission, adapter, workspace, evidence, and routing contracts before enabling non-shell workers.
+Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
 Status: architecture document created; implementation not started.
 
@@ -174,21 +174,27 @@ Sequence:
 - `agent list`, `agent show`, and `agent packet` commands
 - manual adapter
 - shell adapter alignment
+- deterministic task-fit and context-size estimation
+- role-based context pack builder
 - Ollama adapter for Qwen
 - OpenAI-compatible adapter for LM Studio and Grok-style APIs
 - native OpenAI, Anthropic, and Gemini adapters
+- local scout reports as optional evidence
 - routing engine
-- metrics for local success rate, frontier escalations, verification failures, rework, and cost avoided
+- metrics for local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided
 
 Acceptance:
 - no agent owns canonical task state
 - no provider secrets are stored in repo files
 - manual and local paths work before remote provider calls
-- routing records selected agent, reason, mode, packet path, and policy version
+- routing records task-fit profile, context estimate, selected agents by role, rejected agents, reasons, mode, packet path, and policy version
+- model selection uses capability profiles and useful context estimates instead of hard-coded agent names
+- planners, workers, reviewers, verifiers, summarizers, and scouts receive role-specific context packs
 - verification and promotion remain explicit Dev-Flow/human-controlled steps
 
 Related design contracts:
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
+- [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 - [docs/adapter-contract.md](adapter-contract.md)
 - [docs/task-packet-contract.md](task-packet-contract.md)
 

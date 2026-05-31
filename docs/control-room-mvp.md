@@ -13,7 +13,7 @@ For details on the project's design and boundaries:
 - [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
-- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction. It is design-only until implementation work explicitly promotes a slice.
+- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction. [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the later task-fit, context-estimation, capability-profile, context-pack, scout, and routing feedback design. Both are design-only until implementation work explicitly promotes a slice.
 
 
 ## Product Direction
@@ -79,7 +79,8 @@ Do not implement these in the first milestone:
 - old task-packet workflow orchestration
 - PR automation
 - browser or web dashboard UI
-- token-context routing helpers
+- token-context routing helpers beyond the current read-only planning helper
+- task-fit/context routing runtime
 - automatic commit, push, merge, or pull request creation
 
 ## Runtime Structure
@@ -188,6 +189,7 @@ Outside the current product contract:
 
 - browser or web dashboard UI
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
+- task-fit/context routing (Design documented only. It does not select agents, invoke scouts, build runtime context packs, or change shell-worker behavior.)
 - enabled non-shell worker adapters
 - agent registry and adapter-runtime implementation beyond design docs
 - SQLite or other databases

@@ -20,11 +20,15 @@ from devflow.control_room.models import TaskRecord
 from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
 from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
+from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
+from devflow.control_room.task_packet import build_agent_packet
 
 
 app = typer.Typer(help="Dev-Flow local control room")
 task_app = typer.Typer(help="Manage control-room tasks")
+agent_app = typer.Typer(help="Manage and inspect agents")
 app.add_typer(task_app, name="task")
+app.add_typer(agent_app, name="agent")
 
 
 @app.command("init")
@@ -249,6 +253,206 @@ def task_show(task_id: str) -> None:
     _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
     _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
     _echo_result_summary(task_path / "result.md")
+
+
+@task_app.command("fit")
+def task_fit_command(task_id: str) -> None:
+    """Deterministic task-fit and context-size estimation."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.estimator import estimate_task_fit, save_task_fit
+        fit_data = estimate_task_fit(root, task_id)
+        save_task_fit(root, task_id, fit_data)
+    except Exception as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    # Render a beautiful terminal breakdown
+    typer.echo(f"Estimated task-fit profile for task: {task_id}")
+    typer.echo("-" * 50)
+    
+    tf = fit_data["task_fit"]
+    typer.echo(f"Task Type:                 {tf['task_type']}")
+    typer.echo(f"Repository Scope:          {tf['repo_scope']}")
+    typer.echo(f"Context Requirement:       {tf['context_requirement']}")
+    typer.echo(f"Reasoning Requirement:     {tf['reasoning_requirement']}")
+    typer.echo(f"Code Edit Risk:            {tf['code_edit_risk']}")
+    typer.echo(f"Architectural Risk:        {tf['architectural_risk']}")
+    typer.echo(f"Verification Complexity:   {tf['verification_complexity']}")
+    typer.echo(f"Context Layer:             {tf['context_layer']}")
+    typer.echo(f"Confidence Score:          {tf['confidence']}")
+    
+    typer.echo("")
+    typer.echo("Recommended Agent Tiers:")
+    typer.echo(f"  Planner:  {tf['recommended_planner_tier']}")
+    typer.echo(f"  Worker:   {tf['recommended_worker_tier']}")
+    typer.echo(f"  Reviewer: {tf['recommended_reviewer_tier']}")
+    
+    typer.echo("")
+    typer.echo("Deterministic Context Metrics:")
+    rs = fit_data["repo_scan"]
+    typer.echo(f"  Changed Files Count:     {rs['changed_files_count']}")
+    typer.echo(f"  Relevant Files Count:    {rs['relevant_files_count']}")
+    typer.echo(f"  Relevant Lines Estimate: {rs['relevant_lines_estimate']}")
+    typer.echo(f"  Relevant Tokens (char):  {rs['relevant_tokens_estimate']}")
+    typer.echo(f"  Test Files Needed:       {rs['test_files_needed']}")
+    typer.echo(f"  Docs Needed:             {rs['docs_needed']}")
+    typer.echo(f"  Task History Tokens:     {rs['task_history_tokens']}")
+    typer.echo(f"  Total Context Estimate:  {rs['total_context_estimate']}")
+    
+    typer.echo("-" * 50)
+    typer.echo(f"Wrote task-fit.yaml under .devflow/tasks/{task_id}/")
+
+
+@task_app.command("pack")
+def task_pack_command(task_id: str, role: str) -> None:
+    """Build and save a role-based context pack for a task."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.context_pack import build_context_pack, save_context_pack
+        pack_data = build_context_pack(root, task_id, role)
+        save_context_pack(root, task_id, role, pack_data)
+    except Exception as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    # Render beautiful breakdown
+    typer.echo(f"Compiled context pack for task: {task_id}")
+    typer.echo(f"Role:                          {role.upper()}")
+    typer.echo("-" * 50)
+    
+    cp = pack_data["context_pack"]
+    typer.echo(f"Context Layer:                 {cp['context_layer']}")
+    typer.echo(f"Estimated Pack Tokens:         {cp['estimated_tokens']}")
+    
+    typer.echo("")
+    typer.echo("Included Sources:")
+    for inc in cp["includes"]:
+        typer.echo(f"  - {inc}")
+        
+    typer.echo("")
+    typer.echo("Excluded Sources:")
+    for exc in cp["excludes"]:
+        typer.echo(f"  - {exc}")
+        
+    typer.echo("-" * 50)
+    typer.echo(f"Wrote context-pack-{role}.yaml under .devflow/tasks/{task_id}/")
+
+
+@task_app.command("scout")
+def task_scout_command(task_id: str, role: str) -> None:
+    """Run local scout roles to gather routing evidence and analyze risks."""
+    root = Path.cwd()
+    roles_to_run = []
+    if role == "all":
+        roles_to_run = ["repo_scope", "risk", "context", "test", "stale_context"]
+    else:
+        roles_to_run = [role]
+
+    try:
+        from devflow.control_room.scout import run_scout_report, save_scout_report
+        reports = {}
+        for r in roles_to_run:
+            data = run_scout_report(root, task_id, r)
+            save_scout_report(root, task_id, r, data)
+            reports[r] = data["scout_report"]
+    except Exception as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    # Render beautiful breakdown
+    typer.echo(f"Executed scout evaluation for task: {task_id}")
+    for r in roles_to_run:
+        sr = reports[r]
+        typer.echo("-" * 50)
+        typer.echo(f"Scout Role:                  {sr['role'].upper()}")
+        for key in sorted(sr.keys()):
+            if key == "role":
+                continue
+            val = sr[key]
+            if isinstance(val, list):
+                typer.echo(f"  {key}:")
+                for item in val:
+                    typer.echo(f"    - {item}")
+            else:
+                typer.echo(f"  {key}: {val}")
+                
+        typer.echo(f"Wrote scout-{r}.yaml under .devflow/tasks/{task_id}/")
+    typer.echo("-" * 50)
+
+
+@task_app.command("route")
+def task_route_command(task_id: str) -> None:
+    """Run conservative routing matching to assign agent roles to a task."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.router import route_task, save_routing_decision
+        decision_data = route_task(root, task_id)
+        save_routing_decision(root, task_id, decision_data)
+    except Exception as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    # Render beautiful breakdown
+    typer.echo(f"Executed routing mapping for task: {task_id}")
+    typer.echo("-" * 50)
+    
+    rd = decision_data["routing_decision"]
+    typer.echo(f"Policy Version:              {rd['policy_version']}")
+    
+    typer.echo("")
+    typer.echo("Selected Agent Assignments:")
+    selected = rd["selected"]
+    for key in sorted(selected.keys()):
+        typer.echo(f"  {key:<12}: {selected[key]}")
+        
+    typer.echo("")
+    typer.echo("Recorded Reasons:")
+    for reason in rd["reason"]:
+        typer.echo(f"  - {reason}")
+        
+    typer.echo("")
+    typer.echo("Rejected Agents:")
+    rejected = rd["rejected"]
+    if not rejected:
+        typer.echo("  - none")
+    else:
+        for rej in rejected:
+            typer.echo(f"  - agent:  {rej['agent']}")
+            typer.echo(f"    reason: {rej['reason']}")
+            
+    typer.echo("-" * 50)
+    typer.echo(f"Wrote routing-decision.yaml under .devflow/tasks/{task_id}/")
+
+
+@task_app.command("scorecard")
+def task_scorecard_command(task_id: str) -> None:
+    """Compile and display a task's post-run routing quality scorecard."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.scorecard import generate_scorecard, save_scorecard
+        scorecard_data = generate_scorecard(root, task_id)
+        save_scorecard(root, task_id, scorecard_data)
+    except Exception as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    # Render beautiful scorecard breakdown
+    typer.echo(f"Compiled routing-quality scorecard for task: {task_id}")
+    typer.echo("-" * 50)
+    
+    sc = scorecard_data["scorecard"]
+    typer.echo(f"Overall Quality Rating:     {sc['overall_quality_rating'] * 100}%")
+    typer.echo(f"First-Run Verification Pass:{' yes' if sc['first_run_pass'] else ' no'}")
+    typer.echo(f"Boundary Violations:        {' yes' if sc['boundary_violations'] else ' no'}")
+    typer.echo(f"Frontier Escalation Needed: {' yes' if sc['frontier_escalation_needed'] else ' no'}")
+    typer.echo(f"Context Ceiling Exceeded:   {' yes' if sc['context_limit_exceeded'] else ' no'}")
+    typer.echo(f"Review Mistakes Found:      {' yes' if sc['review_mistakes_found'] else ' no'}")
+    typer.echo(f"Latency:                    {sc['latency_seconds']} seconds")
+    typer.echo(f"Cost Avoided:               ${sc['cost_avoided_usd']:.2f} USD")
+    
+    typer.echo("-" * 50)
+    typer.echo(f"Wrote scorecard.yaml under .devflow/tasks/{task_id}/")
 
 
 @task_app.command("packet")
@@ -613,6 +817,88 @@ def _get_latest_promoted_event(task_path: Path) -> dict[str, Any] | None:
     except Exception:
         pass
     return latest_event
+
+
+@agent_app.command("list")
+def agent_list() -> None:
+    """List loaded agents from the registry."""
+    try:
+        registry = load_agent_registry(Path.cwd())
+    except AgentRegistryError as exc:
+        typer.echo(f"Error loading agent registry: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    agents = registry.agents
+    if not agents:
+        typer.echo("No agents defined in registry.")
+        return
+
+    typer.echo(f"{'Agent':<25} {'Provider':<15} {'Model':<20} {'Role':<30} {'Enabled':<8}")
+    typer.echo("-" * 102)
+    for agent_id in sorted(agents.keys()):
+        agent = agents[agent_id]
+        enabled_str = "yes" if agent.enabled else "no"
+        typer.echo(
+            f"{agent.id:<25} {agent.provider:<15} {agent.model:<20} {agent.role:<30} {enabled_str:<8}"
+        )
+
+
+@agent_app.command("show")
+def agent_show(agent_id: str) -> None:
+    """Show details for a specific agent."""
+    try:
+        registry = load_agent_registry(Path.cwd())
+    except AgentRegistryError as exc:
+        typer.echo(f"Error loading agent registry: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    try:
+        agent = registry.require_agent(agent_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"agent: {agent.id}")
+    typer.echo(f"provider: {agent.provider}")
+    typer.echo(f"model: {agent.model}")
+    typer.echo(f"adapter: {agent.adapter}")
+    typer.echo(f"role: {agent.role}")
+    typer.echo(f"tier: {agent.tier}")
+    typer.echo(f"default_mode: {agent.default_mode}")
+    typer.echo(f"workspace: {agent.workspace}")
+    typer.echo(f"can_see: {', '.join(agent.can_see) if agent.can_see else 'none'}")
+    typer.echo(f"can_touch: {', '.join(agent.can_touch) if agent.can_touch else 'none'}")
+    typer.echo(f"cannot_touch: {', '.join(agent.cannot_touch) if agent.cannot_touch else 'none'}")
+    typer.echo(f"can_run_shell: {str(agent.can_run_shell).lower()}")
+    typer.echo(f"can_use_network: {str(agent.can_use_network).lower()}")
+    typer.echo(f"can_promote: {str(agent.can_promote).lower()}")
+    typer.echo(f"enabled: {str(agent.enabled).lower()}")
+
+
+@agent_app.command("packet")
+def agent_packet(task_id: str, agent_id: str) -> None:
+    """Build and print a task's TaskPacket bounded by the target agent's permissions."""
+    try:
+        registry = load_agent_registry(Path.cwd())
+    except AgentRegistryError as exc:
+        typer.echo(f"Error loading agent registry: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    try:
+        agent = registry.require_agent(agent_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    try:
+        packet = build_agent_packet(task_id, agent, root=Path.cwd())
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2)
+    typer.echo(packet_json)
+
 
 
 if __name__ == "__main__":

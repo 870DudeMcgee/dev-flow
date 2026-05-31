@@ -4,7 +4,7 @@ Dev-Flow is a local-first control room for parallel AI coding workers.
 
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-Workers are replaceable. The current runtime supports shell workers only; the next architecture direction is a registry and adapter runtime that keeps future local, remote, and manual workers behind one permissioned contract.
+Workers are replaceable. The current runtime supports shell workers only; the next architecture direction is a registry and adapter runtime that keeps future local, remote, and manual workers behind one permissioned contract, followed by task-fit/context routing that selects the cheapest capable agent by role.
 
 ## Current Product Contract
 
@@ -30,7 +30,7 @@ devflow task promote-preview <task-id>
 devflow task promote <task-id>
 ```
 
-The current control-room MVP intentionally excludes enabled non-shell adapters, browser or web dashboards, database state, git worktree orchestration, autonomous routing, automatic copy-back, commits, pushes, pull requests, and legacy software-factory workflow machinery. The future registry and adapter-runtime direction is design-only in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md).
+The current control-room MVP intentionally excludes enabled non-shell adapters, browser or web dashboards, database state, git worktree orchestration, autonomous routing, task-fit/context routing runtime, automatic copy-back, commits, pushes, pull requests, and legacy software-factory workflow machinery. The future registry and adapter-runtime direction is design-only in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md), with task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
 
 ## Runtime Shape
 
@@ -113,6 +113,7 @@ DevMode harness compatibility is tracked in [docs/harness-compatibility.md](docs
 - [docs/mvp-contract.md](docs/mvp-contract.md): stable current command, filesystem, and safety contract.
 - [docs/control-room-mvp.md](docs/control-room-mvp.md): near-term MVP authority.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md): next architecture direction for provider, agent, role, permission, adapter, and routing contracts.
+- [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md): future task-fit, context-estimation, model-capability, context-pack, scout, and routing-quality design.
 - [docs/roadmap.md](docs/roadmap.md): current sequencing and deferred work.
 - [docs/agent-handoff.md](docs/agent-handoff.md): orientation for future agents.
 - [docs/devflow-operating-model.md](docs/devflow-operating-model.md): role split between human, main chat agent, Dev-Flow kernel, worker agents, and DevMode.

@@ -130,7 +130,19 @@ def run_shell_task(
     worker_adapter: str = "shell",
     env: dict[str, str] | None = None,
 ) -> TaskRecord:
-    adapter = get_worker_adapter(worker_adapter)
+    from devflow.control_room.agent_registry import load_agent_registry
+    registry = load_agent_registry(root)
+
+    agent = None
+    resolved_adapter_name = worker_adapter
+
+    if worker_adapter in registry.agents:
+        agent = registry.require_agent(worker_adapter)
+        if not agent.enabled:
+            raise ValueError(f"Agent '{worker_adapter}' is disabled.")
+        resolved_adapter_name = agent.adapter
+
+    adapter = get_worker_adapter(resolved_adapter_name)
     if not command:
         raise ValueError("Shell worker requires a command after '--'.")
     if _looks_destructive(command):
@@ -145,6 +157,17 @@ def run_shell_task(
     task = get_task(root, task_id)
     task_path = task_dir(root, task_id)
     workspace = _resolve_task_workspace(root, task)
+
+    log_file = task_path / "logs" / "worker.log"
+    result_file = task_path / "result.md"
+
+    if agent is not None:
+        agent_dir = task_path / "agents" / agent.id
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "logs").mkdir(parents=True, exist_ok=True)
+        log_file = agent_dir / "logs" / "worker.log"
+        result_file = agent_dir / "result.md"
+
     worker_input = WorkerInput(
         task_id=task_id,
         repo_root=root,
@@ -153,15 +176,15 @@ def run_shell_task(
         context_file=task_path / "events.jsonl",
         status_file=task_path / "task.yaml",
         questions_file=task_path / "questions.jsonl",
-        result_file=task_path / "result.md",
-        log_file=task_path / "logs" / "worker.log",
+        result_file=result_file,
+        log_file=log_file,
         command=command,
         env=env or {},
         timeout_seconds=timeout_seconds,
     )
 
     task.status = "running"
-    task.worker = adapter.name
+    task.worker = worker_adapter
     task.timeout_seconds = timeout_seconds
     task.worker_command = shlex.join(command)
     task.started_at = utc_now()
@@ -170,20 +193,30 @@ def run_shell_task(
     _save_task(task_path, task)
     _append_event(root, task_id, "worker_started", {"command": command, "cwd": task.workspace})
 
-    # Generate packet.json immediately before worker execution
-    from devflow.control_room.task_packet import build_task_packet
-    packet = build_task_packet(task_id, root=root)
-    packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
-    (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
+    if agent is not None:
+        from devflow.control_room.task_packet import build_agent_packet
+        agent_packet = build_agent_packet(task_id, agent, root=root)
+        agent_packet_json = json.dumps(agent_packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+        (task_path / "agents" / agent.id / "packet.json").write_text(agent_packet_json, encoding="utf-8")
+        (task_path / "packet.json").write_text(agent_packet_json, encoding="utf-8")
+    else:
+        from devflow.control_room.task_packet import build_task_packet
+        packet = build_task_packet(task_id, root=root)
+        packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+        (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
 
     result = adapter.run(worker_input)
-    _write_result(task_path, task_id, command, result)
+    _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
+    if agent is not None:
+        compat_log = task_path / "logs" / "worker.log"
+        compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
+        _write_result(task_path, task_id, command, result)
 
     task.status = result.status
     task.last_exit_code = result.exit_code
     task.latest_log_line = result.latest_log_line
-    task.log_path = _relative(root, result.log_file)
-    task.result_path = _relative(root, result.result_file)
+    task.log_path = _relative(root, log_file)
+    task.result_path = _relative(root, result_file)
     task.finished_at = utc_now()
     task.updated_at = task.finished_at
     task.last_event = "worker_finished"

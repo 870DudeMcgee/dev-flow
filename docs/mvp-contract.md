@@ -4,7 +4,7 @@ Status: active, reconciled on 2026-05-30.
 
 This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Runtime surfaces outside this document may exist as helper or experimental code, but they are not part of this current product contract.
 
-Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The next registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md). These design documents do not change this current product contract.
+Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The next registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md). These design documents do not change this current product contract.
 
 ## Stable Commands
 
@@ -72,6 +72,7 @@ For a created task, the MVP contract is:
 
 - Browser or web dashboards.
 - Token-context helper as runtime authority. The helper may exist as visible planning guidance, but it does not execute token tools, route models, install hooks, or change shell-worker, verification, or promotion behavior.
+- Task-fit/context routing runtime.
 - Enabled non-shell worker adapters. Registry and adapter-runtime documents may exist as planning artifacts, but no provider-backed adapter is active in this contract.
 - Git worktree orchestration.
 - SQLite or any other database.
@@ -79,4 +80,4 @@ For a created task, the MVP contract is:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Next Priority**: Keep the shell-worker control-room loop stable while adding the next layer only in order: registry loading, agent list/show/packet commands, manual adapter, shell alignment, local adapter, then provider adapters and routing.
+> **Next Priority**: Keep the shell-worker control-room loop stable while adding the next layer only in order: registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing.

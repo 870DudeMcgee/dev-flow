@@ -6,6 +6,8 @@ Dev-Flow is a local-first control room for replaceable coding workers. The shell
 
 Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents are replaceable runtimes. Workers propose. Dev-Flow records. Verification verifies. Humans promote.
 
+Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the future task-fit profile, context estimator, model capability profile, context pack builder, scout roles, and routing-quality feedback loop. It is planning architecture only until the registry/manual/shell-alignment sequence is active.
+
 ## 1. Problem
 
 "Replaceable agents" are not real if every worker is wired directly into task execution. Dev-Flow needs a registry, adapter layer, permission model, and invocation lifecycle so local models, frontier APIs, manual review, and shell commands can all operate behind the same control-room contract.
@@ -16,6 +18,7 @@ The registry and runtime must make each agent a permissioned execution contract 
 
 - provider
 - model
+- model capability profile
 - role
 - adapter
 - workspace
@@ -331,7 +334,21 @@ Runtime lifecycle:
 9. Update canonical task state only through Dev-Flow-owned state transitions.
 10. Leave verification and promotion to separate Dev-Flow commands.
 
-## 8. Routing Rules
+## 8. Task Fit And Context Routing Boundary
+
+Dev-Flow should route by task fit and capability, not by agent name first. The future routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
+
+Minimum future artifacts:
+
+- `task-fit.yaml`: task type, repo scope, context requirement, reasoning requirement, edit risk, architectural risk, verification complexity, context layer, and recommended tiers.
+- `context-estimate.yaml`: relevant files, relevant lines, estimated tokens, tests needed, docs needed, task history tokens, and total context estimate.
+- `context-pack.yaml`: role, context layer, included sources, excluded sources, estimated tokens, and truncation notes.
+- `routing-decision.yaml`: selected planner, worker, reviewer, verifier, reasons, rejected agents, and policy version.
+- `model-scorecard.jsonl`: post-run evidence about useful context, success rate, verification failures, rework, escalation, cost, and latency.
+
+The planner may receive broad L4/L5 context. The worker should usually receive a bounded L1/L2 pack. The reviewer receives the diff, task contract, acceptance criteria, and targeted architecture notes. The verifier receives commands, logs, expected outputs, and verification history.
+
+## 9. Routing Rules
 
 Routing chooses which agent contract to invoke. It should be policy-driven and conservative, not a hidden autonomous scheduler.
 
@@ -341,14 +358,14 @@ Initial suggested routing:
 - `qwen-coder-fast`: mechanical or simple implementation where speed matters more than deep planning.
 - `test-agent`: verification, focused test execution, and test failure reproduction.
 - `claude-reviewer`: code review after repeated failures or when an external review pass is warranted.
-- `openai-frontier-architect`: architecture uncertainty, cross-subsystem risk, or high-impact design review.
+- `openai-frontier-architect`: architecture uncertainty, cross-subsystem risk, model-routing changes, or high-impact design review.
 - `gemini-large-context`: broad-context synthesis or document consolidation where large input windows matter.
 - `grok-current-research`: current external API, model, ecosystem, or research questions.
 - `manual-frontier`: copy-paste escalation packet when API use is not desired or credentials are unavailable.
 
-Routing inputs can include task type, allowed files, failure count, verification status, context size, requested role, and cost policy. Routing output should be recorded as evidence: selected agent, reason, mode, packet path, and policy version.
+Routing inputs can include task type, allowed files, failure count, verification status, deterministic context size, required context layer, requested role, model capability profile, and cost policy. Routing output should be recorded as evidence: selected agent, rejected agents, reason, mode, packet path, and policy version.
 
-## 9. MVP Sequence
+## 10. MVP Sequence
 
 Build this layer incrementally. Do not jump directly to a general-purpose agent framework.
 
@@ -357,15 +374,18 @@ Build this layer incrementally. Do not jump directly to a general-purpose agent 
 3. `agent list`, `agent show`, and `agent packet` commands.
 4. Manual adapter.
 5. Shell adapter alignment.
-6. Ollama adapter for Qwen.
-7. OpenAI-compatible adapter for LM Studio and Grok-style APIs.
-8. Native OpenAI, Anthropic, and Gemini adapters.
-9. Routing engine.
-10. Metrics: local success rate, frontier escalations, verification failures, rework, and cost avoided.
+6. Deterministic task-fit and context-size estimation.
+7. Role-based context pack builder.
+8. Ollama adapter for Qwen.
+9. OpenAI-compatible adapter for LM Studio and Grok-style APIs.
+10. Native OpenAI, Anthropic, and Gemini adapters.
+11. Local scout reports as optional evidence.
+12. Routing engine.
+13. Metrics: local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided.
 
 Each step should preserve the shell-worker control-room contract and add evidence before automation. A future implementation step is acceptable only when it makes task execution more visible, isolated, recoverable, or reviewable.
 
-## 10. Non-Goals
+## 11. Non-Goals
 
 - Do not build a general-purpose agent framework.
 - Do not let agents own canonical task state.
