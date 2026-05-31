@@ -111,8 +111,35 @@ Acceptance:
 
 - promotion preview is explicit
 - promotion requires verified readiness and human confirmation
+- promotion refuses a stale task baseline unless `--force-stale-baseline` is explicitly provided after review
 - main checkout remains untouched until explicit human promotion
 - git worktree orchestration remains out of scope
+
+## Phase 4b: Manual Proof-Agent Truthfulness
+
+Goal: make manual proof-agent state evidence-driven rather than keypress-driven.
+
+Status: active for the stable proof-agent handoff.
+
+Acceptance:
+
+- manual handoff generation leaves tasks awaiting human evidence
+- `task show` and `dashboard` distinguish awaiting human, blocked question, worker failure, and result-present evidence
+- worker result evidence does not imply verification or promotion readiness
+- pressing Enter in an interactive manual handoff does not mark work complete
+
+## Phase 4c: Adapter Maturity Boundary
+
+Goal: keep future adapter descriptions from becoming phantom runtime support.
+
+Status: active registry boundary.
+
+Acceptance:
+
+- adapters are classified as `stable_runtime`, `experimental_readonly`, or `planned_not_executable`
+- only `shell` and `manual` are executable stable-runtime adapters
+- planned provider adapters fail clearly if task execution is attempted
+- registry files are parsed with PyYAML and validated through Pydantic
 
 ## Dogfooding Requirement
 

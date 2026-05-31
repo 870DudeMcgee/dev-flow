@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Literal
 
+import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 
@@ -15,6 +15,24 @@ AgentPermissionMode = Literal[
     "frontier_read_only",
     "manual_packet_only",
 ]
+AdapterMaturity = Literal["stable_runtime", "experimental_readonly", "planned_not_executable"]
+
+ADAPTER_MATURITY: dict[str, AdapterMaturity] = {
+    "shell": "stable_runtime",
+    "manual": "stable_runtime",
+    "manual_packet": "experimental_readonly",
+    "ollama_chat": "planned_not_executable",
+    "openai_responses": "planned_not_executable",
+    "openai_compatible": "planned_not_executable",
+    "anthropic_messages": "planned_not_executable",
+    "gemini": "planned_not_executable",
+    "openai_chat": "planned_not_executable",
+}
+STABLE_RUNTIME_ADAPTERS = tuple(sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "stable_runtime"))
+
+
+def adapter_maturity(adapter: str) -> AdapterMaturity:
+    return ADAPTER_MATURITY.get(adapter, "planned_not_executable")
 
 
 class AgentRegistryError(ValueError):
@@ -30,6 +48,7 @@ class AgentDefinition(BaseModel):
     provider: str
     model: str
     adapter: str
+    adapter_maturity: AdapterMaturity | None = None
     role: str
     tier: str
     default_mode: AgentPermissionMode
@@ -195,30 +214,7 @@ def load_provider_registry(root: Path) -> ProviderRegistry:
 
 
 def _read_provider_file(path: Path) -> dict[str, object]:
-    text = path.read_text(encoding="utf-8")
-    stripped = text.strip()
-    if not stripped:
-        return {}
-    if stripped.startswith("{"):
-        payload = json.loads(stripped)
-        if not isinstance(payload, dict):
-            raise AgentRegistryError(path, ["provider root must be a map"])
-        return payload
-    return _parse_flat_yaml(text)
-
-
-def _parse_flat_yaml(text: str) -> dict[str, object]:
-    lines = [
-        (len(raw) - len(raw.lstrip(" ")), raw.strip())
-        for raw in text.splitlines()
-        if raw.strip() and not raw.lstrip().startswith("#")
-    ]
-    data: dict[str, object] = {}
-    for indent, line in lines:
-        if indent == 0 and ":" in line:
-            key, value = line.split(":", 1)
-            data[key.strip()] = _parse_scalar(value.strip())
-    return data
+    return _read_yaml_mapping(path, "provider")
 
 
 def load_role_registry(root: Path) -> RoleRegistry:
@@ -236,16 +232,7 @@ def load_role_registry(root: Path) -> RoleRegistry:
 
 
 def _read_roles_file(path: Path) -> dict[str, object]:
-    text = path.read_text(encoding="utf-8")
-    stripped = text.strip()
-    if not stripped:
-        return {}
-    if stripped.startswith("{"):
-        payload = json.loads(stripped)
-        if not isinstance(payload, dict):
-            raise AgentRegistryError(path, ["roles root must be a map"])
-        return payload
-    return _parse_yaml_subset_roles(text)
+    return _read_yaml_mapping(path, "roles")
 
 
 def _build_role_registry(source_path: Path, payload: dict[str, object]) -> RoleRegistry:
@@ -286,69 +273,6 @@ def _build_role_registry(source_path: Path, payload: dict[str, object]) -> RoleR
         roles=roles,
         source_path=source_path,
     )
-
-
-def _parse_yaml_subset_roles(text: str) -> dict[str, object]:
-    lines = [
-        (len(raw) - len(raw.lstrip(" ")), raw.strip())
-        for raw in text.splitlines()
-        if raw.strip() and not raw.lstrip().startswith("#")
-    ]
-    data: dict[str, object] = {}
-    index = 0
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent != 0 or ":" not in line:
-            index += 1
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if key == "roles" and value == "":
-            roles, index = _parse_roles_block(lines, index + 1)
-            data[key] = roles
-            continue
-        data[key] = _parse_scalar(value)
-        index += 1
-    return data
-
-
-def _parse_roles_block(
-    lines: list[tuple[int, str]],
-    index: int,
-) -> tuple[dict[str, dict[str, object]], int]:
-    roles: dict[str, dict[str, object]] = {}
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent < 2:
-            break
-        if indent != 2 or not line.endswith(":"):
-            index += 1
-            continue
-        role_id = line[:-1].strip()
-        role_data, index = _parse_role_fields(lines, index + 1)
-        roles[role_id] = role_data
-    return roles, index
-
-
-def _parse_role_fields(
-    lines: list[tuple[int, str]],
-    index: int,
-) -> tuple[dict[str, object], int]:
-    role_data: dict[str, object] = {}
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent < 4:
-            break
-        if indent != 4 or ":" not in line:
-            index += 1
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        role_data[key] = _parse_scalar(value)
-        index += 1
-    return role_data, index
 
 
 def load_agent_registry(root: Path) -> AgentRegistry:
@@ -418,6 +342,8 @@ def _build_registry(source_path: Path, payload: dict[str, object], root: Path | 
                 loc = ".".join(str(part) for part in item["loc"])
                 errors.append(f"agents.{agent_id}.{loc}: {item['msg']}")
             continue
+        if agent.adapter_maturity is None:
+            agent.adapter_maturity = adapter_maturity(agent.adapter)
         agents[agent_id] = agent
         errors.extend(_validate_agent_policy(agent, providers=providers, roles=roles))
 
@@ -448,6 +374,7 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
         provider="manual",
         model="human-launched-codex",
         adapter="manual",
+        adapter_maturity="stable_runtime",
         role="implementation_worker",
         tier="manual",
         default_mode="workspace_write",
@@ -547,9 +474,13 @@ def _validate_agent_policy(
         if agent.role not in roles.roles:
             errors.append(f"{prefix}.role '{agent.role}' does not exist in role registry")
 
-    ALLOWED_ADAPTERS = {"shell", "manual", "ollama_chat", "openai_responses", "openai_compatible", "anthropic_messages", "manual_packet", "gemini", "openai_chat"}
+    ALLOWED_ADAPTERS = set(ADAPTER_MATURITY)
     if agent.adapter not in ALLOWED_ADAPTERS:
         errors.append(f"{prefix}.adapter '{agent.adapter}' is unsupported. Allowed: {sorted(list(ALLOWED_ADAPTERS))}")
+    elif agent.adapter_maturity is not None and agent.adapter_maturity != adapter_maturity(agent.adapter):
+        errors.append(
+            f"{prefix}.adapter_maturity '{agent.adapter_maturity}' does not match adapter '{agent.adapter}' maturity '{adapter_maturity(agent.adapter)}'"
+        )
 
     if agent.tier == "frontier" and agent.default_mode not in {"read_only", "frontier_read_only", "manual_packet_only"}:
         errors.append(f"{prefix}.default_mode '{agent.default_mode}' is not compatible with frontier tier")
@@ -577,115 +508,23 @@ def _registry_version(payload: dict[str, object]) -> int:
 
 
 def _read_registry_file(path: Path) -> dict[str, object]:
+    return _read_yaml_mapping(path, "registry")
+
+
+def _read_yaml_mapping(path: Path, label: str) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     stripped = text.strip()
     if not stripped:
         return {}
-    if stripped.startswith("{"):
-        payload = json.loads(stripped)
-        if not isinstance(payload, dict):
-            raise AgentRegistryError(path, ["registry root must be a map"])
-        return payload
-    return _parse_yaml_subset(text)
-
-
-def _parse_yaml_subset(text: str) -> dict[str, object]:
-    lines = [
-        (len(raw) - len(raw.lstrip(" ")), raw.strip())
-        for raw in text.splitlines()
-        if raw.strip() and not raw.lstrip().startswith("#")
-    ]
-    data: dict[str, object] = {}
-    index = 0
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent != 0 or ":" not in line:
-            index += 1
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if key == "agents" and value == "":
-            agents, index = _parse_agents_block(lines, index + 1)
-            data[key] = agents
-            continue
-        data[key] = _parse_scalar(value)
-        index += 1
-    return data
-
-
-def _parse_agents_block(
-    lines: list[tuple[int, str]],
-    index: int,
-) -> tuple[dict[str, dict[str, object]], int]:
-    agents: dict[str, dict[str, object]] = {}
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent < 2:
-            break
-        if indent != 2 or not line.endswith(":"):
-            index += 1
-            continue
-        agent_id = line[:-1].strip()
-        agent_data, index = _parse_agent_fields(lines, index + 1)
-        agents[agent_id] = agent_data
-    return agents, index
-
-
-def _parse_agent_fields(
-    lines: list[tuple[int, str]],
-    index: int,
-) -> tuple[dict[str, object], int]:
-    agent_data: dict[str, object] = {}
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent < 4:
-            break
-        if indent != 4 or ":" not in line:
-            index += 1
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if value == "":
-            values, index = _parse_list(lines, index + 1)
-            agent_data[key] = values
-            continue
-        agent_data[key] = _parse_scalar(value)
-        index += 1
-    return agent_data, index
-
-
-def _parse_list(lines: list[tuple[int, str]], index: int) -> tuple[list[object], int]:
-    values: list[object] = []
-    while index < len(lines):
-        indent, line = lines[index]
-        if indent < 6 or not line.startswith("- "):
-            break
-        values.append(_parse_scalar(line[2:].strip()))
-        index += 1
-    return values, index
-
-
-def _parse_scalar(value: str) -> object:
-    if value == "":
-        return {}
-    if value == "[]":
-        return []
-    if value == "true":
-        return True
-    if value == "false":
-        return False
     try:
-        return int(value)
-    except ValueError:
-        return _strip_yaml_quotes(value)
-
-
-def _strip_yaml_quotes(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-        return value[1:-1]
-    return value
+        payload = yaml.safe_load(stripped)
+    except yaml.YAMLError as exc:
+        raise AgentRegistryError(path, [f"{label} YAML is invalid: {exc}"]) from exc
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise AgentRegistryError(path, [f"{label} root must be a map"])
+    return payload
 
 
 def _display_path(path: Path) -> str:

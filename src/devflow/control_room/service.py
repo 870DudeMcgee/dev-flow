@@ -29,7 +29,10 @@ from devflow.control_room.persistence import (
 )
 from devflow.control_room.promotion import (
     _get_relative_files,
+    current_main_head,
+    format_stale_baseline_refusal,
     main_checkout_has_uncommitted_changes,
+    promotion_baseline,
 )
 from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors, readiness_state
 from devflow.control_room.seed import initialize_seed, validate_seed_contract
@@ -54,12 +57,24 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     return promotion.preview_task_promotion(root, task_id)
 
 
-def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions: bool = False) -> TaskRecord:
+def promote_task(
+    root: Path,
+    task_id: str,
+    force: bool = False,
+    apply_deletions: bool = False,
+    force_stale_baseline: bool = False,
+) -> TaskRecord:
     import devflow.control_room.promotion as promotion
     # Forward monkeypatch if service._get_relative_files was overridden in a test
     if _get_relative_files is not promotion._get_relative_files:
         promotion._get_relative_files = _get_relative_files
-    return promotion.promote_task(root, task_id, force=force, apply_deletions=apply_deletions)
+    return promotion.promote_task(
+        root,
+        task_id,
+        force=force,
+        apply_deletions=apply_deletions,
+        force_stale_baseline=force_stale_baseline,
+    )
 
 
 
@@ -130,7 +145,7 @@ def run_shell_task(
     worker_adapter: str = "shell",
     env: dict[str, str] | None = None,
 ) -> TaskRecord:
-    from devflow.control_room.agent_registry import load_agent_registry
+    from devflow.control_room.agent_registry import STABLE_RUNTIME_ADAPTERS, load_agent_registry
     registry = load_agent_registry(root)
 
     agent = None
@@ -141,6 +156,12 @@ def run_shell_task(
         if not agent.enabled:
             raise ValueError(f"Agent '{worker_adapter}' is disabled.")
         resolved_adapter_name = agent.adapter
+        if agent.adapter_maturity != "stable_runtime":
+            stable = ", ".join(STABLE_RUNTIME_ADAPTERS)
+            raise ValueError(
+                f"Adapter '{agent.adapter}' for agent '{agent.id}' is {agent.adapter_maturity}. "
+                f"Only stable_runtime adapters can execute. Stable runtime adapters: {stable}."
+            )
 
     adapter = get_worker_adapter(resolved_adapter_name)
     if not command and resolved_adapter_name != "manual":
@@ -208,7 +229,8 @@ def run_shell_task(
         (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
 
     result = adapter.run(worker_input)
-    _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
+    if resolved_adapter_name != "manual":
+        _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
     if agent is not None:
         compat_log = task_path / "logs" / "worker.log"
         compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
@@ -219,7 +241,7 @@ def run_shell_task(
     task.last_exit_code = result.exit_code
     task.latest_log_line = result.latest_log_line
     task.log_path = _relative(root, log_file)
-    task.result_path = _relative(root, result_file)
+    task.result_path = _relative(root, result_file) if result_file.exists() else None
     task.finished_at = utc_now()
     task.updated_at = task.finished_at
     task.last_event = "worker_finished"

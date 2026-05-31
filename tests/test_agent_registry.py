@@ -58,6 +58,42 @@ agents:
     assert agent.adapter == "shell"
     assert agent.default_mode == "verify_only"
     assert agent.can_touch == ["<workspace>/**"]
+    assert agent.adapter_maturity == "stable_runtime"
+
+
+def test_agent_registry_uses_real_yaml_parser_for_inline_collections(tmp_path: Path) -> None:
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        """version: 1
+default_agent: local-shell
+agents:
+  local-shell:
+    provider: shell
+    model: local-shell
+    adapter: shell
+    adapter_maturity: stable_runtime
+    role: test_runner
+    tier: local
+    default_mode: verify_only
+    workspace: isolated_task_workspace
+    can_see: ["task_packet", "assigned_workspace"]
+    can_touch: ["<workspace>/**"]
+    cannot_touch: ["<main_checkout>/**", ".git/**"]
+    can_run_shell: true
+    can_use_network: false
+    can_promote: false
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    registry = load_agent_registry(tmp_path)
+
+    agent = registry.require_agent("local-shell")
+    assert agent.can_see == ["task_packet", "assigned_workspace"]
+    assert agent.can_touch == ["<workspace>/**"]
+    assert agent.cannot_touch == ["<main_checkout>/**", ".git/**"]
 
 
 def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path: Path) -> None:

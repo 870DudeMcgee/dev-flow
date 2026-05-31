@@ -52,13 +52,15 @@ To guarantee execution safety and prevent automated agents from operating on uns
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
+Agent adapters also carry runtime maturity: `stable_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. Planned provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
+
 Experimental task-fit, scout, route, scorecard, context, and supervisor commands are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The proof-agent registry commands are visible because they are part of this stable milestone.
 
 `devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
 
 `devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
 
-`devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion is not automatic and does not stage, commit, push, open a pull request, or bypass verification readiness checks.
+`devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Promotion is not automatic and does not stage, commit, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
 `devflow agent show devflow-manual-codex-worker` displays the stable proof-agent contract:
 
@@ -70,7 +72,7 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 
 `devflow agent packet <task-id> devflow-manual-codex-worker` prints a bounded packet with role, allowed reads, allowed writes, forbidden writes, required outputs, completion rules, and Codex-ready manual instructions.
 
-`devflow task run <task-id> --worker devflow-manual-codex-worker` creates `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/handoff.md` and packet evidence for a human-launched Codex or IDE agent. It does not call a provider API, choose a model, schedule another agent, verify work, promote work, or mutate the main checkout.
+`devflow task run <task-id> --worker devflow-manual-codex-worker` creates `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/handoff.md` and packet evidence for a human-launched Codex or IDE agent, then leaves the task blocked with `manual_agent_state: awaiting_human`. It does not call a provider API, choose a model, schedule another agent, verify work, promote work, or mutate the main checkout. Pressing Enter in an interactive terminal is not completion evidence.
 
 ## Stable Filesystem Artifacts
 
@@ -99,7 +101,7 @@ For a created task, the MVP contract is:
 
 `.devflow/tasks/<task-id>/result.md` may exist as a human-readable result summary. It is not canonical state.
 
-Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/` is worker-produced evidence, not canonical task state. Dev-Flow may display it in `task show` and `dashboard`, but only Dev-Flow updates `task.yaml`, `events.jsonl`, `verification.json`, merge-readiness, and promotion state.
+Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/` is worker-produced evidence, not canonical task state. Dev-Flow may display `awaiting_human`, `blocked`, `failed`, and `result_present` in `task show` and `dashboard`, but only Dev-Flow updates `task.yaml`, `events.jsonl`, `verification.json`, merge-readiness, and promotion state.
 
 ## Stable Safety Rules
 

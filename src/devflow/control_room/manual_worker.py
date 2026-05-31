@@ -14,6 +14,7 @@ from devflow.control_room.paths import relative_path
 @dataclass(frozen=True)
 class ManualAgentEvidence:
     state: str
+    handoff_path: str | None = None
     result_path: str | None = None
     question_path: str | None = None
     failure_path: str | None = None
@@ -60,59 +61,34 @@ class ManualWorkerAdapter:
 
         latest = latest_visible_log_line(worker_input.log_file)
 
-        # Handle interactive terminal vs non-interactive environments
-        # We also check a test bypass flag to simplify unit testing of interactive prompts
-        is_interactive = sys.stdin.isatty() and not getattr(sys.stdin, "_mocked", False)
-        
-        if is_interactive:
-            print(f"\n[Manual Worker] Escalation active for task '{worker_input.task_id}'.")
+        if sys.stdin.isatty() and not getattr(sys.stdin, "_mocked", False):
+            print(f"\n[Manual Worker] Handoff generated for task '{worker_input.task_id}'.")
             print(f"Workspace path: {worker_input.workspace_path.resolve()}")
-            print("Instructions log file has been written.")
-            try:
-                input(">>> Press [ENTER] once you have completed the manual changes in the workspace...")
-            except (KeyboardInterrupt, EOFError):
-                print("\n[Manual Worker] Cancelled manual session.")
-                return WorkerResult(
-                    status="worker_failed",
-                    summary="Manual session cancelled by user",
-                    exit_code=1,
-                    latest_log_line=latest,
-                    result_file=worker_input.result_file,
-                    log_file=worker_input.log_file,
-                )
+            if handoff_path is not None:
+                print(f"Handoff path: {handoff_path}")
 
-            return WorkerResult(
-                status="complete",
-                summary="Manual work completed by user",
-                exit_code=0,
-                latest_log_line=latest,
-                result_file=worker_input.result_file,
-                log_file=worker_input.log_file,
-            )
-        else:
-            # Non-interactive / Background runner
-            from devflow.control_room.persistence import timestamp
+        from devflow.control_room.persistence import timestamp
 
-            event = {
-                "timestamp": timestamp(),
-                "event": "manual_packet_generated",
-                "status": "awaiting_human",
-                "summary": "Manual instructions generated. Awaiting human workspace changes.",
-            }
-            try:
-                with worker_input.context_file.open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(event) + "\n")
-            except Exception:
-                pass
+        event = {
+            "timestamp": timestamp(),
+            "event": "manual_packet_generated",
+            "status": "awaiting_human",
+            "summary": "Manual instructions generated. Awaiting human workspace changes.",
+        }
+        try:
+            with worker_input.context_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(event) + "\n")
+        except Exception:
+            pass
 
-            return WorkerResult(
-                status="blocked",
-                summary="Manual instructions generated. Awaiting human workspace changes.",
-                exit_code=0,
-                latest_log_line=latest,
-                result_file=worker_input.result_file,
-                log_file=worker_input.log_file,
-            )
+        return WorkerResult(
+            status="blocked",
+            summary="Manual instructions generated. Awaiting human workspace changes.",
+            exit_code=0,
+            latest_log_line=latest,
+            result_file=worker_input.result_file,
+            log_file=worker_input.log_file,
+        )
 
 
 def _build_handoff(worker_input: WorkerInput, agent_id: str) -> str:
@@ -165,6 +141,7 @@ def _build_handoff(worker_input: WorkerInput, agent_id: str) -> str:
 
 def read_manual_agent_evidence(root: Path, task_id: str, agent_id: str) -> ManualAgentEvidence:
     agent_dir = root / ".devflow" / "tasks" / task_id / "agents" / agent_id
+    handoff_path = agent_dir / "handoff.md"
     failed_path = agent_dir / "worker_failed.json"
     questions_path = agent_dir / "questions.jsonl"
     result_path = agent_dir / "result.md"
@@ -190,12 +167,16 @@ def read_manual_agent_evidence(root: Path, task_id: str, agent_id: str) -> Manua
     result = _read_result(result_path)
     if result is not None:
         return ManualAgentEvidence(
-            state="complete",
+            state="result_present",
+            handoff_path=relative_path(root, handoff_path) if handoff_path.exists() else None,
             result_path=relative_path(root, result_path),
             summary=result.get("summary"),
         )
 
-    return ManualAgentEvidence(state="blocked")
+    return ManualAgentEvidence(
+        state="awaiting_human",
+        handoff_path=relative_path(root, handoff_path) if handoff_path.exists() else None,
+    )
 
 
 def _read_failure(path: Path, task_id: str, agent_id: str) -> dict[str, str] | None:

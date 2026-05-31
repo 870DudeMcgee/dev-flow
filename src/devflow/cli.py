@@ -242,6 +242,8 @@ def task_show(task_id: str) -> None:
     typer.echo(f"suggested_next_action: {projection.suggested_next_action}")
     if projection.manual_agent_state:
         typer.echo(f"manual_agent_state: {projection.manual_agent_state}")
+        if projection.manual_agent_handoff_path:
+            typer.echo(f"manual_agent_handoff: {projection.manual_agent_handoff_path}")
         if projection.manual_agent_result_path:
             typer.echo(f"manual_agent_result: {projection.manual_agent_result_path}")
             typer.echo("manual_agent_note: Dev-Flow verification required before promotion.")
@@ -647,6 +649,11 @@ def task_promote_preview(task_id: str) -> None:
     modified = res["modified"]
     deleted = res["deleted"]
     diffs = res["diffs"]
+    baseline = res["baseline"]
+
+    typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
+    typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
+    typer.echo(f"baseline_status: {baseline['baseline_status']}")
 
     if not added and not modified and not deleted:
         typer.echo("No changes to promote")
@@ -681,16 +688,23 @@ def task_promote_preview(task_id: str) -> None:
 def task_promote(
     task_id: str,
     force: bool = typer.Option(False, "--force", help="Bypass dirty repository check."),
+    force_stale_baseline: bool = typer.Option(
+        False,
+        "--force-stale-baseline",
+        help="Bypass the stale task-baseline guard after manual conflict review.",
+    ),
     apply_deletions: bool = typer.Option(False, "--apply-deletions", help="Apply file deletions to the main checkout."),
 ) -> None:
     """Promote verified changes from the isolated workspace to the main checkout."""
     try:
         from devflow.control_room.service import (
             format_promotion_refusal,
+            format_stale_baseline_refusal,
             get_task,
             main_checkout_has_uncommitted_changes,
             preview_task_promotion,
             promote_task,
+            promotion_baseline,
             promotion_readiness_errors,
         )
         # 1. Safety check for dirty main checkout
@@ -710,6 +724,18 @@ def task_promote(
         if promotion_readiness_errors(task, task_path):
             typer.echo(format_promotion_refusal(task, task_path), err=True)
             raise typer.Exit(code=1)
+
+        baseline = promotion_baseline(Path.cwd(), task)
+        if baseline["baseline_status"] == "unavailable":
+            typer.echo(format_stale_baseline_refusal(Path.cwd(), task), err=True)
+            raise typer.Exit(code=1)
+        if baseline["baseline_status"] == "changed":
+            if not force_stale_baseline:
+                typer.echo(format_stale_baseline_refusal(Path.cwd(), task), err=True)
+                raise typer.Exit(code=1)
+            typer.echo("Warning: Forcing promotion with stale task baseline.")
+            typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
+            typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
 
         res = preview_task_promotion(Path.cwd(), task_id)
     except KeyError as exc:
@@ -758,7 +784,13 @@ def task_promote(
         return
 
     try:
-        promote_task(Path.cwd(), task_id, force=force, apply_deletions=apply_deletions)
+        promote_task(
+            Path.cwd(),
+            task_id,
+            force=force,
+            apply_deletions=apply_deletions,
+            force_stale_baseline=force_stale_baseline,
+        )
     except Exception as exc:
         typer.echo(f"Error executing promotion: {exc}", err=True)
         raise typer.Exit(code=1) from exc

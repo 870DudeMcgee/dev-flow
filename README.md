@@ -89,6 +89,9 @@ Promotion is explicit and human-controlled:
 ```
 
 Use promotion only after reviewing the preview and verification evidence.
+If the main checkout advanced after the task workspace was created, promotion refuses by default. Use `--force-stale-baseline` only after manually reviewing that stale-baseline risk.
+
+Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future provider adapters may be described in registries, but only the `shell` and `manual` adapters are executable in the stable runtime.
 
 ## DevMode Relationship
 

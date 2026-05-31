@@ -15,6 +15,22 @@ from devflow.control_room.service import get_task
 runner = CliRunner()
 
 
+def _init_git_repo() -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", "-b", "main"], check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+
+
+def _git_commit(message: str, paths: list[str] | None = None) -> str:
+    import subprocess
+
+    subprocess.run(["git", "add", *(paths or ["."])], check=True)
+    subprocess.run(["git", "commit", "-m", message], check=True)
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+
 def _mark_task_verified_with_evidence(task_id: str = "task-0001") -> None:
     task_path = Path(".devflow/tasks") / task_id
     yaml_path = task_path / "task.yaml"
@@ -45,6 +61,113 @@ def _mark_task_verified_with_evidence(task_id: str = "task-0001") -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def test_promote_preview_reports_unchanged_task_baseline() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+            Path("file.txt").write_text("initial\n", encoding="utf-8")
+            baseline = _git_commit("init")
+
+            created = runner.invoke(app, ["task", "create", "baseline-preview"])
+            assert created.exit_code == 0
+
+            res = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert res.exit_code == 0, res.output
+            assert f"task_baseline_commit: {baseline}" in res.output
+            assert f"current_main_head: {baseline}" in res.output
+            assert "baseline_status: unchanged" in res.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_refuses_when_main_head_changed_after_task_creation() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+            Path("file.txt").write_text("initial\n", encoding="utf-8")
+            baseline = _git_commit("init")
+
+            created = runner.invoke(app, ["task", "create", "stale-baseline"])
+            assert created.exit_code == 0
+
+            Path("main-change.txt").write_text("main advanced\n", encoding="utf-8")
+            current_head = _git_commit("advance main", ["main-change.txt"])
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "worker-result.txt").write_text("worker result\n", encoding="utf-8")
+            _mark_task_verified_with_evidence()
+
+            res = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
+            assert res.exit_code == 1, res.output
+            assert "Refusing promotion: task baseline is stale." in res.output
+            assert "task_id: task-0001" in res.output
+            assert f"task_baseline_commit: {baseline}" in res.output
+            assert f"current_main_head: {current_head}" in res.output
+            assert "reason: Current main checkout HEAD differs from the task baseline commit." in res.output
+            assert "next_safe_action: Review promote-preview, re-run or rebase the task from current main, or use --force-stale-baseline only after manual conflict review." in res.output
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "verified"
+            assert not Path("worker-result.txt").exists()
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_force_stale_baseline_allows_with_warning() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+            Path("file.txt").write_text("initial\n", encoding="utf-8")
+            baseline = _git_commit("init")
+
+            created = runner.invoke(app, ["task", "create", "force-stale-baseline"])
+            assert created.exit_code == 0
+
+            Path("main-change.txt").write_text("main advanced\n", encoding="utf-8")
+            current_head = _git_commit("advance main", ["main-change.txt"])
+
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "worker-result.txt").write_text("worker result\n", encoding="utf-8")
+            _mark_task_verified_with_evidence()
+
+            res = runner.invoke(
+                app,
+                ["task", "promote", "task-0001", "--force-stale-baseline"],
+                input="y\n",
+            )
+            assert res.exit_code == 0, res.output
+            assert "Warning: Forcing promotion with stale task baseline." in res.output
+            assert f"task_baseline_commit: {baseline}" in res.output
+            assert f"current_main_head: {current_head}" in res.output
+            assert "Promotion complete." in res.output
+            assert Path("worker-result.txt").read_text(encoding="utf-8") == "worker result\n"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_preview_reports_unavailable_baseline_outside_git() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "non-git-preview"])
+            assert created.exit_code == 0
+
+            res = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert res.exit_code == 0, res.output
+            assert "task_baseline_commit: unavailable" in res.output
+            assert "current_main_head: unavailable" in res.output
+            assert "baseline_status: unavailable" in res.output
+        finally:
+            os.chdir(old_cwd)
 
 
 def test_promote_preview_missing_task() -> None:

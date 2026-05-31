@@ -256,6 +256,56 @@ def test_unsupported_worker_adapter_values_are_refused() -> None:
             os.chdir(old_cwd)
 
 
+def test_planned_registry_adapter_cannot_execute() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "planned adapter refusal"])
+            assert created.exit_code == 0, created.output
+
+            registry_path = Path(".devflow/agents/registry.yaml")
+            registry_path.parent.mkdir(parents=True, exist_ok=True)
+            registry_path.write_text(
+                """version: 1
+agents:
+  planned-ollama:
+    provider: ollama
+    model: qwen3:36b
+    adapter: ollama_chat
+    adapter_maturity: planned_not_executable
+    role: local_senior_worker
+    tier: local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - ".git/**"
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+""",
+                encoding="utf-8",
+            )
+
+            run = runner.invoke(
+                app,
+                ["task", "run", "task-0001", "--worker", "planned-ollama", "--shell", "echo should-not-run"],
+            )
+            assert run.exit_code == 1, run.output
+            assert "Adapter 'ollama_chat' for agent 'planned-ollama' is planned_not_executable" in run.output
+            assert "Only stable_runtime adapters can execute. Stable runtime adapters: manual, shell." in run.output
+            assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
+            assert get_task(Path.cwd(), "task-0001").status == "created"
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_verification_remains_devflow_owned_not_adapter_owned(monkeypatch: pytest.MonkeyPatch) -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:

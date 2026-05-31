@@ -24,6 +24,7 @@ class TaskStatusProjection(BaseModel):
     readiness_reasons: list[str]
     suggested_next_action: str
     manual_agent_state: str | None = None
+    manual_agent_handoff_path: str | None = None
     manual_agent_result_path: str | None = None
     manual_agent_question: str | None = None
     manual_agent_failure: str | None = None
@@ -85,6 +86,7 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
             promotion_ready=not promotion_errors,
         ),
         manual_agent_state=manual_evidence.state if manual_evidence is not None else None,
+        manual_agent_handoff_path=manual_evidence.handoff_path if manual_evidence is not None else None,
         manual_agent_result_path=manual_evidence.result_path if manual_evidence is not None else None,
         manual_agent_question=manual_evidence.question if manual_evidence is not None else None,
         manual_agent_failure=manual_evidence.failure if manual_evidence is not None else None,

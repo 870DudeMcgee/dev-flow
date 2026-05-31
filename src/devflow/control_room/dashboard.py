@@ -32,6 +32,8 @@ def render_dashboard(repo_root: Path | None = None) -> str:
             lines.append(f"  result: {task.result_path}")
         if projection.manual_agent_state:
             lines.append(f"  manual_agent_state: {projection.manual_agent_state}")
+            if projection.manual_agent_handoff_path:
+                lines.append(f"  manual_agent_handoff: {projection.manual_agent_handoff_path}")
             if projection.manual_agent_question:
                 lines.append(f"  manual_agent_question: {projection.manual_agent_question}")
             if projection.manual_agent_failure:

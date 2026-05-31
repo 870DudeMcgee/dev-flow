@@ -24,6 +24,7 @@ from devflow.control_room.readiness import format_promotion_refusal, promotion_r
 
 def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     task = get_task(root, task_id)
+    baseline = promotion_baseline(root, task)
     workspace = absolute_path(root, task.workspace).resolve()
     expected = (workspaces_dir(root) / task.id).resolve()
     if workspace != expected:
@@ -58,11 +59,76 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
 
     return {
         "task_id": task.id,
+        "baseline": baseline,
         "added": added_files,
         "modified": modified_files,
         "deleted": deleted_files,
         "diffs": diffs,
     }
+
+
+def current_main_head(root: Path) -> str | None:
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return None
+        head_proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if head_proc.returncode != 0:
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return head_proc.stdout.strip() or None
+
+
+def promotion_baseline(root: Path, task: TaskRecord) -> dict[str, str | None]:
+    task_baseline = task.workspace_commit
+    current_head = current_main_head(root)
+    if task_baseline and current_head:
+        status = "unchanged" if task_baseline == current_head else "changed"
+    else:
+        status = "unavailable"
+    return {
+        "task_baseline_commit": task_baseline,
+        "current_main_head": current_head,
+        "baseline_status": status,
+    }
+
+
+def format_stale_baseline_refusal(root: Path, task: TaskRecord) -> str | None:
+    baseline = promotion_baseline(root, task)
+    task_baseline = baseline["task_baseline_commit"]
+    current_head = baseline["current_main_head"]
+    status = baseline["baseline_status"]
+    if status == "unchanged":
+        return None
+    if status == "changed":
+        title = "Refusing promotion: task baseline is stale."
+        reason = "Current main checkout HEAD differs from the task baseline commit."
+    else:
+        title = "Refusing promotion: task baseline cannot be verified."
+        reason = "Task baseline commit or current main checkout HEAD is unavailable."
+    return "\n".join(
+        [
+            title,
+            f"task_id: {task.id}",
+            f"task_baseline_commit: {_display_commit(task_baseline)}",
+            f"current_main_head: {_display_commit(current_head)}",
+            f"reason: {reason}",
+            "next_safe_action: Review promote-preview, re-run or rebase the task from current main, or use --force-stale-baseline only after manual conflict review.",
+        ]
+    )
 
 
 def main_checkout_has_uncommitted_changes(root: Path) -> bool:
@@ -107,11 +173,25 @@ def main_checkout_has_uncommitted_changes(root: Path) -> bool:
     return dirty
 
 
-def promote_task(root: Path, task_id: str, force: bool = False, apply_deletions: bool = False) -> TaskRecord:
+def promote_task(
+    root: Path,
+    task_id: str,
+    force: bool = False,
+    apply_deletions: bool = False,
+    force_stale_baseline: bool = False,
+) -> TaskRecord:
     task = get_task(root, task_id)
     task_path = task_dir(root, task_id)
     if promotion_readiness_errors(task, task_path):
         raise ValueError(format_promotion_refusal(task, task_path))
+
+    baseline = promotion_baseline(root, task)
+    if baseline["baseline_status"] == "unavailable":
+        refusal = format_stale_baseline_refusal(root, task)
+        raise ValueError(refusal or "Refusing promotion: task baseline cannot be verified.")
+    if baseline["baseline_status"] == "changed" and not force_stale_baseline:
+        refusal = format_stale_baseline_refusal(root, task)
+        raise ValueError(refusal or "Refusing promotion: task baseline is stale.")
 
     # Double check dirty repository status to ensure safety
     if not force and main_checkout_has_uncommitted_changes(root):
@@ -202,6 +282,10 @@ def _is_ignored_path(path: Path, base_dir: Path) -> bool:
         if part in ignored_names:
             return True
     return False
+
+
+def _display_commit(commit: str | None) -> str:
+    return commit if commit else "unavailable"
 
 
 def _get_relative_files(base_dir: Path) -> set[str]:

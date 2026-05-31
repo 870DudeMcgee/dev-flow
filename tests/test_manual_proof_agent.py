@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.manual_worker import ManualWorkerAdapter
 from devflow.control_room.manual_worker import read_manual_agent_evidence
+from devflow.control_room.models import WorkerInput
 from devflow.control_room.service import create_task
 
 
@@ -44,6 +48,14 @@ def test_manual_codex_worker_run_creates_codex_ready_handoff(tmp_path: Path, mon
         "<task>/agents/devflow-manual-codex-worker/worker_failed.json",
     ]
 
+    show = runner.invoke(app, ["task", "show", task.id])
+    assert show.exit_code == 0, show.output
+    assert "manual_agent_state: awaiting_human" in show.output
+    assert "manual_agent_handoff: .devflow/tasks/task-0001/agents/devflow-manual-codex-worker/handoff.md" in show.output
+
+    evidence = read_manual_agent_evidence(tmp_path, task.id, "devflow-manual-codex-worker")
+    assert evidence.state == "awaiting_human"
+
 
 def test_manual_agent_complete_evidence_is_visible_in_task_show_and_dashboard(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -63,18 +75,18 @@ def test_manual_agent_complete_evidence_is_visible_in_task_show_and_dashboard(
     )
 
     evidence = read_manual_agent_evidence(tmp_path, task.id, "devflow-manual-codex-worker")
-    assert evidence.state == "complete"
+    assert evidence.state == "result_present"
     assert evidence.summary == "Implemented the assigned change in the isolated workspace."
 
     show = runner.invoke(app, ["task", "show", task.id])
     assert show.exit_code == 0, show.output
-    assert "manual_agent_state: complete" in show.output
+    assert "manual_agent_state: result_present" in show.output
     assert "manual_agent_result: .devflow/tasks/task-0001/agents/devflow-manual-codex-worker/result.md" in show.output
     assert "Dev-Flow verification required before promotion." in show.output
 
     dashboard = runner.invoke(app, ["dashboard"])
     assert dashboard.exit_code == 0, dashboard.output
-    assert "manual_agent_state: complete" in dashboard.output
+    assert "manual_agent_state: result_present" in dashboard.output
 
     workspace_file = tmp_path / ".devflow/workspaces" / task.id / "manual.txt"
     workspace_file.write_text("done\n", encoding="utf-8")
@@ -82,8 +94,43 @@ def test_manual_agent_complete_evidence_is_visible_in_task_show_and_dashboard(
     assert verify.exit_code == 0, verify.output
     verified_show = runner.invoke(app, ["task", "show", task.id])
     assert "status: verified" in verified_show.output
-    assert "manual_agent_state: complete" in verified_show.output
+    assert "manual_agent_state: result_present" in verified_show.output
     assert "suggested_next_action: Task is verified." in verified_show.output
+
+
+def test_manual_worker_enter_does_not_mark_complete_without_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class InteractiveStdin:
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", InteractiveStdin())
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+
+    create_task(tmp_path, "Interactive manual proof worker")
+    task_dir = tmp_path / ".devflow/tasks/task-0001/agents/devflow-manual-codex-worker"
+    workspace = tmp_path / ".devflow/workspaces/task-0001"
+    worker_input = WorkerInput(
+        task_id="task-0001",
+        repo_root=tmp_path,
+        workspace_path=workspace,
+        task_file=tmp_path / ".devflow/tasks/task-0001/task.yaml",
+        context_file=tmp_path / ".devflow/tasks/task-0001/events.jsonl",
+        status_file=tmp_path / ".devflow/tasks/task-0001/task.yaml",
+        questions_file=tmp_path / ".devflow/tasks/task-0001/questions.jsonl",
+        result_file=task_dir / "result.md",
+        log_file=task_dir / "logs/worker.log",
+        command=["manual-handoff", "devflow-manual-codex-worker"],
+        env={"DEVFLOW_AGENT_ID": "devflow-manual-codex-worker"},
+        timeout_seconds=60,
+    )
+
+    result = ManualWorkerAdapter().run(worker_input)
+
+    assert result.status == "blocked"
+    assert result.summary == "Manual instructions generated. Awaiting human workspace changes."
+    assert not worker_input.result_file.exists()
 
 
 def test_manual_agent_blocked_question_contract_is_visible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
