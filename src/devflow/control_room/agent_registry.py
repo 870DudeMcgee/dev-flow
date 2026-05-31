@@ -21,12 +21,12 @@ ADAPTER_MATURITY: dict[str, AdapterMaturity] = {
     "shell": "stable_runtime",
     "manual": "stable_runtime",
     "manual_packet": "experimental_readonly",
-    "ollama_chat": "planned_not_executable",
+    "ollama_chat": "stable_runtime",
     "openai_responses": "planned_not_executable",
-    "openai_compatible": "planned_not_executable",
-    "anthropic_messages": "planned_not_executable",
-    "gemini": "planned_not_executable",
-    "openai_chat": "planned_not_executable",
+    "openai_compatible": "stable_runtime",
+    "anthropic_messages": "stable_runtime",
+    "gemini": "stable_runtime",
+    "openai_chat": "stable_runtime",
 }
 STABLE_RUNTIME_ADAPTERS = tuple(sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "stable_runtime"))
 

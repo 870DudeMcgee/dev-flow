@@ -5,6 +5,11 @@ from typing import Protocol
 from devflow.control_room.models import WorkerInput, WorkerResult
 from devflow.control_room.shell_worker import ShellWorkerAdapter
 from devflow.control_room.manual_worker import ManualWorkerAdapter
+from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+from devflow.control_room.openai_compatible_worker import OpenAICompatibleWorkerAdapter
+from devflow.control_room.anthropic_worker import AnthropicMessagesWorkerAdapter
+from devflow.control_room.gemini_worker import GeminiWorkerAdapter
+from devflow.control_room.openai_chat_worker import OpenAIChatWorkerAdapter
 
 
 class WorkerAdapter(Protocol):
@@ -20,6 +25,11 @@ class WorkerAdapter(Protocol):
 _REGISTRY: dict[str, type[WorkerAdapter]] = {
     "shell": ShellWorkerAdapter,
     "manual": ManualWorkerAdapter,
+    "ollama_chat": OllamaChatWorkerAdapter,
+    "openai_compatible": OpenAICompatibleWorkerAdapter,
+    "anthropic_messages": AnthropicMessagesWorkerAdapter,
+    "gemini": GeminiWorkerAdapter,
+    "openai_chat": OpenAIChatWorkerAdapter,
 }
 
 
