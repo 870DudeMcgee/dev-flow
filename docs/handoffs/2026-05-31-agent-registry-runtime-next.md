@@ -22,6 +22,7 @@ in-progress
 - Do not restore archived legacy workflow material unless it is intentionally promoted back as active, non-archived source.
 - Do not jump to provider-backed adapters, autonomous routing, Aider, Hermes, OpenCode, memory, scheduling, or web dashboards before registry loading, manual packets, and shell alignment exist.
 - Runtime changes must stay under `src/devflow/control_room/`; top-level modules and `src/devflow/_legacy/` are compatibility or legacy surfaces only.
+- Treat any stale plan, old command list, archived ritual, or conflicting architecture note as poison context. Clean it before implementing from it.
 
 ## Next Safe Action
 

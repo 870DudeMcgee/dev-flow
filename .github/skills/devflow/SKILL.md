@@ -24,6 +24,7 @@ Product North Star: `PRODUCT_NORTH_STAR.md`. Read it before implementation decis
 - Keep the active runtime focused on shell workers only unless the task explicitly implements the next approved registry sequence.
 - Verify narrowly and report what actually ran.
 - After every major feature, milestone, or direction change, align active docs, remove stale context, verify, commit, merge to `main`, push when approved, and write a compact handoff with one next safe action.
+- Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.
 
 ## First Milestone
 

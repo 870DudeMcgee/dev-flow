@@ -71,6 +71,22 @@ Archived or quarantined material must stay outside the active repo unless it is 
 
 ---
 
+## ⚠️ Poison Context Warning
+
+Old direction is not harmless. Conflicting docs, stale plans, archived rituals, obsolete command lists, and legacy architecture notes are **poison context**: they cause future agents to confidently build the wrong product.
+
+When you find poison context in the active repo:
+
+1. Remove it if it is junk, obsolete, or archived material.
+2. Rewrite it if the file is still useful but points at the wrong direction.
+3. Quarantine it outside the active repo if history must be kept.
+4. Mark any intentionally retained historical note as non-authoritative.
+5. Re-run stale-context searches before committing.
+
+Do not leave "maybe useful later" context in active docs. If it is not current authority and it can steer implementation, it must be cleaned up before the milestone is closed.
+
+---
+
 ## 🤫 Silent Work Mode
 
 Operate silently without narration or progress commentary. Speak only to ask a blocking question, report a verification failure, or document a risk that changes the next safe action.

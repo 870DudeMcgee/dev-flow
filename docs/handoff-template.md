@@ -4,6 +4,8 @@ Use this template to coordinate between agent sessions, shifts, or workers. Keep
 
 Use a handoff at every major feature, milestone, or product-direction change after active docs are aligned, verification has run, and the tree has been committed/merged/pushed as requested. The handoff should leave exactly one next safe action, not a broad backlog.
 
+WARNING: poison context is any stale plan, archived workflow, obsolete command list, or conflicting product direction that could steer the next agent toward the wrong work. Handoffs must call out remaining risks, but they must not preserve poison context as casual background.
+
 ## Status
 
 [complete | in-progress | blocked | needs-review | failed]
