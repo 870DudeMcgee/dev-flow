@@ -71,25 +71,9 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
         boundary_violations = "unknown"
     else:
         boundary_violations = False
-        changed_files: list[str] = []
-        try:
-            status_proc = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=root,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if status_proc.returncode == 0:
-                for line in status_proc.stdout.splitlines():
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    path_part = stripped[3:].strip() if len(stripped) > 3 else stripped
-                    if not path_part.startswith(".devflow"):
-                        changed_files.append(path_part)
-        except Exception:
-            pass
+        from devflow.control_room.scout import RepoScout
+        scout = RepoScout(root)
+        changed_files = scout.get_changed_files()
 
         # Load worker agent rules
         registry = load_agent_registry(root)

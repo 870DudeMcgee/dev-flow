@@ -172,19 +172,15 @@ def _current_branch(repo: Path) -> str:
 
 
 def _git_status(repo: Path) -> list[str]:
-    return _git(repo, ["status", "--short"]) or []
+    from devflow.control_room.scout import RepoScout
+    scout = RepoScout(repo)
+    return scout.get_git_status()
 
 
 def _changed_files(repo: Path) -> list[str]:
-    files: list[str] = []
-    for line in _git_status(repo):
-        if not line.strip():
-            continue
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        files.append(path)
-    return files
+    from devflow.control_room.scout import RepoScout
+    scout = RepoScout(repo)
+    return scout.get_changed_files()
 
 
 def _task_summaries(start: Path, limit: int = 5) -> list[str]:

@@ -10,12 +10,161 @@ from devflow.control_room.paths import task_dir
 from devflow.control_room.estimator import estimate_task_fit
 
 
+class RepoScout:
+    """Consolidated repository and task workspace scanning engine."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.resolve()
+        self._changed_files: list[str] | None = None
+        self._raw_status: list[str] | None = None
+        self._relevant_files_cache: dict[tuple[str, str], list[Path]] = {}
+        self._test_files_cache: dict[str, list[Path]] = {}
+
+    def get_git_status(self) -> list[str]:
+        """Fetch raw git status porcelain lines."""
+        if self._raw_status is not None:
+            return self._raw_status
+        lines = []
+        try:
+            status_proc = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if status_proc.returncode == 0:
+                lines = [line for line in status_proc.stdout.splitlines() if line.strip()]
+        except Exception:
+            pass
+        self._raw_status = lines
+        return lines
+
+    def get_changed_files(self) -> list[str]:
+        """Fetch changed files relative to repo root using Git status."""
+        if self._changed_files is not None:
+            return self._changed_files
+
+        changed = []
+        for line in self.get_git_status():
+            path_part = line[3:].strip() if len(line) > 3 else line
+            if path_part.startswith('"') and path_part.endswith('"'):
+                path_part = path_part[1:-1]
+            if path_part.startswith(".devflow") or path_part.startswith('".devflow'):
+                continue
+            changed.append(path_part)
+
+        self._changed_files = changed
+        return changed
+
+    def get_referenced_files(self, title: str, description: str) -> list[Path]:
+        """Scan title and description to extract referenced codebase file paths."""
+        file_pattern = re.compile(r"\b[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+\b")
+        referenced_matches = file_pattern.findall(f"{title} {description}")
+        
+        referenced_files = []
+        for match in referenced_matches:
+            if match.startswith(".devflow"):
+                continue
+            
+            candidate = self.root / match
+            if candidate.exists() and candidate.is_file():
+                if candidate not in referenced_files:
+                    referenced_files.append(candidate)
+            else:
+                try:
+                    for p in self.root.glob(f"**/{match}"):
+                        if p.is_file() and not any(part.startswith('.') for part in p.relative_to(self.root).parts):
+                            if p not in referenced_files:
+                                referenced_files.append(p)
+                                break
+                except Exception:
+                    pass
+        return referenced_files
+
+    def get_relevant_files(self, title: str, description: str) -> list[Path]:
+        """Resolve a combined deduplicated list of Git-changed and text-referenced files."""
+        cache_key = (title, description)
+        if cache_key in self._relevant_files_cache:
+            return self._relevant_files_cache[cache_key]
+
+        changed_paths = [self.root / f for f in self.get_changed_files()]
+        # Filter existing files
+        changed_paths = [p for p in changed_paths if p.exists() and p.is_file()]
+        
+        referenced = self.get_referenced_files(title, description)
+        relevant = list(set(changed_paths + referenced))
+        
+        self._relevant_files_cache[cache_key] = relevant
+        return relevant
+
+    def get_test_files(self, relevant_files: list[Path]) -> list[Path]:
+        """Find matching test coverage files for a list of relevant files."""
+        test_files = []
+        for f in relevant_files:
+            if "test" in f.name.lower() or f.parent.name == "tests":
+                if f not in test_files:
+                    test_files.append(f)
+                continue
+            
+            if f.suffix == ".py":
+                t1 = self.root / "tests" / f"test_{f.name}"
+                t2 = f.parent / f"test_{f.name}"
+                if t1.exists() and t1.is_file() and t1 not in test_files:
+                    test_files.append(t1)
+                if t2.exists() and t2.is_file() and t2 not in test_files:
+                    test_files.append(t2)
+        return test_files
+
+    def get_strategic_files(self) -> list[Path]:
+        """Fetch primary strategic product guidance and architecture maps."""
+        docs = []
+        for doc_name in ["PRODUCT_NORTH_STAR.md", "docs/control-room-mvp.md", "docs/architecture/agent-registry-and-adapter-runtime.md"]:
+            doc_path = self.root / doc_name
+            if doc_path.exists() and doc_path.is_file():
+                docs.append(doc_path)
+        return docs
+
+    def get_project_docs(self) -> list[Path]:
+        """Fetch project markdown files under layers and roadmap definitions."""
+        project_docs = []
+        try:
+            project_dir = self.root / ".devflow" / "project"
+            if project_dir.exists() and project_dir.is_dir():
+                for p in project_dir.glob("*.md"):
+                    if p.is_file():
+                        project_docs.append(p)
+            
+            layers_dir = self.root / ".devflow" / "layers"
+            if layers_dir.exists() and layers_dir.is_dir():
+                for p in layers_dir.glob("**/*.md"):
+                    if p.is_file():
+                        project_docs.append(p)
+        except Exception:
+            pass
+        return project_docs
+
+    def get_task_description(self, task_id: str) -> str:
+        """Extract a task's full description from task.yaml configuration."""
+        task_yaml_path = task_dir(self.root, task_id) / "task.yaml"
+        if task_yaml_path.exists():
+            try:
+                content = task_yaml_path.read_text(encoding="utf-8")
+                desc_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE)
+                if desc_match:
+                    return desc_match.group(1).strip().strip('"\'')
+            except Exception:
+                pass
+        return ""
+
+
 def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
     """Deterministic scout reports generation engine."""
     allowed_roles = ("repo_scope", "risk", "context", "test", "stale_context")
     if role not in allowed_roles:
         raise ValueError(f"Invalid scout role: '{role}'. Must be one of: {', '.join(allowed_roles)}")
 
+    scout = RepoScout(root)
     # Load task details and estimate basic heuristics
     task = get_task(root, task_id)
     fit_data = estimate_task_fit(root, task_id)
@@ -23,39 +172,10 @@ def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
     rs = fit_data.get("repo_scan", {})
 
     title = task.title
-    description = ""
-    task_yaml_path = task_dir(root, task_id) / "task.yaml"
-    if task_yaml_path.exists():
-        try:
-            content = task_yaml_path.read_text(encoding="utf-8")
-            desc_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE)
-            if desc_match:
-                description = desc_match.group(1).strip().strip('"\'')
-        except Exception:
-            pass
-
+    description = scout.get_task_description(task_id)
     combined_text = f"{title}\n{description}".lower()
 
-    # Find changed files via git status
-    changed_files: list[str] = []
-    try:
-        status_proc = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if status_proc.returncode == 0:
-            for line in status_proc.stdout.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                path_part = stripped[3:].strip() if len(stripped) > 3 else stripped
-                if not path_part.startswith(".devflow"):
-                    changed_files.append(path_part)
-    except Exception:
-        pass
+    changed_files = scout.get_changed_files()
 
     # Basic setup for reports
     report: dict[str, Any] = {}
@@ -140,17 +260,9 @@ def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
 
     elif role == "test":
         # 4. Test scout details
-        test_files = []
-        # Find test files matching the modified source files
-        for f in changed_files:
-            file_name = Path(f).name
-            if file_name.endswith(".py") and not file_name.startswith("test_"):
-                test_candidate = Path(f).parent / f"test_{file_name}"
-                test_candidate2 = root / "tests" / f"test_{file_name}"
-                if test_candidate.exists():
-                    test_files.append(str(test_candidate))
-                if test_candidate2.exists():
-                    test_files.append(str(test_candidate2))
+        changed_paths = [scout.root / f for f in changed_files]
+        test_paths = scout.get_test_files(changed_paths)
+        test_files = [str(Path(t).relative_to(scout.root)) for t in test_paths]
 
         if not test_files:
             test_files.append("tests/test_estimator.py")

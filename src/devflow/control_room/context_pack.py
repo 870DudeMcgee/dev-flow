@@ -45,6 +45,8 @@ def _get_sha256(path: Path) -> str:
 
 def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
     """Deterministic role-based context pack builder and physical packet generator."""
+    from devflow.control_room.scout import RepoScout
+
     allowed_roles = ("planner", "worker", "reviewer")
     if role not in allowed_roles:
         raise ValueError(f"Invalid role: '{role}'. Must be one of: {', '.join(allowed_roles)}")
@@ -61,103 +63,30 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
     tf = fit_data.get("task_fit", {})
     context_layer = tf.get("context_layer", "L1")
 
+    scout = RepoScout(root)
+    task_yaml_path = task_dir(root, task_id) / "task.yaml"
+
     # Find files in repo to build packs
     title = task.title
-    description = ""
-    task_yaml_path = task_dir(root, task_id) / "task.yaml"
-    if task_yaml_path.exists():
-        try:
-            content = task_yaml_path.read_text(encoding="utf-8")
-            desc_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE)
-            if desc_match:
-                description = desc_match.group(1).strip().strip('"\'')
-        except Exception:
-            pass
+    description = scout.get_task_description(task_id)
 
     # Find changed files via git
-    changed_files: list[Path] = []
-    try:
-        status_proc = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if status_proc.returncode == 0:
-            for line in status_proc.stdout.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                path_part = stripped[3:].strip() if len(stripped) > 3 else stripped
-                if path_part.startswith(".devflow") or path_part.startswith('".devflow'):
-                    continue
-                file_path = root / path_part
-                if file_path.exists() and file_path.is_file():
-                    changed_files.append(file_path)
-    except Exception:
-        pass
+    changed_files = [root / f for f in scout.get_changed_files()]
+    changed_files = [p for p in changed_files if p.exists() and p.is_file()]
 
     # Extract referenced files
-    file_pattern = re.compile(r"\b[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+\b")
-    referenced_matches = file_pattern.findall(title + " " + description)
-    referenced_files: list[Path] = []
-    for match in referenced_matches:
-        if match.startswith(".devflow"):
-            continue
-        candidate = root / match
-        if candidate.exists() and candidate.is_file():
-            if candidate not in referenced_files:
-                referenced_files.append(candidate)
-        else:
-            try:
-                for p in root.glob(f"**/{match}"):
-                    if p.is_file() and not any(part.startswith('.') for part in p.relative_to(root).parts):
-                        if p not in referenced_files:
-                            referenced_files.append(p)
-                            break
-            except Exception:
-                pass
+    referenced_files = scout.get_referenced_files(title, description)
 
     relevant_files = list(set(changed_files + referenced_files))
 
     # Test files
-    test_files: list[Path] = []
-    for f in relevant_files:
-        if "test" in f.name.lower() or f.parent.name == "tests":
-            if f not in test_files:
-                test_files.append(f)
-            continue
-        if f.suffix == ".py":
-            t1 = root / "tests" / f"test_{f.name}"
-            t2 = f.parent / f"test_{f.name}"
-            if t1.exists() and t1.is_file() and t1 not in test_files:
-                test_files.append(t1)
-            if t2.exists() and t2.is_file() and t2 not in test_files:
-                test_files.append(t2)
+    test_files = scout.get_test_files(relevant_files)
 
     # Strategy/Vision files
-    strategic_files: list[Path] = []
-    for doc_name in ["PRODUCT_NORTH_STAR.md", "docs/control-room-mvp.md", "docs/architecture/agent-registry-and-adapter-runtime.md"]:
-        p = root / doc_name
-        if p.exists() and p.is_file():
-            strategic_files.append(p)
+    strategic_files = scout.get_strategic_files()
 
     # Project directories/plans
-    project_docs: list[Path] = []
-    try:
-        project_dir = root / ".devflow" / "project"
-        if project_dir.exists() and project_dir.is_dir():
-            for p in project_dir.glob("*.md"):
-                if p.is_file():
-                    project_docs.append(p)
-        layers_dir = root / ".devflow" / "layers"
-        if layers_dir.exists() and layers_dir.is_dir():
-            for p in layers_dir.glob("**/*.md"):
-                if p.is_file():
-                    project_docs.append(p)
-    except Exception:
-        pass
+    project_docs = scout.get_project_docs()
 
     includes: list[str] = []
     excludes: list[str] = []

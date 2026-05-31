@@ -11,114 +11,40 @@ from devflow.control_room.paths import task_dir
 
 def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
     """Perform a deterministic static scan of the task and codebase to estimate task fit and context size."""
+    from devflow.control_room.scout import RepoScout
+
     try:
         task = get_task(root, task_id)
     except KeyError:
         # Fallback if task is not in standard database
         raise ValueError(f"Task not found: {task_id}")
 
+    scout = RepoScout(root)
+
     # Gather task inputs
     title = task.title
-    # We don't have a direct description field on TaskRecord, but the task directory might contain a description or task.yaml metadata.
-    # Let's see if there is a task.yaml or details inside it. We can read task.yaml to extract more description if present.
-    description = ""
-    task_yaml_path = task_dir(root, task_id) / "task.yaml"
-    if task_yaml_path.exists():
-        try:
-            content = task_yaml_path.read_text(encoding="utf-8")
-            # If description is written as description: "..." or multiple lines, let's try to extract it
-            desc_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE)
-            if desc_match:
-                description = desc_match.group(1).strip().strip('"\'')
-        except Exception:
-            pass
-
+    description = scout.get_task_description(task_id)
     combined_text = f"{title}\n{description}".lower()
 
     # 1. Estimate changed files using git
-    changed_files: list[Path] = []
-    try:
-        status_proc = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if status_proc.returncode == 0:
-            for line in status_proc.stdout.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                # XY PATH format
-                path_part = stripped[3:].strip() if len(stripped) > 3 else stripped
-                if path_part.startswith(".devflow") or path_part.startswith('".devflow'):
-                    continue
-                file_path = root / path_part
-                if file_path.exists() and file_path.is_file():
-                    changed_files.append(file_path)
-    except Exception:
-        pass
+    changed_files = [root / f for f in scout.get_changed_files()]
+    # Filter existing files
+    changed_files = [p for p in changed_files if p.exists() and p.is_file()]
 
     # 2. Extract referenced files from title and description
-    # Pattern to find potential filenames: e.g. path/to/file.py or foo.py
-    file_pattern = re.compile(r"\b[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+\b")
-    referenced_matches = file_pattern.findall(title + " " + description)
-
-    referenced_files: list[Path] = []
-    for match in referenced_matches:
-        if match.startswith(".devflow"):
-            continue
-        # Search for file inside the repo
-        candidate = root / match
-        if candidate.exists() and candidate.is_file():
-            if candidate not in referenced_files:
-                referenced_files.append(candidate)
-        else:
-            # Maybe it is a relative path or file name somewhere in root, let's look for it
-            try:
-                for p in root.glob(f"**/{match}"):
-                    if p.is_file() and not any(part.startswith('.') for part in p.relative_to(root).parts):
-                        if p not in referenced_files:
-                            referenced_files.append(p)
-                            break
-            except Exception:
-                pass
+    referenced_files = scout.get_referenced_files(title, description)
 
     # Combine changed files and referenced files for "relevant files"
     relevant_files = list(set(changed_files + referenced_files))
 
     # Add related tests for any source files
-    test_files_list: list[Path] = []
-    for f in relevant_files:
-        # Check if the file is a test file itself
-        if "test" in f.name.lower() or f.parent.name == "tests":
-            if f not in test_files_list:
-                test_files_list.append(f)
-            continue
-        
-        # If it is a python file, find potential matching test files
-        if f.suffix == ".py":
-            # E.g. tests/test_foo.py or test_foo.py
-            test_candidate1 = root / "tests" / f"test_{f.name}"
-            test_candidate2 = f.parent / f"test_{f.name}"
-            if test_candidate1.exists() and test_candidate1.is_file():
-                if test_candidate1 not in test_files_list:
-                    test_files_list.append(test_candidate1)
-            if test_candidate2.exists() and test_candidate2.is_file():
-                if test_candidate2 not in test_files_list:
-                    test_files_list.append(test_candidate2)
+    test_files_list = scout.get_test_files(relevant_files)
 
     # Let's make sure test files are included in relevant files count
     all_relevant_files = list(set(relevant_files + test_files_list))
 
     # Count docs needed
-    docs_list: list[Path] = []
-    # Always include product/MVP docs if they exist
-    for doc_name in ["PRODUCT_NORTH_STAR.md", "docs/control-room-mvp.md", "docs/architecture/agent-registry-and-adapter-runtime.md"]:
-        doc_path = root / doc_name
-        if doc_path.exists() and doc_path.is_file():
-            docs_list.append(doc_path)
+    docs_list = scout.get_strategic_files()
     
     # Also find markdown files in the relevant files list
     for f in all_relevant_files:
