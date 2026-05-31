@@ -9,6 +9,6 @@
 - `.devflow/models/registry.yaml`
 - `.devflow/locks/README.md`
 - `.devflow/reports/README.md`
-- `.devflow/archive/README.md`
+- legacy archive material is quarantined outside the active repository tree
 - `docs/devflow-control-loop-contracts.md`
 - `README.md`

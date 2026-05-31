@@ -1,6 +1,6 @@
 # Dynamic Worker Orchestration
 
-Status: future/reference design. This is not the active MVP runtime contract. The current product supports shell workers only; dynamic task decomposition, non-shell adapters, and richer orchestration require a future contract change.
+Status: future/reference design. This is not the active MVP runtime contract. The current product supports shell workers only; dynamic task decomposition, non-shell adapters, and richer orchestration require the registry and adapter-runtime sequence in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) before any routing or provider-backed execution.
 
 This document outlines the design for spawning, managing, and observing replaceable Worker Agents dynamically under the Dev-Flow control room. It maps out how high-level goals translate to isolated worker executions, how real-time feedback loops are recorded, and how human-in-the-loop questioning functions safely.
 
@@ -27,7 +27,7 @@ When the human developer proposes a broad goal, the Main Chat Agent decomposes i
 
 ## 2. Worker Allocation & Spawning
 
-Dev-Flow supports multiple worker types through a standardized adapter model:
+Future Dev-Flow supports multiple worker types through a standardized registry and adapter model:
 
 * **Replaceable Worker Adapters:** Standardizes the runtime interface:
   ```text

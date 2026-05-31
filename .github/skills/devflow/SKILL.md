@@ -1,6 +1,6 @@
 ---
 name: devflow
-description: "Use when working on the new Dev-Flow control-room MVP: shell-worker control plane, task state, isolated workspaces, CLI, dashboard, logs, questions, results, and verification."
+description: "Use when working on the Dev-Flow control room: shell-worker runtime today, future agent registry and adapter contracts, task state, isolated workspaces, CLI, dashboard, logs, questions, results, and verification."
 argument-hint: "Describe the control-room MVP task or question"
 user-invocable: true
 ---
@@ -11,6 +11,8 @@ Use this skill only for the new Dev-Flow product direction.
 
 Active source of truth: `docs/control-room-mvp.md`.
 
+Future agent registry and adapter-runtime direction: `docs/architecture/agent-registry-and-adapter-runtime.md`. This is design-only until explicitly promoted by implementation work.
+
 Product North Star: `PRODUCT_NORTH_STAR.md`. Read it before implementation decisions and check plans against its Periodic Self-Check section.
 
 ## Rules
@@ -19,7 +21,7 @@ Product North Star: `PRODUCT_NORTH_STAR.md`. Read it before implementation decis
 - Do not use archived legacy workflows as authority.
 - Do not create legacy task files unless explicitly requested.
 - Do not route work through old agent, memory, context, DAG, trace, eval, or unified-diff runner surfaces.
-- Keep the first milestone focused on shell workers only.
+- Keep the active runtime focused on shell workers only unless the task explicitly implements the next approved registry sequence.
 - Verify narrowly and report what actually ran.
 
 ## First Milestone
@@ -52,5 +54,7 @@ The CLI and dashboard must show all three accurately with status and logs.
 - OpenCode
 - memory
 - complex scheduling
-- model routing
+- autonomous routing
 - PR automation
+
+Non-shell adapters must not skip directly to provider calls. Build registry loading, manual packets, and shell alignment first.

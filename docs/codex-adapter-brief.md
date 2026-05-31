@@ -2,7 +2,7 @@
 
 Status: design-only brief. No runtime behavior is implemented by this document.
 
-This brief defines the smallest future Codex worker adapter slice that could fit inside the current Dev-Flow control-room model. It does not change the current shell-worker control-room contract in [mvp-contract.md](mvp-contract.md).
+This brief defines a future Codex worker adapter slice that could fit inside the current Dev-Flow control-room model. It does not change the current shell-worker control-room contract in [mvp-contract.md](mvp-contract.md). Codex is not the next adapter to implement unless the registry/manual/shell-alignment sequence in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) has already been satisfied.
 
 ## Goal
 
@@ -19,6 +19,7 @@ Dev-Flow remains the control plane. It continues to own task state, workspace co
 This pass does not define or implement:
 
 - provider integration;
+- agent registry or routing implementation;
 - authentication or secrets handling;
 - prompt orchestration;
 - multi-agent scheduling;
@@ -56,11 +57,12 @@ The Codex adapter may produce notes or suggested verification commands as worksp
 
 The smallest future implementation should be a disabled-safe slice:
 
-1. Add a Codex adapter stub that conforms to `WorkerAdapter` but refuses to run unless explicitly enabled.
-2. Add configuration or environment detection only if the stub needs it to produce a clear disabled message.
-3. Add focused tests proving the disabled Codex adapter fails safely, does not execute provider calls, does not write worker logs as if work ran, and does not mutate task state beyond a Dev-Flow-owned refusal path.
-4. Keep `shell` as the only default supported worker until a later pass deliberately enables Codex.
-5. Do not call a real provider, spawn a Codex CLI, handle secrets, or construct prompt orchestration in this first slice.
+1. Add Codex only after the registry can load agents/providers/roles and the manual adapter exists.
+2. Add a Codex adapter stub that conforms to the registry-selected adapter contract but refuses to run unless explicitly enabled.
+3. Add configuration or environment detection only if the stub needs it to produce a clear disabled message.
+4. Add focused tests proving the disabled Codex adapter fails safely, does not execute provider calls, does not write worker logs as if work ran, and does not mutate task state beyond a Dev-Flow-owned refusal path.
+5. Keep `shell` as the only default supported worker until a later pass deliberately enables Codex.
+6. Do not call a real provider, spawn a Codex CLI, handle secrets, or construct prompt orchestration in this first slice.
 
 This slice should be reversible and boring. Its purpose is to prove the adapter registry can refuse a future adapter safely before any real Codex execution exists.
 

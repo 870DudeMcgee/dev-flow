@@ -1,6 +1,6 @@
 # Dev-Flow Worker Adapter Specification
 
-Status: historical/reference design. The active MVP contract is [mvp-contract.md](mvp-contract.md); the current future-adapter boundary is [adapter-contract.md](adapter-contract.md). This document must not be used to expand runtime behavior beyond the shell-worker control room.
+Status: historical/reference design. The active MVP contract is [mvp-contract.md](mvp-contract.md); the current adapter safety boundary is [adapter-contract.md](adapter-contract.md); the next registry/provider/role architecture is [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md). This document must not be used to expand runtime behavior beyond the shell-worker control room.
 
 ## 1. Core Principle: Replaceable Intelligence, Sacred State
 
@@ -63,7 +63,7 @@ No adapter may ever:
 * **Write to the main checkout**: All file changes must be written strictly inside `.devflow/workspaces/<task_id>/`.
 * **Perform Git workflow automation**: No staging, committing, branching, merging, or PR creation.
 * **Introduce databases**: Rely strictly on flat filesystem structures; do not add SQLite, PostgreSQL, or vector DB dependencies.
-* **Enforce model routing**: Keep execution model-agnostic; no built-in LLM gateway scheduling or pricing logic.
+* **Own routing decisions**: Keep execution model-agnostic; no built-in LLM gateway scheduling or pricing logic.
 * **Use hidden memory as authority**: Task context must remain completely inspectable in files (`events.jsonl`, `questions.jsonl`), not in invisible memory caches.
 
 ---
@@ -87,7 +87,8 @@ Adapters can wrap any programming agent or command. The following profiles are n
 ## 7. Next Phase: First Non-Shell Slice Guidance
 
 When the first non-shell adapter is scheduled:
-* **Minimalist Registry**: The adapter registry in `src/devflow/control_room/worker_adapter.py` must remain minimal and explicit.
+* **Registry First**: Implement durable agent/provider/role loading before direct provider calls.
+* **Manual Before Remote**: Prove manual packet handoff and shell alignment before local or remote model adapters.
 * **Default Status**: The reference `shell` adapter must remain the default worker type.
 * **Acceptance Requirement**: The new non-shell adapter must strictly pass the verification gauntlet, demonstrating that:
   1. It reads only virtualized `TaskPacket` projections.

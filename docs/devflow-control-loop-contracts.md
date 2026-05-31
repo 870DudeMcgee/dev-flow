@@ -205,12 +205,6 @@ Proposed high-level structure:
     daily/
     task-summaries/
     model-scorecards/
-
-  archive/
-    README.md
-    superseded/
-    experiments/
-    old-plans/
 ```
 
 ### Major Areas
@@ -239,7 +233,7 @@ Proposed high-level structure:
 
 `reports/` contains derived summaries. Reports are useful, but never canonical authority.
 
-`archive/` contains old plans, experiments, and superseded material. Archive content must not be used as active guidance unless explicitly promoted back into active or reference context.
+Archive material is quarantined outside the active repository tree. If old material is needed again, restore only the useful part as an intentional active or reference document with current authority markings.
 
 ### Context Rules
 
@@ -250,7 +244,7 @@ Proposed high-level structure:
 - Derived reports and summaries are not authoritative.
 - Canonical runtime state lives in YAML, JSON, and JSONL files.
 - Human-readable markdown explains intent, context, and rationale.
-- Old plans must be preserved but clearly classified so workers do not follow stale instructions.
+- Old plans must not be kept as in-repo junk. Preserve them outside the active tree, or restore only the useful part as active/reference context with clear current authority.
 - The structure must support living development: new gaps, pivots, deferred ideas, rejected ideas, and updated decisions should have obvious homes.
 - Do not flatten product memory into generic docs, workflows, or agent instructions; `.devflow/` is the durable control-room context model.
 

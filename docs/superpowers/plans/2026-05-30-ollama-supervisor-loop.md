@@ -1,8 +1,10 @@
 # Ollama Supervisor Loop Implementation Plan
 
+Status: superseded as next-priority implementation. Retain this as historical shell-supervisor context only. Do not execute this plan ahead of the Agent Registry and Adapter Runtime sequence in [docs/architecture/agent-registry-and-adapter-runtime.md](../../architecture/agent-registry-and-adapter-runtime.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a minimal supervisor loop that launches local Ollama workers as task-scoped shell commands without adding Codex, model routing, or complex scheduling.
+**Goal:** Add a minimal supervisor loop that launches local Ollama workers as task-scoped shell commands without adding Codex, autonomous routing, or complex scheduling.
 
 **Architecture:** Keep all active runtime code in `src/devflow/control_room/`. The supervisor reads canonical task files, chooses explicit runnable tasks, and delegates execution to the existing shell-worker service while passing task/workspace paths through environment variables. The task folder is the control envelope; the workspace remains the edit sandbox.
 

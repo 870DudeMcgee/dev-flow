@@ -382,7 +382,9 @@ The first production-worthy MVP is not a full AI swarm.
 
 The first MVP is a non-AI control room that proves the infrastructure works.
 
-The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, browser/web dashboards, AI worker adapters, model routing, and automatic merge or pull-request behavior.
+The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, browser/web dashboards, enabled non-shell adapters, autonomous routing, and automatic merge or pull-request behavior.
+
+The next architecture direction is [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md). It defines agents as permissioned execution contracts bound to provider, model, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. It is design-only until implementation explicitly starts with registry loading, manual packets, and shell alignment.
 
 Required commands:
 
@@ -442,10 +444,10 @@ Do not build these until the control room works:
 
 - complex autonomous planning
 - memory/vector database
-- Aider integration
-- Hermes integration
-- OpenCode integration
-- Codex integration
+- direct Aider integration before registry/manual/shell alignment
+- direct Hermes integration before registry/manual/shell alignment
+- direct OpenCode integration before registry/manual/shell alignment
+- direct Codex integration before registry/manual/shell alignment
 - multi-agent reasoning
 - PR automation
 - cloud deployment
@@ -571,30 +573,27 @@ Can Dev-Flow run multiple tasks in parallel without losing state or creating cha
 
 ---
 
-### Phase 6: First AI Worker Adapter
+### Phase 6: Agent Registry And Adapter Runtime
 
-Goal: plug in replaceable coding intelligence.
+Goal: make replaceable coding intelligence a permissioned control-room contract instead of direct provider wiring.
 
-First adapter should be one of:
+Build in this order:
 
-- Aider
-- OpenCode
-- Hermes
-- Codex CLI / extension command wrapper
-
-Deliverables:
-
-- WorkerAdapter interface
-- AI worker command wrapper
-- context bundle passed to worker
-- logs captured
-- questions captured
-- result artifacts captured
+- architecture document
+- registry loading
+- `agent list`, `agent show`, and `agent packet`
+- manual adapter
+- shell adapter alignment
+- Ollama/Qwen local adapter
+- OpenAI-compatible local or remote adapter
+- native provider adapters
+- routing engine
+- metrics
 
 Success check:
 
 ```text
-Can an AI worker complete a small task inside an isolated workspace and leave a reviewable result?
+Can Dev-Flow name an agent, resolve its provider/model/role/permissions, produce a bounded packet, run manual or local work without giving it canonical state ownership, and leave evidence?
 ```
 
 ---

@@ -1,40 +1,30 @@
 # Codex Project Notes
 
-This repository uses the **Devflow Software Factory** workflow.
-
 Codex should follow `AGENTS.md` as the primary instruction source.
 
-## Quick start
+This repository no longer uses the old Devflow Software Factory workflow as active authority. Do not require legacy task files, claim/release rituals, worktree ceremonies, local-model delegation, memory, DAGs, traces, evals, or unified-diff patch gates before ordinary work.
 
-1. Read `AGENTS.md` at session start.
-2. For non-trivial tasks, use the `devflow-software-factory` skill (`.devflow/skills/devflow-software-factory/SKILL.md`).
-3. Follow **PLAN → CONTEXT → TEST → IMPLEMENT → VERIFY → REVIEW → REPORT**.
+## Current Direction
 
-## Worktree policy
+Dev-Flow is a local-first control room for parallel AI coding workers.
 
-One Codex agent = one task = one worktree = one branch.
+Current runtime:
+- shell-worker task lifecycle
+- filesystem task state
+- isolated workspaces
+- logs, reports, questions, and verification evidence
+- human-controlled promotion
 
-```
-T-001 -> worktree devflow/T-001-agent-codex
-T-002 -> worktree devflow/T-002-agent-codex
-```
-
-## Prompt starters
-
-**Plan:**
-> Use the devflow-software-factory skill. Create a task packet for this goal first. Do not edit code yet.
-
-**Implement:**
-> Use the devflow-software-factory skill. Take task T-xxx only. Use the smallest context pack. Implement minimal diff. Run targeted verification.
-
-**Review:**
-> Use the devflow-software-factory skill as reviewer. Review the current diff against task T-xxx. Be strict about scope creep, protected files, missing tests, and unverified claims.
-
-**Repair:**
-> Use the devflow-software-factory skill as repair agent. Read only the latest failure log, the current diff, and touched files. Make the smallest repair. Do not redesign.
+Next architecture direction:
+- `docs/architecture/agent-registry-and-adapter-runtime.md`
+- provider vs agent vs role separation
+- permissioned adapter runtime
+- manual/local adapters before routing or provider expansion
 
 ## References
 
 - `AGENTS.md`
-- `.devflow/workflow/DEVFLOW_WORKFLOW.md`
-- `.devflow/skills/devflow-software-factory/SKILL.md`
+- `PRODUCT_NORTH_STAR.md`
+- `docs/control-room-mvp.md`
+- `docs/mvp-contract.md`
+- `docs/architecture/agent-registry-and-adapter-runtime.md`

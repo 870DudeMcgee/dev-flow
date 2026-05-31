@@ -4,7 +4,7 @@ objective: "Establish the initial Dev-Flow filesystem/context structure and alig
 constraints:
   - preserve existing repository content
   - avoid broad refactors
-  - do not implement autonomous runners, model routing, dashboards, or swarm behavior
+  - do not implement autonomous runners, autonomous routing, dashboards, or swarm behavior
   - keep canonical state machine-readable
   - keep Markdown concise and orienting
   - classify stale, deprecated, rejected, and archived context instead of deleting history

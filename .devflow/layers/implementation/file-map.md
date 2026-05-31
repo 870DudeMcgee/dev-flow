@@ -7,4 +7,4 @@
 - `.devflow/workers/` and `.devflow/models/`: placeholder registries.
 - `.devflow/locks/`: lock purpose documentation.
 - `.devflow/reports/`: non-authoritative derived summaries.
-- `.devflow/archive/`: preserved superseded, experimental, and old-plan material.
+- archive material: quarantined outside the active repository tree.

@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.models import WorkerInput, WorkerResult
 
 
@@ -64,7 +65,4 @@ class ShellWorkerAdapter:
 
 
 def _latest_log_line(path: Path) -> str:
-    if not path.exists():
-        return ""
-    lines = [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines()]
-    return next((line for line in reversed(lines) if line), "")
+    return latest_visible_log_line(path)

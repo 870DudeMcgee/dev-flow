@@ -18,7 +18,7 @@ Keep this branch focused on:
 4. Evidence-gated promotion readiness using canonical task state plus current passed `verification.json`.
 5. Derived `merge-readiness.json` and `summary.json` alignment with the same readiness rule.
 
-Do not add dashboards, AI adapters, model routing, databases, PR automation, auto-merge, worktree orchestration, or legacy workflow ceremony.
+Do not add dashboards, provider-backed adapters, autonomous routing, databases, PR automation, auto-merge, worktree orchestration, or legacy workflow ceremony.
 
 ## Merge Cleanup Notes
 

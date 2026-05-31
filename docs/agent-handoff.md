@@ -18,11 +18,10 @@ Active source of truth:
 - [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter runtime direction.
 
 
-Archive index:
-
-- [docs/archive/legacy-devflow-software-factory-2026-05-27/README.md](archive/legacy-devflow-software-factory-2026-05-27/README.md)
+Archive note: legacy software-factory archives are quarantined outside the active repository tree. Do not recreate or consult in-repo archive copies as process authority.
 
 ## Product Boundary
 
@@ -74,7 +73,8 @@ Current product contract:
 - text-only terminal dashboard from canonical task artifacts
 - human-controlled promotion preview and promotion from isolated workspaces
 - no SQLite database or `.devflow/worktrees/` directory in the MVP path
-- read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is not consumed by Codex or any worker adapter
+- read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is not consumed by a non-shell worker adapter
+- design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
 
 ## Required Current Commands
 
@@ -101,7 +101,8 @@ devflow task promote <task_id>
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
-- Treat browser/web dashboards, token-context runtime routing, worktree orchestration, databases, and AI worker adapters as outside the current contract unless a future doc explicitly promotes them.
+- Treat browser/web dashboards, token-context runtime routing, worktree orchestration, databases, and enabled non-shell worker adapters as outside the current contract unless a future implementation explicitly promotes them.
+- Future non-shell worker work must follow the registry sequence: registry loading, agent list/show/packet commands, manual adapter, shell alignment, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Salvage useful code only when it supports the new control-room MVP.
 - Keep unrelated dirty worktree changes intact.

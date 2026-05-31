@@ -37,9 +37,6 @@ DIRECTORIES = [
     ".devflow/reports/daily",
     ".devflow/reports/task-summaries",
     ".devflow/reports/model-scorecards",
-    ".devflow/archive/superseded",
-    ".devflow/archive/experiments",
-    ".devflow/archive/old-plans",
     ".devflow/tasks",
 ]
 
@@ -76,6 +73,7 @@ source_documents:
   - PRODUCT_NORTH_STAR.md
   - docs/mvp-contract.md
   - docs/control-room-mvp.md
+  - docs/architecture/agent-registry-and-adapter-runtime.md
   - docs/devflow-control-loop-contracts.md
 """,
     ".devflow/project/vision.md": """# Vision
@@ -102,7 +100,7 @@ objective: "Establish the initial Dev-Flow filesystem/context structure and alig
 constraints:
   - preserve existing repository content
   - avoid broad refactors
-  - do not implement autonomous runners, model routing, dashboards, or swarm behavior
+  - do not implement autonomous runners, autonomous routing, dashboards, or swarm behavior
   - keep canonical state machine-readable
   - keep Markdown concise and orienting
   - classify stale, deprecated, rejected, and archived context instead of deleting history
@@ -173,9 +171,9 @@ The bootstrap filesystem/context structure exists and can be repaired by `devflo
     )
     + "\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/context/active.md": "# Active Context\n\nUse the control-room MVP docs as current authority.\n",
-    f".devflow/goals/{BOOTSTRAP_GOAL}/context/relevant-files.md": "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n- docs/mvp-contract.md\n",
-    f".devflow/goals/{BOOTSTRAP_GOAL}/context/constraints.md": "# Constraints\n\nKeep changes focused on shell-worker control-room behavior and durable filesystem state.\n",
-    f".devflow/goals/{BOOTSTRAP_GOAL}/context/deferred-ideas.md": "# Deferred Ideas\n\nAI adapters, model routing, dashboards, databases, and autonomous control loops remain deferred.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/relevant-files.md": "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n- docs/mvp-contract.md\n- docs/architecture/agent-registry-and-adapter-runtime.md\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/constraints.md": "# Constraints\n\nKeep changes focused on shell-worker control-room behavior, durable filesystem state, and the registry/manual/shell-alignment sequence.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/deferred-ideas.md": "# Deferred Ideas\n\nProvider-backed adapters, autonomous routing, dashboards, databases, and autonomous control loops remain deferred until their registry sequence step is active.\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/context/rejected-ideas.md": "# Rejected Ideas\n\nDo not revive legacy software-factory ceremonies as process authority.\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/tasks/README.md": "# Goal Tasks\n\nTask references for this goal live here when needed.\n",
     ".devflow/context/active/README.md": "# Active Context\n\nCurrent guidance promoted for use by workers.\n",
@@ -194,14 +192,15 @@ The bootstrap filesystem/context structure exists and can be repaired by `devflo
 Active contracts:
 
 - [../../../docs/mvp-contract.md](../../../docs/mvp-contract.md) freezes the current shell-worker MVP behavior.
+- [../../../docs/architecture/agent-registry-and-adapter-runtime.md](../../../docs/architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction.
 - [../../../docs/devflow-control-loop-contracts.md](../../../docs/devflow-control-loop-contracts.md) describes the durable control-loop architecture and target filesystem/context shape.
 
-When these contracts disagree, prefer the frozen MVP for current runtime behavior and the control-loop document for the next architecture target.
+When these contracts disagree, prefer the frozen MVP for current runtime behavior, the agent registry document for future worker adapter sequencing, and the control-loop document for broader filesystem/context shape.
 """,
-    ".devflow/layers/implementation/current-slice.md": f"# Current Slice\n\n{IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER}\n\nKeep the shell-worker MVP stable while making seeded filesystem context current, detectable, and congruent with runtime seed validation.\n",
-    ".devflow/layers/implementation/file-map.md": "# File Map\n\n- src/devflow/control_room/: control-room runtime services.\n- tests/: focused behavior tests.\n",
-    ".devflow/layers/implementation/known-gaps.md": f"# Known Gaps\n\n{IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER}\n\nMerge readiness is still human-controlled. AI adapters and scheduling remain out of scope.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
-    ".devflow/layers/implementation/active-constraints.md": "# Active Constraints\n\nAvoid broad rewrites, databases, dashboards, and model routing in this slice.\n",
+    ".devflow/layers/implementation/current-slice.md": f"# Current Slice\n\n{IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER}\n\nKeep the shell-worker MVP stable while aligning source-of-truth docs around the Agent Registry and Adapter Runtime direction. No provider-backed adapter, routing engine, or dashboard expansion is active in this slice.\n",
+    ".devflow/layers/implementation/file-map.md": "# File Map\n\n- src/devflow/control_room/: control-room runtime services.\n- tests/: focused behavior tests.\n- archive material: quarantined outside the active repository tree.\n",
+    ".devflow/layers/implementation/known-gaps.md": f"# Known Gaps\n\n{IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER}\n\nMerge readiness is still human-controlled. Enabled non-shell adapters, routing, and scheduling remain out of scope until the registry/manual/shell-alignment sequence exists.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
+    ".devflow/layers/implementation/active-constraints.md": "# Active Constraints\n\n- Do not add databases, provider-backed adapters, routing engines, or autonomous routing.\n",
     ".devflow/layers/verification/verification-strategy.md": "# Verification Strategy\n\nPrefer focused pytest coverage and shell-worker acceptance checks.\n",
     ".devflow/layers/verification/commands.md": "# Verification Commands\n\n- .venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
     ".devflow/layers/verification/known-failures.md": "# Known Failures\n\nRecord current known failures here when they are validated.\n",
@@ -210,7 +209,7 @@ When these contracts disagree, prefer the frozen MVP for current runtime behavio
     ".devflow/layers/operations/recovery.md": "# Recovery\n\nFailures should leave clear logs, status, and next actions.\n",
     ".devflow/layers/operations/promotion.md": "# Promotion\n\nHumans control promotion to the main checkout.\n",
     ".devflow/workers/registry.yaml": """version: 1
-authority: "Placeholder registry for worker definitions. No worker availability is claimed until a future command or human registers one."
+authority: "Placeholder registry for worker definitions. The future authoritative shape is docs/architecture/agent-registry-and-adapter-runtime.md. No worker availability is claimed until a future command or human registers one."
 permission_modes:
   - read_only
   - review_only
@@ -220,17 +219,17 @@ permission_modes:
 workers: []
 schema_intent:
   worker_id: "Stable worker identifier."
-  kind: "Execution adapter kind, such as shell, codex, aider, or local_model."
+  kind: "Execution adapter kind, such as shell, manual, ollama, openai_compatible, or another registry-approved adapter."
   profile: "Permission and resource profile under .devflow/workers/profiles/."
   enabled: "Whether Dev-Flow may consider the worker available."
 """,
     ".devflow/workers/profiles/README.md": "# Worker Profiles\n\nFuture worker permission profiles live here.\n",
     ".devflow/models/registry.yaml": """version: 1
-authority: "Placeholder registry for model metadata. No model availability or quality claim is recorded here yet."
+authority: "Placeholder registry for model metadata. Future provider/model records must follow docs/architecture/agent-registry-and-adapter-runtime.md. No model availability or quality claim is recorded here yet."
 models: []
 schema_intent:
   model_id: "Stable model identifier."
-  provider: "Provider or runtime, such as local, OpenAI, Anthropic, or other future adapters."
+  provider: "Provider or runtime, such as shell, manual, ollama, lmstudio, llama.cpp, OpenAI, Anthropic, xAI, Gemini, or another future adapter."
   intended_use: "Planner, implementer, reviewer, debugger, or other bounded role."
   enabled: "Whether Dev-Flow may consider the model available."
   notes: "Human-readable constraints or setup notes."
@@ -245,10 +244,6 @@ Reports are useful for review and orientation, but they are never authoritative.
     ".devflow/reports/daily/README.md": "# Daily Reports\n\nDerived daily summaries live here.\n",
     ".devflow/reports/task-summaries/README.md": "# Task Summaries\n\nDerived task summaries live here.\n",
     ".devflow/reports/model-scorecards/README.md": "# Model Scorecards\n\nDerived model scorecards live here.\n",
-    ".devflow/archive/README.md": "# Archive\n\nHistorical material lives here and is not active instruction.\n",
-    ".devflow/archive/superseded/README.md": "# Superseded\n\nSuperseded context lives here.\n",
-    ".devflow/archive/experiments/README.md": "# Experiments\n\nExperimental notes live here.\n",
-    ".devflow/archive/old-plans/README.md": "# Old Plans\n\nOld plans live here.\n",
     ".devflow/tasks/README.md": "# Tasks\n\nRuntime task directories live here.\n",
 }
 

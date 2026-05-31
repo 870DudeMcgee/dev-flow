@@ -1,8 +1,10 @@
 # Ollama Supervisor Loop Design
 
+Status: superseded as next-priority architecture. This document is retained as historical design context for shell-supervised local Ollama experiments. Future Ollama work must follow [docs/architecture/agent-registry-and-adapter-runtime.md](../../architecture/agent-registry-and-adapter-runtime.md): registry loading, manual adapter, shell alignment, then local adapter implementation.
+
 ## Decision
 
-Dev-Flow should become operational for local Ollama workers without introducing a Codex agent, model router, complex scheduler, web dashboard, or legacy workflow machinery.
+Dev-Flow should become operational for local workers without introducing direct provider wiring, a Codex agent, autonomous router, complex scheduler, web dashboard, or legacy workflow machinery.
 
 Ollama workers should run as task-scoped shell commands managed by the existing control-room contract. The supervisor loop is a small launcher and observer around task state, not a new autonomous orchestration framework.
 
@@ -12,13 +14,13 @@ Ollama workers should run as task-scoped shell commands managed by the existing 
 - Preserve the existing `.devflow/tasks/<task_id>/` state model and `.devflow/workspaces/<task_id>/` edit isolation.
 - Keep the CLI dashboard as the operational visibility surface.
 - Make worker execution auditable through existing logs, events, verification records, and result artifacts.
-- Avoid building a Codex agent or generic adapter framework before the Ollama shell path proves useful.
+- Avoid direct provider execution before the registry/manual/shell-alignment sequence exists.
 
 ## Non-Goals
 
 - No Codex agent.
 - No dependency graph scheduler.
-- No model routing.
+- No autonomous routing.
 - No browser or web dashboard.
 - No automatic commit, push, merge, PR creation, or promotion.
 - No revival of legacy task files, memory, DAGs, traces, or patch gates.
@@ -106,4 +108,4 @@ CLI dashboard visibility is sufficient for this milestone.
 
 - Running the worker with the task folder as the edit working directory would bypass existing workspace promotion semantics. The task folder should hold control artifacts; the workspace should hold repo edits.
 - A supervisor loop can become a scheduler by accident. Keep the first version to explicit task selection and `--once`.
-- A generic adapter abstraction can wait until the Ollama shell path shows repeated value.
+- Local Ollama execution must be folded into the registry and adapter-runtime architecture before it becomes an active non-shell adapter.

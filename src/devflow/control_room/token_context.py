@@ -298,9 +298,8 @@ def _canonical_docs(repo: Path) -> list[str]:
     candidates = [
         "PRODUCT_NORTH_STAR.md",
         "docs/control-room-mvp.md",
-        "# CURRENT_MVP_5_28_26.md",
-        "# DEVFLOW_PHILOSOPHY.md",
-        "DEVFLOW_PHILOSOPHY.md",
+        "docs/mvp-contract.md",
+        "docs/architecture/agent-registry-and-adapter-runtime.md",
     ]
     return [path for path in candidates if (repo / path).exists()]
 

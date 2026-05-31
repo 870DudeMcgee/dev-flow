@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.persistence import save_task
 from devflow.control_room.service import get_task
 from devflow.control_room.shell_worker import ShellWorkerAdapter
 from devflow.control_room.worker_adapter import (
@@ -1086,6 +1087,32 @@ def test_status_projection_keeps_cli_and_dashboard_on_canonical_state() -> None:
             assert "merge_ready: yes" in dashboard.output
             assert "worker_failed" not in dashboard.output
             assert "not-real.log" not in dashboard.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_dashboard_sanitizes_persisted_noisy_latest_log_line() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            runner.invoke(app, ["init"])
+            created = runner.invoke(app, ["task", "create", "noisy dashboard"])
+            assert created.exit_code == 0, created.output
+
+            task = get_task(Path.cwd(), "task-0001")
+            task.status = "complete"
+            task.worker = "shell"
+            task.latest_log_line = "\x1b[?2026h\x1b[1G⠙ \x1b[K\x1b[?2026l"
+            task.last_event = "worker_finished"
+            save_task(Path(".devflow/tasks/task-0001"), task)
+
+            dashboard = runner.invoke(app, ["dashboard"])
+
+            assert dashboard.exit_code == 0, dashboard.output
+            assert "⠙" not in dashboard.output
+            assert "\x1b[" not in dashboard.output
+            assert "worker_finished" in dashboard.output
         finally:
             os.chdir(old_cwd)
 

@@ -16,7 +16,8 @@ from devflow.control_room.service import (
     verify_task,
 )
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
-from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once
+from devflow.control_room.models import TaskRecord
+from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
 from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 
@@ -57,42 +58,70 @@ def dashboard_command(refresh_seconds: int = typer.Option(0, "--refresh-seconds"
     run_dashboard(refresh_seconds=refresh_seconds)
 
 
-@app.command("supervise")
+@app.command("supervise", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def supervise_command(
+    ctx: typer.Context,
     once: bool = typer.Option(False, "--once"),
+    poll: bool = typer.Option(False, "--poll"),
     task_id: str | None = typer.Option(None, "--task"),
-    worker_command: str = typer.Option(DEFAULT_WORKER_COMMAND, "--worker-command"),
+    worker_command: str | None = typer.Option(None, "--worker-command"),
     timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
+    interval_seconds: int = typer.Option(5, "--interval-seconds", min=0),
+    max_iterations: int = typer.Option(12, "--max-iterations", min=1),
 ) -> None:
-    """Run one supervisor pass over runnable tasks."""
-    if not once:
-        typer.echo("supervise currently requires --once for this MVP slice.")
+    """Run supervisor passes over runnable tasks."""
+    if once and poll:
+        typer.echo("supervise accepts either --once or --poll, not both.")
+        raise typer.Exit(code=1)
+    if not once and not poll:
+        typer.echo("supervise requires --once or --poll.")
         raise typer.Exit(code=1)
 
     try:
-        tasks = supervise_once(
-            Path.cwd(),
-            task_id=task_id,
-            worker_command=worker_command,
-            timeout_seconds=timeout_seconds,
-        )
+        command = _supervisor_command_or_args(worker_command, list(ctx.args))
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    try:
+        if poll:
+            supervised_batches = [
+                (iteration.iteration, iteration.tasks)
+                for iteration in supervise_poll(
+                    Path.cwd(),
+                    task_id=task_id,
+                    worker_command=command,
+                    timeout_seconds=timeout_seconds,
+                    interval_seconds=interval_seconds,
+                    max_iterations=max_iterations,
+                )
+            ]
+        else:
+            supervised_batches = [
+                (
+                    None,
+                    supervise_once(
+                        Path.cwd(),
+                        task_id=task_id,
+                        worker_command=command,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                )
+            ]
     except (KeyError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    if not tasks:
-        typer.echo("No runnable tasks.")
-        return
-
     exit_code = 0
-    for task in tasks:
-        typer.echo(f"{task.id}: {task.status}")
-        typer.echo(f"log_path: {task.log_path}")
-        typer.echo(f"result_path: {task.result_path}")
-        if task.latest_log_line:
-            typer.echo(f"latest_log_line: {task.latest_log_line}")
-        if task.status != "complete":
-            exit_code = task.last_exit_code if task.last_exit_code is not None else 1
+    for iteration_number, tasks in supervised_batches:
+        if iteration_number is not None:
+            typer.echo(f"poll_iteration: {iteration_number}")
+        if not tasks:
+            typer.echo("No runnable tasks.")
+            continue
+        iteration_exit_code = _print_supervised_tasks(tasks)
+        if iteration_exit_code:
+            exit_code = iteration_exit_code
     if exit_code:
         raise typer.Exit(code=exit_code)
 
@@ -514,6 +543,35 @@ def _shell_command_or_args(shell_command: str | None, args: list[str], label: st
             raise ValueError(f"{label} --shell command cannot be empty.")
         return ["/bin/sh", "-c", shell_command]
     return args
+
+
+def _supervisor_command_or_args(worker_command: str | None, args: list[str]) -> list[str]:
+    if args and args[0] == "--":
+        args = args[1:]
+    if worker_command is not None and args:
+        raise ValueError(
+            "Supervisor worker command accepts either --worker-command or a command after '--', not both."
+        )
+    if worker_command is not None:
+        if not worker_command.strip():
+            raise ValueError("Supervisor --worker-command cannot be empty.")
+        return [worker_command]
+    if args:
+        return args
+    return [DEFAULT_WORKER_COMMAND]
+
+
+def _print_supervised_tasks(tasks: list[TaskRecord]) -> int:
+    exit_code = 0
+    for task in tasks:
+        typer.echo(f"{task.id}: {task.status}")
+        typer.echo(f"log_path: {task.log_path}")
+        typer.echo(f"result_path: {task.result_path}")
+        if task.latest_log_line:
+            typer.echo(f"latest_log_line: {task.latest_log_line}")
+        if task.status != "complete":
+            exit_code = task.last_exit_code if task.last_exit_code is not None else 1
+    return exit_code
 
 
 def _relative(root: Path, path: Path) -> str:

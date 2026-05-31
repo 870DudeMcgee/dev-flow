@@ -12,8 +12,8 @@ The paths below are legacy or compatibility material. They may be useful for his
 
 ## Archived Docs And Local Artifacts
 
-- `docs/archive/legacy-devflow-software-factory-2026-05-27/`: archived software-factory docs.
-- `.devflow/archive/`: local archived context and historical artifacts.
+- Legacy software-factory archives: quarantined outside the active repository tree.
+- Local archived context and historical artifacts: quarantined outside the active repository tree.
 
 ## Current Authority
 

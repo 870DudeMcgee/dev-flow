@@ -13,6 +13,7 @@ For details on the project's design and boundaries:
 - [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction. It is design-only until implementation work explicitly promotes a slice.
 
 
 ## Product Direction
@@ -30,7 +31,7 @@ The product is not a coding agent, model provider, memory framework, IDE workflo
 - verification evidence
 - merge readiness
 
-Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, or future tools later. The first milestone intentionally implements shell workers only.
+Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, manual packets, or future tools later. The current runtime intentionally implements shell workers only. Future worker types must be introduced through the registry and adapter-runtime sequence, not wired directly into task execution.
 
 ## Non-Negotiable Principles
 
@@ -73,7 +74,8 @@ Do not implement these in the first milestone:
 - OpenCode
 - memory
 - complex scheduling
-- local model routing
+- autonomous routing
+- provider-backed adapter calls before registry/manual/shell alignment
 - old task-packet workflow orchestration
 - PR automation
 - browser or web dashboard UI
@@ -112,10 +114,7 @@ These are useful ingredients, but they must be adapted to the new product shape 
 
 These belong to the old product direction and should not guide implementation:
 
-- `.devflow/workflow/**`
-- `.devflow/skills/devflow-software-factory/**`
-- old `.github/instructions/devflow.instructions.md`
-- old `.github/skills/devflow/references/**`
+- legacy workflow, instruction, and skill copies if encountered outside the active repository tree
 - `src/devflow/agents/**`
 - `src/devflow/memory.py`
 - `src/devflow/worktrees.py`
@@ -162,7 +161,7 @@ Only after that slice stays stable should new runtime behavior be promoted into 
 
 ## Acceptance Gauntlet
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No AI worker adapters, browser/web dashboard UI, database, or worktree orchestration are part of this acceptance test.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No enabled non-shell adapters, browser/web dashboard UI, database, or worktree orchestration are part of this acceptance test.
 
 ## Current Implementation Status
 
@@ -189,12 +188,13 @@ Outside the current product contract:
 
 - browser or web dashboard UI
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
-- AI worker adapters
+- enabled non-shell worker adapters
+- agent registry and adapter-runtime implementation beyond design docs
 - SQLite or other databases
 - `.devflow/worktrees/` orchestration
 
 > [!IMPORTANT]
-> **Next Priority**: Return all future effort back to the core control-room MVP: shell-worker task lifecycle, workspace isolation, status visibility, verification, and future merge readiness.
+> **Next Priority**: Keep the shell-worker control-room loop stable, then implement the registry and adapter-runtime layer incrementally: registry loading, agent list/show/packet commands, manual adapter, shell alignment, local adapter, provider adapters, routing, and metrics.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
@@ -251,13 +251,13 @@ The following areas are out-of-scope for the completed MVP and deferred:
 
 ### Dogfooding Requirement
 
-Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add AI adapters, local model routing, autonomous scheduling, or old workflow machinery before the shell-worker control room remains stable.
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed adapters, autonomous routing, scheduling, or old workflow machinery before the registry/manual/shell-alignment sequence exists.
 
 ---
 
 ### Next Phase Outlook
 
-Future adapter development or advanced scheduling may only begin using this stable checkpoint as a solid boundary. The next phase must strictly preserve:
+Future adapter development may only begin using this stable checkpoint and [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) as boundaries. The next phase must strictly preserve:
 1. **Local-First State**: Rely on plain-file source of truth before any database storage.
 2. **Workspace Isolation**: Ensure replaceable workers operate strictly within copied sandboxes.
 3. **Verification Ownership**: Control-plane holds authoritative ownership of verification execution.

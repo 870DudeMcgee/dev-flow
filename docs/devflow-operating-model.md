@@ -94,6 +94,8 @@ A worker may be a shell command today and an AI coding tool later.
 
 Workers receive bounded task context and operate inside task-owned isolation boundaries.
 
+Future agents are not personalities. They are permissioned execution contracts resolved through the Agent Registry and Adapter Runtime architecture in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md): provider, model, role, adapter, workspace, allowed context, allowed writes, evidence trail, and routing rules.
+
 A worker should produce:
 
 * status updates
@@ -234,7 +236,7 @@ It proves:
 * CLI visibility
 * canonical filesystem state
 
-AI worker adapters, git worktree orchestration, browser/web dashboard expansion, scheduling, automatic commits, automatic pull requests, and automated promotion are future layers unless explicitly promoted into the active contract. The current text-only terminal dashboard and human-controlled promotion commands are active contract surfaces.
+Enabled non-shell worker adapters, git worktree orchestration, browser/web dashboard expansion, scheduling, automatic commits, automatic pull requests, and automated promotion are future layers unless explicitly promoted into the active contract. The current text-only terminal dashboard and human-controlled promotion commands are active contract surfaces. Non-shell adapter work must start with registry loading, manual packets, and shell alignment before provider-backed execution or routing.
 
 ## Future Direction
 

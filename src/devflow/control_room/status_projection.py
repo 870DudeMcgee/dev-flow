@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import task_dir
 from devflow.control_room.persistence import get_task, list_tasks
@@ -31,7 +32,7 @@ class TaskStatusProjection(BaseModel):
 
     @property
     def latest(self) -> str:
-        return self.task.latest_log_line or self.task.last_event or ""
+        return sanitize_log_line(self.task.latest_log_line) or self.task.last_event or ""
 
 
 def list_task_status_projections(root: Path) -> list[TaskStatusProjection]:

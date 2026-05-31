@@ -25,7 +25,7 @@ Out of scope:
 
 - Do not edit `src/devflow/control_room/task_packet.py`.
 - Do not change lifecycle artifact writes in `service.py`, `persistence.py`, `verification.py`, or `shell_worker.py`.
-- Do not add AI adapters, dashboard web UI, databases, model routing, or legacy workflow machinery.
+- Do not add provider-backed adapters, dashboard web UI, databases, autonomous routing, or legacy workflow machinery.
 - Do not write new active control-room features outside `src/devflow/control_room/`.
 
 ## File Structure

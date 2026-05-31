@@ -17,6 +17,8 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
+Next architecture direction: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
+
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
 Operating Model Boundaries:
@@ -25,7 +27,7 @@ Operating Model Boundaries:
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
 
 
-Legacy archive: [docs/archive/legacy-devflow-software-factory-2026-05-27/README.md](archive/legacy-devflow-software-factory-2026-05-27/README.md)
+Legacy archive note: software-factory archive material is quarantined outside the active repository tree. The roadmap should not point future work at in-repo archive copies.
 
 ## Phase 0: Documentation Reset
 
@@ -114,7 +116,7 @@ Acceptance:
 
 ## Dogfooding Requirement
 
-Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. The purpose is to exercise task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality while building Dev-Flow itself. This requirement does not authorize AI adapters, model routing, autonomous scheduling, databases, or old workflow machinery.
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. The purpose is to exercise task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality while building Dev-Flow itself. This requirement does not authorize provider-backed adapters, autonomous routing, scheduling, databases, or old workflow machinery.
 
 ## Phase 5: Verification And Merge Readiness
 
@@ -145,7 +147,7 @@ Acceptance:
 - appends `.devflow/token-context/events.jsonl`
 - records task description, mode, recommended tools, repo branch, git status, changed files, and task summaries
 - gives explicit read-first and do-not-read guidance for IDE agents
-- does not require token tools to be installed and does not enable hooks, MCP integrations, command rewrites, or model routing
+- does not require token tools to be installed and does not enable hooks, MCP integrations, command rewrites, or autonomous routing
 
 ## Phase 7: Task Packet Projection
 
@@ -160,28 +162,38 @@ Acceptance:
 - packet generation is read-only and file-based
 - Codex is not wired in
 
-## Phase 8: Minimal Ollama Supervisor Loop
+## Phase 8: Agent Registry And Adapter Runtime
 
-Goal: run local Ollama workers through task-specific control-room folders using the existing shell-worker path.
+Goal: make replaceable agents real by defining durable provider, agent, role, permission, adapter, workspace, evidence, and routing contracts before enabling non-shell workers.
 
-Status: design only.
+Status: architecture document created; implementation not started.
+
+Sequence:
+- architecture document only
+- agent registry loading
+- `agent list`, `agent show`, and `agent packet` commands
+- manual adapter
+- shell adapter alignment
+- Ollama adapter for Qwen
+- OpenAI-compatible adapter for LM Studio and Grok-style APIs
+- native OpenAI, Anthropic, and Gemini adapters
+- routing engine
+- metrics for local success rate, frontier escalations, verification failures, rework, and cost avoided
 
 Acceptance:
-- supervisor runs one explicit pass with `devflow supervise --once`
-- supervisor can target one task with `--task <task_id>`
-- worker command receives `DEVFLOW_TASK_ID`, `DEVFLOW_TASK_DIR`, and `DEVFLOW_WORKSPACE`
-- task folder remains the control envelope for prompts, logs, questions, packets, and reports
-- workspace remains the edit sandbox for repo file changes
-- CLI dashboard remains the operational visibility surface
-- verification and promotion remain explicit human-controlled steps
-- no Codex agent, model router, dependency scheduler, web dashboard, or automatic merge behavior is introduced
+- no agent owns canonical task state
+- no provider secrets are stored in repo files
+- manual and local paths work before remote provider calls
+- routing records selected agent, reason, mode, packet path, and policy version
+- verification and promotion remain explicit Dev-Flow/human-controlled steps
 
 Related design contracts:
-- [docs/superpowers/specs/2026-05-30-ollama-supervisor-loop-design.md](superpowers/specs/2026-05-30-ollama-supervisor-loop-design.md)
-- [docs/superpowers/plans/2026-05-30-ollama-supervisor-loop.md](superpowers/plans/2026-05-30-ollama-supervisor-loop.md)
+- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
+- [docs/adapter-contract.md](adapter-contract.md)
+- [docs/task-packet-contract.md](task-packet-contract.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Keep focus on the shell-worker control room plus the minimal Ollama supervisor loop. Do not expand into complex scheduling, Codex agents, web dashboards, model routing, or legacy workflow machinery.
+> **Next Priority**: Keep focus on the shell-worker control room plus the registry/manual/shell-alignment sequence. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
 
 ## Later, Not Now
 
@@ -191,6 +203,6 @@ Related design contracts:
 - dependency scheduler
 - question resume flow
 - protected path gates
-- model routing
+- autonomous routing
 - memory
 - PR automation

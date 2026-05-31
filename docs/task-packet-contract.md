@@ -2,7 +2,7 @@
 
 Status: contract with a first read-only builder slice implemented in `src/devflow/control_room/task_packet.py`. No worker adapter consumes task packets yet.
 
-This document defines the minimal read-only task packet a future worker adapter may receive from Dev-Flow. It does not change the current shell-worker control-room contract in [mvp-contract.md](mvp-contract.md).
+This document defines the minimal read-only task packet a future worker adapter may receive from Dev-Flow. It does not change the current shell-worker control-room contract in [mvp-contract.md](mvp-contract.md). Future agent registry and adapter-runtime work is defined in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md).
 
 ## Goal
 

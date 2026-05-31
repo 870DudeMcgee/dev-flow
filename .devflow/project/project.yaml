@@ -9,4 +9,5 @@ source_documents:
   - PRODUCT_NORTH_STAR.md
   - docs/mvp-contract.md
   - docs/control-room-mvp.md
+  - docs/architecture/agent-registry-and-adapter-runtime.md
   - docs/devflow-control-loop-contracts.md

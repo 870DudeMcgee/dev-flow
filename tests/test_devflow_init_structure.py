@@ -68,10 +68,6 @@ REQUIRED_SEED_PATHS = [
     ".devflow/reports/daily/README.md",
     ".devflow/reports/task-summaries/README.md",
     ".devflow/reports/model-scorecards/README.md",
-    ".devflow/archive/README.md",
-    ".devflow/archive/superseded/README.md",
-    ".devflow/archive/experiments/README.md",
-    ".devflow/archive/old-plans/README.md",
     ".devflow/tasks/README.md",
 ]
 

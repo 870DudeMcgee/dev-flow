@@ -30,8 +30,8 @@ Active `.devflow/` context must be treated as live product memory. When a seeded
 
 ### Out Of Scope
 
-- No AI adapters.
-- No model routing.
+- No enabled non-shell adapters.
+- No autonomous routing.
 - No web dashboard.
 - No database.
 - No broad Markdown knowledge graph.
@@ -57,7 +57,7 @@ Active `.devflow/` context must be treated as live product memory. When a seeded
   - Add focused validation and doctor tests for stale implementation-layer context.
 - Modify: `.devflow/layers/implementation/known-gaps.md`
   - Remove stale claims about missing schema validation and init/repair.
-  - Keep true gaps: human-controlled merge readiness, no AI adapters, no scheduling, legacy surfaces outside MVP path.
+  - Keep true gaps: human-controlled merge readiness, no enabled non-shell adapters, no scheduling, legacy surfaces outside MVP path.
 - Modify: `.devflow/layers/implementation/current-slice.md`
   - Reframe the current slice as context congruence plus shell-worker MVP stability.
 
@@ -151,7 +151,7 @@ CONTEXT_CONGRUENCE_RULES = [
         "path": ".devflow/layers/implementation/known-gaps.md",
         "required": [
             "Merge readiness is still human-controlled.",
-            "AI adapters and scheduling remain out of scope.",
+            "Enabled non-shell adapters and scheduling remain out of scope.",
         ],
         "forbidden": [
             "No schema validation exists yet",
@@ -236,7 +236,7 @@ In `src/devflow/control_room/seed.py`, replace the two implementation-layer entr
 
 ```python
     ".devflow/layers/implementation/current-slice.md": "# Current Slice\n\nKeep the shell-worker MVP stable while making seeded filesystem context current, detectable, and congruent with runtime seed validation.\n",
-    ".devflow/layers/implementation/known-gaps.md": "# Known Gaps\n\nMerge readiness is still human-controlled. AI adapters and scheduling remain out of scope.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
+    ".devflow/layers/implementation/known-gaps.md": "# Known Gaps\n\nMerge readiness is still human-controlled. Enabled non-shell adapters and scheduling remain out of scope.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
 ```
 
 - [ ] **Step 2: Update checked-in `known-gaps.md`**
@@ -246,7 +246,7 @@ Replace `.devflow/layers/implementation/known-gaps.md` with:
 ```markdown
 # Known Gaps
 
-Merge readiness is still human-controlled. AI adapters and scheduling remain out of scope.
+Merge readiness is still human-controlled. Enabled non-shell adapters and scheduling remain out of scope.
 
 Legacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.
 ```

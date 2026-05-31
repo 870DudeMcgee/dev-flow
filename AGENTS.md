@@ -18,7 +18,7 @@ Dev-Flow owns:
 - Status, questions, logs, and reports
 - Verification & merge readiness
 
-Workers are replaceable. The first milestone supports **shell workers only**.
+Workers are replaceable. The current runtime supports **shell workers only**. The next architecture direction is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md), but it is not active runtime behavior yet.
 
 ### First Milestone Commands
 ```bash
@@ -31,7 +31,7 @@ devflow task run <task_id> --worker shell -- <command>
 devflow dashboard
 ```
 
-Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, or model routing until the shell-worker control room passes the acceptance gauntlet.
+Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, or autonomous routing. Future non-shell work must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, then local/OpenAI-compatible/native provider adapters.
 
 ---
 
