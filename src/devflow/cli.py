@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
+
+def _enforce_experimental(cmd_name: str) -> None:
+    if os.getenv("DEVFLOW_EXPERIMENTAL") != "1":
+        typer.echo(f"Error: Command '{cmd_name}' is experimental and restricted to transition planning aids.", err=True)
+        typer.echo("To run this command, please set the environment variable DEVFLOW_EXPERIMENTAL=1.", err=True)
+        raise typer.Exit(code=1)
+
 
 import typer
 
@@ -62,7 +70,11 @@ def dashboard_command(refresh_seconds: int = typer.Option(0, "--refresh-seconds"
     run_dashboard(refresh_seconds=refresh_seconds)
 
 
-@app.command("supervise", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+@app.command(
+    "supervise",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def supervise_command(
     ctx: typer.Context,
     once: bool = typer.Option(False, "--once"),
@@ -73,7 +85,8 @@ def supervise_command(
     interval_seconds: int = typer.Option(5, "--interval-seconds", min=0),
     max_iterations: int = typer.Option(12, "--max-iterations", min=1),
 ) -> None:
-    """Run supervisor passes over runnable tasks."""
+    """[EXPERIMENTAL-MANUAL] Run supervisor passes over runnable tasks."""
+    _enforce_experimental("supervise")
     if once and poll:
         typer.echo("supervise accepts either --once or --poll, not both.")
         raise typer.Exit(code=1)
@@ -130,12 +143,16 @@ def supervise_command(
         raise typer.Exit(code=exit_code)
 
 
-@app.command("context")
+@app.command(
+    "context",
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def context_command(
     task_description: str = typer.Argument(None, help="The task description to plan context for."),
     show: bool = typer.Option(False, "--show", help="Show the current token-context packet."),
 ) -> None:
-    """Write or show a visible token-context packet for an IDE agent."""
+    """[EXPERIMENTAL-READONLY] Write or show a visible token-context packet for an IDE agent."""
+    _enforce_experimental("context")
     if show:
         packet_path = Path.cwd() / ".devflow" / "token-context" / "current.md"
         if not packet_path.exists():
@@ -223,6 +240,15 @@ def task_show(task_id: str) -> None:
     typer.echo(f"verification_log_path: {projection.verification_log_path or ''}")
     typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
     typer.echo(f"suggested_next_action: {projection.suggested_next_action}")
+    if projection.manual_agent_state:
+        typer.echo(f"manual_agent_state: {projection.manual_agent_state}")
+        if projection.manual_agent_result_path:
+            typer.echo(f"manual_agent_result: {projection.manual_agent_result_path}")
+            typer.echo("manual_agent_note: Dev-Flow verification required before promotion.")
+        if projection.manual_agent_question:
+            typer.echo(f"manual_agent_question: {projection.manual_agent_question}")
+        if projection.manual_agent_failure:
+            typer.echo(f"manual_agent_failure: {projection.manual_agent_failure}")
     promoted_event = _get_latest_promoted_event(task_path)
     if promoted_event:
         typer.echo("promoted_changes:")
@@ -255,9 +281,13 @@ def task_show(task_id: str) -> None:
     _echo_result_summary(task_path / "result.md")
 
 
-@task_app.command("fit")
+@task_app.command(
+    "fit",
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def task_fit_command(task_id: str) -> None:
-    """Deterministic task-fit and context-size estimation."""
+    """[EXPERIMENTAL-READONLY] Deterministic task-fit and context-size estimation."""
+    _enforce_experimental("task fit")
     root = Path.cwd()
     try:
         from devflow.control_room.estimator import estimate_task_fit, save_task_fit
@@ -304,9 +334,13 @@ def task_fit_command(task_id: str) -> None:
     typer.echo(f"Wrote task-fit.yaml under .devflow/tasks/{task_id}/")
 
 
-@task_app.command("pack")
+@task_app.command(
+    "pack",
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def task_pack_command(task_id: str, role: str) -> None:
-    """Build and save a role-based context pack for a task."""
+    """[EXPERIMENTAL-READONLY] Build and save a role-based context pack for a task."""
+    _enforce_experimental("task pack")
     root = Path.cwd()
     try:
         from devflow.control_room.context_pack import build_context_pack, save_context_pack
@@ -339,9 +373,13 @@ def task_pack_command(task_id: str, role: str) -> None:
     typer.echo(f"Wrote context-pack-{role}.yaml under .devflow/tasks/{task_id}/")
 
 
-@task_app.command("scout")
+@task_app.command(
+    "scout",
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def task_scout_command(task_id: str, role: str) -> None:
-    """Run local scout roles to gather routing evidence and analyze risks."""
+    """[EXPERIMENTAL-READONLY] Run local scout roles to gather routing evidence and analyze risks."""
+    _enforce_experimental("task scout")
     root = Path.cwd()
     roles_to_run = []
     if role == "all":
@@ -381,9 +419,13 @@ def task_scout_command(task_id: str, role: str) -> None:
     typer.echo("-" * 50)
 
 
-@task_app.command("route")
+@task_app.command(
+    "route",
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def task_route_command(task_id: str) -> None:
-    """Run conservative routing matching to assign agent roles to a task."""
+    """[EXPERIMENTAL-READONLY] Run conservative routing matching to assign agent roles to a task."""
+    _enforce_experimental("task route")
     root = Path.cwd()
     try:
         from devflow.control_room.router import route_task, save_routing_decision
@@ -425,9 +467,13 @@ def task_route_command(task_id: str) -> None:
     typer.echo(f"Wrote routing-decision.yaml under .devflow/tasks/{task_id}/")
 
 
-@task_app.command("scorecard")
+@task_app.command(
+    "scorecard",
+    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+)
 def task_scorecard_command(task_id: str) -> None:
-    """Compile and display a task's post-run routing quality scorecard."""
+    """[EXPERIMENTAL-READONLY] Compile and display a task's post-run routing quality scorecard."""
+    _enforce_experimental("task scorecard")
     root = Path.cwd()
     try:
         from devflow.control_room.scorecard import generate_scorecard, save_scorecard
@@ -513,6 +559,10 @@ def task_run(
     timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
 ) -> None:
     """Run a task with a worker command after '--'."""
+    if worker == "manual":
+        typer.echo("Warning: 'manual' worker is experimental and does not execute work.")
+    elif worker == "shell":
+        typer.echo("Note: Shell worker is trusted local execution. Destructive command filtering is minimal.")
     from devflow.control_room.agent_registry import load_agent_registry
     from devflow.control_room.worker_adapter import list_worker_adapters, UnsupportedWorkerAdapter
 
@@ -542,6 +592,9 @@ def task_run(
     typer.echo(f"{task.id}: {task.status}")
     typer.echo(f"log_path: {task.log_path}")
     typer.echo(f"result_path: {task.result_path}")
+    handoff_path = Path.cwd() / ".devflow" / "tasks" / task.id / "agents" / worker / "handoff.md"
+    if handoff_path.exists():
+        typer.echo(f"manual_handoff_path: {_relative(Path.cwd(), handoff_path)}")
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if task.status != "complete":
@@ -807,6 +860,15 @@ def _echo_result_summary(path: Path) -> None:
     typer.echo("  none")
 
 
+def _echo_list(label: str, values: list[str]) -> None:
+    typer.echo(f"{label}:")
+    if not values:
+        typer.echo("  - none")
+        return
+    for value in values:
+        typer.echo(f"  - {value}")
+
+
 def _get_latest_promoted_event(task_path: Path) -> dict[str, Any] | None:
     events_file = task_path / "events.jsonl"
     if not events_file.exists():
@@ -874,10 +936,17 @@ def agent_show(agent_id: str) -> None:
     typer.echo(f"role: {agent.role}")
     typer.echo(f"tier: {agent.tier}")
     typer.echo(f"default_mode: {agent.default_mode}")
+    typer.echo(f"execution_mode: {agent.execution_mode}")
+    typer.echo(f"purpose: {agent.purpose or ''}")
     typer.echo(f"workspace: {agent.workspace}")
     typer.echo(f"can_see: {', '.join(agent.can_see) if agent.can_see else 'none'}")
     typer.echo(f"can_touch: {', '.join(agent.can_touch) if agent.can_touch else 'none'}")
     typer.echo(f"cannot_touch: {', '.join(agent.cannot_touch) if agent.cannot_touch else 'none'}")
+    _echo_list("allowed_reads", agent.allowed_reads)
+    _echo_list("allowed_writes", agent.allowed_writes)
+    _echo_list("forbidden_writes", agent.forbidden_writes)
+    _echo_list("required_outputs", agent.required_outputs)
+    _echo_list("completion_rules", agent.completion_rules)
     typer.echo(f"can_run_shell: {str(agent.can_run_shell).lower()}")
     typer.echo(f"can_use_network: {str(agent.can_use_network).lower()}")
     typer.echo(f"can_promote: {str(agent.can_promote).lower()}")

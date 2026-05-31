@@ -28,7 +28,7 @@ Archive note: legacy software-factory archives are quarantined outside the activ
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone is a non-AI shell-worker control-room contract with task creation, shell execution, verification, visibility, and human-controlled promotion.
+The current milestone is a non-AI shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, with task creation, isolated execution/handoff, verification, visibility, and human-controlled promotion.
 
 ## Code Architecture Boundary
 
@@ -62,6 +62,9 @@ Current product contract:
 - `devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"`
 - `devflow task verify <task_id> --shell "test -f result.txt"`
 - `devflow task packet <task_id>`
+- `devflow agent show devflow-manual-codex-worker`
+- `devflow agent packet <task_id> devflow-manual-codex-worker`
+- `devflow task run <task_id> --worker devflow-manual-codex-worker`
 - `devflow task log <task_id>`
 - `devflow task promote-preview <task_id>`
 - `devflow task promote <task_id>`
@@ -74,7 +77,7 @@ Current product contract:
 - text-only terminal dashboard from canonical task artifacts
 - human-controlled promotion preview and promotion from isolated workspaces
 - no SQLite database or `.devflow/worktrees/` directory in the MVP path
-- read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is not consumed by a non-shell worker adapter
+- read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is consumed by the manual proof-agent handoff without becoming canonical state
 - design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
 - design-only task-fit/context routing architecture; not active runtime behavior yet
 
@@ -103,8 +106,8 @@ devflow task promote <task_id>
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
-- Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, worktree orchestration, databases, and enabled non-shell worker adapters as outside the current contract unless a future implementation explicitly promotes them.
-- Future non-shell worker work must follow the registry sequence: registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
+- Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, worktree orchestration, databases, and provider-backed worker adapters as outside the current contract unless a future implementation explicitly promotes them.
+- Future non-shell worker work beyond `devflow-manual-codex-worker` must follow the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Close every meaningful milestone or product-direction change by aligning active docs, removing stale context, verifying, committing, merging to `main`, pushing, and writing a compact handoff with one next safe action.
 - Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.

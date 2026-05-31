@@ -30,7 +30,11 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
 
     # Load agents registry
     registry = load_agent_registry(root)
-    enabled_agents = registry.enabled_agents()
+    enabled_agents = [
+        agent
+        for agent in registry.enabled_agents()
+        if agent.adapter != "manual" and agent.execution_mode != "human_launched_agent"
+    ]
 
     # Cost mapping for tiers
     tier_costs = {

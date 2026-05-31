@@ -41,9 +41,9 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 4. Context is durable artifacts, not hidden magic memory.
 5. Autonomy is earned by reliable status, logs, recovery, and reviewable results.
 
-## Current Shell-Worker Control-Room Contract
+## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, and human-controlled promotion from isolated workspaces.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, and a bounded handoff for `devflow-manual-codex-worker`.
 
 Stable commands:
 
@@ -63,9 +63,14 @@ devflow task packet <task_id>
 devflow task log <task_id>
 devflow task promote-preview <task_id>
 devflow task promote <task_id>
+devflow agent show devflow-manual-codex-worker
+devflow agent packet <task_id> devflow-manual-codex-worker
+devflow task run <task_id> --worker devflow-manual-codex-worker
 ```
 
 The preferred shell-worker form is `devflow task run <task_id> --worker shell -- <command>`. The `--shell "<command>"` form remains supported.
+
+The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 
 Do not implement these in the first milestone:
 
@@ -75,7 +80,7 @@ Do not implement these in the first milestone:
 - memory
 - complex scheduling
 - autonomous routing
-- provider-backed adapter calls before registry/manual/shell alignment
+- provider-backed adapter calls before manual proof-agent and shell alignment
 - old task-packet workflow orchestration
 - PR automation
 - browser or web dashboard UI
@@ -94,10 +99,18 @@ Do not implement these in the first milestone:
     logs/
       worker.log
       verify.log
+    agents/devflow-manual-codex-worker/
+      handoff.md
+      packet.json
+      result.md
+      questions.jsonl
+      worker_failed.json
   workspaces/<task_id>/
 ```
 
 The filesystem is the source of truth. `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw evidence. Worker and verification commands run only inside `.devflow/workspaces/<task_id>/`.
+
+Manual proof-agent files are evidence artifacts, not canonical state. `task show` and `dashboard` surface complete, blocked, and failed manual-agent evidence while leaving canonical task state under Dev-Flow control.
 
 The current control-room contract does not create a SQLite database or `.devflow/worktrees/` directory. Shell-worker results stay in the task workspace until a human explicitly previews and promotes verified changes.
 
@@ -162,7 +175,7 @@ Only after that slice stays stable should new runtime behavior be promoted into 
 
 ## Acceptance Gauntlet
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No enabled non-shell adapters, browser/web dashboard UI, database, or worktree orchestration are part of this acceptance test.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed adapters, browser/web dashboard UI, database, or worktree orchestration are part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
 
 ## Current Implementation Status
 
@@ -182,6 +195,10 @@ Implemented:
 - tampered workspace refusal before shell or verification commands execute
 - symlink skipping during scratchpad copy
 - text-only terminal dashboard
+- stable `devflow-manual-codex-worker` registry contract
+- proof-agent bounded packets with role, allowed reads, allowed writes, forbidden writes, required outputs, completion rules, and manual instructions
+- manual proof-agent handoff generation without provider API calls, model selection, routing, scheduling, auto-verification, or auto-promotion
+- task show/dashboard visibility for manual proof-agent complete, blocked-question, and failure evidence
 - promotion preview from isolated workspace changes
 - human-controlled promotion of verified changes to the main checkout
 
@@ -190,13 +207,13 @@ Outside the current product contract:
 - browser or web dashboard UI
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
 - task-fit/context routing (Design documented only. It does not select agents, invoke scouts, build runtime context packs, or change shell-worker behavior.)
-- enabled non-shell worker adapters
-- agent registry and adapter-runtime implementation beyond design docs
+- provider-backed non-shell worker adapters
+- agent registry and adapter-runtime implementation beyond the stable proof-agent contract
 - SQLite or other databases
 - `.devflow/worktrees/` orchestration
 
 > [!IMPORTANT]
-> **Next Priority**: Keep the shell-worker control-room loop stable, then implement the registry and adapter-runtime layer incrementally: registry loading, agent list/show/packet commands, manual adapter, shell alignment, local adapter, provider adapters, routing, and metrics.
+> **Next Priority**: Keep the shell-worker and manual proof-agent loop stable. Future worker expansion must continue in order: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
@@ -253,7 +270,7 @@ The following areas are out-of-scope for the completed MVP and deferred:
 
 ### Dogfooding Requirement
 
-Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed adapters, autonomous routing, scheduling, or old workflow machinery before the registry/manual/shell-alignment sequence exists.
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed adapters, autonomous routing, scheduling, or old workflow machinery before the shell-worker and manual proof-agent loop stays stable.
 
 ---
 

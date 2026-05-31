@@ -82,7 +82,7 @@ Dev-Flow is a local-first control room for parallel AI coding workers.
 """,
     ".devflow/project/current-state.md": """# Current State
 
-Status: rebuilding the control-room MVP around filesystem state, shell workers, isolated workspaces, verification, and human-controlled promotion.
+Status: control-room MVP with filesystem state, shell workers, the devflow-manual-codex-worker proof agent, isolated workspaces, verification, and human-controlled promotion.
 """,
     ".devflow/project/architecture.md": """# Architecture
 
@@ -91,7 +91,7 @@ Dev-Flow owns durable state, workspaces, locks, status, logs, reports, verificat
     ".devflow/project/glossary.md": """# Glossary
 
 - Control room: Dev-Flow's local-first coordination layer.
-- Worker: A replaceable executor such as the current shell worker.
+- Worker: A replaceable executor such as the current shell worker or the manual proof-agent handoff.
 - Canonical state: Machine-readable YAML, JSON, and JSONL files that define current truth.
 """,
     f".devflow/goals/{BOOTSTRAP_GOAL}/goal.yaml": f"""id: {BOOTSTRAP_GOAL}
@@ -126,7 +126,7 @@ success_criteria:
       type: file_exists
       path: .devflow/goals/bootstrap-devflow-filesystem/goal.yaml
   - id: registries-exist
-    description: "Model and worker registries exist as schema-oriented placeholders."
+    description: "Model and worker registries exist, with the stable manual proof-agent registered separately from placeholder future registries."
     verification:
       type: file_exists
       path: .devflow/workers/registry.yaml
@@ -172,7 +172,7 @@ The bootstrap filesystem/context structure exists and can be repaired by `devflo
     + "\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/context/active.md": "# Active Context\n\nUse the control-room MVP docs as current authority.\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/context/relevant-files.md": "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n- docs/mvp-contract.md\n- docs/architecture/agent-registry-and-adapter-runtime.md\n",
-    f".devflow/goals/{BOOTSTRAP_GOAL}/context/constraints.md": "# Constraints\n\nKeep changes focused on shell-worker control-room behavior, durable filesystem state, and the registry/manual/shell-alignment sequence.\n",
+    f".devflow/goals/{BOOTSTRAP_GOAL}/context/constraints.md": "# Constraints\n\nKeep changes focused on shell-worker control-room behavior, the manual proof-agent handoff, durable filesystem state, verification, and human-controlled promotion.\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/context/deferred-ideas.md": "# Deferred Ideas\n\nProvider-backed adapters, autonomous routing, dashboards, databases, and autonomous control loops remain deferred until their registry sequence step is active.\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/context/rejected-ideas.md": "# Rejected Ideas\n\nDo not revive legacy software-factory ceremonies as process authority.\n",
     f".devflow/goals/{BOOTSTRAP_GOAL}/tasks/README.md": "# Goal Tasks\n\nTask references for this goal live here when needed.\n",
@@ -199,7 +199,7 @@ When these contracts disagree, prefer the frozen MVP for current runtime behavio
 """,
     ".devflow/layers/implementation/current-slice.md": f"# Current Slice\n\n{IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER}\n\nKeep the shell-worker MVP stable while aligning source-of-truth docs around the Agent Registry and Adapter Runtime direction. No provider-backed adapter, routing engine, or dashboard expansion is active in this slice.\n",
     ".devflow/layers/implementation/file-map.md": "# File Map\n\n- src/devflow/control_room/: control-room runtime services.\n- tests/: focused behavior tests.\n- archive material: quarantined outside the active repository tree.\n",
-    ".devflow/layers/implementation/known-gaps.md": f"# Known Gaps\n\n{IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER}\n\nMerge readiness is still human-controlled. Enabled non-shell adapters, routing, and scheduling remain out of scope until the registry/manual/shell-alignment sequence exists.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
+    ".devflow/layers/implementation/known-gaps.md": f"# Known Gaps\n\n{IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER}\n\nMerge readiness is still human-controlled. Provider-backed adapters, routing, and scheduling remain out of scope until the manual proof-agent and shell alignment stay stable.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
     ".devflow/layers/implementation/active-constraints.md": "# Active Constraints\n\n- Do not add databases, provider-backed adapters, routing engines, or autonomous routing.\n",
     ".devflow/layers/verification/verification-strategy.md": "# Verification Strategy\n\nPrefer focused pytest coverage and shell-worker acceptance checks.\n",
     ".devflow/layers/verification/commands.md": "# Verification Commands\n\n- .venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
@@ -209,7 +209,7 @@ When these contracts disagree, prefer the frozen MVP for current runtime behavio
     ".devflow/layers/operations/recovery.md": "# Recovery\n\nFailures should leave clear logs, status, and next actions.\n",
     ".devflow/layers/operations/promotion.md": "# Promotion\n\nHumans control promotion to the main checkout.\n",
     ".devflow/workers/registry.yaml": """version: 1
-authority: "Placeholder registry for worker definitions. The future authoritative shape is docs/architecture/agent-registry-and-adapter-runtime.md. No worker availability is claimed until a future command or human registers one."
+authority: "Placeholder registry for future worker definitions. The stable proof agent is built into the Agent Registry loader. No worker availability is claimed in this future registry."
 permission_modes:
   - read_only
   - review_only

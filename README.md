@@ -137,7 +137,7 @@ Focused control-room verification:
 .venv/bin/python -m pytest tests/test_architecture_boundaries.py tests/test_devflow_init_structure.py tests/test_control_room_shell.py tests/test_promote_preview.py tests/test_task_packet.py -q
 ```
 
-Current development should keep strengthening the control-room loop: shell-worker task lifecycle, workspace isolation, status visibility, verification evidence, human-controlled promotion, and merge readiness.
+Current development should keep strengthening the control-room loop: shell-worker task lifecycle, the `devflow-manual-codex-worker` proof-agent handoff, workspace isolation, status visibility, verification evidence, human-controlled promotion, and merge readiness.
 
 ## License
 

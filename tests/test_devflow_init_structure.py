@@ -341,6 +341,7 @@ def _assert_reports_are_non_authoritative(root: Path) -> None:
 def _assert_registries_make_no_availability_claims(root: Path) -> None:
     workers = (root / ".devflow/workers/registry.yaml").read_text(encoding="utf-8").lower()
     models = (root / ".devflow/models/registry.yaml").read_text(encoding="utf-8").lower()
+    assert "stable proof agent is built into the agent registry loader" in workers
     assert "workers: []" in workers
     assert "no worker availability is claimed" in workers
     assert "models: []" in models

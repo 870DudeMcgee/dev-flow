@@ -143,8 +143,10 @@ def run_shell_task(
         resolved_adapter_name = agent.adapter
 
     adapter = get_worker_adapter(resolved_adapter_name)
-    if not command:
+    if not command and resolved_adapter_name != "manual":
         raise ValueError("Shell worker requires a command after '--'.")
+    if not command and resolved_adapter_name == "manual":
+        command = ["manual-handoff", worker_adapter]
     if _looks_destructive(command):
         task = get_task(root, task_id)
         task.status = "blocked"
@@ -179,7 +181,7 @@ def run_shell_task(
         result_file=result_file,
         log_file=log_file,
         command=command,
-        env=env or {},
+        env={**(env or {}), **({"DEVFLOW_AGENT_ID": agent.id} if agent is not None else {})},
         timeout_seconds=timeout_seconds,
     )
 
@@ -210,7 +212,8 @@ def run_shell_task(
     if agent is not None:
         compat_log = task_path / "logs" / "worker.log"
         compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
-        _write_result(task_path, task_id, command, result)
+        if resolved_adapter_name != "manual":
+            _write_result(task_path, task_id, command, result)
 
     task.status = result.status
     task.last_exit_code = result.exit_code

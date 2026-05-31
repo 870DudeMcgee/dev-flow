@@ -53,7 +53,7 @@ agents:
     assert registry.version == 1
     assert registry.default_agent_id == "local-shell"
     assert registry.default_agent().id == "local-shell"
-    assert registry.enabled_agent_ids() == ["local-shell"]
+    assert registry.enabled_agent_ids() == ["local-shell", "devflow-manual-codex-worker"]
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
     assert agent.default_mode == "verify_only"
@@ -63,11 +63,11 @@ agents:
 def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     seeded_registry = load_agent_registry(tmp_path)
-    assert seeded_registry.default_agent() is None
-    assert seeded_registry.enabled_agent_ids() == []
+    assert seeded_registry.default_agent().id == "devflow-manual-codex-worker"
+    assert seeded_registry.enabled_agent_ids() == ["devflow-manual-codex-worker"]
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
-    registry_path.parent.mkdir(parents=True)
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
         """version: 1
 default_agent: local-shell
@@ -114,8 +114,8 @@ agents:
 
     registry = load_agent_registry(tmp_path)
 
-    assert sorted(registry.agents) == ["disabled-local", "local-shell"]
-    assert registry.enabled_agent_ids() == ["local-shell"]
+    assert sorted(registry.agents) == ["devflow-manual-codex-worker", "disabled-local", "local-shell"]
+    assert registry.enabled_agent_ids() == ["local-shell", "devflow-manual-codex-worker"]
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
 
@@ -323,6 +323,71 @@ def test_build_agent_packet_redacts_by_permissions(tmp_path: Path) -> None:
     assert full_packet.recent_events != []
 
 
+def test_builtin_manual_codex_worker_contract_is_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    initialize_seed(tmp_path)
+
+    registry = load_agent_registry(tmp_path)
+    agent = registry.require_agent("devflow-manual-codex-worker")
+
+    assert agent.role == "implementation_worker"
+    assert agent.adapter == "manual"
+    assert agent.execution_mode == "human_launched_agent"
+    assert agent.allowed_reads == [
+        "<task>/packet.json",
+        "<task>/events.jsonl",
+        "<task>/questions.jsonl",
+        "<task>/agents/devflow-manual-codex-worker/handoff.md",
+        "<workspace>/**",
+    ]
+    assert agent.allowed_writes == [
+        "<workspace>/**",
+        "<task>/agents/devflow-manual-codex-worker/result.md",
+        "<task>/agents/devflow-manual-codex-worker/questions.jsonl",
+        "<task>/agents/devflow-manual-codex-worker/worker_failed.json",
+    ]
+    assert "<main_checkout>/**" in agent.forbidden_writes
+    assert "<task>/task.yaml" in agent.forbidden_writes
+    assert "result.md" in ", ".join(agent.required_outputs)
+    assert "Stop after writing exactly one terminal evidence artifact." in agent.completion_rules
+
+    from devflow.cli import app
+    from typer.testing import CliRunner
+
+    runner = CliRunner()
+    show_result = runner.invoke(app, ["agent", "show", "devflow-manual-codex-worker"])
+    assert show_result.exit_code == 0, show_result.output
+    assert "agent: devflow-manual-codex-worker" in show_result.output
+    assert "role: implementation_worker" in show_result.output
+    assert "adapter: manual" in show_result.output
+    assert "execution_mode: human_launched_agent" in show_result.output
+    assert "allowed_writes:" in show_result.output
+    assert "<workspace>/**" in show_result.output
+    assert "forbidden_writes:" in show_result.output
+    assert "<main_checkout>/**" in show_result.output
+
+
+def test_agent_packet_includes_manual_proof_contract_fields(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    task = create_task(tmp_path, "Manual proof packet task")
+    registry = load_agent_registry(tmp_path)
+    agent = registry.require_agent("devflow-manual-codex-worker")
+
+    packet = build_agent_packet(task.id, agent, root=tmp_path)
+
+    assert packet.agent_id == "devflow-manual-codex-worker"
+    assert packet.role == "implementation_worker"
+    assert packet.execution_mode == "human_launched_agent"
+    assert packet.allowed_reads == agent.allowed_reads
+    assert packet.allowed_writes == agent.allowed_writes
+    assert packet.forbidden_writes == agent.forbidden_writes
+    assert packet.required_outputs == agent.required_outputs
+    assert packet.completion_rules == agent.completion_rules
+    assert "You are devflow-manual-codex-worker." in packet.manual_instructions
+    assert "Edit only files under <workspace>." in packet.manual_instructions
+    assert "Do not edit <task>/task.yaml." in packet.manual_instructions
+
+
 def test_agent_cli_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     initialize_seed(tmp_path)
@@ -333,7 +398,7 @@ def test_agent_cli_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     result = runner.invoke(app, ["agent", "list"])
     assert result.exit_code == 0
-    assert "No agents defined in registry." in result.output
+    assert "devflow-manual-codex-worker" in result.output
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -439,6 +504,3 @@ agents:
     assert packet_json["task_id"] == task.id
     assert packet_json["task"] != {}
     assert packet_json["workspace_path"] != "[REDACTED]"
-
-
-

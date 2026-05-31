@@ -35,9 +35,18 @@ class TaskPacket(BaseModel):
     task_id: str
     title: str
     status: str
+    agent_id: str | None = None
+    role: str | None = None
+    execution_mode: str | None = None
     adapter: str
     workspace_path: str
     worker_adapter: str
+    allowed_reads: list[str] = Field(default_factory=list)
+    allowed_writes: list[str] = Field(default_factory=list)
+    forbidden_writes: list[str] = Field(default_factory=list)
+    required_outputs: list[str] = Field(default_factory=list)
+    completion_rules: list[str] = Field(default_factory=list)
+    manual_instructions: str | None = None
     task: dict[str, Any]
     summary: str | None
     recent_events: list[dict[str, Any]]
@@ -105,6 +114,9 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
             task_id=task.id,
             title=task.title,
             status=task.status,
+            agent_id=None,
+            role=None,
+            execution_mode=None,
             adapter=adapter,
             workspace_path=virtual_workspace_path,
             worker_adapter=adapter,
@@ -138,6 +150,21 @@ def build_agent_packet(
 ) -> TaskPacket:
     packet = build_task_packet(task_id, root=root)
     can_see = agent.can_see or []
+    packet = packet.model_copy(
+        update={
+            "agent_id": agent.id,
+            "role": agent.role,
+            "execution_mode": agent.execution_mode,
+            "adapter": agent.adapter,
+            "worker_adapter": agent.adapter,
+            "allowed_reads": agent.allowed_reads,
+            "allowed_writes": agent.allowed_writes,
+            "forbidden_writes": agent.forbidden_writes,
+            "required_outputs": agent.required_outputs,
+            "completion_rules": agent.completion_rules,
+            "manual_instructions": _manual_instructions(agent),
+        }
+    )
 
     if "task_packet" not in can_see:
         packet = packet.model_copy(update={"task": {}})
@@ -149,6 +176,35 @@ def build_agent_packet(
         packet = packet.model_copy(update={"verification": {}})
 
     return packet
+
+
+def _manual_instructions(agent: AgentDefinition) -> str | None:
+    if agent.adapter != "manual" or agent.execution_mode != "human_launched_agent":
+        return None
+    return "\n".join(
+        [
+            f"You are {agent.id}.",
+            f"Role: {agent.role}",
+            f"Adapter: {agent.adapter}",
+            f"Execution mode: {agent.execution_mode}",
+            "",
+            "Purpose:",
+            agent.purpose or "",
+            "",
+            "Workspace boundary:",
+            "Edit only files under <workspace>.",
+            "Do not edit the main checkout.",
+            "Do not edit <task>/task.yaml.",
+            "Do not edit <task>/events.jsonl, <task>/verification.json, or promotion artifacts.",
+            "",
+            "Required terminal outputs:",
+            "When complete, write <task>/agents/devflow-manual-codex-worker/result.md.",
+            "When blocked, append one JSON line to <task>/agents/devflow-manual-codex-worker/questions.jsonl.",
+            "When failed, write <task>/agents/devflow-manual-codex-worker/worker_failed.json.",
+            "",
+            "Stop after writing exactly one terminal evidence artifact. Dev-Flow will verify independently.",
+        ]
+    )
 
 
 def _read_matching_summary(path: Path, task: TaskRecord, notes: list[str]) -> dict[str, Any]:

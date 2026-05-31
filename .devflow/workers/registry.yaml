@@ -1,5 +1,5 @@
 version: 1
-authority: "Placeholder registry for worker definitions. The future authoritative shape is docs/architecture/agent-registry-and-adapter-runtime.md. No worker availability is claimed until a future command or human registers one."
+authority: "Placeholder registry for future worker definitions. The stable proof agent is built into the Agent Registry loader. No worker availability is claimed in this future registry."
 permission_modes:
   - read_only
   - review_only

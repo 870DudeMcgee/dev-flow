@@ -33,10 +33,17 @@ class AgentDefinition(BaseModel):
     role: str
     tier: str
     default_mode: AgentPermissionMode
+    execution_mode: str = "automated"
+    purpose: str | None = None
     workspace: str
     can_see: list[str] = Field(default_factory=list)
     can_touch: list[str] = Field(default_factory=list)
     cannot_touch: list[str] = Field(default_factory=list)
+    allowed_reads: list[str] = Field(default_factory=list)
+    allowed_writes: list[str] = Field(default_factory=list)
+    forbidden_writes: list[str] = Field(default_factory=list)
+    required_outputs: list[str] = Field(default_factory=list)
+    completion_rules: list[str] = Field(default_factory=list)
     can_run_shell: bool = False
     can_use_network: bool = False
     can_promote: bool = False
@@ -355,10 +362,15 @@ def load_agent_registry(root: Path) -> AgentRegistry:
     if seed_registry_path.exists():
         payload = _read_registry_file(seed_registry_path)
         if payload.get("workers") == [] and "agents" not in payload:
-            return AgentRegistry(version=_registry_version(payload), source_path=seed_registry_path)
+            return AgentRegistry(
+                version=_registry_version(payload),
+                default_agent_id="devflow-manual-codex-worker",
+                agents=_builtin_agents(),
+                source_path=seed_registry_path,
+            )
         return _build_registry(seed_registry_path, payload, root=root)
 
-    return AgentRegistry()
+    return AgentRegistry(default_agent_id="devflow-manual-codex-worker", agents=_builtin_agents())
 
 
 def _build_registry(source_path: Path, payload: dict[str, object], root: Path | None = None) -> AgentRegistry:
@@ -409,6 +421,9 @@ def _build_registry(source_path: Path, payload: dict[str, object], root: Path | 
         agents[agent_id] = agent
         errors.extend(_validate_agent_policy(agent, providers=providers, roles=roles))
 
+    for builtin_id, builtin_agent in _builtin_agents().items():
+        agents.setdefault(builtin_id, builtin_agent)
+
     if default_agent_id is not None:
         default_agent = agents.get(default_agent_id)
         if default_agent is None:
@@ -425,6 +440,85 @@ def _build_registry(source_path: Path, payload: dict[str, object], root: Path | 
         agents=agents,
         source_path=source_path,
     )
+
+
+def _builtin_agents() -> dict[str, AgentDefinition]:
+    proof_agent = AgentDefinition(
+        id="devflow-manual-codex-worker",
+        provider="manual",
+        model="human-launched-codex",
+        adapter="manual",
+        role="implementation_worker",
+        tier="manual",
+        default_mode="workspace_write",
+        execution_mode="human_launched_agent",
+        purpose=(
+            "Consume a bounded Dev-Flow task packet, edit only the assigned isolated workspace, "
+            "produce structured result/question/failure evidence, then stop. Dev-Flow owns "
+            "verification and human-controlled promotion."
+        ),
+        workspace="isolated_task_workspace",
+        can_see=[
+            "task_packet",
+            "assigned_workspace",
+            "recent_events",
+            "verification_plan",
+            "verification_summary",
+        ],
+        can_touch=[
+            "<workspace>/**",
+            "<task>/agents/devflow-manual-codex-worker/result.md",
+            "<task>/agents/devflow-manual-codex-worker/questions.jsonl",
+            "<task>/agents/devflow-manual-codex-worker/worker_failed.json",
+        ],
+        cannot_touch=[
+            "<main_checkout>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            ".git/**",
+        ],
+        allowed_reads=[
+            "<task>/packet.json",
+            "<task>/events.jsonl",
+            "<task>/questions.jsonl",
+            "<task>/agents/devflow-manual-codex-worker/handoff.md",
+            "<workspace>/**",
+        ],
+        allowed_writes=[
+            "<workspace>/**",
+            "<task>/agents/devflow-manual-codex-worker/result.md",
+            "<task>/agents/devflow-manual-codex-worker/questions.jsonl",
+            "<task>/agents/devflow-manual-codex-worker/worker_failed.json",
+        ],
+        forbidden_writes=[
+            "<main_checkout>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            "<task>/packet.json",
+            ".git/**",
+        ],
+        required_outputs=[
+            "On completion, write <task>/agents/devflow-manual-codex-worker/result.md with status, summary, changed files, and suggested verification.",
+            "When blocked, append one blocked_question JSON object to <task>/agents/devflow-manual-codex-worker/questions.jsonl.",
+            "When failed, write <task>/agents/devflow-manual-codex-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action.",
+        ],
+        completion_rules=[
+            "Edit only files under <workspace>.",
+            "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts.",
+            "Do not run provider API calls, route models, select models automatically, schedule other agents, verify, promote, commit, or push.",
+            "Stop after writing exactly one terminal evidence artifact.",
+            "Dev-Flow verification is required after result.md; worker completion is not promotion readiness.",
+        ],
+        can_run_shell=False,
+        can_use_network=False,
+        can_promote=False,
+        enabled=True,
+    )
+    return {proof_agent.id: proof_agent}
 
 
 def _validate_agent_policy(

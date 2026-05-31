@@ -23,6 +23,10 @@ class TaskStatusProjection(BaseModel):
     merge_ready: bool | None
     readiness_reasons: list[str]
     suggested_next_action: str
+    manual_agent_state: str | None = None
+    manual_agent_result_path: str | None = None
+    manual_agent_question: str | None = None
+    manual_agent_failure: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -63,6 +67,7 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
     verification_exit_code = _int_or_none(verification.get("exit_code"), record.verification_exit_code)
     verification_log_path = _string_or_default(verification.get("log_path"), record.verification_log_path)
     verification_command = _string_or_default(verification.get("command"), record.verification_command)
+    manual_evidence = _manual_evidence(root, record)
 
     return TaskStatusProjection(
         task=record,
@@ -79,7 +84,19 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
             record.id,
             promotion_ready=not promotion_errors,
         ),
+        manual_agent_state=manual_evidence.state if manual_evidence is not None else None,
+        manual_agent_result_path=manual_evidence.result_path if manual_evidence is not None else None,
+        manual_agent_question=manual_evidence.question if manual_evidence is not None else None,
+        manual_agent_failure=manual_evidence.failure if manual_evidence is not None else None,
     )
+
+
+def _manual_evidence(root: Path, record: TaskRecord):
+    if record.worker != "devflow-manual-codex-worker":
+        return None
+    from devflow.control_room.manual_worker import read_manual_agent_evidence
+
+    return read_manual_agent_evidence(root, record.id, record.worker)
 
 
 def _read_verification(path: Path, task: TaskRecord) -> dict[str, Any]:

@@ -30,6 +30,12 @@ def render_dashboard(repo_root: Path | None = None) -> str:
             lines.append(f"  log: {task.log_path}")
         if task.result_path:
             lines.append(f"  result: {task.result_path}")
+        if projection.manual_agent_state:
+            lines.append(f"  manual_agent_state: {projection.manual_agent_state}")
+            if projection.manual_agent_question:
+                lines.append(f"  manual_agent_question: {projection.manual_agent_question}")
+            if projection.manual_agent_failure:
+                lines.append(f"  manual_agent_failure: {projection.manual_agent_failure}")
         if projection.verification_exit_code is not None:
             lines.append(f"  verification_exit_code: {projection.verification_exit_code}")
         if projection.verification_log_path:

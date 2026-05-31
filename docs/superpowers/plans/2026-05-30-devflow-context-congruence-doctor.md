@@ -151,7 +151,7 @@ CONTEXT_CONGRUENCE_RULES = [
         "path": ".devflow/layers/implementation/known-gaps.md",
         "required": [
             "Merge readiness is still human-controlled.",
-            "Enabled non-shell adapters and scheduling remain out of scope.",
+            "Provider-backed adapters and scheduling remain out of scope.",
         ],
         "forbidden": [
             "No schema validation exists yet",
@@ -236,7 +236,7 @@ In `src/devflow/control_room/seed.py`, replace the two implementation-layer entr
 
 ```python
     ".devflow/layers/implementation/current-slice.md": "# Current Slice\n\nKeep the shell-worker MVP stable while making seeded filesystem context current, detectable, and congruent with runtime seed validation.\n",
-    ".devflow/layers/implementation/known-gaps.md": "# Known Gaps\n\nMerge readiness is still human-controlled. Enabled non-shell adapters and scheduling remain out of scope.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
+    ".devflow/layers/implementation/known-gaps.md": "# Known Gaps\n\nMerge readiness is still human-controlled. Provider-backed adapters and scheduling remain out of scope.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
 ```
 
 - [ ] **Step 2: Update checked-in `known-gaps.md`**
@@ -246,7 +246,7 @@ Replace `.devflow/layers/implementation/known-gaps.md` with:
 ```markdown
 # Known Gaps
 
-Merge readiness is still human-controlled. Enabled non-shell adapters and scheduling remain out of scope.
+Merge readiness is still human-controlled. Provider-backed adapters and scheduling remain out of scope.
 
 Legacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.
 ```

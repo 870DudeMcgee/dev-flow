@@ -153,26 +153,26 @@ Acceptance:
 
 Goal: give future worker adapters a bounded, read-only task projection without making packets a new source of truth.
 
-Status: first builder slice implemented in `src/devflow/control_room/task_packet.py`. It reads canonical task files, bounds recent events, tail-limits worker and verification logs, reports omitted counts/truncation notes, and ignores missing, malformed, or conflicting `summary.json` cache data. No adapter consumes it yet.
+Status: first builder slice implemented in `src/devflow/control_room/task_packet.py`. It reads canonical task files, bounds recent events, tail-limits worker and verification logs, reports omitted counts/truncation notes, ignores missing, malformed, or conflicting `summary.json` cache data, and adds proof-agent role/permission/output fields for `devflow-manual-codex-worker`.
 
 Acceptance:
 
 - `task.yaml`, `events.jsonl`, `verification.json`, `worker.log`, and `verify.log` remain canonical
 - `summary.json` is derived/cache only
 - packet generation is read-only and file-based
-- Codex is not wired in
+- Codex is only supported through a human-launched manual handoff; no provider API or autonomous adapter is wired in
 
 ## Phase 8: Agent Registry And Adapter Runtime
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: Transition layer (registry, manual worker, CLI commands, context packing, and conservative routing) implemented as an experimental, non-authoritative planning aid. Full provider-backed execution is not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. Context packing and conservative routing remain experimental planning aids. Full provider-backed execution is not active.
 
 Sequence:
 - architecture document only
 - agent registry loading
 - `agent list`, `agent show`, and `agent packet` commands
-- manual adapter
+- manual proof-agent adapter
 - shell adapter alignment
 - deterministic task-fit and context-size estimation
 - role-based context pack builder
@@ -199,7 +199,7 @@ Related design contracts:
 - [docs/task-packet-contract.md](task-packet-contract.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Keep focus on the shell-worker control room plus the registry/manual/shell-alignment sequence. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
+> **Next Priority**: Keep focus on the shell-worker control room plus the stable manual proof-agent. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
 
 ## Later, Not Now
 
