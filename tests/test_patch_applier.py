@@ -97,3 +97,49 @@ def test_apply_hunk_mismatch_raises_application_error(tmp_path: Path):
     with pytest.raises(PatchApplicationError, match="mismatch at line 2"):
         apply_patch_files(tmp_path, patch_files)
 
+def test_symlink_rejection(tmp_path: Path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("unmodified outside\n", encoding="utf-8")
+    
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sym = workspace / "link.txt"
+    sym.symlink_to(outside)
+    
+    diff = (
+        "--- a/link.txt\n"
+        "+++ b/link.txt\n"
+        "@@ -1 +1 @@\n"
+        "-unmodified outside\n"
+        "+hacked!\n"
+    )
+    patch_files = parse_unified_diff(diff)
+    with pytest.raises(PatchApplicationError, match="escapes workspace boundary|symlinks are rejected"):
+        apply_patch_files(workspace, patch_files)
+
+    
+    assert outside.read_text(encoding="utf-8") == "unmodified outside\n"
+
+def test_atomic_partial_failure_prevention(tmp_path: Path):
+    file1 = tmp_path / "file1.txt"
+    file1.write_text("one\n", encoding="utf-8")
+    file2 = tmp_path / "file2.txt"
+    file2.write_text("two\n", encoding="utf-8")
+    
+    diff = (
+        "--- a/file1.txt\n"
+        "+++ b/file1.txt\n"
+        "@@ -1 +1 @@\n"
+        "-one\n"
+        "+one modified\n"
+        "--- a/file2.txt\n"
+        "+++ b/file2.txt\n"
+        "@@ -1 +1 @@\n"
+        "-mismatch\n"
+        "+two modified\n"
+    )
+    patch_files = parse_unified_diff(diff)
+    with pytest.raises(PatchApplicationError, match="mismatch"):
+        apply_patch_files(tmp_path, patch_files)
+    
+    assert file1.read_text(encoding="utf-8") == "one\n"
