@@ -39,6 +39,15 @@ from devflow.control_room.seed import initialize_seed, validate_seed_contract
 from devflow.control_room.verification import VerificationResult, run_verification_command
 from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
+from devflow.control_room.patch_applier import (
+    PatchError,
+    PatchSelectionError,
+    PatchParseError,
+    PatchApplicationError,
+    parse_unified_diff,
+    apply_patch_files,
+)
+
 
 
 # Dynamic compatibility shims and mappings
@@ -508,3 +517,85 @@ def _looks_destructive(command: list[str]) -> bool:
     text = " ".join(command).lower()
     blocked_fragments = ("rm -rf /", "rm -fr /", "mkfs", "diskutil erase", ":(){", "dd if=")
     return any(fragment in text for fragment in blocked_fragments)
+
+
+def apply_task_patch(root: Path, task_id: str, agent_id: str | None = None) -> TaskRecord:
+    import hashlib
+    task_path = task_dir(root, task_id)
+    task = get_task(root, task_id)
+    workspace = _resolve_task_workspace(root, task)
+
+    agents_dir = task_path / "agents"
+    if not agents_dir.exists() or not list(agents_dir.iterdir()):
+        raise PatchSelectionError(f"No patches found for task {task_id}")
+
+    target_patch: Path | None = None
+    selected_agent: str | None = None
+
+    if agent_id:
+        agent_patch = agents_dir / agent_id / "proposal.patch"
+        if not agent_patch.exists():
+            raise PatchSelectionError(f"No patch found for agent {agent_id}")
+        target_patch = agent_patch
+        selected_agent = agent_id
+    else:
+        # Search for proposal.patch in all agent subdirectories
+        found_patches: list[tuple[str, Path]] = []
+        for child in agents_dir.iterdir():
+            if child.is_dir() and (child / "proposal.patch").exists():
+                found_patches.append((child.name, child / "proposal.patch"))
+        
+        if not found_patches:
+            raise PatchSelectionError(f"No patches found under {agents_dir}")
+        elif len(found_patches) > 1:
+            agents_list = ", ".join(f"'{name}'" for name, _ in found_patches)
+            raise PatchSelectionError(
+                f"Multiple proposal patches found: {agents_list}. "
+                "Please specify which one to apply using --agent."
+            )
+        else:
+            selected_agent, target_patch = found_patches[0]
+
+    # Compute SHA-256 hash of the proposal.patch
+    patch_content = target_patch.read_text(encoding="utf-8")
+    patch_hash = hashlib.sha256(patch_content.encode("utf-8")).hexdigest()
+
+    # Idempotency check: check in events.jsonl
+    events_file = task_path / "events.jsonl"
+    if events_file.exists():
+        for line in events_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                evt = json.loads(line)
+                if evt.get("event") == "patch_applied" and evt.get("patch_hash") == patch_hash:
+                    raise PatchApplicationError("Patch was already applied to this workspace")
+            except json.JSONDecodeError:
+                pass
+
+
+
+    # Parse and apply patch
+    patch_files = parse_unified_diff(patch_content)
+    result = apply_patch_files(workspace, patch_files)
+    
+    # Structure changes payload
+    changed_files_payload = [
+        {"path": f.path, "operation": f.operation, "additions": f.additions, "deletions": f.deletions}
+        for f in result.changed_files
+    ]
+    
+    _append_event(root, task_id, "patch_applied", {
+        "agent_id": selected_agent,
+        "patch_path": _relative(root, target_patch),
+        "patch_hash": patch_hash,
+        "changed_files": changed_files_payload,
+    })
+
+    # Preserve status, update metadata & merge-readiness to false/pending verification
+    task.updated_at = utc_now()
+    task.last_event = "patch_applied"
+    _save_task(task_path, task)
+    _write_merge_readiness(root, task_path, task)
+    return task
+
