@@ -425,7 +425,7 @@ agents:
     can_run_shell: false
     can_use_network: false
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-worker:
     provider: openai
@@ -484,7 +484,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-anthropic-worker:
     provider: anthropic
@@ -543,7 +543,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-gemini-worker:
     provider: gemini
@@ -602,7 +602,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-compatible-worker:
     provider: openai_compatible
@@ -661,7 +661,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-planner:
     provider: openai
@@ -719,7 +719,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-reviewer:
     provider: openai
@@ -777,7 +777,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 """,
 }
 

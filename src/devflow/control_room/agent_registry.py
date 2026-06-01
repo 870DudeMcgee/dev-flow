@@ -21,12 +21,12 @@ ADAPTER_MATURITY: dict[str, AdapterMaturity] = {
     "shell": "stable_runtime",
     "manual": "stable_runtime",
     "manual_packet": "experimental_readonly",
-    "ollama_chat": "stable_runtime",
+    "ollama_chat": "experimental_readonly",
     "openai_responses": "planned_not_executable",
-    "openai_compatible": "stable_runtime",
-    "anthropic_messages": "stable_runtime",
-    "gemini": "stable_runtime",
-    "openai_chat": "stable_runtime",
+    "openai_compatible": "experimental_readonly",
+    "anthropic_messages": "experimental_readonly",
+    "gemini": "experimental_readonly",
+    "openai_chat": "experimental_readonly",
 }
 STABLE_RUNTIME_ADAPTERS = tuple(sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "stable_runtime"))
 
@@ -448,6 +448,8 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
     agents = {proof_agent.id: proof_agent}
 
     # Define standard automated agents mapping to each new execution runtime
+    # Provider-backed adapters are experimental_readonly — not yet safe for automated execution.
+    # Set enabled=False until each adapter has its own tests, threat model, and explicit enable flag.
     presets = [
         ("devflow-ollama-worker", "ollama", "qwen2.5-coder:14b", "ollama_chat", False, "implementation_worker", "strong_local", "workspace_write"),
         ("devflow-openai-worker", "openai", "gpt-4o", "openai_chat", True, "implementation_worker", "strong_local", "workspace_write"),
@@ -560,7 +562,7 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             can_run_shell=False,
             can_use_network=can_use_network,
             can_promote=False,
-            enabled=True,
+            enabled=False,
         )
 
     return agents

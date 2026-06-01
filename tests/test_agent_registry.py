@@ -56,13 +56,6 @@ agents:
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "local-shell",
         "devflow-manual-codex-worker",
-        "devflow-ollama-worker",
-        "devflow-openai-worker",
-        "devflow-anthropic-worker",
-        "devflow-gemini-worker",
-        "devflow-openai-compatible-worker",
-        "devflow-openai-planner",
-        "devflow-openai-reviewer",
     ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
@@ -112,13 +105,6 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
     assert seeded_registry.default_agent().id == "devflow-manual-codex-worker"
     assert sorted(seeded_registry.enabled_agent_ids()) == sorted([
         "devflow-manual-codex-worker",
-        "devflow-ollama-worker",
-        "devflow-openai-worker",
-        "devflow-anthropic-worker",
-        "devflow-gemini-worker",
-        "devflow-openai-compatible-worker",
-        "devflow-openai-planner",
-        "devflow-openai-reviewer",
     ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -185,13 +171,6 @@ agents:
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "local-shell",
         "devflow-manual-codex-worker",
-        "devflow-ollama-worker",
-        "devflow-openai-worker",
-        "devflow-anthropic-worker",
-        "devflow-gemini-worker",
-        "devflow-openai-compatible-worker",
-        "devflow-openai-planner",
-        "devflow-openai-reviewer",
     ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
@@ -618,7 +597,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
     for agent_id in expected_agents:
         assert agent_id in registry.agents
         agent = registry.require_agent(agent_id)
-        assert agent.enabled is True
+        assert agent.enabled is (agent_id == "devflow-manual-codex-worker")
         assert agent.workspace == "isolated_task_workspace"
         
         # Verify specific fields

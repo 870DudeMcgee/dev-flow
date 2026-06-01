@@ -10,6 +10,7 @@ from devflow.control_room.openai_compatible_worker import OpenAICompatibleWorker
 from devflow.control_room.anthropic_worker import AnthropicMessagesWorkerAdapter
 from devflow.control_room.gemini_worker import GeminiWorkerAdapter
 from devflow.control_room.openai_chat_worker import OpenAIChatWorkerAdapter
+from devflow.control_room.agent_registry import STABLE_RUNTIME_ADAPTERS, adapter_maturity
 
 
 class WorkerAdapter(Protocol):
@@ -43,6 +44,12 @@ def list_worker_adapters() -> list[str]:
 
 
 def get_worker_adapter(name: str) -> WorkerAdapter:
+    if adapter_maturity(name) != "stable_runtime":
+        stable = ", ".join(STABLE_RUNTIME_ADAPTERS)
+        raise UnsupportedWorkerAdapter(
+            f"Adapter '{name}' is {adapter_maturity(name)} and cannot execute. "
+            f"Only stable_runtime adapters are executable: {stable}."
+        )
     adapter_cls = _REGISTRY.get(name)
     if adapter_cls is not None:
         return adapter_cls()

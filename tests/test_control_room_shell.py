@@ -235,7 +235,7 @@ def test_unsupported_worker_adapter_values_are_refused() -> None:
     assert "codex" in err_msg
     assert "shell" in err_msg
     assert "manual" in err_msg
-    assert "Unsupported worker adapter 'codex'. Available adapters: anthropic_messages, gemini, manual, ollama_chat, openai_chat, openai_compatible, shell." in err_msg
+    assert "cannot execute" in err_msg
 
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -249,7 +249,8 @@ def test_unsupported_worker_adapter_values_are_refused() -> None:
                 ["task", "run", "task-0001", "--worker", "codex", "--shell", "echo should-not-run"],
             )
             assert run.exit_code == 1, run.output
-            assert "Unsupported worker adapter 'codex'. Available adapters: anthropic_messages, gemini, manual, ollama_chat, openai_chat, openai_compatible, shell." in run.output
+            assert "codex" in run.output
+            assert "cannot execute" in run.output
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
             assert get_task(Path.cwd(), "task-0001").status == "created"
         finally:
@@ -299,7 +300,7 @@ agents:
             )
             assert run.exit_code == 1, run.output
             assert "Adapter 'openai_responses' for agent 'planned-openai' is planned_not_executable" in run.output
-            assert "Only stable_runtime adapters can execute. Stable runtime adapters: anthropic_messages, gemini, manual, ollama_chat, openai_chat, openai_compatible, shell." in run.output
+            assert "Only stable_runtime adapters can execute. Stable runtime adapters: manual, shell." in run.output
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
             assert get_task(Path.cwd(), "task-0001").status == "created"
         finally:
