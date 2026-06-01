@@ -183,7 +183,6 @@ class OllamaChatWorkerAdapter:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 res_body = json.loads(response.read().decode("utf-8"))
-                response_text = str(res_body.get("response", ""))
                 run_meta["ollama_response"] = {k: v for k, v in res_body.items() if k != "response"}
         except urllib.error.HTTPError as exc:
             raw_error = _http_error_detail(exc)
@@ -217,16 +216,83 @@ class OllamaChatWorkerAdapter:
                 log.write(f"{message}\n")
             return finish(status="worker_failed", summary=message, exit_code=1)
 
-        atomic_write_text(raw_output_path, response_text)
+        # Extract/parse model proposal JSON from the Ollama response
+        diff_data = None
+        extracted_text = None
+        parse_error = None
 
-        try:
-            diff_data = repair_and_parse_json(response_text)
-        except Exception as exc:
-            message = f"Malformed JSON from local Ollama worker; inspect raw output at {raw_output_path}. Parser error: {exc}"
+        # Try message.content, response, content, thinking in order
+        candidates = []
+        
+        # 1. message.content
+        msg = res_body.get("message")
+        if isinstance(msg, dict):
+            candidates.append(("message.content", msg.get("content")))
+        if "message.content" in res_body:
+            candidates.append(("message.content", res_body.get("message.content")))
+            
+        # 2. response
+        candidates.append(("response", res_body.get("response")))
+        
+        # 3. content
+        candidates.append(("content", res_body.get("content")))
+        
+        # 4. thinking
+        candidates.append(("thinking", res_body.get("thinking")))
+
+        for loc_name, val in candidates:
+            if val is None:
+                continue
+            
+            if isinstance(val, (dict, list)):
+                if isinstance(val, list):
+                    diff_data = val
+                    extracted_text = json.dumps(val, indent=2)
+                    parse_error = ValueError("Expected a JSON object (dict), but got a list.")
+                    break
+                else:
+                    diff_data = val
+                    extracted_text = json.dumps(val, indent=2)
+                    break
+            elif isinstance(val, str):
+                try:
+                    diff_data = repair_and_parse_json(val)
+                    extracted_text = val
+                    break
+                except Exception as e:
+                    if parse_error is None:
+                        parse_error = e
+            else:
+                try:
+                    str_val = str(val)
+                    diff_data = repair_and_parse_json(str_val)
+                    extracted_text = str_val
+                    break
+                except Exception as e:
+                    if parse_error is None:
+                        parse_error = e
+
+        if diff_data is None or isinstance(diff_data, list):
+            if diff_data is not None:
+                response_text = extracted_text
+            else:
+                response_text = str(res_body.get("response", ""))
+                extracted_text = response_text
+                
+            if parse_error is None:
+                if isinstance(diff_data, list):
+                    parse_error = ValueError("Expected a JSON object (dict), but got a list.")
+                else:
+                    parse_error = ValueError("No JSON object or array start found in text")
+            
+            atomic_write_text(raw_output_path, extracted_text)
+            message = f"Malformed JSON from local Ollama worker; inspect raw output at {raw_output_path}. Parser error: {parse_error}"
             with worker_input.log_file.open("a", encoding="utf-8") as log:
                 log.write(f"{message}\n")
                 log.write(f"Raw response preserved at {raw_output_path}\n")
             return finish(status="worker_failed", summary=message, exit_code=1)
+
+        atomic_write_text(raw_output_path, extracted_text)
 
         response_summary = _response_summary(diff_data)
         response_status = str(diff_data.get("status", "failed"))

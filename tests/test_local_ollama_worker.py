@@ -332,3 +332,264 @@ def test_success_requires_zero_exit_code_not_nonempty_output(
 def _create_task(title: str) -> None:
     result = runner.invoke(app, ["task", "create", title])
     assert result.exit_code == 0, result.output
+
+
+def _setup_ollama_worker_test(tmp_path: Path, task_id: str) -> Any:
+    # Initialize mock git repository in tmp_path
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, capture_output=True)
+
+    # Write a test file and commit it
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("Hello World\n", encoding="utf-8")
+    subprocess.run(["git", "add", "hello.txt"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=tmp_path, capture_output=True)
+
+    # Set up task directories
+    task_dir = tmp_path / ".devflow" / "tasks" / task_id
+    task_dir.mkdir(parents=True)
+    (task_dir / "logs").mkdir(parents=True)
+
+    # Write task.yaml
+    (task_dir / "task.yaml").write_text(f"id: {task_id}\ntitle: Test Task\nstatus: created\n", encoding="utf-8")
+
+    # Set up workspace
+    workspace_path = tmp_path / ".devflow" / "workspaces" / task_id
+    workspace_path.mkdir(parents=True)
+    (workspace_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+
+    log_file = task_dir / "logs" / "worker.log"
+    result_file = task_dir / "result.md"
+
+    from devflow.control_room.models import WorkerInput
+    return WorkerInput(
+        task_id=task_id,
+        repo_root=tmp_path,
+        workspace_path=workspace_path,
+        task_file=task_dir / "task.yaml",
+        context_file=task_dir / "events.jsonl",
+        status_file=task_dir / "task.yaml",
+        questions_file=task_dir / "questions.jsonl",
+        result_file=result_file,
+        log_file=log_file,
+        command=["ollama", "task"],
+        timeout_seconds=60,
+    )
+
+
+def test_ollama_worker_message_content_success(tmp_path: Path) -> None:
+    from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+    from unittest.mock import MagicMock
+
+    worker_input = _setup_ollama_worker_test(tmp_path, "task-ollama-msg-content")
+    
+    mock_response = MagicMock()
+    proposal_dict = {
+        "status": "ready",
+        "diff": "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-Hello World\n+hello from message.content\n",
+        "touched_paths": ["hello.txt"],
+        "risk": "low",
+        "confidence": 1.0
+    }
+    response_dict = {
+        "message": {
+            "role": "assistant",
+            "content": json.dumps(proposal_dict)
+        }
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    adapter = OllamaChatWorkerAdapter()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = adapter.run(worker_input)
+
+        assert result.status == "complete"
+        assert result.exit_code == 0
+        
+        # proposal.patch is written exactly from the parsed diff
+        patch_file = tmp_path / ".devflow" / "tasks" / "task-ollama-msg-content" / "agents" / "default_agent" / "proposal.patch"
+        assert patch_file.exists()
+        assert "hello from message.content" in patch_file.read_text(encoding="utf-8")
+
+
+def test_ollama_worker_thinking_success(tmp_path: Path) -> None:
+    from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+    from unittest.mock import MagicMock
+
+    worker_input = _setup_ollama_worker_test(tmp_path, "task-ollama-thinking")
+    
+    mock_response = MagicMock()
+    proposal_dict = {
+        "status": "ready",
+        "diff": "diff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-Hello World\n+hello from top-level thinking\n",
+        "touched_paths": ["hello.txt"],
+        "risk": "low",
+        "confidence": 1.0
+    }
+    response_dict = {
+        "thinking": proposal_dict
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    adapter = OllamaChatWorkerAdapter()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = adapter.run(worker_input)
+
+        assert result.status == "complete"
+        assert result.exit_code == 0
+        
+        # proposal.patch is written exactly from the parsed diff
+        patch_file = tmp_path / ".devflow" / "tasks" / "task-ollama-thinking" / "agents" / "default_agent" / "proposal.patch"
+        assert patch_file.exists()
+        assert "hello from top-level thinking" in patch_file.read_text(encoding="utf-8")
+
+
+def test_ollama_worker_malformed_fails_safely(tmp_path: Path) -> None:
+    from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+    from unittest.mock import MagicMock
+
+    worker_input = _setup_ollama_worker_test(tmp_path, "task-ollama-malformed")
+    
+    mock_response = MagicMock()
+    # No valid JSON in any field
+    response_dict = {
+        "response": "totally malformed and not JSON at all",
+        "thinking": "also not JSON",
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    adapter = OllamaChatWorkerAdapter()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = adapter.run(worker_input)
+
+        assert result.status == "worker_failed"
+        assert result.exit_code == 1
+        
+        # Always preserve raw_output.md
+        raw_output_file = tmp_path / ".devflow" / "tasks" / "task-ollama-malformed" / "agents" / "default_agent" / "raw_output.md"
+        assert raw_output_file.exists()
+        assert "totally malformed" in raw_output_file.read_text(encoding="utf-8")
+        
+        # proposal.patch is written only after a valid proposal (so it should not exist here)
+        patch_file = tmp_path / ".devflow" / "tasks" / "task-ollama-malformed" / "agents" / "default_agent" / "proposal.patch"
+        assert not patch_file.exists()
+        
+        # malformed output still writes worker_failed.json
+        worker_failed_file = tmp_path / ".devflow" / "tasks" / "task-ollama-malformed" / "agents" / "default_agent" / "worker_failed.json"
+        assert worker_failed_file.exists()
+        worker_failed_data = json.loads(worker_failed_file.read_text(encoding="utf-8"))
+        assert worker_failed_data["status"] == "worker_failed"
+        assert "Malformed JSON from local Ollama worker" in result.summary
+
+
+def test_ollama_worker_rejects_json_list_proposal_shape(tmp_path: Path) -> None:
+    from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+    from unittest.mock import MagicMock
+
+    worker_input = _setup_ollama_worker_test(tmp_path, "task-ollama-json-list")
+    
+    mock_response = MagicMock()
+    response_dict = {
+        "thinking": ["not", "a", "proposal"],
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    adapter = OllamaChatWorkerAdapter()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = adapter.run(worker_input)
+
+        assert result.status == "worker_failed"
+        assert result.exit_code == 1
+        
+        raw_output_file = tmp_path / ".devflow" / "tasks" / "task-ollama-json-list" / "agents" / "default_agent" / "raw_output.md"
+        assert raw_output_file.exists()
+        assert "not" in raw_output_file.read_text(encoding="utf-8")
+        
+        patch_file = tmp_path / ".devflow" / "tasks" / "task-ollama-json-list" / "agents" / "default_agent" / "proposal.patch"
+        assert not patch_file.exists()
+        
+        worker_failed_file = tmp_path / ".devflow" / "tasks" / "task-ollama-json-list" / "agents" / "default_agent" / "worker_failed.json"
+        assert worker_failed_file.exists()
+        worker_failed_data = json.loads(worker_failed_file.read_text(encoding="utf-8"))
+        assert worker_failed_data["status"] == "worker_failed"
+        
+        assert any(term in result.summary.lower() for term in ["malformed", "invalid", "local ollama"])
+
+
+
+def test_ollama_worker_list_fails_safely(tmp_path: Path) -> None:
+    from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+    from unittest.mock import MagicMock
+
+    worker_input = _setup_ollama_worker_test(tmp_path, "task-ollama-list")
+    
+    mock_response = MagicMock()
+    response_dict = {
+        "thinking": ["this", "is", "a", "list"]
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    adapter = OllamaChatWorkerAdapter()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = adapter.run(worker_input)
+
+        assert result.status == "worker_failed"
+        assert result.exit_code == 1
+        assert "Expected a JSON object (dict), but got a list." in result.summary
+
+
+def test_ollama_worker_patch_written_exactly_from_parsed_diff(tmp_path: Path) -> None:
+    from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+    from unittest.mock import MagicMock
+
+    worker_input = _setup_ollama_worker_test(tmp_path, "task-ollama-exact-patch")
+    
+    mock_response = MagicMock()
+    exact_diff = "--- hello.txt\n+++ hello.txt\n@@ -1 +1 @@\n-Hello World\n+hello from exact diff\n"
+    proposal_dict = {
+        "status": "ready",
+        "diff": exact_diff,
+        "touched_paths": ["hello.txt"],
+        "risk": "low",
+        "confidence": 1.0
+    }
+    response_dict = {
+        "response": json.dumps(proposal_dict)
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    adapter = OllamaChatWorkerAdapter()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = adapter.run(worker_input)
+
+        assert result.status == "complete"
+        assert result.exit_code == 0
+        
+        patch_file = tmp_path / ".devflow" / "tasks" / "task-ollama-exact-patch" / "agents" / "default_agent" / "proposal.patch"
+        assert patch_file.exists()
+        assert patch_file.read_text(encoding="utf-8") == exact_diff
