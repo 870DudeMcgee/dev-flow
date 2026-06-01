@@ -55,6 +55,7 @@ def test_frozen_shell_worker_mvp_contract() -> None:
             assert not Path(".devflow/worktrees").exists()
 
             first_yaml = Path(".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8")
+            assert "schema_version: 1" in first_yaml
             assert 'status: "created"' in first_yaml
             assert 'workspace: ".devflow/workspaces/task-0001"' in first_yaml
             assert Path(".devflow/tasks/task-0001/events.jsonl").exists()
@@ -136,6 +137,7 @@ def test_frozen_shell_worker_mvp_contract() -> None:
             assert "last_event: verification_finished" in show.output
 
             verification = json.loads(Path(".devflow/tasks/task-0001/verification.json").read_text(encoding="utf-8"))
+            assert verification["schema_version"] == 1
             assert verification["status"] == "passed"
             assert verification["task_status"] == "verified"
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8").strip().endswith("ok")
@@ -656,6 +658,7 @@ def test_verification_result_rich_metadata() -> None:
 
             # Check the initial verification.json
             init_json = json.loads(Path(".devflow/tasks/task-0001/verification.json").read_text(encoding="utf-8"))
+            assert init_json["schema_version"] == 1
             assert init_json["task_id"] == "task-0001"
             assert init_json["workspace"] == ".devflow/workspaces/task-0001"
             assert init_json["status"] == "not_run"
@@ -673,6 +676,7 @@ def test_verification_result_rich_metadata() -> None:
 
             # Check verification.json for successful run
             pass_json = json.loads(Path(".devflow/tasks/task-0001/verification.json").read_text(encoding="utf-8"))
+            assert pass_json["schema_version"] == 1
             assert pass_json["task_id"] == "task-0001"
             assert pass_json["workspace"] == ".devflow/workspaces/task-0001"
             assert pass_json["status"] == "passed"
@@ -708,10 +712,41 @@ def test_verification_result_rich_metadata() -> None:
 
             # Check verification.json for failed run
             fail_json = json.loads(Path(".devflow/tasks/task-0001/verification.json").read_text(encoding="utf-8"))
+            assert fail_json["schema_version"] == 1
             assert fail_json["task_id"] == "task-0001"
             assert fail_json["status"] == "failed"
             assert fail_json["task_status"] == "verification_failed"
             assert fail_json["exit_code"] == 42
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_task_state_schema_version_is_recorded_and_validated() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "schema version"])
+            assert created.exit_code == 0, created.output
+
+            task_path = Path(".devflow/tasks/task-0001")
+            task_yaml = (task_path / "task.yaml").read_text(encoding="utf-8")
+            assert task_yaml.splitlines()[0] == "schema_version: 1"
+
+            verification = json.loads((task_path / "verification.json").read_text(encoding="utf-8"))
+            merge_readiness = json.loads((task_path / "merge-readiness.json").read_text(encoding="utf-8"))
+            summary = json.loads((task_path / "summary.json").read_text(encoding="utf-8"))
+            assert verification["schema_version"] == 1
+            assert merge_readiness["schema_version"] == 1
+            assert summary["schema_version"] == 1
+
+            (task_path / "task.yaml").write_text(
+                task_yaml.replace("schema_version: 1", "schema_version: 99"),
+                encoding="utf-8",
+            )
+            doctor_result = runner.invoke(app, ["doctor"])
+            assert doctor_result.exit_code == 1, doctor_result.output
+            assert "unsupported task.yaml schema_version 99; supported: 1" in doctor_result.output
         finally:
             os.chdir(old_cwd)
 

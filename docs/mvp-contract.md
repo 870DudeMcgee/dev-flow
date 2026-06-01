@@ -80,6 +80,7 @@ For a created task, the MVP contract is:
 
 ```text
 .devflow/tasks/<task-id>/task.yaml
+.devflow/tasks/<task-id>/.lock/owner.json   # live only during task-local mutations
 .devflow/tasks/<task-id>/events.jsonl
 .devflow/tasks/<task-id>/verification.json
 .devflow/tasks/<task-id>/logs/worker.log
@@ -91,7 +92,9 @@ For a created task, the MVP contract is:
 .devflow/workspaces/<task-id>/
 ```
 
-`task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. The workspace is the only current place where shell-worker results are written.
+`task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. The workspace is the only current place where shell-worker results are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
+
+Mutating task operations use a task-local `.lock/` directory with `owner.json` metadata. `run`, `verify`, `apply-patch`, and `promote` refuse concurrent mutations for the same task, report the current lock owner, and recover locks that are stale beyond the lock TTL.
 
 ## Optional Derived State
 
@@ -112,6 +115,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Shell-worker results do not write into the main checkout.
 - Promotion to the main checkout is explicit, human-confirmed, and gated on verification readiness.
 - Promotion refuses unsafe workspace paths and blocks dirty main-checkout changes unless explicitly forced.
+- New task events are hash-chained with monotonic indexes, previous-event hashes, and current-event hashes; `doctor` reports malformed or edited task event logs.
 - No SQLite database is created.
 - No `.devflow/worktrees/` directory is created.
 - Legacy agent, memory, DAG, trace, worktree, database, and software-factory systems remain bypassed for this MVP path.

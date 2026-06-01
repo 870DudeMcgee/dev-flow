@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.models import TaskRecord
+from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.paths import (
     absolute_path,
     relative_path,
@@ -43,6 +44,7 @@ def list_tasks(root: Path) -> list[TaskRecord]:
 
 def save_task(task_path: Path, task: TaskRecord) -> None:
     values = {
+        "schema_version": task.schema_version,
         "id": task.id,
         "title": task.title,
         "status": task.status,
@@ -67,12 +69,8 @@ def save_task(task_path: Path, task: TaskRecord) -> None:
         "workspace_commit": task.workspace_commit,
         "workspace_dirty": task.workspace_dirty,
     }
-    lines = [f"{key}: {_yaml_scalar(values[key])}" for key in sorted(values.keys())]
-    # Wait: let's keep the order exactly as original service.py if we want, or sorted?
-    # Original service.py:
-    # lines = [f"{key}: {_yaml_scalar(value)}" for key, value in values.items()]
-    # To avoid even a single character test failure (some tests might parse or check order, though they shouldn't), let's keep the exact original key order:
     key_order = [
+        "schema_version",
         "id",
         "title",
         "status",
@@ -105,6 +103,12 @@ def save_task(task_path: Path, task: TaskRecord) -> None:
 
 def load_task(task_path: Path) -> TaskRecord:
     data = _read_yaml_scalars(task_path / "task.yaml")
+    schema_version = data.get("schema_version", TASK_SCHEMA_VERSION)
+    if schema_version != TASK_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported task.yaml schema_version {schema_version}; supported: {TASK_SCHEMA_VERSION}"
+        )
+    data["schema_version"] = schema_version
     required = ["id", "title", "status", "created_at", "updated_at", "workspace", "worker", "verification_status"]
     missing = [key for key in required if key not in data]
     if missing:
@@ -116,9 +120,18 @@ def load_task(task_path: Path) -> TaskRecord:
 
 
 def append_event(root: Path, task_id: str, event_type: str, payload: dict[str, Any]) -> None:
-    event = {"timestamp": timestamp(), "task_id": task_id, "event": event_type, **payload}
-    line = json.dumps(event, sort_keys=True) + "\n"
     task_events = task_dir(root, task_id) / "events.jsonl"
+    previous_hash, next_index = _event_chain_tail(task_events)
+    event = {
+        "timestamp": timestamp(),
+        "task_id": task_id,
+        "event": event_type,
+        "event_index": next_index,
+        "previous_event_hash": previous_hash,
+        **payload,
+    }
+    event["event_hash"] = event_content_hash(event)
+    line = json.dumps(event, sort_keys=True) + "\n"
     task_events.parent.mkdir(parents=True, exist_ok=True)
     with task_events.open("a", encoding="utf-8") as handle:
         handle.write(line)
@@ -127,10 +140,84 @@ def append_event(root: Path, task_id: str, event_type: str, payload: dict[str, A
         handle.write(line)
 
 
+def event_content_hash(event: dict[str, Any]) -> str:
+    canonical_event = {key: value for key, value in event.items() if key != "event_hash"}
+    payload = json.dumps(canonical_event, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validate_event_log(path: Path) -> tuple[bool, str]:
+    if not path.exists():
+        return False, "missing events.jsonl"
+
+    previous_hash: str | None = None
+    expected_index = 0
+    legacy_events = 0
+    hash_chain_started = False
+
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not raw_line.strip():
+            continue
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            return False, f"line {line_number}: malformed JSON ({exc.msg})"
+        if not isinstance(event, dict):
+            return False, f"line {line_number}: event must be a JSON object"
+
+        event_hash = event.get("event_hash")
+        if event_hash is None:
+            if hash_chain_started:
+                return False, f"line {line_number}: unhashed event after hash chain started"
+            legacy_events += 1
+            previous_hash = event_content_hash(event)
+            expected_index += 1
+            continue
+
+        hash_chain_started = True
+        if event.get("event_index") != expected_index:
+            return False, f"line {line_number}: event_index {event.get('event_index')} != expected {expected_index}"
+        if event.get("previous_event_hash") != previous_hash:
+            return False, f"line {line_number}: previous_event_hash does not match prior event"
+        expected_hash = event_content_hash(event)
+        if event_hash != expected_hash:
+            return False, f"line {line_number}: event_hash mismatch"
+
+        previous_hash = event_hash
+        expected_index += 1
+
+    if expected_index == 0:
+        return True, "empty event log"
+    if legacy_events:
+        return True, f"{expected_index} event(s), {legacy_events} legacy unhashed, hash chain valid"
+    return True, f"{expected_index} event(s), hash chain valid"
+
+
+def _event_chain_tail(path: Path) -> tuple[str | None, int]:
+    if not path.exists():
+        return None, 0
+
+    previous_hash: str | None = None
+    next_index = 0
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.strip():
+            continue
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(event, dict):
+            break
+        previous_hash = event.get("event_hash") or event_content_hash(event)
+        next_index += 1
+    return previous_hash, next_index
+
+
 def _write_task_summary(task_path: Path, task: TaskRecord) -> None:
     ready, reasons = readiness_state(task, task_path)
 
     payload = {
+        "schema_version": TASK_SCHEMA_VERSION,
         "task_id": task.id,
         "title": task.title,
         "status": task.status,

@@ -4,7 +4,7 @@ Dev-Flow is a local-first control room for parallel AI coding workers.
 
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-Workers are replaceable. The current runtime supports shell workers only, along with an experimental transition layer (registries, manual worker, deterministic task-fit/context packing, and conservative capability routing).
+Workers are replaceable. The stable executable runtime supports shell workers and the manual proof-agent handoff only. Provider-backed adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
 
 ## Current Product Contract
 
@@ -16,12 +16,12 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 
-### Experimental Transition Commands
+### Planning And Manual Transition Commands
 - **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent packet`
 - **Task Estimation**: `devflow task fit`, `devflow task pack`
 - **Scouting & Routing**: `devflow task scout`, `devflow task route`, `devflow task scorecard`
 
-These transition commands are allowed only as read-only/manual planning aids until promoted into the stable contract.
+These transition commands are allowed only as read-only or manual planning aids until promoted into the stable contract. Experimental ones remain gated outside the default help surface, and none of them execute provider APIs or make autonomous routing decisions in the stable runtime.
 
 The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, git worktree orchestration, and autonomous scheduling/routing. The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
 
@@ -43,6 +43,8 @@ Dev-Flow stores durable task state as local filesystem artifacts:
 
 `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Shell worker output stays in `.devflow/workspaces/<task-id>/` until a human explicitly previews and promotes verified changes.
 
+Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
+
 ## Durable Context Structure
 
 The broader `.devflow/` tree is also the durable context layer for the control room. It contains project orientation, active goals, classified context, layered product and architecture notes, worker/model registries, lock documentation, derived reports, and preserved archive material.
@@ -63,6 +65,8 @@ Install locally from the repository root:
 python -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
+
+After a tagged public release exists, the intended user install paths are `pipx install devflow` for CLI use or `python -m pip install devflow` for library/CLI environments. Until then, use the local editable install above or install from a trusted source checkout.
 
 Initialize the control-room structure:
 
@@ -92,6 +96,13 @@ Use promotion only after reviewing the preview and verification evidence.
 If the main checkout advanced after the task workspace was created, promotion refuses by default. Use `--force-stale-baseline` only after manually reviewing that stale-baseline risk.
 
 Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future provider adapters may be described in registries, but only the `shell` and `manual` adapters are executable in the stable runtime.
+
+## Release And Versioning
+
+- [CHANGELOG.md](CHANGELOG.md) records release notes, semantic versioning rules, and state compatibility requirements.
+- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) defines the pre-release validation gate.
+- The package metadata uses this README as the public long description.
+- No public release artifact has been published yet; `0.1.0` is the unreleased local MVP line.
 
 ## DevMode Relationship
 

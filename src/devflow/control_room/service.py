@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import shlex
 import json
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.models import TaskRecord, WorkerInput, WorkerResult
+from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord, WorkerInput, WorkerResult
+from devflow.control_room.locks import task_mutation_lock
 from devflow.control_room.paths import (
     absolute_path,
     relative_path,
@@ -26,6 +28,7 @@ from devflow.control_room.persistence import (
     save_task,
     timestamp,
     utc_now,
+    validate_event_log,
 )
 from devflow.control_room.promotion import (
     _get_relative_files,
@@ -77,13 +80,14 @@ def promote_task(
     # Forward monkeypatch if service._get_relative_files was overridden in a test
     if _get_relative_files is not promotion._get_relative_files:
         promotion._get_relative_files = _get_relative_files
-    return promotion.promote_task(
-        root,
-        task_id,
-        force=force,
-        apply_deletions=apply_deletions,
-        force_stale_baseline=force_stale_baseline,
-    )
+    with task_mutation_lock(root, task_id, "promote"):
+        return promotion.promote_task(
+            root,
+            task_id,
+            force=force,
+            apply_deletions=apply_deletions,
+            force_stale_baseline=force_stale_baseline,
+        )
 
 
 
@@ -199,128 +203,133 @@ def run_shell_task(
         raise ValueError("Shell worker requires a command after '--'.")
     if not command and resolved_adapter_name == "manual":
         command = ["manual-handoff", worker_adapter]
+
     if _looks_destructive(command):
-        task = get_task(root, task_id)
-        task.status = "blocked"
-        task.updated_at = utc_now()
-        task.last_event = "command_refused"
-        _save_task(task_dir(root, task_id), task)
-        _append_event(root, task_id, "command_refused", {"command": command})
+        with task_mutation_lock(root, task_id, "run"):
+            task = get_task(root, task_id)
+            task.status = "blocked"
+            task.updated_at = utc_now()
+            task.last_event = "command_refused"
+            _save_task(task_dir(root, task_id), task)
+            _append_event(root, task_id, "command_refused", {"command": command})
         raise ValueError("Refusing obviously destructive command for MVP shell worker.")
 
-    task = get_task(root, task_id)
-    task_path = task_dir(root, task_id)
-    workspace = _resolve_task_workspace(root, task)
+    with task_mutation_lock(root, task_id, "run"):
+        task = get_task(root, task_id)
+        task_path = task_dir(root, task_id)
+        workspace = _resolve_task_workspace(root, task)
 
-    log_file = task_path / "logs" / "worker.log"
-    result_file = task_path / "result.md"
+        log_file = task_path / "logs" / "worker.log"
+        result_file = task_path / "result.md"
 
-    if agent is not None:
-        agent_dir = task_path / "agents" / agent.id
-        agent_dir.mkdir(parents=True, exist_ok=True)
-        (agent_dir / "logs").mkdir(parents=True, exist_ok=True)
-        log_file = agent_dir / "logs" / "worker.log"
-        result_file = agent_dir / "result.md"
+        if agent is not None:
+            agent_dir = task_path / "agents" / agent.id
+            agent_dir.mkdir(parents=True, exist_ok=True)
+            (agent_dir / "logs").mkdir(parents=True, exist_ok=True)
+            log_file = agent_dir / "logs" / "worker.log"
+            result_file = agent_dir / "result.md"
 
-    worker_input = WorkerInput(
-        task_id=task_id,
-        repo_root=root,
-        workspace_path=workspace,
-        task_file=task_path / "task.yaml",
-        context_file=task_path / "events.jsonl",
-        status_file=task_path / "task.yaml",
-        questions_file=task_path / "questions.jsonl",
-        result_file=result_file,
-        log_file=log_file,
-        command=command,
-        env={**(env or {}), **({"DEVFLOW_AGENT_ID": agent.id} if agent is not None else {})},
-        timeout_seconds=timeout_seconds,
-    )
+        worker_input = WorkerInput(
+            task_id=task_id,
+            repo_root=root,
+            workspace_path=workspace,
+            task_file=task_path / "task.yaml",
+            context_file=task_path / "events.jsonl",
+            status_file=task_path / "task.yaml",
+            questions_file=task_path / "questions.jsonl",
+            result_file=result_file,
+            log_file=log_file,
+            command=command,
+            env={**(env or {}), **({"DEVFLOW_AGENT_ID": agent.id} if agent is not None else {})},
+            timeout_seconds=timeout_seconds,
+        )
 
-    task.status = "running"
-    task.worker = worker_adapter
-    task.timeout_seconds = timeout_seconds
-    task.worker_command = shlex.join(command)
-    task.started_at = utc_now()
-    task.updated_at = task.started_at
-    task.last_event = "worker_started"
-    _save_task(task_path, task)
-    _append_event(root, task_id, "worker_started", {"command": command, "cwd": task.workspace})
+        task.status = "running"
+        task.worker = worker_adapter
+        task.timeout_seconds = timeout_seconds
+        task.worker_command = shlex.join(command)
+        task.started_at = utc_now()
+        task.updated_at = task.started_at
+        task.last_event = "worker_started"
+        _save_task(task_path, task)
+        _append_event(root, task_id, "worker_started", {"command": command, "cwd": task.workspace})
 
-    if agent is not None:
-        from devflow.control_room.task_packet import build_agent_packet
-        agent_packet = build_agent_packet(task_id, agent, root=root)
-        agent_packet_json = json.dumps(agent_packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
-        (task_path / "agents" / agent.id / "packet.json").write_text(agent_packet_json, encoding="utf-8")
-        (task_path / "packet.json").write_text(agent_packet_json, encoding="utf-8")
-    else:
-        from devflow.control_room.task_packet import build_task_packet
-        packet = build_task_packet(task_id, root=root)
-        packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
-        (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
+        if agent is not None:
+            from devflow.control_room.task_packet import build_agent_packet
+            agent_packet = build_agent_packet(task_id, agent, root=root)
+            agent_packet_json = json.dumps(agent_packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+            (task_path / "agents" / agent.id / "packet.json").write_text(agent_packet_json, encoding="utf-8")
+            (task_path / "packet.json").write_text(agent_packet_json, encoding="utf-8")
+        else:
+            from devflow.control_room.task_packet import build_task_packet
+            packet = build_task_packet(task_id, root=root)
+            packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
+            (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
 
-    result = adapter.run(worker_input)
-    if resolved_adapter_name != "manual":
-        _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
-    if agent is not None:
-        compat_log = task_path / "logs" / "worker.log"
-        compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
+        result = adapter.run(worker_input)
         if resolved_adapter_name != "manual":
-            _write_result(task_path, task_id, command, result)
+            _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
+        if agent is not None:
+            compat_log = task_path / "logs" / "worker.log"
+            compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
+            if resolved_adapter_name != "manual":
+                _write_result(task_path, task_id, command, result)
 
-    task.status = result.status
-    task.last_exit_code = result.exit_code
-    task.latest_log_line = result.latest_log_line
-    task.log_path = _relative(root, log_file)
-    task.result_path = _relative(root, result_file) if result_file.exists() else None
-    task.finished_at = utc_now()
-    task.updated_at = task.finished_at
-    task.last_event = "worker_finished"
-    _save_task(task_path, task)
-    _write_merge_readiness(root, task_path, task)
-    _append_event(
-        root,
-        task_id,
-        "worker_finished",
-        {"status": result.status, "exit_code": result.exit_code, "log_path": task.log_path},
-    )
-    return task
+        task.status = result.status
+        task.last_exit_code = result.exit_code
+        task.latest_log_line = result.latest_log_line
+        task.log_path = _relative(root, log_file)
+        task.result_path = _relative(root, result_file) if result_file.exists() else None
+        task.finished_at = utc_now()
+        task.updated_at = task.finished_at
+        task.last_event = "worker_finished"
+        _save_task(task_path, task)
+        _write_merge_readiness(root, task_path, task)
+        _append_event(
+            root,
+            task_id,
+            "worker_finished",
+            {"status": result.status, "exit_code": result.exit_code, "log_path": task.log_path},
+        )
+        return task
 
 
 def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 120) -> TaskRecord:
     if not command:
         raise ValueError("Verification requires a command after '--'.")
-    task = get_task(root, task_id)
     if _looks_destructive(command):
-        _append_event(root, task_id, "verification_refused", {"command": command})
+        with task_mutation_lock(root, task_id, "verify"):
+            _append_event(root, task_id, "verification_refused", {"command": command})
         raise ValueError("Refusing obviously destructive verification command.")
 
-    task_path = task_dir(root, task_id)
-    workspace = _resolve_task_workspace(root, task)
-    verify_log = task_path / "logs" / "verify.log"
+    with task_mutation_lock(root, task_id, "verify"):
+        task = get_task(root, task_id)
+        task_path = task_dir(root, task_id)
+        workspace = _resolve_task_workspace(root, task)
+        verify_log = task_path / "logs" / "verify.log"
 
-    _append_event(root, task_id, "verification_started", {"command": command, "cwd": task.workspace})
-    result = run_verification_command(workspace, command, verify_log, timeout_seconds=timeout_seconds)
+        _append_event(root, task_id, "verification_started", {"command": command, "cwd": task.workspace})
+        result = run_verification_command(workspace, command, verify_log, timeout_seconds=timeout_seconds)
 
-    task.status = "verified" if result.status == "passed" else "verification_failed"
-    task.verification_status = result.status
-    task.verification_command = shlex.join(command)
-    task.verification_exit_code = result.exit_code
-    task.verification_log_path = _relative(root, result.log_file)
-    task.latest_log_line = result.latest_log_line
-    task.updated_at = utc_now()
-    task.last_event = "verification_finished"
-    _write_verification_json(root, task_path, task, result)
-    _write_verification_report(task_path, task, result)
-    _save_task(task_path, task)
-    _write_merge_readiness(root, task_path, task)
-    _append_event(
-        root,
-        task_id,
-        "verification_finished",
-        {"status": result.status, "exit_code": result.exit_code, "log_path": task.verification_log_path},
-    )
-    return task
+        task.status = "verified" if result.status == "passed" else "verification_failed"
+        task.verification_status = result.status
+        task.verification_command = shlex.join(command)
+        task.verification_exit_code = result.exit_code
+        task.verification_log_path = _relative(root, result.log_file)
+        task.latest_log_line = result.latest_log_line
+        task.updated_at = utc_now()
+        task.last_event = "verification_finished"
+        _write_verification_json(root, task_path, task, result)
+        _write_verification_report(task_path, task, result)
+        _save_task(task_path, task)
+        _write_merge_readiness(root, task_path, task)
+        _append_event(
+            root,
+            task_id,
+            "verification_finished",
+            {"status": result.status, "exit_code": result.exit_code, "log_path": task.verification_log_path},
+        )
+        return task
 
 
 def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
@@ -352,6 +361,8 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                 checks.append((f"{path.name} workspace", _absolute(root, task.workspace).is_dir(), task.workspace))
                 for name in ("events.jsonl", "questions.jsonl", "result.md", "verification.json"):
                     checks.append((f"{path.name} {name}", (path / name).exists(), str(path / name)))
+                events_ok, events_detail = validate_event_log(path / "events.jsonl")
+                checks.append((f"{path.name} events integrity", events_ok, events_detail))
     if strict:
         # 1. No experimental provider adapters enabled in loaded registry
         try:
@@ -387,6 +398,7 @@ def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) 
     (task_path / "result.md").write_text(f"# Result: {task_id}\n\nNot run yet.\n", encoding="utf-8")
     (task_path / "verification.json").write_text(
         json.dumps({
+            "schema_version": TASK_SCHEMA_VERSION,
             "task_id": task_id,
             "workspace": workspace_rel,
             "command": None,
@@ -418,6 +430,7 @@ def _write_result(task_path: Path, task_id: str, command: list[str], result: Wor
 
 def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, result: VerificationResult) -> None:
     payload = {
+        "schema_version": TASK_SCHEMA_VERSION,
         "task_id": task.id,
         "workspace": task.workspace,
         "command": result.command,
@@ -444,6 +457,7 @@ def _write_merge_readiness(root: Path, task_path: Path, task: TaskRecord) -> Non
     ready, reasons = readiness_state(task, task_path)
 
     payload = {
+        "schema_version": TASK_SCHEMA_VERSION,
         "task_id": task.id,
         "ready": ready,
         "reasons": reasons,
@@ -520,7 +534,11 @@ def _looks_destructive(command: list[str]) -> bool:
 
 
 def apply_task_patch(root: Path, task_id: str, agent_id: str | None = None) -> TaskRecord:
-    import hashlib
+    with task_mutation_lock(root, task_id, "apply-patch"):
+        return _apply_task_patch_locked(root, task_id, agent_id)
+
+
+def _apply_task_patch_locked(root: Path, task_id: str, agent_id: str | None = None) -> TaskRecord:
     task_path = task_dir(root, task_id)
     task = get_task(root, task_id)
     workspace = _resolve_task_workspace(root, task)

@@ -41,6 +41,7 @@ Run the complete pytest regression suite and ensure 100% compliance:
   ```
 - [ ] Verify that **all** tests pass successfully without a single failure or unexpected error.
 - [ ] Confirm that new concurrency locking, log size limits, and environment allowlist checks pass and have active test coverage.
+- [ ] Confirm task event hash-chain validation detects malformed or edited `events.jsonl` records.
 
 ---
 
@@ -68,3 +69,41 @@ Verify the installability and packaging metadata constraints:
   ```bash
   pip install -e .
   ```
+- [ ] Build the source distribution and wheel:
+  ```bash
+  python -m build
+  ```
+- [ ] Validate built distributions:
+  ```bash
+  python -m twine check dist/*
+  ```
+- [ ] Install the built wheel into a clean virtual environment and run CLI smoke checks:
+  ```bash
+  python -m venv /tmp/devflow-release-smoke
+  /tmp/devflow-release-smoke/bin/python -m pip install dist/*.whl
+  /tmp/devflow-release-smoke/bin/devflow --help
+  /tmp/devflow-release-smoke/bin/devflow task --help
+  ```
+
+---
+
+### 6. Version, Changelog, And State Compatibility
+
+Confirm the release can be understood and upgraded safely:
+
+- [ ] Update `CHANGELOG.md` for the exact version being tagged.
+- [ ] Confirm the version in `pyproject.toml` matches the tag.
+- [ ] Document every state-shape change affecting `.devflow/config.yaml`, `task.yaml`, `verification.json`, `merge-readiness.json`, task event records, or workspace layout.
+- [ ] For each state-shape change, provide one of: backward compatibility, a migration path, or a clear refusal/upgrade message.
+- [ ] Confirm `README.md` describes the stable runtime surface without implying provider-backed execution, autonomous routing, web dashboard, database state, or git worktree orchestration are currently supported.
+
+---
+
+### 7. Release Publication
+
+Only after the checks above pass:
+
+- [ ] Tag the release from a clean `main` checkout.
+- [ ] Build final artifacts from the tag, not from an untagged working tree.
+- [ ] Publish the GitHub release with links to `CHANGELOG.md` and the built artifacts.
+- [ ] If publishing to a package index, verify the installed console script with a fresh `pipx` or virtualenv install after upload.

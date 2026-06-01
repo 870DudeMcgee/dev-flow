@@ -67,17 +67,18 @@ class ManualWorkerAdapter:
             if handoff_path is not None:
                 print(f"Handoff path: {handoff_path}")
 
-        from devflow.control_room.persistence import timestamp
+        from devflow.control_room.persistence import append_event
 
-        event = {
-            "timestamp": timestamp(),
-            "event": "manual_packet_generated",
-            "status": "awaiting_human",
-            "summary": "Manual instructions generated. Awaiting human workspace changes.",
-        }
         try:
-            with worker_input.context_file.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(event) + "\n")
+            append_event(
+                worker_input.repo_root,
+                worker_input.task_id,
+                "manual_packet_generated",
+                {
+                    "status": "awaiting_human",
+                    "summary": "Manual instructions generated. Awaiting human workspace changes.",
+                },
+            )
         except Exception:
             pass
 

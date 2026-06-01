@@ -1,0 +1,30 @@
+# Changelog
+
+All notable Dev-Flow changes should be recorded here before a tag is cut.
+
+Dev-Flow follows semantic versioning for public releases:
+
+- MAJOR: incompatible CLI, task-state, or workspace contract changes.
+- MINOR: backward-compatible commands, artifacts, safety gates, or visibility improvements.
+- PATCH: backward-compatible fixes, docs corrections, and packaging repairs.
+
+State compatibility is part of the release contract. Any change to `.devflow/config.yaml`, `task.yaml`, `verification.json`, `merge-readiness.json`, task event records, or workspace layout must be called out here with either a backward-compatibility note, a migration path, or a clear refusal/upgrade message.
+
+## 0.1.0 - Unreleased
+
+### Added
+
+- Shell-worker control-room MVP with local task creation, isolated workspaces, logs, verification evidence, dashboard visibility, promotion preview, and human-controlled promotion.
+- Manual proof-agent handoff path for `devflow-manual-codex-worker` without provider API execution.
+- Adapter maturity boundary that allows only stable runtime adapters to execute.
+- Shell worker hardening for environment allowlisting, timeouts, and log-size limits.
+- Explicit patch review/application flow for provider-generated `proposal.patch` evidence.
+- Schema version markers for task state, verification, merge-readiness, and summary artifacts, with unknown task schema versions refused by `doctor`.
+- Task-local mutation locks with owner metadata and stale-lock recovery for run, verify, apply-patch, and promote operations.
+- Hash-chained task event records with `doctor` validation for malformed or edited `events.jsonl` streams.
+
+### Notes
+
+- No public release artifact has been published yet.
+- Task event records now include `event_index`, `previous_event_hash`, and `event_hash`; older unhashed task events remain readable as legacy evidence, and new events chain from the legacy tail.
+- Provider-backed adapters, autonomous routing, web dashboard, database state, and git worktree orchestration remain outside the stable runtime contract.

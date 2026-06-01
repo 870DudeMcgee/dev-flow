@@ -35,8 +35,11 @@ ALLOWED_PERMISSION_MODES: list[WorkerPermissionMode] = [
 ]
 
 
+TASK_SCHEMA_VERSION = 1
+
 
 class TaskRecord(BaseModel):
+    schema_version: int = TASK_SCHEMA_VERSION
     id: str
     title: str
     status: TaskStatus = "created"

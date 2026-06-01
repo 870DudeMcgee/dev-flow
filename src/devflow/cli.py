@@ -682,7 +682,7 @@ def task_apply_patch(
         typer.echo("Next:")
         typer.echo(f"  devflow task verify {task.id} --shell \"<command>\"")
 
-    except PatchError as exc:
+    except (PatchError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
