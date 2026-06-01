@@ -203,9 +203,9 @@ Minimum vertical slice:
 
 Git evidence artifacts should live under `.devflow/tasks/<task_id>/workers/<worker_id>/` and include `git.json`, `diff.patch`, `diff-summary.json`, `verification.json`, and `promotion-preview.json`.
 
-`doctor --strict` now checks Git integrity for worktree-backed tasks: worker branch existence, worktree existence, safe worktree paths, base commit existence, branch ancestry, verified commit matching worker HEAD, and dirty worktree state after verification. Orphaned worktree/branch inventory and branch-sharing detection remain follow-up cleanup work.
+`doctor --strict` now checks Git integrity for worktree-backed tasks: worker branch existence, worktree existence, safe worktree paths, base commit existence, branch ancestry, verified commit matching worker HEAD, and dirty worktree state after verification. Branch-sharing detection remains follow-up cleanup work.
 
-Cleanup and repair should stay cautious and dry-run-first in the next follow-up: `devflow task cleanup <task_id> --dry-run`, `devflow worktree list`, `devflow worktree prune --dry-run`, `devflow branch list`, and `devflow branch archive <branch>`.
+Cleanup and repair are now cautious and dry-run-first: `devflow task cleanup <task_id> --dry-run`, `devflow worktree list`, `devflow worktree prune --dry-run`, `devflow branch list`, and `devflow branch archive <branch> --dry-run`. Mutating cleanup uses `--apply` and keeps branch deletion out of scope by archiving task branches under `devflow/archive/`.
 
 This milestone must not become a generic sandboxing detour, provider-adapter expansion, autonomous routing layer, or release automation project.
 
@@ -294,7 +294,7 @@ Related design contracts:
 - [docs/task-packet-contract.md](task-packet-contract.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Build Git-native worker isolation and promotion as the production vertical slice while keeping the shell-worker/manual proof-agent contract stable. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
+> **Next Priority**: Add branch-sharing detection and richer conflict-resolution UX around the Git-native shell-worker lane while keeping the shell-worker/manual proof-agent contract stable. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
 
 ## Later, Not Now
 

@@ -7,12 +7,13 @@ from typing import Any
 
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.paths import absolute_path, relative_path, task_worker_dir, worktree_path, worktrees_dir
-from devflow.control_room.persistence import atomic_write_text, utc_now
+from devflow.control_room.persistence import append_event, atomic_write_text, get_task, list_tasks, utc_now
 from devflow.control_room.workspace import Workspace
 
 
 DEFAULT_BASE_BRANCH = "main"
 DEFAULT_WORKER_ID = "shell"
+ARCHIVE_BRANCH_PREFIX = "devflow/archive/"
 
 
 class GitWorktreeError(ValueError):
@@ -272,6 +273,146 @@ def promote_git_worktree(root: Path, task: TaskRecord) -> dict[str, Any]:
     return preview
 
 
+def list_devflow_worktrees(root: Path) -> list[dict[str, Any]]:
+    _require_git_repo(root)
+    tasks = {task.id: task for task in list_tasks(root)}
+    entries = _git_worktree_entries(root)
+    devflow_root = worktrees_dir(root).resolve()
+    worktrees: list[dict[str, Any]] = []
+    for entry in entries:
+        path = Path(entry["path"]).resolve()
+        if not _is_under(path, devflow_root):
+            continue
+        branch = entry.get("branch")
+        task_id, worker_id = _task_worker_from_branch(branch) or _task_worker_from_worktree_path(root, path)
+        status = _resource_status(root, tasks, task_id, worker_id, branch, path)
+        worktrees.append(
+            {
+                "path": relative_path(root, path),
+                "branch": branch or "",
+                "task_id": task_id or "",
+                "worker_id": worker_id or "",
+                "status": status,
+                "dirty": _worktree_dirty(path) if path.exists() else True,
+            }
+        )
+    return sorted(worktrees, key=lambda item: (item["task_id"], item["worker_id"], item["path"]))
+
+
+def list_devflow_branches(root: Path) -> list[dict[str, Any]]:
+    _require_git_repo(root)
+    tasks = {task.id: task for task in list_tasks(root)}
+    worktree_by_branch = {item["branch"]: item for item in list_devflow_worktrees(root) if item.get("branch")}
+    proc = _run_git(root, ["for-each-ref", "--format=%(refname:short)", "refs/heads/devflow"], check=False)
+    if proc.returncode != 0:
+        return []
+    branches: list[dict[str, Any]] = []
+    for branch in sorted(line.strip() for line in proc.stdout.splitlines() if line.strip()):
+        parsed = _task_worker_from_branch(branch)
+        if not parsed:
+            continue
+        task_id, worker_id = parsed
+        worktree = worktree_by_branch.get(branch)
+        path = absolute_path(root, worktree["path"]).resolve() if worktree else None
+        status = _resource_status(root, tasks, task_id, worker_id, branch, path)
+        branches.append(
+            {
+                "branch": branch,
+                "task_id": task_id,
+                "worker_id": worker_id,
+                "status": status,
+                "has_worktree": bool(worktree),
+                "worktree_path": worktree["path"] if worktree else "",
+            }
+        )
+    return branches
+
+
+def prune_orphan_worktrees(root: Path, dry_run: bool = True, force: bool = False) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for worktree in list_devflow_worktrees(root):
+        if worktree["status"] != "orphan":
+            continue
+        action = {
+            "action": "remove_worktree",
+            "path": worktree["path"],
+            "branch": worktree["branch"],
+            "status": worktree["status"],
+            "applied": False,
+        }
+        if not dry_run:
+            _remove_git_worktree(root, worktree["path"], force=force)
+            action["applied"] = True
+        actions.append(action)
+    return actions
+
+
+def archive_devflow_branch(root: Path, branch: str, dry_run: bool = True) -> dict[str, Any]:
+    _require_git_repo(root)
+    if not _task_worker_from_branch(branch):
+        raise GitWorktreeError(f"Refusing to archive non-task Dev-Flow branch: {branch}")
+    if not branch_exists(root, branch):
+        raise GitWorktreeError(f"Dev-Flow branch does not exist: {branch}")
+    target = archive_branch_name(branch)
+    if branch_exists(root, target):
+        raise GitWorktreeError(f"Archive branch already exists: {target}")
+    active = [item for item in list_devflow_worktrees(root) if item.get("branch") == branch]
+    if active and not dry_run:
+        paths = ", ".join(item["path"] for item in active)
+        raise GitWorktreeError(f"Refusing to archive branch with an active worktree: {paths}")
+    if not dry_run:
+        _git_stdout(root, ["branch", "-m", branch, target])
+    return {"branch": branch, "archive_branch": target, "applied": not dry_run}
+
+
+def cleanup_task_git_resources(root: Path, task_id: str, dry_run: bool = True, force: bool = False) -> list[dict[str, Any]]:
+    task = get_task(root, task_id)
+    if not is_git_worktree_task(task):
+        raise GitWorktreeError(f"Task {task.id} is not backed by a Git worktree")
+    if not dry_run and task.status not in {"promoted", "failed", "worker_failed", "verification_failed", "timed_out", "cancelled"} and not force:
+        raise GitWorktreeError(f"Refusing to cleanup task {task.id} with status {task.status}; use --force after review.")
+    worker_id = worker_id_for_task(task)
+    branch = task.branch_name or worker_branch_name(task.id, worker_id)
+    path = worktree_path(root, task.id, worker_id)
+    actions: list[dict[str, Any]] = []
+    if path.exists():
+        action = {"action": "remove_worktree", "path": relative_path(root, path), "branch": branch, "applied": False}
+        if not dry_run:
+            _remove_git_worktree(root, relative_path(root, path), force=force)
+            action["applied"] = True
+        actions.append(action)
+    if branch_exists(root, branch):
+        target = archive_branch_name(branch)
+        action = {"action": "archive_branch", "branch": branch, "archive_branch": target, "applied": False}
+        if not dry_run:
+            if branch_exists(root, target):
+                raise GitWorktreeError(f"Archive branch already exists: {target}")
+            _git_stdout(root, ["branch", "-m", branch, target])
+            action["applied"] = True
+        actions.append(action)
+    if not dry_run and actions:
+        append_event(
+            root,
+            task.id,
+            "task_git_resources_cleaned",
+            {
+                "removed_worktrees": [item["path"] for item in actions if item["action"] == "remove_worktree" and item["applied"]],
+                "archived_branches": [
+                    {"from": item["branch"], "to": item["archive_branch"]}
+                    for item in actions
+                    if item["action"] == "archive_branch" and item["applied"]
+                ],
+            },
+        )
+    return actions
+
+
+def archive_branch_name(branch: str) -> str:
+    if not branch.startswith("devflow/") or branch.startswith(ARCHIVE_BRANCH_PREFIX):
+        raise GitWorktreeError(f"Refusing to archive non-task Dev-Flow branch: {branch}")
+    return f"{ARCHIVE_BRANCH_PREFIX}{branch.removeprefix('devflow/')}"
+
+
 def branch_exists(root: Path, branch: str) -> bool:
     return _run_git(root, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], check=False).returncode == 0
 
@@ -327,6 +468,91 @@ def _run_git(cwd: Path, args: list[str], check: bool) -> subprocess.CompletedPro
         detail = (proc.stderr or proc.stdout or "git command failed").strip()
         raise GitWorktreeError(detail)
     return proc
+
+
+def _git_worktree_entries(root: Path) -> list[dict[str, str]]:
+    proc = _run_git(root, ["worktree", "list", "--porcelain"], check=True)
+    entries: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            if current:
+                entries.append(current)
+                current = {}
+            continue
+        key, _, value = line.partition(" ")
+        if key == "worktree":
+            current["path"] = value
+        elif key == "branch":
+            current["branch"] = value.removeprefix("refs/heads/")
+        elif key == "HEAD":
+            current["head"] = value
+    if current:
+        entries.append(current)
+    return [entry for entry in entries if entry.get("path")]
+
+
+def _task_worker_from_branch(branch: str | None) -> tuple[str, str] | None:
+    if not branch or not branch.startswith("devflow/") or branch.startswith(ARCHIVE_BRANCH_PREFIX):
+        return None
+    parts = branch.split("/", 2)
+    if len(parts) < 3 or not parts[1] or not parts[2]:
+        return None
+    return parts[1], parts[2]
+
+
+def _task_worker_from_worktree_path(root: Path, path: Path) -> tuple[str, str]:
+    try:
+        relative = path.resolve().relative_to(worktrees_dir(root).resolve())
+    except ValueError:
+        return "", ""
+    parts = relative.parts
+    if len(parts) < 2:
+        return "", ""
+    return parts[0], parts[1]
+
+
+def _resource_status(
+    root: Path,
+    tasks: dict[str, TaskRecord],
+    task_id: str | None,
+    worker_id: str | None,
+    branch: str | None,
+    path: Path | None,
+) -> str:
+    if not task_id:
+        return "unknown"
+    task = tasks.get(task_id)
+    if not task:
+        return "orphan"
+    expected_branch = task.branch_name or worker_branch_name(task.id, worker_id or DEFAULT_WORKER_ID)
+    if branch and branch != expected_branch:
+        return "mismatched"
+    if path is not None and path != worktree_path(root, task.id, worker_id or worker_id_for_task(task)).resolve():
+        return "mismatched"
+    return "owned"
+
+
+def _is_under(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _remove_git_worktree(root: Path, path: str, force: bool = False) -> None:
+    absolute = absolute_path(root, path).resolve()
+    expected_root = worktrees_dir(root).resolve()
+    if not _is_under(absolute, expected_root):
+        raise GitWorktreeError(f"Refusing to remove worktree outside .devflow/worktrees: {path}")
+    if absolute.exists() and _worktree_dirty(absolute) and not force:
+        raise GitWorktreeError(f"Refusing to remove dirty worktree: {path}")
+    args = ["worktree", "remove"]
+    if force:
+        args.append("--force")
+    args.append(str(absolute))
+    _git_stdout(root, args)
 
 
 def _worktree_dirty(workspace: Path) -> bool:

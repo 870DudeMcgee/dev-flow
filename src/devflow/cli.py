@@ -39,13 +39,25 @@ from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
 from devflow.control_room.task_packet import build_agent_packet
+from devflow.control_room.git_worktree import (
+    GitWorktreeError,
+    archive_devflow_branch,
+    cleanup_task_git_resources,
+    list_devflow_branches,
+    list_devflow_worktrees,
+    prune_orphan_worktrees,
+)
 
 
 app = typer.Typer(help="Dev-Flow local control room")
 task_app = typer.Typer(help="Manage control-room tasks")
 agent_app = typer.Typer(help="Manage and inspect agents")
+worktree_app = typer.Typer(help="Inspect and clean Dev-Flow Git worktrees")
+branch_app = typer.Typer(help="Inspect and archive Dev-Flow Git branches")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
+app.add_typer(worktree_app, name="worktree")
+app.add_typer(branch_app, name="branch")
 
 TRUSTED_LOCAL_WARNING = "Security: shell execution is path-isolated, not sandboxed; run only trusted local commands."
 
@@ -226,6 +238,92 @@ def task_create(
         typer.echo(f"worker_branch: {task.branch_name}")
     if task.workspace_dirty:
         typer.echo("Warning: Main worktree has uncommitted changes. Workspace contains dirty modifications.")
+
+
+@task_app.command("cleanup")
+def task_cleanup(
+    task_id: str,
+    dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Preview cleanup by default; use --apply to mutate."),
+    force: bool = typer.Option(False, "--force", help="Allow cleanup of non-terminal or dirty task resources after review."),
+) -> None:
+    """Dry-run-first cleanup for one Git worktree-backed task."""
+    try:
+        actions = cleanup_task_git_resources(Path.cwd(), task_id, dry_run=dry_run, force=force)
+    except (KeyError, GitWorktreeError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"mode: {'dry-run' if dry_run else 'apply'}")
+    typer.echo(f"task: {task_id}")
+    _echo_cleanup_actions(actions, dry_run=dry_run)
+
+
+@worktree_app.command("list")
+def worktree_list() -> None:
+    """List Dev-Flow-owned Git worktrees and orphan status."""
+    try:
+        worktrees = list_devflow_worktrees(Path.cwd())
+    except GitWorktreeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if not worktrees:
+        typer.echo("No Dev-Flow worktrees found.")
+        return
+    typer.echo(f"{'Path':<44} {'Branch':<32} {'Task':<12} {'Worker':<12} Status")
+    typer.echo("-" * 116)
+    for item in worktrees:
+        typer.echo(
+            f"{item['path']:<44} {item['branch']:<32} {item['task_id']:<12} {item['worker_id']:<12} {item['status']}"
+        )
+
+
+@worktree_app.command("prune")
+def worktree_prune(
+    dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Preview pruning by default; use --apply to mutate."),
+    force: bool = typer.Option(False, "--force", help="Allow removal of dirty orphan worktrees after review."),
+) -> None:
+    """Remove orphaned Dev-Flow Git worktrees only when --apply is supplied."""
+    try:
+        actions = prune_orphan_worktrees(Path.cwd(), dry_run=dry_run, force=force)
+    except GitWorktreeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"mode: {'dry-run' if dry_run else 'apply'}")
+    _echo_cleanup_actions(actions, dry_run=dry_run)
+
+
+@branch_app.command("list")
+def branch_list() -> None:
+    """List local Dev-Flow task branches and orphan status."""
+    try:
+        branches = list_devflow_branches(Path.cwd())
+    except GitWorktreeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if not branches:
+        typer.echo("No Dev-Flow branches found.")
+        return
+    typer.echo(f"{'Branch':<36} {'Task':<12} {'Worker':<12} {'Worktree':<44} Status")
+    typer.echo("-" * 120)
+    for item in branches:
+        typer.echo(
+            f"{item['branch']:<36} {item['task_id']:<12} {item['worker_id']:<12} {item['worktree_path']:<44} {item['status']}"
+        )
+
+
+@branch_app.command("archive")
+def branch_archive(
+    branch: str,
+    dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Preview archive by default; use --apply to mutate."),
+) -> None:
+    """Rename a Dev-Flow task branch under devflow/archive/."""
+    try:
+        result = archive_devflow_branch(Path.cwd(), branch, dry_run=dry_run)
+    except GitWorktreeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"mode: {'dry-run' if dry_run else 'apply'}")
+    label = "would_archive_branch" if dry_run else "archived_branch"
+    typer.echo(f"{label}: {result['branch']} -> {result['archive_branch']}")
 
 
 @task_app.command("list")
@@ -1051,6 +1149,19 @@ def _echo_reconciliation_report(report: dict[str, Any]) -> None:
         typer.echo(f"  - [{finding['severity']}] {finding['code']}{task}: {finding['detail']}")
         typer.echo(f"    path: {finding['path']}")
         typer.echo(f"    next_safe_action: {finding['next_action']}")
+
+
+def _echo_cleanup_actions(actions: list[dict[str, Any]], dry_run: bool) -> None:
+    if not actions:
+        typer.echo("No Git-native cleanup actions found.")
+        return
+    for action in actions:
+        if action["action"] == "remove_worktree":
+            label = "would_remove_worktree" if dry_run else "removed_worktree"
+            typer.echo(f"{label}: {action['path']}")
+        elif action["action"] == "archive_branch":
+            label = "would_archive_branch" if dry_run else "archived_branch"
+            typer.echo(f"{label}: {action['branch']} -> {action['archive_branch']}")
 
 
 def _echo_list(label: str, values: list[str]) -> None:

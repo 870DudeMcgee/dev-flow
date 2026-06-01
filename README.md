@@ -16,6 +16,7 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
+- **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
 
 ### Planning And Manual Transition Commands
 - **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent packet`
@@ -46,6 +47,7 @@ Dev-Flow stores durable task state as local filesystem artifacts:
   tasks/<task-id>/workers/shell/git.json        # only for --git-worktree tasks
   tasks/<task-id>/workers/shell/diff.patch      # only for --git-worktree tasks
   tasks/<task-id>/workers/shell/diff-summary.json
+  tasks/<task-id>/workers/shell/verification.json
   tasks/<task-id>/workers/shell/promotion-preview.json
 ```
 
@@ -60,11 +62,11 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
-- `devflow task create --git-worktree` creates a branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification to the worker branch commit, and uses Git-aware promotion mechanics.
+- `devflow task create --git-worktree` creates a branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification to the worker branch commit, and uses Git-aware promotion mechanics. Git cleanup commands are dry-run-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --dry-run` before applying mutations.
 - Promotion is explicit, readiness-gated, and human-controlled. Copy-workspace tasks promote by copying verified workspace changes back into the main checkout; Git worktree tasks promote through the worker branch path.
 - The patch applier is a text-only MVP path with strong path validation and durable patch hash evidence. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
 
-Use Dev-Flow only on repositories and worker commands you trust. The Git-native shell-worker path now moves worker isolation and promotion onto git worktrees/branches, binds verification to commits, and extends strict readiness checks with Git facts. Stricter command policy, multi-worker branch cleanup, and optional network/resource controls remain later hardening layers.
+Use Dev-Flow only on repositories and worker commands you trust. The Git-native shell-worker path now moves worker isolation and promotion onto git worktrees/branches, binds verification to commits, extends strict readiness checks with Git facts, and includes dry-run-first cleanup for orphaned Dev-Flow worktrees and branches. Stricter command policy, multi-worker worktree scheduling, and optional network/resource controls remain later hardening layers.
 
 ## Durable Context Structure
 

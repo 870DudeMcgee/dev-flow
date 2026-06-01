@@ -26,6 +26,7 @@ State compatibility is part of the release contract. Any change to `.devflow/con
 - Task-local mutation locks with owner metadata and stale-lock recovery for run, verify, apply-patch, and promote operations.
 - Hash-chained task event records with `doctor` validation for malformed or edited `events.jsonl` streams.
 - Opt-in Git-native shell-worker task lane via `devflow task create --git-worktree`, with worker branch/worktree evidence, commit-bound verification, Git-native promotion preview, strict Git integrity checks, and human-controlled Git-aware promotion.
+- Dry-run-first Git cleanup commands for the opt-in shell-worker lane: worktree/branch inventory, orphaned worktree pruning, task branch archiving, and task-local Git resource cleanup.
 
 ### Notes
 

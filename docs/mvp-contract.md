@@ -28,6 +28,11 @@ devflow task packet <task-id>
 devflow task log <task-id>
 devflow task promote-preview <task-id>
 devflow task promote <task-id>
+devflow task cleanup <task-id> --dry-run
+devflow worktree list
+devflow worktree prune --dry-run
+devflow branch list
+devflow branch archive <branch> --dry-run
 devflow agent show devflow-manual-codex-worker
 devflow agent packet <task-id> devflow-manual-codex-worker
 devflow task run <task-id> --worker devflow-manual-codex-worker
@@ -51,7 +56,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task run`, `task verify`, `task packet`, `task log`, `task promote-preview`, `task promote`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task run`, `task verify`, `task packet`, `task log`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -159,9 +164,8 @@ Current MVP implementation limits:
 
 Future production hardening items:
 - Multi-worker Git worktree attempts per task beyond the initial shell worker lane.
-- Orphaned worktree/branch cleanup and dry-run repair commands.
 - Richer Git-native conflict handling and resolver-task UX.
-- Dry-run-first worktree and branch cleanup/recovery commands.
+- Multi-worker branch sharing detection and cleanup beyond the initial shell worker lane.
 - Per-task temporary `HOME` and temp directories.
 - Network-off runner policies.
 - Resource limits for CPU, memory, file descriptors, and process counts.

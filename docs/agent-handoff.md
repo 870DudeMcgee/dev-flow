@@ -90,6 +90,7 @@ Current product contract:
 - design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
 - design-only task-fit/context routing architecture; not active runtime behavior yet
 - opt-in Git-native shell-worker isolation and promotion slice through `devflow task create --git-worktree`
+- dry-run-first Git cleanup/repair commands: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, and `devflow task cleanup`
 - trusted-local safety model only: shell execution is path-isolated in a copied workspace, not OS-sandboxed
 
 ## Git-Native Slice
@@ -105,6 +106,7 @@ Implemented from [docs/architecture/git-native-worker-isolation-and-promotion.md
 - refuse promotion if worker HEAD changed after verification
 - refuse promotion if main moved and stale baseline or conflicts are unresolved
 - promote with Git-aware mechanics under human control
+- list owned/orphaned Dev-Flow worktrees and branches, prune orphaned worktrees with `--apply`, and archive task branches under `devflow/archive/`
 
 ## Required Current Commands
 

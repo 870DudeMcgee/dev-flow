@@ -160,18 +160,20 @@ It should not be framed as blind file copy-back from a scratchpad.
 
 ## Cleanup And Recovery
 
-Git-native isolation needs cautious cleanup tools. They should default to dry-run behavior or provide a dry-run first:
+Git-native isolation includes cautious cleanup tools. They default to dry-run behavior and require `--apply` before mutating anything:
 
 ```bash
 devflow task cleanup <task_id> --dry-run
-devflow task cleanup <task_id>
+devflow task cleanup <task_id> --apply
 devflow worktree list
 devflow worktree prune --dry-run
+devflow worktree prune --apply
 devflow branch list
-devflow branch archive <branch>
+devflow branch archive <branch> --dry-run
+devflow branch archive <branch> --apply
 ```
 
-These commands should report proposed file, worktree, and branch actions before mutating anything.
+These commands report proposed worktree and branch actions before mutating anything. Branch cleanup archives task branches under `devflow/archive/` instead of deleting them.
 
 ## Conflict UX
 
