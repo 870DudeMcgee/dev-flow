@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.manual_worker import ManualWorkerAdapter
 from devflow.control_room.persistence import save_task
 from devflow.control_room.service import get_task
 from devflow.control_room.shell_worker import ShellWorkerAdapter
@@ -229,13 +230,19 @@ def test_shell_worker_mvp_heartbeat_with_shell_command_option() -> None:
 def test_unsupported_worker_adapter_values_are_refused() -> None:
     assert list_worker_adapters() == ["anthropic_messages", "gemini", "manual", "ollama_chat", "openai_chat", "openai_compatible", "shell"]
     assert isinstance(get_worker_adapter("shell"), ShellWorkerAdapter)
-    with pytest.raises(UnsupportedWorkerAdapter) as excinfo:
-        get_worker_adapter("codex")
-    err_msg = str(excinfo.value)
-    assert "codex" in err_msg
-    assert "shell" in err_msg
-    assert "manual" in err_msg
-    assert "cannot execute" in err_msg
+    assert isinstance(get_worker_adapter("manual"), ManualWorkerAdapter)
+    non_executable = {
+        "manual_packet": "experimental_readonly",
+        "ollama_chat": "experimental_readonly",
+        "openai_responses": "planned_not_executable",
+        "codex": "planned_not_executable",
+    }
+    for adapter_name, maturity in non_executable.items():
+        with pytest.raises(UnsupportedWorkerAdapter) as excinfo:
+            get_worker_adapter(adapter_name)
+        err_msg = str(excinfo.value)
+        assert f"Adapter '{adapter_name}' is {maturity} and cannot execute" in err_msg
+        assert "Stable runtime adapters: manual, shell." in err_msg
 
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -251,6 +258,56 @@ def test_unsupported_worker_adapter_values_are_refused() -> None:
             assert run.exit_code == 1, run.output
             assert "codex" in run.output
             assert "cannot execute" in run.output
+            assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
+            assert get_task(Path.cwd(), "task-0001").status == "created"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_experimental_registry_adapter_cannot_execute() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            created = runner.invoke(app, ["task", "create", "experimental adapter refusal"])
+            assert created.exit_code == 0, created.output
+
+            registry_path = Path(".devflow/agents/registry.yaml")
+            registry_path.parent.mkdir(parents=True, exist_ok=True)
+            registry_path.write_text(
+                """version: 1
+agents:
+  experimental-openai:
+    provider: openai
+    model: gpt-4o
+    adapter: openai_chat
+    adapter_maturity: experimental_readonly
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    can_touch:
+      - "<workspace>/**"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - ".git/**"
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+""",
+                encoding="utf-8",
+            )
+
+            run = runner.invoke(
+                app,
+                ["task", "run", "task-0001", "--worker", "experimental-openai", "--shell", "echo should-not-run"],
+            )
+            assert run.exit_code == 1, run.output
+            assert "Adapter 'openai_chat' for agent 'experimental-openai' is experimental_readonly" in run.output
+            assert "Only stable_runtime adapters can execute. Stable runtime adapters: manual, shell." in run.output
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
             assert get_task(Path.cwd(), "task-0001").status == "created"
         finally:

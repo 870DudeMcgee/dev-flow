@@ -8,9 +8,19 @@ The broader future registry, provider, role, permission, adapter runtime, and ro
 
 Dev-Flow owns task state, workspace boundaries, verification evidence, and merge readiness. Worker adapters are replaceable execution engines that operate inside those boundaries.
 
+## Runtime Maturity Boundary
+
+Every known adapter is classified before it can be considered for task execution:
+
+- `stable_runtime`: executable through `devflow task run`.
+- `experimental_readonly`: may be described, inspected, packeted, or tested directly, but cannot execute through the task runner.
+- `planned_not_executable`: design placeholder only; invoking it as a task worker must fail clearly.
+
+Only `shell` and `manual` are `stable_runtime` adapters in the current milestone. Provider-backed adapters remain non-executable until a future slice promotes them with explicit tests, threat modeling, enable flags, and updated docs.
+
 ## Reference Adapter: Shell Worker
 
-The shell worker is the current reference adapter because it is the only implemented worker path in the MVP.
+The shell worker is the current reference adapter because it is the only automated execution path in the MVP. The manual proof-agent is also stable-runtime, but it generates bounded human handoff evidence rather than provider-backed execution.
 
 ### What It Reads
 

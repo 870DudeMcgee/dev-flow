@@ -35,6 +35,24 @@ def adapter_maturity(adapter: str) -> AdapterMaturity:
     return ADAPTER_MATURITY.get(adapter, "planned_not_executable")
 
 
+def is_stable_runtime_adapter(adapter: str) -> bool:
+    return adapter_maturity(adapter) == "stable_runtime"
+
+
+def stable_runtime_adapters_label() -> str:
+    return ", ".join(STABLE_RUNTIME_ADAPTERS)
+
+
+def adapter_execution_refusal(adapter: str, agent_id: str | None = None) -> str:
+    subject = f"Adapter '{adapter}'"
+    if agent_id is not None:
+        subject = f"{subject} for agent '{agent_id}'"
+    return (
+        f"{subject} is {adapter_maturity(adapter)} and cannot execute. "
+        f"Only stable_runtime adapters can execute. Stable runtime adapters: {stable_runtime_adapters_label()}."
+    )
+
+
 class AgentRegistryError(ValueError):
     def __init__(self, source_path: Path, errors: list[str]) -> None:
         self.source_path = source_path

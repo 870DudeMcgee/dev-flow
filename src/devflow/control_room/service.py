@@ -176,7 +176,11 @@ def run_shell_task(
     worker_adapter: str = "shell",
     env: dict[str, str] | None = None,
 ) -> TaskRecord:
-    from devflow.control_room.agent_registry import STABLE_RUNTIME_ADAPTERS, load_agent_registry
+    from devflow.control_room.agent_registry import (
+        adapter_execution_refusal,
+        is_stable_runtime_adapter,
+        load_agent_registry,
+    )
     registry = load_agent_registry(root)
 
     agent = None
@@ -187,12 +191,8 @@ def run_shell_task(
         if not agent.enabled:
             raise ValueError(f"Agent '{worker_adapter}' is disabled.")
         resolved_adapter_name = agent.adapter
-        if agent.adapter_maturity != "stable_runtime":
-            stable = ", ".join(STABLE_RUNTIME_ADAPTERS)
-            raise ValueError(
-                f"Adapter '{agent.adapter}' for agent '{agent.id}' is {agent.adapter_maturity}. "
-                f"Only stable_runtime adapters can execute. Stable runtime adapters: {stable}."
-            )
+        if not is_stable_runtime_adapter(agent.adapter):
+            raise ValueError(adapter_execution_refusal(agent.adapter, agent_id=agent.id))
 
     adapter = get_worker_adapter(resolved_adapter_name)
     if not command and resolved_adapter_name != "manual":
@@ -598,4 +598,3 @@ def apply_task_patch(root: Path, task_id: str, agent_id: str | None = None) -> T
     _save_task(task_path, task)
     _write_merge_readiness(root, task_path, task)
     return task
-

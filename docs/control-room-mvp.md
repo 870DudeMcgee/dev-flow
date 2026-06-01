@@ -199,6 +199,8 @@ Implemented:
 - proof-agent bounded packets with role, allowed reads, allowed writes, forbidden writes, required outputs, completion rules, and manual instructions
 - manual proof-agent handoff generation without provider API calls, model selection, routing, scheduling, auto-verification, or auto-promotion
 - task show/dashboard visibility for manual proof-agent complete, blocked-question, and failure evidence
+- adapter maturity boundary with only `shell` and `manual` classified as executable `stable_runtime` adapters
+- clear task-run refusal for `experimental_readonly` and `planned_not_executable` adapters
 - promotion preview from isolated workspace changes
 - human-controlled promotion of verified changes to the main checkout
 

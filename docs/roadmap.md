@@ -132,7 +132,7 @@ Acceptance:
 
 Goal: keep future adapter descriptions from becoming phantom runtime support.
 
-Status: active registry boundary.
+Status: implemented and guarded by focused contract tests.
 
 Acceptance:
 

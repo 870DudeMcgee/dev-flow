@@ -18,7 +18,23 @@ class TestMVPBoundaries(unittest.TestCase):
 
     def test_only_shell_and_manual_are_stable_runtime(self):
         """Contract test: only shell and manual may be stable_runtime adapters."""
-        from devflow.control_room.agent_registry import STABLE_RUNTIME_ADAPTERS, ADAPTER_MATURITY
+        from devflow.control_room.agent_registry import ADAPTER_MATURITY, STABLE_RUNTIME_ADAPTERS, adapter_maturity
+
+        self.assertEqual(
+            ADAPTER_MATURITY,
+            {
+                "shell": "stable_runtime",
+                "manual": "stable_runtime",
+                "manual_packet": "experimental_readonly",
+                "ollama_chat": "experimental_readonly",
+                "openai_responses": "planned_not_executable",
+                "openai_compatible": "experimental_readonly",
+                "anthropic_messages": "experimental_readonly",
+                "gemini": "experimental_readonly",
+                "openai_chat": "experimental_readonly",
+            },
+        )
+        self.assertEqual(adapter_maturity("unlisted-future-provider"), "planned_not_executable")
 
         self.assertEqual(
             set(STABLE_RUNTIME_ADAPTERS),
@@ -65,7 +81,15 @@ class TestMVPBoundaries(unittest.TestCase):
         """Contract test: get_worker_adapter must reject experimental/planned adapters."""
         from devflow.control_room.worker_adapter import get_worker_adapter, UnsupportedWorkerAdapter
 
-        non_stable = ["ollama_chat", "openai_chat", "anthropic_messages", "gemini", "openai_compatible"]
+        non_stable = [
+            "manual_packet",
+            "ollama_chat",
+            "openai_responses",
+            "openai_chat",
+            "anthropic_messages",
+            "gemini",
+            "openai_compatible",
+        ]
         for adapter_name in non_stable:
             with self.assertRaises(UnsupportedWorkerAdapter, msg=f"Expected rejection of '{adapter_name}'"):
                 get_worker_adapter(adapter_name)
