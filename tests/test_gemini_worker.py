@@ -118,8 +118,13 @@ def test_gemini_worker_success(tmp_path: Path) -> None:
         assert result.exit_code == 0
         assert log_file.exists()
         
-        # Verify that workspace file hello.txt was modified!
-        assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello beautiful World\n"
+        # Verify that workspace file hello.txt was NOT modified!
+        assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
+        
+        # Verify proposed patch was written to evidence file
+        patch_file = task_dir / "agents" / "default_agent" / "proposal.patch"
+        assert patch_file.exists()
+        assert "Hello beautiful World" in patch_file.read_text(encoding="utf-8")
 
 
 def test_gemini_worker_connection_failure(tmp_path: Path) -> None:

@@ -212,41 +212,15 @@ class OpenAIChatWorkerAdapter:
                 log_file=worker_input.log_file,
             )
 
-        # Apply patch inside workspace using relative directory from repo root
-        rel_workspace = os.path.relpath(worker_input.workspace_path, worker_input.repo_root)
-        
-        with worker_input.log_file.open("a", encoding="utf-8") as log:
-            log.write(f"Applying unified patch inside workspace {rel_workspace}...\n")
-            log.flush()
-
-        proc = subprocess.Popen(
-            ["git", "apply", f"--directory={rel_workspace}", "--whitespace=nowarn", "-"],
-            cwd=worker_input.repo_root,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = proc.communicate(input=diff_text)
-
-        if proc.returncode != 0:
-            err_msg = f"Patch application failed with exit code {proc.returncode}"
-            with worker_input.log_file.open("a", encoding="utf-8") as log:
-                log.write(f"{err_msg}\n")
-                log.write(f"stdout:\n{stdout}\n")
-                log.write(f"stderr:\n{stderr}\n")
-                log.flush()
-            return WorkerResult(
-                status="worker_failed",
-                summary=err_msg,
-                exit_code=proc.returncode,
-                latest_log_line=latest_visible_log_line(worker_input.log_file),
-                result_file=worker_input.result_file,
-                log_file=worker_input.log_file,
-            )
+        # Write proposed diff/patch artifact to task evidence file instead of applying it
+        target_agent_id = agent_id or "default_agent"
+        patch_dir = worker_input.repo_root / ".devflow" / "tasks" / worker_input.task_id / "agents" / target_agent_id
+        patch_dir.mkdir(parents=True, exist_ok=True)
+        patch_file = patch_dir / "proposal.patch"
+        patch_file.write_text(diff_text, encoding="utf-8")
 
         with worker_input.log_file.open("a", encoding="utf-8") as log:
-            log.write("Patch applied successfully!\n")
+            log.write(f"Proposed patch written to {patch_file}\n")
             log.write("Worker completed successfully.\n")
             log.flush()
 
