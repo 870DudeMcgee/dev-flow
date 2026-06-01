@@ -11,7 +11,7 @@ from devflow.control_room.models import WorkerInput, WorkerResult
 from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.agent_registry import load_agent_registry, load_provider_registry
 from devflow.control_room.context_pack import build_context_pack
-from devflow._legacy.agents.schemas import repair_and_parse_json
+from devflow.control_room.json_utils import repair_and_parse_json
 
 
 class OpenAICompatibleWorkerAdapter:

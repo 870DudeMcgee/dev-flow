@@ -53,7 +53,17 @@ agents:
     assert registry.version == 1
     assert registry.default_agent_id == "local-shell"
     assert registry.default_agent().id == "local-shell"
-    assert registry.enabled_agent_ids() == ["local-shell", "devflow-manual-codex-worker"]
+    assert sorted(registry.enabled_agent_ids()) == sorted([
+        "local-shell",
+        "devflow-manual-codex-worker",
+        "devflow-ollama-worker",
+        "devflow-openai-worker",
+        "devflow-anthropic-worker",
+        "devflow-gemini-worker",
+        "devflow-openai-compatible-worker",
+        "devflow-openai-planner",
+        "devflow-openai-reviewer",
+    ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
     assert agent.default_mode == "verify_only"
@@ -100,7 +110,16 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
     initialize_seed(tmp_path)
     seeded_registry = load_agent_registry(tmp_path)
     assert seeded_registry.default_agent().id == "devflow-manual-codex-worker"
-    assert seeded_registry.enabled_agent_ids() == ["devflow-manual-codex-worker"]
+    assert sorted(seeded_registry.enabled_agent_ids()) == sorted([
+        "devflow-manual-codex-worker",
+        "devflow-ollama-worker",
+        "devflow-openai-worker",
+        "devflow-anthropic-worker",
+        "devflow-gemini-worker",
+        "devflow-openai-compatible-worker",
+        "devflow-openai-planner",
+        "devflow-openai-reviewer",
+    ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,8 +169,30 @@ agents:
 
     registry = load_agent_registry(tmp_path)
 
-    assert sorted(registry.agents) == ["devflow-manual-codex-worker", "disabled-local", "local-shell"]
-    assert registry.enabled_agent_ids() == ["local-shell", "devflow-manual-codex-worker"]
+    expected_agents = [
+        "devflow-manual-codex-worker",
+        "devflow-ollama-worker",
+        "devflow-openai-worker",
+        "devflow-anthropic-worker",
+        "devflow-gemini-worker",
+        "devflow-openai-compatible-worker",
+        "devflow-openai-planner",
+        "devflow-openai-reviewer",
+        "disabled-local",
+        "local-shell",
+    ]
+    assert sorted(registry.agents) == sorted(expected_agents)
+    assert sorted(registry.enabled_agent_ids()) == sorted([
+        "local-shell",
+        "devflow-manual-codex-worker",
+        "devflow-ollama-worker",
+        "devflow-openai-worker",
+        "devflow-anthropic-worker",
+        "devflow-gemini-worker",
+        "devflow-openai-compatible-worker",
+        "devflow-openai-planner",
+        "devflow-openai-reviewer",
+    ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
 
@@ -256,7 +297,13 @@ default_timeout_seconds: "not-an-int"
 def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     seeded_registry = load_provider_registry(tmp_path)
-    assert seeded_registry.enabled_provider_ids() == []
+    assert sorted(seeded_registry.enabled_provider_ids()) == sorted([
+        "ollama",
+        "openai",
+        "anthropic",
+        "gemini",
+        "openai_compatible",
+    ])
 
 
 def test_valid_role_registry_loads_and_enabled_roles(tmp_path: Path) -> None:
@@ -309,7 +356,15 @@ roles:
 def test_role_registry_disabled_default_seed_behavior(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     seeded_registry = load_role_registry(tmp_path)
-    assert seeded_registry.enabled_role_ids() == []
+    assert sorted(seeded_registry.enabled_role_ids()) == sorted([
+        "implementation_worker",
+        "local_senior_worker",
+        "test_runner",
+        "frontier_code_reviewer",
+        "tester",
+        "senior",
+        "frontier_planner_architect_reviewer",
+    ])
 
 
 def test_build_agent_packet_redacts_by_permissions(tmp_path: Path) -> None:
@@ -540,3 +595,77 @@ agents:
     assert packet_json["task_id"] == task.id
     assert packet_json["task"] != {}
     assert packet_json["workspace_path"] != "[REDACTED]"
+
+
+def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    
+    # Verify agent registry loads all 7 automated agents plus manual worker
+    registry = load_agent_registry(tmp_path)
+    assert len(registry.agents) >= 8
+    
+    expected_agents = [
+        "devflow-manual-codex-worker",
+        "devflow-ollama-worker",
+        "devflow-openai-worker",
+        "devflow-anthropic-worker",
+        "devflow-gemini-worker",
+        "devflow-openai-compatible-worker",
+        "devflow-openai-planner",
+        "devflow-openai-reviewer",
+    ]
+    
+    for agent_id in expected_agents:
+        assert agent_id in registry.agents
+        agent = registry.require_agent(agent_id)
+        assert agent.enabled is True
+        assert agent.workspace == "isolated_task_workspace"
+        
+        # Verify specific fields
+        if agent_id == "devflow-manual-codex-worker":
+            assert agent.tier == "manual"
+            assert agent.can_use_network is False
+            assert agent.role == "implementation_worker"
+        elif agent_id in ("devflow-openai-planner", "devflow-openai-reviewer"):
+            assert agent.tier == "frontier"
+            assert agent.execution_mode == "automated"
+            assert agent.role == "frontier_planner_architect_reviewer"
+            assert agent.can_use_network is True
+        else:
+            assert agent.tier == "strong_local"
+            assert agent.execution_mode == "automated"
+            assert agent.role == "implementation_worker"
+            if agent_id == "devflow-ollama-worker":
+                assert agent.can_use_network is False
+            else:
+                assert agent.can_use_network is True
+
+
+def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+    
+    provider_registry = load_provider_registry(tmp_path)
+    expected_providers = ["ollama", "openai", "anthropic", "gemini", "openai_compatible"]
+    
+    for prov_id in expected_providers:
+        assert prov_id in provider_registry.providers
+        prov = provider_registry.require_provider(prov_id)
+        assert prov.enabled is True
+        assert prov.default_timeout_seconds == 300
+        
+        if prov_id == "ollama":
+            assert prov.adapter == "ollama_chat"
+            assert prov.base_url == "http://127.0.0.1:11434"
+            assert prov.api_key_env is None
+        elif prov_id == "openai":
+            assert prov.adapter == "openai_chat"
+            assert prov.base_url == "https://api.openai.com/v1"
+        elif prov_id == "anthropic":
+            assert prov.adapter == "anthropic_messages"
+            assert prov.base_url == "https://api.anthropic.com/v1"
+        elif prov_id == "gemini":
+            assert prov.adapter == "gemini"
+            assert prov.base_url == "https://generativelanguage.googleapis.com"
+        elif prov_id == "openai_compatible":
+            assert prov.adapter == "openai_compatible"
+            assert prov.base_url == "http://127.0.0.1:8000/v1"

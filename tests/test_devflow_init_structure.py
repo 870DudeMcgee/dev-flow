@@ -63,6 +63,13 @@ REQUIRED_SEED_PATHS = [
     ".devflow/workers/profiles/README.md",
     ".devflow/models/registry.yaml",
     ".devflow/models/scoreboard.jsonl",
+    ".devflow/providers/ollama.yaml",
+    ".devflow/providers/openai.yaml",
+    ".devflow/providers/anthropic.yaml",
+    ".devflow/providers/gemini.yaml",
+    ".devflow/providers/openai_compatible.yaml",
+    ".devflow/agents/roles.yaml",
+    ".devflow/agents/registry.yaml",
     ".devflow/locks/README.md",
     ".devflow/reports/README.md",
     ".devflow/reports/daily/README.md",
@@ -76,6 +83,13 @@ YAML_SEED_PATHS = [
     ".devflow/goals/bootstrap-devflow-filesystem/goal.yaml",
     ".devflow/workers/registry.yaml",
     ".devflow/models/registry.yaml",
+    ".devflow/providers/ollama.yaml",
+    ".devflow/providers/openai.yaml",
+    ".devflow/providers/anthropic.yaml",
+    ".devflow/providers/gemini.yaml",
+    ".devflow/providers/openai_compatible.yaml",
+    ".devflow/agents/roles.yaml",
+    ".devflow/agents/registry.yaml",
 ]
 
 JSON_SEED_PATHS = [

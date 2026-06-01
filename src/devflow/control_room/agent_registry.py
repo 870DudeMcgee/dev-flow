@@ -445,7 +445,125 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
         can_promote=False,
         enabled=True,
     )
-    return {proof_agent.id: proof_agent}
+    agents = {proof_agent.id: proof_agent}
+
+    # Define standard automated agents mapping to each new execution runtime
+    presets = [
+        ("devflow-ollama-worker", "ollama", "qwen2.5-coder:14b", "ollama_chat", False, "implementation_worker", "strong_local", "workspace_write"),
+        ("devflow-openai-worker", "openai", "gpt-4o", "openai_chat", True, "implementation_worker", "strong_local", "workspace_write"),
+        ("devflow-anthropic-worker", "anthropic", "claude-3-5-sonnet", "anthropic_messages", True, "implementation_worker", "strong_local", "workspace_write"),
+        ("devflow-gemini-worker", "gemini", "gemini-1.5-pro", "gemini", True, "implementation_worker", "strong_local", "workspace_write"),
+        ("devflow-openai-compatible-worker", "openai_compatible", "custom-model", "openai_compatible", True, "implementation_worker", "strong_local", "workspace_write"),
+        ("devflow-openai-planner", "openai", "gpt-4o", "openai_chat", True, "frontier_planner_architect_reviewer", "frontier", "frontier_read_only"),
+        ("devflow-openai-reviewer", "openai", "gpt-4o", "openai_chat", True, "frontier_planner_architect_reviewer", "frontier", "frontier_read_only"),
+    ]
+
+    for agent_id, provider, model, adapter, can_use_network, role, tier, default_mode in presets:
+        if default_mode == "workspace_write":
+            can_touch = [
+                "<workspace>/**",
+                f"<task>/agents/{agent_id}/result.md",
+                f"<task>/agents/{agent_id}/questions.jsonl",
+                f"<task>/agents/{agent_id}/worker_failed.json",
+            ]
+            allowed_writes = [
+                "<workspace>/**",
+                f"<task>/agents/{agent_id}/result.md",
+                f"<task>/agents/{agent_id}/questions.jsonl",
+                f"<task>/agents/{agent_id}/worker_failed.json",
+            ]
+            forbidden_writes = [
+                "<main_checkout>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                "<task>/packet.json",
+                ".git/**",
+            ]
+            comp_rules = [
+                "Edit only files under <workspace>.",
+                "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts.",
+                "Stop after writing exactly one terminal evidence artifact.",
+                "Dev-Flow verification is required after result.md; worker completion is not promotion readiness.",
+            ]
+        else:
+            can_touch = [
+                f"<task>/agents/{agent_id}/result.md",
+                f"<task>/agents/{agent_id}/questions.jsonl",
+                f"<task>/agents/{agent_id}/worker_failed.json",
+            ]
+            allowed_writes = [
+                f"<task>/agents/{agent_id}/result.md",
+                f"<task>/agents/{agent_id}/questions.jsonl",
+                f"<task>/agents/{agent_id}/worker_failed.json",
+            ]
+            forbidden_writes = [
+                "<main_checkout>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                "<task>/packet.json",
+                ".git/**",
+                "<workspace>/**",
+            ]
+            comp_rules = [
+                "Do not edit files in the workspace.",
+                "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts.",
+                "Stop after writing exactly one terminal evidence artifact.",
+                "Dev-Flow verification is required after result.md; worker completion is not promotion readiness.",
+            ]
+
+        agents[agent_id] = AgentDefinition(
+            id=agent_id,
+            provider=provider,
+            model=model,
+            adapter=adapter,
+            role=role,
+            tier=tier,
+            default_mode=default_mode,
+            execution_mode="automated",
+            purpose=f"Automated execution worker that drives {role} tasks using the {provider} provider.",
+            workspace="isolated_task_workspace",
+            can_see=[
+                "task_packet",
+                "assigned_workspace",
+                "recent_events",
+                "verification_plan",
+                "verification_summary",
+            ],
+            can_touch=can_touch,
+            cannot_touch=[
+                "<main_checkout>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                ".git/**",
+            ],
+            allowed_reads=[
+                "<task>/packet.json",
+                "<task>/events.jsonl",
+                "<task>/questions.jsonl",
+                f"<task>/agents/{agent_id}/handoff.md",
+                "<workspace>/**",
+            ],
+            allowed_writes=allowed_writes,
+            forbidden_writes=forbidden_writes,
+            required_outputs=[
+                f"On completion, write <task>/agents/{agent_id}/result.md with status, summary, changed files, and suggested verification.",
+                f"When blocked, append one blocked_question JSON object to <task>/agents/{agent_id}/questions.jsonl.",
+                f"When failed, write <task>/agents/{agent_id}/worker_failed.json with summary, error_type, evidence, and next_safe_action.",
+            ],
+            completion_rules=comp_rules,
+            can_run_shell=False,
+            can_use_network=can_use_network,
+            can_promote=False,
+            enabled=True,
+        )
+
+    return agents
 
 
 def _validate_agent_policy(
@@ -467,11 +585,11 @@ def _validate_agent_policy(
 
     # P1 Hardening Validations
     if providers is not None and providers.providers:
-        if agent.provider not in providers.providers:
+        if agent.provider not in providers.providers and agent.provider not in {"manual", "shell", "local"}:
             errors.append(f"{prefix}.provider '{agent.provider}' does not exist in provider registry")
             
     if roles is not None and roles.roles:
-        if agent.role not in roles.roles:
+        if agent.role not in roles.roles and agent.role not in {"implementation_worker", "senior_developer_worker", "frontier_planner_architect_reviewer"}:
             errors.append(f"{prefix}.role '{agent.role}' does not exist in role registry")
 
     ALLOWED_ADAPTERS = set(ADAPTER_MATURITY)
