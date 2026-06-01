@@ -251,6 +251,29 @@ def git_doctor_checks(root: Path, task: TaskRecord) -> list[tuple[str, bool, str
     return checks
 
 
+def git_branch_sharing_checks(tasks: list[TaskRecord]) -> list[tuple[str, bool, str]]:
+    branch_claims: dict[str, set[str]] = {}
+    for task in tasks:
+        if not is_git_worktree_task(task):
+            continue
+        worker_id = worker_id_for_task(task)
+        branch = task.branch_name or worker_branch_name(task.id, worker_id)
+        branch_claims.setdefault(branch, set()).add(task.id)
+    if not branch_claims:
+        return []
+
+    shared = {
+        branch: sorted(task_ids)
+        for branch, task_ids in sorted(branch_claims.items())
+        if len(task_ids) > 1
+    }
+    if not shared:
+        return [("strict: unique Git worker branches", True, f"{len(branch_claims)} branch claim(s) unique")]
+
+    details = "; ".join(f"{branch} shared by {', '.join(task_ids)}" for branch, task_ids in shared.items())
+    return [("strict: unique Git worker branches", False, details)]
+
+
 def promote_git_worktree(root: Path, task: TaskRecord) -> dict[str, Any]:
     preview = build_git_promotion_preview(root, task)
     git_preview = preview["git"]

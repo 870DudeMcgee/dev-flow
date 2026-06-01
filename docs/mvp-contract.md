@@ -133,7 +133,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Promotion to the main checkout is explicit, human-confirmed, and gated on verification readiness.
 - Promotion refuses unsafe workspace paths and blocks dirty main-checkout changes unless explicitly forced.
 - New task events are hash-chained with monotonic indexes, previous-event hashes, and current-event hashes; `doctor` reports malformed or edited task event logs.
-- `doctor --strict` is read-only and reports stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency.
+- `doctor --strict` is read-only and reports stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks.
 - `devflow reconcile` is read-only and reports partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts.
 - No SQLite database is created.
 - Default copy-workspace tasks do not create `.devflow/worktrees/`; `--git-worktree` tasks do.
@@ -165,7 +165,7 @@ Current MVP implementation limits:
 Future production hardening items:
 - Multi-worker Git worktree attempts per task beyond the initial shell worker lane.
 - Richer Git-native conflict handling and resolver-task UX.
-- Multi-worker branch sharing detection and cleanup beyond the initial shell worker lane.
+- Multi-worker branch-sharing cleanup beyond the initial shell worker lane.
 - Per-task temporary `HOME` and temp directories.
 - Network-off runner policies.
 - Resource limits for CPU, memory, file descriptors, and process counts.

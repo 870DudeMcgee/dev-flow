@@ -225,7 +225,7 @@ Outside the current product contract:
 - agent registry and adapter-runtime implementation beyond the stable proof-agent contract
 - SQLite or other databases
 - provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
-- multi-worker worktree scheduling, branch-sharing cleanup, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
+- multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
 
 > [!IMPORTANT]
 > **Next Priority**: Harden the opt-in Git-native worker isolation and promotion slice while keeping the shell-worker and manual proof-agent loop stable. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.

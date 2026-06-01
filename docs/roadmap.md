@@ -156,7 +156,7 @@ Implemented:
 - shell and verification subprocesses use process-group cleanup on POSIX timeout paths
 - canonical task YAML/JSON artifacts use atomic write-then-replace for `task.yaml`, `summary.json`, `verification.json`, and `merge-readiness.json`
 - patch application records real SHA-256 patch hashes, hash-addressed patch evidence artifacts, changed-file summaries, and latest patch application evidence
-- `doctor --strict` reports stale task locks, unsafe workspace paths, invalid derived/canonical JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency
+- `doctor --strict` reports stale task locks, unsafe workspace paths, invalid derived/canonical JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks
 - `devflow reconcile` reports partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts without changing files
 - `devflow init`, `devflow doctor --strict`, and shell task runs visibly warn that shell execution is path-isolated, not sandboxed
 
@@ -203,7 +203,7 @@ Minimum vertical slice:
 
 Git evidence artifacts should live under `.devflow/tasks/<task_id>/workers/<worker_id>/` and include `git.json`, `diff.patch`, `diff-summary.json`, `verification.json`, and `promotion-preview.json`.
 
-`doctor --strict` now checks Git integrity for worktree-backed tasks: worker branch existence, worktree existence, safe worktree paths, base commit existence, branch ancestry, verified commit matching worker HEAD, and dirty worktree state after verification. Branch-sharing detection remains follow-up cleanup work.
+`doctor --strict` now checks Git integrity for worktree-backed tasks: worker branch existence, worktree existence, safe worktree paths, base commit existence, branch ancestry, unique worker branch claims across tasks, verified commit matching worker HEAD, and dirty worktree state after verification.
 
 Cleanup and repair are now cautious and dry-run-first: `devflow task cleanup <task_id> --dry-run`, `devflow worktree list`, `devflow worktree prune --dry-run`, `devflow branch list`, and `devflow branch archive <branch> --dry-run`. Mutating cleanup uses `--apply` and keeps branch deletion out of scope by archiving task branches under `devflow/archive/`.
 
@@ -294,7 +294,7 @@ Related design contracts:
 - [docs/task-packet-contract.md](task-packet-contract.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Add branch-sharing detection and richer conflict-resolution UX around the Git-native shell-worker lane while keeping the shell-worker/manual proof-agent contract stable. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
+> **Next Priority**: Add richer conflict-resolution UX and branch-sharing cleanup around the Git-native shell-worker lane while keeping the shell-worker/manual proof-agent contract stable. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
 
 ## Later, Not Now
 

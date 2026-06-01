@@ -129,7 +129,7 @@ TASK_ID=$(.venv/bin/python -m devflow.cli task create --git-worktree "write hell
 
 Git-native promotion refuses if the worker branch HEAD differs from the verified commit, the worktree is dirty after verification, the baseline is stale without explicit review, or merge conflicts are predicted.
 
-`devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency. It does not repair artifacts automatically.
+`devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks. It does not repair artifacts automatically.
 
 `devflow reconcile` is a read-only crash/interruption report. It surfaces partial task/system event writes, task/system event divergence, interrupted promotion evidence such as stale promote locks, and inconsistent task artifacts. Use `--json` for machine-readable output or `--task <task-id>` to inspect one task. It does not repair artifacts automatically.
 

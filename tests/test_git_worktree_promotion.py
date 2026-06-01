@@ -180,6 +180,32 @@ def test_doctor_strict_reports_git_worktree_integrity_gaps() -> None:
             os.chdir(old_cwd)
 
 
+def test_doctor_strict_reports_shared_git_worker_branch_across_tasks() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+            assert runner.invoke(app, ["task", "create", "--git-worktree", "first git task"]).exit_code == 0
+            assert runner.invoke(app, ["task", "create", "--git-worktree", "second git task"]).exit_code == 0
+
+            task_yaml = Path(".devflow/tasks/task-0002/task.yaml")
+            task_yaml.write_text(
+                task_yaml.read_text(encoding="utf-8").replace(
+                    'branch_name: "devflow/task-0002/shell"',
+                    'branch_name: "devflow/task-0001/shell"',
+                ),
+                encoding="utf-8",
+            )
+
+            strict = runner.invoke(app, ["doctor", "--strict"])
+            assert strict.exit_code == 1, strict.output
+            assert "strict: unique Git worker branches" in strict.output
+            assert "devflow/task-0001/shell shared by task-0001, task-0002" in strict.output
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_worktree_and_branch_inventory_show_owned_and_orphaned_resources() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:

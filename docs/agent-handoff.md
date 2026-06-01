@@ -77,7 +77,7 @@ Current product contract:
 - atomic write-then-replace for canonical `task.yaml`, derived `summary.json`, latest `verification.json`, and `merge-readiness.json`
 - task append-only `events.jsonl`
 - task-local worker logs, verification logs, verification JSON, and YAML artifacts
-- strict doctor read-only diagnostics for stale locks, unsafe workspace paths, invalid JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency
+- strict doctor read-only diagnostics for stale locks, unsafe workspace paths, invalid JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks
 - read-only reconciliation reporting for partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
@@ -106,6 +106,7 @@ Implemented from [docs/architecture/git-native-worker-isolation-and-promotion.md
 - refuse promotion if worker HEAD changed after verification
 - refuse promotion if main moved and stale baseline or conflicts are unresolved
 - promote with Git-aware mechanics under human control
+- detect shared Git worker branch claims during `doctor --strict`
 - list owned/orphaned Dev-Flow worktrees and branches, prune orphaned worktrees with `--apply`, and archive task branches under `devflow/archive/`
 
 ## Required Current Commands

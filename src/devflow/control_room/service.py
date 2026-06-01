@@ -26,6 +26,7 @@ from devflow.control_room.git_worktree import (
     GitWorktreeError,
     build_git_promotion_preview,
     create_git_worktree,
+    git_branch_sharing_checks,
     git_doctor_checks,
     git_worktree_readiness_errors,
     is_git_worktree_task,
@@ -370,6 +371,7 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
         checks.append(("seed contract", False, "; ".join(seed_errors)))
     elif devflow_dir(root).exists():
         checks.append(("seed contract", True, ".devflow seed contract"))
+    strict_tasks: list[TaskRecord] = []
     if tasks_dir(root).exists():
         for path in sorted(tasks_dir(root).iterdir()):
             if not path.is_dir():
@@ -382,6 +384,7 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                 except ValueError as exc:
                     checks.append((f"{path.name} task.yaml valid", False, str(exc)))
                     continue
+                strict_tasks.append(task)
                 checks.append((f"{path.name} workspace", _absolute(root, task.workspace).is_dir(), task.workspace))
                 for name in ("events.jsonl", "questions.jsonl", "result.md", "verification.json"):
                     checks.append((f"{path.name} {name}", (path / name).exists(), str(path / name)))
@@ -390,6 +393,8 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                 if strict:
                     checks.extend(_strict_task_checks(root, path, task))
     if strict:
+        checks.extend(git_branch_sharing_checks(strict_tasks))
+
         # 1. No experimental provider adapters enabled in loaded registry
         try:
             from devflow.control_room.agent_registry import load_agent_registry
