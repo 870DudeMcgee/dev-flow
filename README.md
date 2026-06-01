@@ -45,6 +45,18 @@ Dev-Flow stores durable task state as local filesystem artifacts:
 
 Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
 
+## Safety Model And Known Limitations
+
+Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. It is useful as a control-room kernel, but it is not a security sandbox for untrusted commands, agents, repositories, or multi-user execution.
+
+- Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
+- The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
+- Task workspaces are copy-based scratchpads, not git worktrees. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
+- Promotion is explicit, readiness-gated, and human-controlled, but the current implementation promotes by copying verified workspace changes back into the main checkout. It is not a three-way git merge system.
+- The patch applier is a text-only MVP path with strong path validation. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
+
+Use Dev-Flow only on repositories and worker commands you trust. Future production hardening should prefer git worktrees or branch-backed workspaces, stricter command policy, optional network/resource controls, and git-native promotion.
+
 ## Durable Context Structure
 
 The broader `.devflow/` tree is also the durable context layer for the control room. It contains project orientation, active goals, classified context, layered product and architecture notes, worker/model registries, lock documentation, derived reports, and preserved archive material.

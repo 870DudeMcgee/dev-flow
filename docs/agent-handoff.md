@@ -69,10 +69,12 @@ Current product contract:
 - `devflow task promote-preview <task_id>`
 - `devflow task promote <task_id>`
 - filesystem task state with canonical `task.yaml`
+- atomic write-then-replace for canonical `task.yaml`, derived `summary.json`, latest `verification.json`, and `merge-readiness.json`
 - task append-only `events.jsonl`
 - task-local worker logs, verification logs, verification JSON, and YAML artifacts
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
+- POSIX process-group cleanup for shell and verification timeout paths
 - `verified` and `verification_failed` task statuses from verification
 - text-only terminal dashboard from canonical task artifacts
 - human-controlled promotion preview and promotion from isolated workspaces
@@ -80,6 +82,7 @@ Current product contract:
 - read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is consumed by the manual proof-agent handoff without becoming canonical state
 - design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
 - design-only task-fit/context routing architecture; not active runtime behavior yet
+- trusted-local safety model only: shell execution is path-isolated in a copied workspace, not OS-sandboxed
 
 ## Required Current Commands
 

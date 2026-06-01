@@ -11,7 +11,17 @@ class TestPackaging(unittest.TestCase):
 
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
         self.assertEqual(data["project"]["name"], "devflow")
+        self.assertEqual(data["project"]["readme"], "README.md")
         self.assertEqual(data["project"]["scripts"]["devflow"], "devflow.cli:main")
+        self.assertEqual(data["project"]["urls"]["Repository"], "https://github.com/870DudeMcgee/dev-flow")
+
+    def test_package_readme_is_devflow_product_readme(self):
+        readme = pathlib.Path("README.md").read_text(encoding="utf-8")
+
+        self.assertEqual(readme.splitlines()[0], "# Dev-Flow")
+        self.assertIn("# Dev-Flow", readme)
+        self.assertIn("local-first control room", readme)
+        self.assertIn("path-isolated, not sandboxed", readme)
 
     def test_declared_devflow_cli_entrypoint_resolves_to_callable(self):
         data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))

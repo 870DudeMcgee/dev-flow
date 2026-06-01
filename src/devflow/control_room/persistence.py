@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -97,8 +99,35 @@ def save_task(task_path: Path, task: TaskRecord) -> None:
     ]
     lines = [f"{key}: {_yaml_scalar(values[key])}" for key in key_order]
     task_path.mkdir(parents=True, exist_ok=True)
-    (task_path / "task.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(task_path / "task.yaml", "\n".join(lines) + "\n")
     _write_task_summary(task_path, task)
+
+
+def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding=encoding,
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            temporary_file.write(text)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, path)
+        _fsync_directory(path.parent)
+    except Exception:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
 
 def load_task(task_path: Path) -> TaskRecord:
@@ -232,7 +261,18 @@ def _write_task_summary(task_path: Path, task: TaskRecord) -> None:
         "merge_readiness_reasons": reasons,
         "updated_at": task.updated_at.isoformat(),
     }
-    (task_path / "summary.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(task_path / "summary.json", json.dumps(payload, indent=2) + "\n")
+
+
+def _fsync_directory(directory: Path) -> None:
+    try:
+        directory_fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _read_yaml_scalars(path: Path) -> dict[str, Any]:

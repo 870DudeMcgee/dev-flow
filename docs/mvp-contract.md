@@ -126,10 +126,31 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 
 Destructive command filtering is intentionally shallow (detecting obvious fragments like `rm -rf /`, `mkfs`, `dd if=`). The Dev-Flow shell worker operates with trusted local credentials in the task workspace; it is path-isolated, not sandboxed.
 
+The current safety model is trusted local single-user execution:
+
+- shell and verification commands run as subprocesses in `.devflow/workspaces/<task-id>/`
+- worker environment variables are filtered to an allowlist plus explicit task environment
+- POSIX subprocesses are started in their own session so timeout and log-limit cleanup can terminate child processes in the same process group
+- canonical task artifacts are written with same-directory temporary files followed by atomic replacement
+
+This does not stop a command from using the local user's filesystem permissions, network access, CPU, memory, or other OS capabilities before Dev-Flow terminates it. It is not suitable for untrusted worker code, hostile repositories, shared multi-user hosts, or tenant isolation.
+
+Current MVP implementation limits:
+
+- workspaces are copy-based scratchpads, not git worktrees
+- promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
+- patch application supports validated text patches only and rejects binary diffs, renames, copies, mode changes, and similarity metadata
+- event logs are append-only evidence, but task and system event writes are still separate writes and may require future reconciliation tooling after a crash
+
 Future security hardening items:
-- Environment variable allowlist.
+- Per-task temporary `HOME` and temp directories.
 - Network-off runner policies.
-- Command policy profiles and absolute path inspections.
+- Resource limits for CPU, memory, file descriptors, and process counts.
+- Allowlisted command profiles and absolute path inspections.
+- Container, firejail, macOS sandbox, or other OS-level isolation.
+- Git worktree or branch-backed workspaces.
+- Git-native promotion and conflict handling.
+- Event-log reconciliation and repair checks.
 
 ## Out Of The Current Contract
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from devflow.control_room.log_sanitizer import latest_visible_log_line
+from devflow.control_room.processes import kill_process_tree, start_process
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ def run_verification_command(workspace: Path, command: list[str], log_file: Path
     with log_file.open("w", encoding="utf-8") as log:
         log.write(f"$ {' '.join(command)}\n")
         log.flush()
-        proc = subprocess.Popen(
+        proc = start_process(
             command,
             cwd=workspace,
             stdout=log,
@@ -33,7 +34,7 @@ def run_verification_command(workspace: Path, command: list[str], log_file: Path
         try:
             proc.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            kill_process_tree(proc)
             proc.wait()
             log.write(f"\nVerification timed out after {timeout_seconds} seconds.\n")
             log.flush()

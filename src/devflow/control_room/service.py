@@ -29,6 +29,7 @@ from devflow.control_room.persistence import (
     timestamp,
     utc_now,
     validate_event_log,
+    atomic_write_text,
 )
 from devflow.control_room.promotion import (
     _get_relative_files,
@@ -396,7 +397,8 @@ def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) 
     (task_path / "events.jsonl").touch(exist_ok=True)
     (task_path / "questions.jsonl").touch(exist_ok=True)
     (task_path / "result.md").write_text(f"# Result: {task_id}\n\nNot run yet.\n", encoding="utf-8")
-    (task_path / "verification.json").write_text(
+    atomic_write_text(
+        task_path / "verification.json",
         json.dumps({
             "schema_version": TASK_SCHEMA_VERSION,
             "task_id": task_id,
@@ -409,7 +411,6 @@ def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) 
             "log_path": f".devflow/tasks/{task_id}/logs/verify.log",
             "finished_at": None,
         }, indent=2) + "\n",
-        encoding="utf-8",
     )
     (task_path / "logs" / "worker.log").touch(exist_ok=True)
     (task_path / "logs" / "verify.log").touch(exist_ok=True)
@@ -425,7 +426,7 @@ def _write_result(task_path: Path, task_id: str, command: list[str], result: Wor
         f"## Exit Code\n\n{result.exit_code if result.exit_code is not None else 'none'}\n\n"
         f"## Log\n\n{result.log_file}\n"
     )
-    result.result_file.write_text(body, encoding="utf-8")
+    atomic_write_text(result.result_file, body)
 
 
 def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, result: VerificationResult) -> None:
@@ -441,7 +442,7 @@ def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, resu
         "log_path": _relative(root, result.log_file),
         "finished_at": utc_now().isoformat(),
     }
-    (task_path / "verification.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(task_path / "verification.json", json.dumps(payload, indent=2) + "\n")
 
 
 def _write_merge_readiness(root: Path, task_path: Path, task: TaskRecord) -> None:
@@ -470,7 +471,7 @@ def _write_merge_readiness(root: Path, task_path: Path, task: TaskRecord) -> Non
         "workspace_commit": task.workspace_commit,
         "generated_at": utc_now().isoformat(),
     }
-    (task_path / "merge-readiness.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(task_path / "merge-readiness.json", json.dumps(payload, indent=2) + "\n")
 
 
 def _write_verification_report(task_path: Path, task: TaskRecord, result: VerificationResult) -> None:
@@ -485,7 +486,7 @@ def _write_verification_report(task_path: Path, task: TaskRecord, result: Verifi
         f"Exit Code: {result.exit_code if result.exit_code is not None else 'none'}\n\n"
         f"Log: {result.log_file}\n"
     )
-    (task_path / "result.md").write_text(existing.rstrip() + verification, encoding="utf-8")
+    atomic_write_text(task_path / "result.md", existing.rstrip() + verification)
 
 
 def _next_task_id(root: Path) -> str:

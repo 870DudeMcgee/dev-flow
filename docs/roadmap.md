@@ -141,6 +141,27 @@ Acceptance:
 - planned provider adapters fail clearly if task execution is attempted
 - registry files are parsed with PyYAML and validated through Pydantic
 
+## Phase 4d: Local Production Hardening
+
+Goal: make the local single-user MVP more trustworthy without pretending it is a sandboxed general-purpose orchestrator.
+
+Status: active hardening slice.
+
+Implemented:
+
+- package metadata uses [README.md](../README.md) as the public long description and identifies Dev-Flow as an alpha CLI product
+- README and MVP contract state the trusted-local safety model and known limitations
+- shell and verification subprocesses use process-group cleanup on POSIX timeout paths
+- canonical task YAML/JSON artifacts use atomic write-then-replace for `task.yaml`, `summary.json`, `verification.json`, and `merge-readiness.json`
+
+Remaining before production-grade local beta:
+
+- broaden `doctor --strict` recovery checks for stale locks, corrupt JSONL/JSON artifacts, missing logs, and invalid task state
+- add installed-wheel CLI smoke tests in CI
+- publish passing CI evidence before tags or releases
+- decide whether the next workspace/promotion step is documented copy-promotion hardening or git worktree promotion
+- keep patch application documented as text-only until complex diffs are delegated to a git-native path
+
 ## Dogfooding Requirement
 
 Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. The purpose is to exercise task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality while building Dev-Flow itself. This requirement does not authorize provider-backed adapters, autonomous routing, scheduling, databases, or old workflow machinery.

@@ -189,11 +189,13 @@ Implemented:
 - shell-worker control-room CLI
 - init and doctor commands for the local control-room seed structure
 - filesystem task state with canonical `task.yaml`
+- atomic write-then-replace for canonical `task.yaml`, derived `summary.json`, latest `verification.json`, and `merge-readiness.json`
 - per-task artifact directories
 - append-only task and system `events.jsonl`
 - success, failure, and timeout statuses
 - log/result/report artifact writing
 - verification command execution inside the task workspace
+- POSIX process-group cleanup for shell and verification timeout paths
 - verification log writing
 - `verification.json` latest-result evidence
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`

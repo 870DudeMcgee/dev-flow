@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.models import WorkerInput, WorkerResult
+from devflow.control_room.processes import kill_process_tree, start_process
 
 
 class ShellWorkerAdapter:
@@ -35,7 +37,7 @@ class ShellWorkerAdapter:
             log.write(f"$ {' '.join(worker_input.command)}\n")
             log.flush()
             
-            proc = subprocess.Popen(
+            proc = start_process(
                 worker_input.command,
                 cwd=worker_input.workspace_path,
                 env=final_env,
@@ -44,7 +46,6 @@ class ShellWorkerAdapter:
                 text=True,
             )
             
-            import time
             start_time = time.time()
             limit_bytes = 10 * 1024 * 1024 # 10 MB limit
             limit_exceeded = False
@@ -56,12 +57,12 @@ class ShellWorkerAdapter:
                     current_size = worker_input.log_file.stat().st_size
                     if current_size > limit_bytes:
                         limit_exceeded = True
-                        proc.kill()
+                        kill_process_tree(proc)
                         break
                 
                 # Check timeout
                 if time.time() - start_time > timeout:
-                    proc.kill()
+                    kill_process_tree(proc)
                     proc.wait()
                     log.write(f"\nTimed out after {timeout} seconds.\n")
                     log.flush()

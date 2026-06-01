@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,11 +8,28 @@ version = "0.1.0"
 description = "A local-first control room for shell-worker AI development workflows."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+keywords = ["ai", "cli", "developer-tools", "orchestration", "workflow"]
+classifiers = [
+	"Development Status :: 3 - Alpha",
+	"Environment :: Console",
+	"Intended Audience :: Developers",
+	"Programming Language :: Python :: 3",
+	"Programming Language :: Python :: 3.11",
+	"Programming Language :: Python :: 3.12",
+	"Topic :: Software Development",
+]
 dependencies = [
 	"pydantic>=2.13",
 	"PyYAML>=6.0",
 	"typer>=0.26",
 ]
+
+[project.urls]
+Homepage = "https://github.com/870DudeMcgee/dev-flow"
+Repository = "https://github.com/870DudeMcgee/dev-flow"
+Documentation = "https://github.com/870DudeMcgee/dev-flow#readme"
+Issues = "https://github.com/870DudeMcgee/dev-flow/issues"
 
 [project.optional-dependencies]
 test = [

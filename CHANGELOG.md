@@ -18,7 +18,10 @@ State compatibility is part of the release contract. Any change to `.devflow/con
 - Manual proof-agent handoff path for `devflow-manual-codex-worker` without provider API execution.
 - Adapter maturity boundary that allows only stable runtime adapters to execute.
 - Shell worker hardening for environment allowlisting, timeouts, and log-size limits.
+- Shell and verification timeout hardening now terminates POSIX child processes in the same process group.
+- Atomic write-then-replace persistence for `task.yaml`, `summary.json`, `verification.json`, and `merge-readiness.json`.
 - Explicit patch review/application flow for provider-generated `proposal.patch` evidence.
+- Public package metadata now uses the top-level Dev-Flow README as the long description and declares alpha CLI project metadata.
 - Schema version markers for task state, verification, merge-readiness, and summary artifacts, with unknown task schema versions refused by `doctor`.
 - Task-local mutation locks with owner metadata and stale-lock recovery for run, verify, apply-patch, and promote operations.
 - Hash-chained task event records with `doctor` validation for malformed or edited `events.jsonl` streams.
@@ -28,3 +31,4 @@ State compatibility is part of the release contract. Any change to `.devflow/con
 - No public release artifact has been published yet.
 - Task event records now include `event_index`, `previous_event_hash`, and `event_hash`; older unhashed task events remain readable as legacy evidence, and new events chain from the legacy tail.
 - Provider-backed adapters, autonomous routing, web dashboard, database state, and git worktree orchestration remain outside the stable runtime contract.
+- Shell execution remains trusted local execution: path-isolated in copied task workspaces, not OS-sandboxed.

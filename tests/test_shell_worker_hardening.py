@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
+import time
 import tempfile
 from pathlib import Path
-import pytest
 
 from devflow.control_room.shell_worker import ShellWorkerAdapter
 from devflow.control_room.models import WorkerInput
+from devflow.control_room.verification import run_verification_command
 
 def test_shell_worker_environment_filtering() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -119,3 +121,76 @@ def test_shell_worker_log_size_limit() -> None:
         log_content = log_file.read_text(encoding="utf-8")
         assert "DEVFLOW ERROR" in log_content
         assert "exceeded limit of 10MB" in log_content
+
+
+def test_shell_worker_timeout_terminates_child_processes() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir()
+        log_file = tmp_path / "worker.log"
+        result_file = tmp_path / "result.md"
+        child_marker = workspace_path / "child-survived.txt"
+
+        child_script = (
+            "import pathlib, time; "
+            "time.sleep(1.5); "
+            "pathlib.Path('child-survived.txt').write_text('alive', encoding='utf-8')"
+        )
+        parent_script = (
+            "import subprocess, sys, time; "
+            "subprocess.Popen([sys.executable, '-c', " + repr(child_script) + "]); "
+            "time.sleep(10)"
+        )
+
+        worker_input = WorkerInput(
+            task_id="task-timeout-child-test",
+            repo_root=tmp_path,
+            workspace_path=workspace_path,
+            task_file=tmp_path / "task.yaml",
+            context_file=tmp_path / "events.jsonl",
+            status_file=tmp_path / "task.yaml",
+            questions_file=tmp_path / "questions.jsonl",
+            result_file=result_file,
+            log_file=log_file,
+            command=[sys.executable, "-c", parent_script],
+            timeout_seconds=1,
+        )
+
+        adapter = ShellWorkerAdapter()
+        res = adapter.run(worker_input)
+        time.sleep(1)
+
+        assert res.status == "timeout"
+        assert not child_marker.exists()
+
+
+def test_verification_timeout_terminates_child_processes() -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir()
+        log_file = tmp_path / "verify.log"
+        child_marker = workspace_path / "verify-child-survived.txt"
+
+        child_script = (
+            "import pathlib, time; "
+            "time.sleep(1.5); "
+            "pathlib.Path('verify-child-survived.txt').write_text('alive', encoding='utf-8')"
+        )
+        parent_script = (
+            "import subprocess, sys, time; "
+            "subprocess.Popen([sys.executable, '-c', " + repr(child_script) + "]); "
+            "time.sleep(10)"
+        )
+
+        result = run_verification_command(
+            workspace_path,
+            [sys.executable, "-c", parent_script],
+            log_file,
+            timeout_seconds=1,
+        )
+        time.sleep(1)
+
+        assert result.status == "timeout"
+        assert not child_marker.exists()
