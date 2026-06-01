@@ -4,6 +4,8 @@
 
 Dev-Flow is a local-first control room for parallel AI coding workers.
 
+Local checkout folder: `DevFlow`. Documentation and handoffs should use this name when referring to the repository folder.
+
 The rebuild starts from a smaller foundation than the previous software-factory design:
 
 - workers are replaceable
@@ -261,7 +263,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. Context packing and conservative routing remain experimental planning aids. Full provider-backed execution is not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A first local Ollama evidence wrapper is implemented as `devflow task local` for `qwen-planner` and `gemma-reviewer`; it captures prompt, raw response, stderr, and run metadata under the task workspace without applying model output. Context packing and conservative routing remain experimental planning aids. Full provider-backed execution is not active.
 
 Sequence:
 - architecture document only
@@ -271,7 +273,8 @@ Sequence:
 - shell adapter alignment
 - deterministic task-fit and context-size estimation
 - role-based context pack builder
-- Ollama adapter for Qwen
+- local Ollama planner/reviewer evidence wrapper for Qwen and Gemma (implemented as `task local`, not a provider adapter)
+- promoted adapter-runtime Ollama adapter only after the registry sequence and manual/local evidence path stay stable
 - OpenAI-compatible adapter for LM Studio and Grok-style APIs
 - native OpenAI, Anthropic, and Gemini adapters
 - local scout reports as optional evidence
@@ -286,6 +289,7 @@ Acceptance:
 - model selection uses capability profiles and useful context estimates instead of hard-coded agent names
 - planners, workers, reviewers, verifiers, summarizers, and scouts receive role-specific context packs
 - verification and promotion remain explicit Dev-Flow/human-controlled steps
+- future local resource controls may add Ollama keep-alive or model-stop behavior, but the first local wrapper does not manage model memory
 
 Related design contracts:
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)

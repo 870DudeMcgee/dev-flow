@@ -4,6 +4,8 @@ All agent operations in this repository are governed by the canonical [docs/devm
 
 DevMode guides behavior only inside the host tool’s allowed instruction hierarchy and does not outrank higher-level platform, system, developer, safety, or explicit user instructions.
 
+Local checkout note: this workspace uses `DevFlow` as the repository folder name. Use `DevFlow` in docs, handoffs, and local command examples when referring to this checkout.
+
 ---
 
 ## 🎯 Dev-Flow Current Product Target
@@ -18,7 +20,7 @@ Dev-Flow owns:
 - Status, questions, logs, and reports
 - Verification & merge readiness
 
-Workers are replaceable. The current runtime supports **shell workers only**. The next architecture direction is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md), but neither is active runtime behavior yet.
+Workers are replaceable. The current code-changing runtime supports **shell workers**; `devflow task local` is a narrow local Ollama evidence wrapper for Qwen/Gemma prompt-response capture and does not edit, verify, route, promote, or call remote provider APIs. The next architecture direction is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md), but neither is active runtime behavior yet.
 
 ### First Milestone Commands
 ```bash
@@ -28,10 +30,12 @@ devflow task create "title"
 devflow task list
 devflow task show <task_id>
 devflow task run <task_id> --worker shell -- <command>
+devflow task local <task_id> --worker qwen-planner
+devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
 devflow dashboard
 ```
 
-Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Future non-shell work must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
+Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Future non-shell work beyond the narrow local Ollama evidence wrapper must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
 
 ---
 

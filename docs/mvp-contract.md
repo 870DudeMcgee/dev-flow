@@ -2,11 +2,11 @@
 
 Status: active, reconciled on 2026-05-30.
 
-This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
+This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
 
 Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The opt-in Git-native worker isolation and promotion slice is described in [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md). The registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md).
 
-The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace.
+The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a local Ollama evidence wrapper for Qwen/Gemma planning and review output; it is not a provider adapter, router, auto-editor, verification runner, or promotion path.
 
 ## Stable Commands
 
@@ -22,6 +22,8 @@ devflow task create --git-worktree "example git task"
 devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task verify <task-id> --shell "test -f result.txt"
+devflow task local <task-id> --worker qwen-planner
+devflow task local <task-id> --worker gemma-reviewer --input-worker qwen-planner
 devflow task list
 devflow task show <task-id>
 devflow task packet <task-id>
@@ -56,7 +58,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task run`, `task verify`, `task packet`, `task log`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -68,6 +70,8 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 `devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow reconcile` reports crash/interruption evidence without mutating files, including partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
 
 `devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
+
+`devflow task local <task-id> --worker qwen-planner` and `devflow task local <task-id> --worker gemma-reviewer --input-worker qwen-planner` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as evidence only; Dev-Flow does not parse it as truth, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
 
 `devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Promotion is not automatic and does not stage, commit, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
@@ -101,6 +105,11 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/questions.jsonl
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/worker_failed.json
 .devflow/workspaces/<task-id>/
+.devflow/workspaces/<task-id>/local-workers/<worker-name>/prompt.md
+.devflow/workspaces/<task-id>/local-workers/<worker-name>/response.raw.md
+.devflow/workspaces/<task-id>/local-workers/<worker-name>/response.md
+.devflow/workspaces/<task-id>/local-workers/<worker-name>/run.json
+.devflow/workspaces/<task-id>/local-workers/<worker-name>/stderr.log
 .devflow/worktrees/<task-id>/shell/                          # only for --git-worktree tasks
 .devflow/tasks/<task-id>/workers/shell/git.json              # only for --git-worktree tasks
 .devflow/tasks/<task-id>/workers/shell/diff.patch            # only for --git-worktree tasks
@@ -109,9 +118,9 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/workers/shell/promotion-preview.json # only for --git-worktree tasks
 ```
 
-`task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. Patch application writes a SHA-256-addressed evidence artifact under `patches/` and updates latest `patch-application.json`; `patch_applied` events point at that evidence. The workspace is the only current place where shell-worker results are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
+`task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. Patch application writes a SHA-256-addressed evidence artifact under `patches/` and updates latest `patch-application.json`; `patch_applied` events point at that evidence. The workspace is the only current place where shell-worker results and local Ollama worker artifacts are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
 
-Mutating task operations use a task-local `.lock/` directory with `owner.json` metadata. `run`, `verify`, `apply-patch`, and `promote` refuse concurrent mutations for the same task, report the current lock owner, and recover locks that are stale beyond the lock TTL.
+Mutating task operations use a task-local `.lock/` directory with `owner.json` metadata. `run`, `local`, `verify`, `apply-patch`, and `promote` refuse concurrent mutations for the same task, report the current lock owner, and recover locks that are stale beyond the lock TTL.
 
 ## Optional Derived State
 
@@ -126,10 +135,13 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 ## Stable Safety Rules
 
 - Shell workers execute only in `.devflow/workspaces/<task-id>/`.
+- Local Ollama workers write evidence only under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/`.
 - Verification commands execute only in `.devflow/workspaces/<task-id>/`.
 - Tampered task workspace paths are refused before command execution.
 - Symlinks are skipped during scratchpad copy.
 - Shell-worker results do not write into the main checkout.
+- Local Ollama worker success is based only on subprocess exit code `0`; nonempty model output with a nonzero exit remains failed evidence.
+- Local Ollama workers do not auto-edit files, auto-verify, auto-commit, auto-merge, or auto-promote.
 - Promotion to the main checkout is explicit, human-confirmed, and gated on verification readiness.
 - Promotion refuses unsafe workspace paths and blocks dirty main-checkout changes unless explicitly forced.
 - New task events are hash-chained with monotonic indexes, previous-event hashes, and current-event hashes; `doctor` reports malformed or edited task event logs.
@@ -168,6 +180,7 @@ Future production hardening items:
 - Multi-worker branch-sharing cleanup beyond the initial shell worker lane.
 - Per-task temporary `HOME` and temp directories.
 - Network-off runner policies.
+- Ollama keep-alive and model-stop controls for local resource pressure.
 - Resource limits for CPU, memory, file descriptors, and process counts.
 - Allowlisted command profiles and absolute path inspections.
 - Container, firejail, macOS sandbox, or other OS-level isolation.
@@ -178,7 +191,7 @@ Future production hardening items:
 - Browser or web dashboards.
 - Token-context helper as runtime authority. The helper may exist as visible planning guidance, but it does not execute token tools, route models, install hooks, or change shell-worker, verification, or promotion behavior.
 - Task-fit/context routing runtime.
-- Provider-backed worker adapters. The only stable non-shell worker path is the manual proof-agent handoff; it does not execute model APIs or own canonical task state.
+- Provider-backed worker adapters. The stable non-shell model path is limited to local `ollama run` evidence capture through `devflow task local`; it does not use remote provider APIs, own canonical task state, or apply model output.
 - Provider-backed Git worktree orchestration beyond the opt-in shell-worker lane.
 - SQLite or any other database.
 - Automatic merge, automatic copy-back, commit, push, or PR automation.

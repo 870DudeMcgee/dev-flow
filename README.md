@@ -2,9 +2,11 @@
 
 Dev-Flow is a local-first control room for parallel AI coding workers.
 
+Local checkout note: this workspace uses `DevFlow` as the repository folder name. Handoffs, setup notes, and local command examples should refer to the checkout as `DevFlow`.
+
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-Workers are replaceable. The stable executable runtime supports shell workers and the manual proof-agent handoff only. Provider-backed adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
+Workers are replaceable. The stable code-changing runtime supports shell workers, while the manual proof-agent handoff and local Ollama planner/reviewer wrapper produce evidence only. Provider-backed adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
 
 ## Current Product Contract
 
@@ -13,7 +15,7 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
 - **Dashboard**: `devflow dashboard`
-- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
@@ -43,6 +45,11 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     patch-application.json
     patches/<patch-hash>.json
   workspaces/<task-id>/
+    local-workers/<worker-name>/prompt.md
+    local-workers/<worker-name>/response.raw.md
+    local-workers/<worker-name>/response.md
+    local-workers/<worker-name>/run.json
+    local-workers/<worker-name>/stderr.log
   worktrees/<task-id>/shell/                    # only for --git-worktree tasks
   tasks/<task-id>/workers/shell/git.json        # only for --git-worktree tasks
   tasks/<task-id>/workers/shell/diff.patch      # only for --git-worktree tasks
@@ -51,22 +58,23 @@ Dev-Flow stores durable task state as local filesystem artifacts:
   tasks/<task-id>/workers/shell/promotion-preview.json
 ```
 
-`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output stays in `.devflow/workspaces/<task-id>/` until a human explicitly previews and promotes verified changes.
+`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output and local Ollama prompt/response artifacts stay in `.devflow/workspaces/<task-id>/` until a human explicitly reviews them; promotion remains separate and verification-gated.
 
-Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
+Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `local`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
 
 ## Safety Model And Known Limitations
 
 Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. It is useful as a control-room kernel, but it is not a security sandbox for untrusted commands, agents, repositories, or multi-user execution.
 
 - Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
+- `devflow task local` runs `ollama run <model>` locally for `qwen-planner` and `gemma-reviewer`, captures raw stdout/stderr plus `run.json`, and treats success as subprocess exit code `0` only. It does not parse responses as truth, edit files, verify, commit, merge, promote, route models, or call remote provider APIs.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
 - `devflow task create --git-worktree` creates a branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification to the worker branch commit, and uses Git-aware promotion mechanics. Git cleanup commands are dry-run-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --dry-run` before applying mutations.
 - Promotion is explicit, readiness-gated, and human-controlled. Copy-workspace tasks promote by copying verified workspace changes back into the main checkout; Git worktree tasks promote through the worker branch path.
 - The patch applier is a text-only MVP path with strong path validation and durable patch hash evidence. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
 
-Use Dev-Flow only on repositories and worker commands you trust. The Git-native shell-worker path now moves worker isolation and promotion onto git worktrees/branches, binds verification to commits, extends strict readiness checks with Git facts, and includes dry-run-first cleanup for orphaned Dev-Flow worktrees and branches. Stricter command policy, multi-worker worktree scheduling, and optional network/resource controls remain later hardening layers.
+Use Dev-Flow only on repositories and worker commands you trust. The Git-native shell-worker path now moves worker isolation and promotion onto git worktrees/branches, binds verification to commits, extends strict readiness checks with Git facts, and includes dry-run-first cleanup for orphaned Dev-Flow worktrees and branches. Stricter command policy, multi-worker worktree scheduling, Ollama keep-alive/model-stop controls, and optional network/resource controls remain later hardening layers.
 
 ## Durable Context Structure
 
@@ -109,6 +117,15 @@ TASK_ID=$(.venv/bin/python -m devflow.cli task create "write hello result" | sed
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
 ```
 
+Capture local Qwen/Gemma planning and review evidence without auto-editing files:
+
+```bash
+.venv/bin/python -m devflow.cli task local "$TASK_ID" --worker qwen-planner
+.venv/bin/python -m devflow.cli task local "$TASK_ID" --worker gemma-reviewer --input-worker qwen-planner
+```
+
+Local worker artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata.
+
 Promotion is explicit and human-controlled:
 
 ```bash
@@ -133,7 +150,7 @@ Git-native promotion refuses if the worker branch HEAD differs from the verified
 
 `devflow reconcile` is a read-only crash/interruption report. It surfaces partial task/system event writes, task/system event divergence, interrupted promotion evidence such as stale promote locks, and inconsistent task artifacts. Use `--json` for machine-readable output or `--task <task-id>` to inspect one task. It does not repair artifacts automatically.
 
-Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future provider adapters may be described in registries, but only the `shell` and `manual` adapters are executable in the stable runtime.
+Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future provider adapters may be described in registries, but only the `shell` and `manual` adapters are executable through `task run`; local Qwen/Gemma evidence capture uses `task local` and does not apply model output.
 
 ## Release And Versioning
 

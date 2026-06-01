@@ -56,6 +56,11 @@ from devflow.control_room.seed import initialize_seed, validate_seed_contract
 from devflow.control_room.verification import VerificationResult, run_verification_command
 from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
+from devflow.control_room.local_ollama_worker import (
+    LocalOllamaRunResult,
+    get_local_worker_definition,
+    run_local_ollama_worker,
+)
 from devflow.control_room.patch_applier import (
     PatchError,
     PatchSelectionError,
@@ -314,6 +319,87 @@ def run_shell_task(
             {"status": result.status, "exit_code": result.exit_code, "log_path": task.log_path},
         )
         return task
+
+
+def run_local_model_task(
+    root: Path,
+    task_id: str,
+    worker_name: str,
+    *,
+    input_worker: str | None = None,
+    timeout_seconds: int | None = None,
+) -> LocalOllamaRunResult:
+    definition = get_local_worker_definition(worker_name)
+    timeout = timeout_seconds or definition.default_timeout_seconds
+    if timeout <= 0:
+        raise ValueError("Local worker timeout must be greater than zero.")
+
+    with task_mutation_lock(root, task_id, "local-worker"):
+        task = get_task(root, task_id)
+        task_path = task_dir(root, task_id)
+        workspace = _resolve_task_workspace(root, task)
+        artifact_dir = workspace / "local-workers" / worker_name
+        task_yaml_text = (task_path / "task.yaml").read_text(encoding="utf-8")
+
+        task.status = "running"
+        task.worker = worker_name
+        task.worker_adapter = "local-ollama"
+        task.timeout_seconds = timeout
+        task.worker_command = shlex.join(["ollama", "run", definition.model])
+        task.started_at = utc_now()
+        task.updated_at = task.started_at
+        task.last_event = "local_worker_started"
+        _save_task(task_path, task)
+        _append_event(
+            root,
+            task_id,
+            "local_worker_started",
+            {
+                "worker_name": worker_name,
+                "model": definition.model,
+                "artifact_dir": _relative(root, artifact_dir),
+                "input_worker": input_worker or definition.default_input_worker,
+            },
+        )
+
+        result = run_local_ollama_worker(
+            root,
+            task_id,
+            workspace,
+            worker_name,
+            input_worker=input_worker,
+            timeout_seconds=timeout,
+            task_yaml_text=task_yaml_text,
+        )
+
+        task.status = result.task_status
+        task.last_exit_code = result.exit_code
+        task.latest_log_line = _local_worker_latest_line(result)
+        task.log_path = _relative(root, result.stderr_path)
+        task.result_path = _relative(root, result.response_path)
+        task.finished_at = result.finished_at
+        if is_git_worktree_task(task):
+            state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
+            task.workspace_dirty = bool(state["dirty"])
+        task.updated_at = task.finished_at
+        task.last_event = "local_worker_finished"
+        _save_task(task_path, task)
+        _write_merge_readiness(root, task_path, task)
+        _append_event(
+            root,
+            task_id,
+            "local_worker_finished",
+            {
+                "worker_name": worker_name,
+                "model": definition.model,
+                "status": result.status,
+                "exit_code": result.exit_code,
+                "run_json_path": _relative(root, result.run_json_path),
+                "response_path": _relative(root, result.response_path),
+                "stderr_path": _relative(root, result.stderr_path),
+            },
+        )
+        return result
 
 
 def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 120) -> TaskRecord:
@@ -671,6 +757,18 @@ def _write_result(task_path: Path, task_id: str, command: list[str], result: Wor
         f"## Log\n\n{result.log_file}\n"
     )
     atomic_write_text(result.result_file, body)
+
+
+def _local_worker_latest_line(result: LocalOllamaRunResult) -> str | None:
+    if result.error_message:
+        return result.error_message
+    if not result.stderr_path.exists():
+        return None
+    for line in reversed(result.stderr_path.read_text(encoding="utf-8").splitlines()):
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
 
 
 def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, result: VerificationResult) -> None:

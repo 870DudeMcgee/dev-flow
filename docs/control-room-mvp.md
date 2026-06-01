@@ -44,7 +44,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, and a bounded handoff for `devflow-manual-codex-worker`.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract and one local Ollama evidence wrapper. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, and local Qwen/Gemma prompt/response capture that does not edit code.
 
 Stable commands:
 
@@ -59,6 +59,8 @@ devflow task create "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task verify <task_id> --shell "test -f result.txt"
+devflow task local <task_id> --worker qwen-planner
+devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
 devflow task list
 devflow task show <task_id>
 devflow task packet <task_id>
@@ -73,6 +75,8 @@ devflow task run <task_id> --worker devflow-manual-codex-worker
 The preferred shell-worker form is `devflow task run <task_id> --worker shell -- <command>`. The `--shell "<command>"` form remains supported.
 
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
+
+The local Ollama form is `devflow task local <task_id> --worker qwen-planner` or `devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not auto-edit repo files, parse model output as truth, run Qwen and Gemma together, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
 Do not implement these in the first milestone:
 
@@ -109,13 +113,19 @@ Do not implement these in the first milestone:
       questions.jsonl
       worker_failed.json
   workspaces/<task_id>/
+    local-workers/<worker-name>/
+      prompt.md
+      response.raw.md
+      response.md
+      run.json
+      stderr.log
 ```
 
 The filesystem is the source of truth. `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. New task event records include a monotonic `event_index`, `previous_event_hash`, and `event_hash` so `doctor` can detect malformed or edited task event streams. `verification.json` stores the latest verification result. Worker and verification logs are raw evidence. Worker and verification commands run only inside `.devflow/workspaces/<task_id>/`.
 
 Current task-state artifacts use schema version 1. New `task.yaml`, `verification.json`, `merge-readiness.json`, and `summary.json` files record that version; missing task schema versions are treated as version 1 for backward compatibility, while unknown task schema versions are refused.
 
-Task-local mutation commands (`run`, `verify`, `apply-patch`, and `promote`) create `.devflow/tasks/<task_id>/.lock/owner.json` while they own the task. Active locks refuse competing mutations with owner details. Stale locks are removed after the configured stale window.
+Task-local mutation commands (`run`, `local`, `verify`, `apply-patch`, and `promote`) create `.devflow/tasks/<task_id>/.lock/owner.json` while they own the task. Active locks refuse competing mutations with owner details. Stale locks are removed after the configured stale window.
 
 Manual proof-agent files are evidence artifacts, not canonical state. `task show` and `dashboard` surface complete, blocked, and failed manual-agent evidence while leaving canonical task state under Dev-Flow control.
 
@@ -215,6 +225,7 @@ Implemented:
 - clear task-run refusal for `experimental_readonly` and `planned_not_executable` adapters
 - promotion preview from isolated workspace changes
 - human-controlled promotion of verified changes to the main checkout
+- `devflow task local` for local Qwen/Gemma Ollama evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
 
 Outside the current product contract:
 
@@ -222,6 +233,7 @@ Outside the current product contract:
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
 - task-fit/context routing (Design documented only. It does not select agents, invoke scouts, build runtime context packs, or change shell-worker behavior.)
 - provider-backed non-shell worker adapters
+- Ollama keep-alive/model-stop controls for local resource pressure
 - agent registry and adapter-runtime implementation beyond the stable proof-agent contract
 - SQLite or other databases
 - provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice

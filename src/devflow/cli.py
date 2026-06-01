@@ -20,6 +20,7 @@ from devflow.control_room.service import (
     get_task,
     init_control_room,
     promotion_readiness_errors,
+    run_local_model_task,
     run_shell_task,
     verify_task,
     apply_task_patch,
@@ -690,6 +691,40 @@ def task_log(
 
     for line in lines:
         typer.echo(line)
+
+
+@task_app.command("local")
+def task_local(
+    task_id: str,
+    worker: str = typer.Option(..., "--worker", help="Local Ollama worker name."),
+    input_worker: str | None = typer.Option(None, "--input-worker", help="Prior local worker output to review."),
+    timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1),
+) -> None:
+    """Run a first-class local Ollama worker for a task."""
+    try:
+        result = run_local_model_task(
+            Path.cwd(),
+            task_id,
+            worker,
+            input_worker=input_worker,
+            timeout_seconds=timeout_seconds,
+        )
+    except (KeyError, ValueError) as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"{task_id}: {result.status}")
+    typer.echo(f"local_worker: {worker}")
+    typer.echo(f"model: {result.model}")
+    typer.echo(f"prompt_path: {_relative(Path.cwd(), result.prompt_path)}")
+    typer.echo(f"raw_response_path: {_relative(Path.cwd(), result.raw_response_path)}")
+    typer.echo(f"response_path: {_relative(Path.cwd(), result.response_path)}")
+    typer.echo(f"stderr_path: {_relative(Path.cwd(), result.stderr_path)}")
+    typer.echo(f"local_worker_run: {_relative(Path.cwd(), result.run_json_path)}")
+    if result.error_message:
+        typer.echo(result.error_message)
+    if result.status != "success":
+        raise typer.Exit(code=result.exit_code if result.exit_code is not None else 1)
 
 
 @task_app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
