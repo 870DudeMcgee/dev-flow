@@ -39,6 +39,19 @@ class TaskStatusProjection(BaseModel):
     def latest(self) -> str:
         return sanitize_log_line(self.task.latest_log_line) or self.task.last_event or ""
 
+    @property
+    def display_status(self) -> str:
+        if self.task.status == "blocked" and self.manual_agent_state:
+            if self.manual_agent_state == "awaiting_human":
+                return "awaiting_human"
+            if self.manual_agent_state == "blocked":
+                return "blocked_question"
+            if self.manual_agent_state == "failed":
+                return "worker_failed"
+            if self.manual_agent_state == "result_present":
+                return "result_present"
+        return self.task.status
+
 
 def list_task_status_projections(root: Path) -> list[TaskStatusProjection]:
     return [build_task_status_projection(root, task.id, task=task) for task in list_tasks(root)]
@@ -84,6 +97,7 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
             verification_status,
             record.id,
             promotion_ready=not promotion_errors,
+            manual_agent_state=manual_evidence.state if manual_evidence is not None else None,
         ),
         manual_agent_state=manual_evidence.state if manual_evidence is not None else None,
         manual_agent_handoff_path=manual_evidence.handoff_path if manual_evidence is not None else None,
@@ -149,8 +163,28 @@ def _int_or_none(value: Any, default: int | None) -> int | None:
 
 
 def _suggest_next_action(
-    status: str, verification_status: str, task_id: str, promotion_ready: bool = False
+    status: str,
+    verification_status: str,
+    task_id: str,
+    promotion_ready: bool = False,
+    manual_agent_state: str | None = None,
 ) -> str:
+    if manual_agent_state is not None:
+        if manual_agent_state == "awaiting_human":
+            return "Manual handoff generated. Awaiting human workspace changes and result.md."
+        if manual_agent_state == "blocked":
+            return "Manual worker blocked on a question. Resolve the question in questions.jsonl."
+        if manual_agent_state == "failed":
+            return "Manual worker failed. Inspect worker_failed.json."
+        if manual_agent_state == "result_present":
+            if verification_status == "passed" and promotion_ready:
+                return f"Task is verified. Review promotion preview, then run 'devflow task promote {task_id}' when ready."
+            if verification_status == "passed":
+                return "Task is verified, but promotion readiness evidence is incomplete. Re-run verification before promotion."
+            if verification_status == "failed":
+                return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
+            return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
+
     if status == "created":
         return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
     if status == "running":

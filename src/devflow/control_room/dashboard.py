@@ -22,7 +22,7 @@ def render_dashboard(repo_root: Path | None = None) -> str:
     for projection in projections:
         task = projection.task
         lines.append(
-            f"{task.id:<10} {task.status:<20} {projection.verification_status:<12} "
+            f"{task.id:<10} {projection.display_status:<20} {projection.verification_status:<12} "
             f"{task.worker:<8} {projection.latest}"
         )
         lines.append(f"  workspace: {task.workspace}")

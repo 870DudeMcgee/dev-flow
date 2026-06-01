@@ -196,3 +196,68 @@ def test_manual_agent_failed_evidence_contract_is_visible(tmp_path: Path, monkey
     dashboard = runner.invoke(app, ["dashboard"])
     assert dashboard.exit_code == 0, dashboard.output
     assert "manual_agent_state: failed" in dashboard.output
+
+
+def test_manual_agent_display_status_and_suggested_next_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devflow.control_room.status_projection import build_task_status_projection
+    monkeypatch.chdir(tmp_path)
+    task = create_task(tmp_path, "Display status and suggestions")
+
+    # Initially, before running manual worker, task status is created and no manual evidence
+    proj = build_task_status_projection(tmp_path, task.id)
+    assert proj.display_status == "created"
+    assert "Run the task" in proj.suggested_next_action
+
+    # 1. Run the manual worker -> state is awaiting_human
+    runner.invoke(app, ["task", "run", task.id, "--worker", "devflow-manual-codex-worker"])
+    proj = build_task_status_projection(tmp_path, task.id)
+    assert proj.display_status == "awaiting_human"
+    assert "Manual handoff generated" in proj.suggested_next_action
+
+    # Verify task list CLI matches display_status
+    list_res = runner.invoke(app, ["task", "list"])
+    assert "awaiting_human" in list_res.output
+
+    # 2. Blocked on a question -> state is blocked_question
+    agent_dir = tmp_path / ".devflow/tasks" / task.id / "agents" / "devflow-manual-codex-worker"
+    question = {
+        "type": "blocked_question",
+        "task_id": task.id,
+        "agent_id": "devflow-manual-codex-worker",
+        "question": "preservation API?",
+        "blocking_reason": "incompatible sites",
+    }
+    with (agent_dir / "questions.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(question) + "\n")
+    proj = build_task_status_projection(tmp_path, task.id)
+    assert proj.display_status == "blocked_question"
+    assert "Manual worker blocked on a question" in proj.suggested_next_action
+
+    # 3. Failed -> state is worker_failed
+    (agent_dir / "worker_failed.json").write_text(
+        json.dumps({
+            "status": "worker_failed",
+            "task_id": task.id,
+            "agent_id": "devflow-manual-codex-worker",
+            "summary": "Could not apply patch cleanly",
+        }),
+        encoding="utf-8"
+    )
+    proj = build_task_status_projection(tmp_path, task.id)
+    assert proj.display_status == "worker_failed"
+    assert "Manual worker failed" in proj.suggested_next_action
+
+    # Clean up the failed/question logs to check result present
+    (agent_dir / "worker_failed.json").unlink()
+    (agent_dir / "questions.jsonl").unlink()
+
+    # 4. Result present -> state is result_present
+    (agent_dir / "result.md").write_text(
+        "# Result\n\nstatus: complete\nsummary: All done.\n",
+        encoding="utf-8"
+    )
+    proj = build_task_status_projection(tmp_path, task.id)
+    assert proj.display_status == "result_present"
+    assert "Verify the task" in proj.suggested_next_action

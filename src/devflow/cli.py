@@ -208,7 +208,7 @@ def task_list() -> None:
     for projection in projections:
         task = projection.task
         typer.echo(
-            f"{task.id:<10} {task.status:<20} {projection.verify_token:<16} "
+            f"{task.id:<10} {projection.display_status:<20} {projection.verify_token:<16} "
             f"{task.updated_at.isoformat():<25} {task.title}"
         )
 
