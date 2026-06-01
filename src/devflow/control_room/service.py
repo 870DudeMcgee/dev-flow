@@ -100,9 +100,31 @@ def init_control_room(root: Path) -> None:
 
 def create_task(root: Path, title: str) -> TaskRecord:
     init_control_room(root)
-    task_id = _next_task_id(root)
-    task_path = task_dir(root, task_id)
-    (task_path / "logs").mkdir(parents=True, exist_ok=True)
+
+    # Concurrency Lock: Retryatomic directory creation to prevent task creation races
+    lock_dir = devflow_dir(root) / ".lock"
+    import time
+    for _ in range(200):
+        try:
+            lock_dir.mkdir(parents=True, exist_ok=False)
+            break
+        except FileExistsError:
+            time.sleep(0.01)
+
+    try:
+        task_id = _next_task_id(root)
+        task_path = task_dir(root, task_id)
+        
+        # Atomically create the task directory, fail if already exists
+        task_path.mkdir(parents=True, exist_ok=False)
+        (task_path / "logs").mkdir(parents=True, exist_ok=True)
+    finally:
+        # Release the lock directory
+        try:
+            lock_dir.rmdir()
+        except Exception:
+            pass
+
     workspace = create_workspace(root, task_id)
 
     now = utc_now()
@@ -292,7 +314,7 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
     return task
 
 
-def doctor(root: Path) -> list[tuple[str, bool, str]]:
+def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
     seed_errors = validate_seed_contract(root)
     checks = [
         ("runtime directory", devflow_dir(root).exists(), str(devflow_dir(root))),
@@ -321,6 +343,32 @@ def doctor(root: Path) -> list[tuple[str, bool, str]]:
                 checks.append((f"{path.name} workspace", _absolute(root, task.workspace).is_dir(), task.workspace))
                 for name in ("events.jsonl", "questions.jsonl", "result.md", "verification.json"):
                     checks.append((f"{path.name} {name}", (path / name).exists(), str(path / name)))
+    if strict:
+        # 1. No experimental provider adapters enabled in loaded registry
+        try:
+            from devflow.control_room.agent_registry import load_agent_registry
+            registry = load_agent_registry(root)
+            unstable_agents = []
+            for agent in registry.enabled_agents():
+                if agent.adapter_maturity != "stable_runtime":
+                    unstable_agents.append(f"{agent.id} ({agent.adapter})")
+            if unstable_agents:
+                checks.append(("strict: only stable runtime agents enabled", False, f"unstable: {', '.join(unstable_agents)}"))
+            else:
+                checks.append(("strict: only stable runtime agents enabled", True, "all enabled agents use stable adapters"))
+        except Exception as exc:
+            checks.append(("strict: agent registry validation", False, str(exc)))
+
+        # 2. Main checkout has no uncommitted changes (clean main worktree)
+        try:
+            from devflow.control_room.promotion import main_checkout_has_uncommitted_changes
+            dirty = main_checkout_has_uncommitted_changes(root)
+            if dirty:
+                checks.append(("strict: clean main worktree", False, "uncommitted changes present"))
+            else:
+                checks.append(("strict: clean main worktree", True, "git worktree is clean"))
+        except Exception as exc:
+            checks.append(("strict: git worktree check", False, str(exc)))
     return checks
 
 

@@ -51,10 +51,12 @@ def init_command() -> None:
 
 
 @app.command("doctor")
-def doctor_command() -> None:
+def doctor_command(
+    strict: bool = typer.Option(False, "--strict", help="Enforce strict production readiness checks.")
+) -> None:
     """Check local control-room runtime readiness."""
     root = Path.cwd()
-    checks = doctor(root)
+    checks = doctor(root, strict=strict)
     failed = False
     for name, ok, detail in checks:
         marker = "ok" if ok else "missing"
