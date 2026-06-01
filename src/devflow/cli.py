@@ -30,6 +30,7 @@ from devflow.control_room.patch_applier import (
     PatchParseError,
     PatchApplicationError,
 )
+from devflow.control_room.reconciliation import build_reconciliation_report
 
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.models import TaskRecord
@@ -76,6 +77,21 @@ def doctor_command(
         typer.echo(f"{marker}: {name} ({detail})")
         failed = failed or not ok
     if failed:
+        raise typer.Exit(code=1)
+
+
+@app.command("reconcile")
+def reconcile_command(
+    json_output: bool = typer.Option(False, "--json", help="Print the report as JSON."),
+    task_id: str | None = typer.Option(None, "--task", help="Limit the report to one task id."),
+) -> None:
+    """Report crash/interruption evidence without changing task artifacts."""
+    report = build_reconciliation_report(Path.cwd(), task_id=task_id)
+    if json_output:
+        typer.echo(json.dumps(report, sort_keys=True, indent=2))
+    else:
+        _echo_reconciliation_report(report)
+    if report["status"] != "ok":
         raise typer.Exit(code=1)
 
 
@@ -954,6 +970,21 @@ def _echo_result_summary(path: Path) -> None:
             typer.echo(f"  {stripped}")
             return
     typer.echo("  none")
+
+
+def _echo_reconciliation_report(report: dict[str, Any]) -> None:
+    typer.echo(f"status: {report['status']}")
+    typer.echo(f"tasks_checked: {report['tasks_checked']}")
+    findings = report["findings"]
+    typer.echo("findings:")
+    if not findings:
+        typer.echo("  none")
+        return
+    for finding in findings:
+        task = f" {finding['task_id']}" if finding.get("task_id") else ""
+        typer.echo(f"  - [{finding['severity']}] {finding['code']}{task}: {finding['detail']}")
+        typer.echo(f"    path: {finding['path']}")
+        typer.echo(f"    next_safe_action: {finding['next_action']}")
 
 
 def _echo_list(label: str, values: list[str]) -> None:

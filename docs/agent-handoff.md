@@ -54,6 +54,7 @@ Current product contract:
 - `devflow --help`
 - `devflow init`
 - `devflow doctor`
+- `devflow reconcile`
 - `devflow dashboard`
 - `devflow task --help`
 - `devflow task create "title"`
@@ -74,6 +75,7 @@ Current product contract:
 - task append-only `events.jsonl`
 - task-local worker logs, verification logs, verification JSON, and YAML artifacts
 - strict doctor read-only diagnostics for stale locks, unsafe workspace paths, invalid JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency
+- read-only reconciliation reporting for partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
 - POSIX process-group cleanup for shell and verification timeout paths
@@ -92,6 +94,7 @@ Current product contract:
 devflow --help
 devflow init
 devflow doctor
+devflow reconcile
 devflow dashboard
 devflow task --help
 devflow task create "example task"

@@ -155,11 +155,11 @@ Implemented:
 - canonical task YAML/JSON artifacts use atomic write-then-replace for `task.yaml`, `summary.json`, `verification.json`, and `merge-readiness.json`
 - patch application records real SHA-256 patch hashes, hash-addressed patch evidence artifacts, changed-file summaries, and latest patch application evidence
 - `doctor --strict` reports stale task locks, unsafe workspace paths, invalid derived/canonical JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency
+- `devflow reconcile` reports partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts without changing files
 - `devflow init`, `devflow doctor --strict`, and shell task runs visibly warn that shell execution is path-isolated, not sandboxed
 
 Remaining before production-grade local beta:
 
-- add read-only crash/interruption reconciliation reporting for partial event writes, interrupted promotion, and task/system event divergence
 - design a cautious `devflow repair --dry-run` follow-up after strict reporting stays stable
 - add installed-wheel CLI smoke tests in CI
 - publish passing CI evidence before tags or releases

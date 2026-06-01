@@ -12,6 +12,7 @@ Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](a
 devflow --help
 devflow init
 devflow doctor
+devflow reconcile
 devflow dashboard
 devflow task --help
 devflow task create "example task"
@@ -47,7 +48,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `dashboard`, `task create`, `task list`, `task show`, `task run`, `task verify`, `task packet`, `task log`, `task promote-preview`, `task promote`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task run`, `task verify`, `task packet`, `task log`, `task promote-preview`, `task promote`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -56,7 +57,7 @@ Agent adapters also carry runtime maturity: `stable_runtime`, `experimental_read
 
 Experimental task-fit, scout, route, scorecard, context, and supervisor commands are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The proof-agent registry commands are visible because they are part of this stable milestone.
 
-`devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
+`devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow reconcile` reports crash/interruption evidence without mutating files, including partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
 
 `devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
 
@@ -119,6 +120,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Promotion refuses unsafe workspace paths and blocks dirty main-checkout changes unless explicitly forced.
 - New task events are hash-chained with monotonic indexes, previous-event hashes, and current-event hashes; `doctor` reports malformed or edited task event logs.
 - `doctor --strict` is read-only and reports stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency.
+- `devflow reconcile` is read-only and reports partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts.
 - No SQLite database is created.
 - No `.devflow/worktrees/` directory is created.
 - Legacy agent, memory, DAG, trace, worktree, database, and software-factory systems remain bypassed for this MVP path.
@@ -143,7 +145,7 @@ Current MVP implementation limits:
 - workspaces are copy-based scratchpads, not git worktrees
 - promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
 - patch application supports validated text patches only, records SHA-256 patch evidence, and rejects binary diffs, renames, copies, mode changes, and similarity metadata
-- event logs are append-only evidence, but task and system event writes are still separate writes and may require future reconciliation tooling after a crash
+- event logs are append-only evidence, but task and system event writes are still separate writes and may require human-reviewed reconciliation after a crash
 
 Future security hardening items:
 - Per-task temporary `HOME` and temp directories.
@@ -153,7 +155,7 @@ Future security hardening items:
 - Container, firejail, macOS sandbox, or other OS-level isolation.
 - Git worktree or branch-backed workspaces.
 - Git-native promotion and conflict handling.
-- Event-log reconciliation and repair checks.
+- Cautious `devflow repair --dry-run` design after read-only reconciliation reporting stays stable.
 
 ## Out Of The Current Contract
 

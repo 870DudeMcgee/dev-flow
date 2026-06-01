@@ -51,6 +51,7 @@ Stable commands:
 devflow --help
 devflow init
 devflow doctor
+devflow reconcile
 devflow dashboard
 devflow task --help
 devflow task create "example task"
@@ -202,6 +203,7 @@ Implemented:
 - tampered workspace refusal before shell or verification commands execute
 - symlink skipping during scratchpad copy
 - text-only terminal dashboard
+- read-only crash/interruption reconciliation reporting for partial event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts
 - stable `devflow-manual-codex-worker` registry contract
 - proof-agent bounded packets with role, allowed reads, allowed writes, forbidden writes, required outputs, completion rules, and manual instructions
 - manual proof-agent handoff generation without provider API calls, model selection, routing, scheduling, auto-verification, or auto-promotion
