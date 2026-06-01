@@ -22,7 +22,15 @@ from devflow.control_room.service import (
     promotion_readiness_errors,
     run_shell_task,
     verify_task,
+    apply_task_patch,
 )
+from devflow.control_room.patch_applier import (
+    PatchError,
+    PatchSelectionError,
+    PatchParseError,
+    PatchApplicationError,
+)
+
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
@@ -632,6 +640,51 @@ def task_verify(
     if task.verification_status != "passed":
         exit_code = task.verification_exit_code if task.verification_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
+
+
+@task_app.command("apply-patch")
+def task_apply_patch(
+    task_id: str,
+    agent: str | None = typer.Option(None, "--agent", help="The specific agent's patch to apply."),
+) -> None:
+    """Apply a proposed patch from a worker agent to the isolated task workspace."""
+    root = Path.cwd()
+    try:
+        task = apply_task_patch(root, task_id, agent_id=agent)
+        
+        # Retrieve the latest patch_applied event to print details
+        task_path = root / ".devflow" / "tasks" / task.id
+        events_file = task_path / "events.jsonl"
+        patch_hash = "unknown"
+        agent_id = agent or "default"
+        changed_files = []
+        if events_file.exists():
+            for line in events_file.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    evt = json.loads(line)
+                    if evt.get("event") == "patch_applied":
+                        patch_hash = evt.get("patch_hash", "unknown")
+                        agent_id = evt.get("agent_id", agent_id)
+                        changed_files = evt.get("changed_files", [])
+                except Exception:
+                    pass
+
+        typer.echo(f"Successfully applied patch from agent '{agent_id}' to task workspace '{task.id}'.")
+        typer.echo(f"Workspace: .devflow/workspaces/{task.id}")
+        typer.echo(f"Patch Hash: {patch_hash}")
+        typer.echo("")
+        typer.echo("Modified files:")
+        for cf in changed_files:
+            typer.echo(f"  - {cf['path']} ({cf['operation']})")
+        typer.echo("")
+        typer.echo("Next:")
+        typer.echo(f"  devflow task verify {task.id} --shell \"<command>\"")
+
+    except PatchError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @task_app.command("promote-preview")
