@@ -115,6 +115,8 @@ def test_context_command_in_subdirectory_of_git_repo() -> None:
         try:
             os.chdir(repo)
             _git(repo, "init", "-b", "main")
+            _git(repo, "config", "user.email", "tests@example.com")
+            _git(repo, "config", "user.name", "Devflow Tests")
             Path("README.md").write_text("hello\n", encoding="utf-8")
             _git(repo, "add", "README.md")
             _git(repo, "commit", "-m", "initial")

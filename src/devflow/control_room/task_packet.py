@@ -98,8 +98,9 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         if k in task_data and task_data[k] is not None:
             task_data[k] = _virtualize_path(task_data[k], repo_root, task.id)
 
-    if "log_path" in verification and verification["log_path"] is not None:
-        verification["log_path"] = _virtualize_path(verification["log_path"], repo_root, task.id)
+    for key in ["workspace", "workspace_path", "log_path", "result_path", "verification_log_path"]:
+        if key in verification and verification[key] is not None:
+            verification[key] = _virtualize_path(verification[key], repo_root, task.id)
 
     worker_log = worker_log.model_copy(update={"path": _virtualize_path(worker_log.path, repo_root, task.id)})
     verify_log = verify_log.model_copy(update={"path": _virtualize_path(verify_log.path, repo_root, task.id)})
