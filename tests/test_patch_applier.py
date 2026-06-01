@@ -8,6 +8,7 @@ from devflow.control_room.patch_applier import (
     PatchSelectionError,
     PatchApplicationError,
     parse_unified_diff,
+    apply_patch_files,
 )
 
 def test_exceptions_exist():
@@ -47,4 +48,52 @@ def test_parse_rejected_metadata_raises():
     )
     with pytest.raises(PatchParseError, match="Unsupported metadata: new file mode"):
         parse_unified_diff(diff_with_mode)
+
+def test_apply_modify_exact_match(tmp_path: Path):
+    target = tmp_path / "hello.txt"
+    target.write_text("line one\nline two\nline three\n", encoding="utf-8")
+    diff = (
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -2,2 +2,2 @@\n"
+        " line two\n"
+        "-line three\n"
+        "+line beautiful three\n"
+    )
+    patch_files = parse_unified_diff(diff)
+    apply_patch_files(tmp_path, patch_files)
+    assert target.read_text(encoding="utf-8") == "line one\nline two\nline beautiful three\n"
+
+def test_apply_offset_multi_hunk(tmp_path: Path):
+    target = tmp_path / "hello.txt"
+    target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    diff = (
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1,2 +1,3 @@\n"
+        " one\n"
+        "+inserted\n"
+        " two\n"
+        "@@ -3 +4 @@\n"
+        "-three\n"
+        "+four\n"
+    )
+    patch_files = parse_unified_diff(diff)
+    apply_patch_files(tmp_path, patch_files)
+    assert target.read_text(encoding="utf-8") == "one\ninserted\ntwo\nfour\n"
+
+def test_apply_hunk_mismatch_raises_application_error(tmp_path: Path):
+    target = tmp_path / "hello.txt"
+    target.write_text("one\ndirty\nthree\n", encoding="utf-8")
+    diff = (
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1,2 +1,2 @@\n"
+        " one\n"
+        "-two\n"
+        "+inserted\n"
+    )
+    patch_files = parse_unified_diff(diff)
+    with pytest.raises(PatchApplicationError, match="mismatch at line 2"):
+        apply_patch_files(tmp_path, patch_files)
 
