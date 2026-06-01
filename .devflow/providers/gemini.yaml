@@ -1,3 +1,4 @@
+id: gemini
 provider: gemini
 adapter: gemini
 base_url: https://generativelanguage.googleapis.com

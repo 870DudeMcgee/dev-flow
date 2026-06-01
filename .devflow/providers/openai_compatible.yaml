@@ -1,3 +1,4 @@
+id: openai_compatible
 provider: openai_compatible
 adapter: openai_compatible
 base_url: http://127.0.0.1:8000/v1

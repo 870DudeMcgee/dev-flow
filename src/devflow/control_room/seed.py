@@ -248,34 +248,55 @@ Reports are useful for review and orientation, but they are never authoritative.
     ".devflow/reports/model-scorecards/README.md": "# Model Scorecards\n\nDerived model scorecards live here.\n",
     ".devflow/tasks/README.md": "# Tasks\n\nRuntime task directories live here.\n",
     ".devflow/providers/ollama.yaml": """version: 1
+id: ollama
 provider: ollama
 adapter: ollama_chat
 base_url: http://127.0.0.1:11434
 default_timeout_seconds: 600
 enabled: true
 """,
-    ".devflow/providers/openai.yaml": """provider: openai
+    ".devflow/providers/openai.yaml": """id: openai
+provider: openai
 adapter: openai_chat
 base_url: https://api.openai.com/v1
 api_key_env: OPENAI_API_KEY
 default_timeout_seconds: 300
 enabled: true
 """,
-    ".devflow/providers/anthropic.yaml": """provider: anthropic
+    ".devflow/providers/anthropic.yaml": """id: anthropic
+provider: anthropic
 adapter: anthropic_messages
 base_url: https://api.anthropic.com/v1
 api_key_env: ANTHROPIC_API_KEY
 default_timeout_seconds: 300
 enabled: true
 """,
-    ".devflow/providers/gemini.yaml": """provider: gemini
+    ".devflow/providers/gemini.yaml": """id: gemini
+provider: gemini
 adapter: gemini
 base_url: https://generativelanguage.googleapis.com
 api_key_env: GEMINI_API_KEY
 default_timeout_seconds: 300
 enabled: true
 """,
-    ".devflow/providers/openai_compatible.yaml": """provider: openai_compatible
+    ".devflow/providers/xai.yaml": """id: xai
+provider: xai
+adapter: openai_compatible
+base_url: https://api.x.ai/v1
+api_key_env: XAI_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/grok.yaml": """id: grok
+provider: grok
+adapter: openai_compatible
+base_url: https://api.x.ai/v1
+api_key_env: GROK_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/openai_compatible.yaml": """id: openai_compatible
+provider: openai_compatible
 adapter: openai_compatible
 base_url: http://127.0.0.1:8000/v1
 api_key_env: OPENAI_COMPATIBLE_API_KEY

@@ -1,3 +1,4 @@
+id: openai
 provider: openai
 adapter: openai_chat
 base_url: https://api.openai.com/v1

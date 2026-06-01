@@ -1,0 +1,7 @@
+id: grok
+provider: grok
+adapter: openai_compatible
+base_url: https://api.x.ai/v1
+api_key_env: GROK_API_KEY
+default_timeout_seconds: 300
+enabled: true

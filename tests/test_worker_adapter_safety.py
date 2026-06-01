@@ -233,3 +233,18 @@ def test_custom_api_key_env_fails_closed_when_missing(tmp_path: Path, monkeypatc
     assert result.exit_code == 1
     assert "Provider 'custom-prov' requires api_key_env 'CUSTOM_SECRET_KEY', but that environment variable is not set." in result.summary
     assert "mock-key" not in result.summary
+
+
+def test_ollama_base_url_only_permits_loopback_hosts() -> None:
+    from devflow.control_room.agent_registry import is_local_ollama_base_url
+    # Valid loopback hosts
+    assert is_local_ollama_base_url("http://127.0.0.1:11434") is True
+    assert is_local_ollama_base_url("http://localhost:11434") is True
+    assert is_local_ollama_base_url("http://[::1]:11434") is True
+    assert is_local_ollama_base_url(None) is True
+    assert is_local_ollama_base_url("") is True
+
+    # Invalid external hosts
+    assert is_local_ollama_base_url("http://ollama-server.local:11434") is False
+    assert is_local_ollama_base_url("http://192.168.1.50:11434") is False
+    assert is_local_ollama_base_url("https://external-ollama.io") is False

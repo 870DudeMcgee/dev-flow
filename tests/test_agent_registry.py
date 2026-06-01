@@ -286,6 +286,8 @@ def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> Non
         "anthropic",
         "gemini",
         "openai_compatible",
+        "xai",
+        "grok",
     ])
 
 
@@ -639,7 +641,7 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     
     provider_registry = load_provider_registry(tmp_path)
-    expected_providers = ["ollama", "openai", "anthropic", "gemini", "openai_compatible"]
+    expected_providers = ["ollama", "openai", "anthropic", "gemini", "openai_compatible", "xai", "grok"]
     
     for prov_id in expected_providers:
         assert prov_id in provider_registry.providers
@@ -667,3 +669,32 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
             assert prov.adapter == "openai_compatible"
             assert prov.base_url == "http://127.0.0.1:8000/v1"
             assert prov.default_timeout_seconds == 300
+        elif prov_id == "xai":
+            assert prov.adapter == "openai_compatible"
+            assert prov.base_url == "https://api.x.ai/v1"
+            assert prov.api_key_env == "XAI_API_KEY"
+            assert prov.default_timeout_seconds == 300
+        elif prov_id == "grok":
+            assert prov.adapter == "openai_compatible"
+            assert prov.base_url == "https://api.x.ai/v1"
+            assert prov.api_key_env == "GROK_API_KEY"
+            assert prov.default_timeout_seconds == 300
+
+
+def test_provider_registry_rejects_literal_secrets_as_api_key_env(tmp_path: Path) -> None:
+    providers_dir = tmp_path / ".devflow/providers"
+    providers_dir.mkdir(parents=True)
+
+    (providers_dir / "bad-secret.yaml").write_text(
+        """provider: openai
+adapter: openai_chat
+api_key_env: sk-proj-someSecretValueHere
+enabled: true
+""",
+        encoding="utf-8"
+    )
+
+    with pytest.raises(AgentRegistryError) as exc_info:
+        load_provider_registry(tmp_path)
+
+    assert "must be an uppercase environment variable name, not a literal secret value" in str(exc_info.value)
