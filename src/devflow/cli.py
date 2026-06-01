@@ -412,6 +412,7 @@ def task_show(task_id: str) -> None:
         typer.echo(f"packet_hint: run 'devflow task packet {task.id}' for the latest generated preview")
     else:
         typer.echo("packet_artifact: missing")
+    _echo_agent_patch_evidence_summary(Path.cwd(), task_path)
     if projection.merge_ready is not None:
         ready_str = "yes" if projection.merge_ready else "no"
         typer.echo(f"merge_ready: {ready_str}")
@@ -703,7 +704,7 @@ def task_local(
     input_worker: str | None = typer.Option(None, "--input-worker", help="Prior local worker output to review."),
     timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1),
 ) -> None:
-    """Run a first-class local Ollama worker for a task."""
+    """Run a legacy advisory local Ollama worker for a task."""
     resolved_worker = agent or worker
     if not resolved_worker:
         typer.echo("Error: Please provide either --worker or --agent option.", err=True)
@@ -721,9 +722,12 @@ def task_local(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    # Beautiful Cost-Saving ladder output
+    # Human-facing advisory ladder output
     typer.echo("-" * 50)
-    typer.echo("Local AI Cost-Saving Worker Loop Evidence Captured!")
+    typer.echo("Legacy Local Ollama Advisory Evidence Captured!")
+    typer.echo("  Mode:              legacy advisory evidence")
+    typer.echo("  Canonical worker:  devflow task run <task-id> --worker qwopus-implementer")
+    typer.echo("  Boundary:          task local shells out to ollama run; it does not write proposal.patch, apply patches, verify, or promote.")
     typer.echo(f"  Agent:             {resolved_worker}")
     typer.echo(f"  Model:             {result.model}")
     typer.echo(f"  Status:            {result.status}")
@@ -738,6 +742,8 @@ def task_local(
     typer.echo(f"{task_id}: {result.status}")
     typer.echo(f"local_worker: {resolved_worker}")
     typer.echo(f"model: {result.model}")
+    typer.echo("local_worker_mode: legacy_advisory")
+    typer.echo("canonical_implementation_command: devflow task run <task-id> --worker qwopus-implementer")
     typer.echo(f"run_id: {result.run_id}")
     typer.echo(f"evidence_dir: {_relative(Path.cwd(), result.artifact_dir)}")
     typer.echo(f"prompt_path: {_relative(Path.cwd(), result.prompt_path)}")
@@ -751,21 +757,25 @@ def task_local(
 
     if result.status == "success":
         typer.echo("")
-        typer.echo("Local Cost-Saving Ladder:")
-        typer.echo("  1. Planner stage:    devflow task local <task-id> --agent qwen-planner")
-        typer.echo("  2. Implementer:      devflow task run <task-id> --worker qwopus-implementer  [Preferred]")
-        typer.echo("                       (legacy advisory fallback: devflow task local <task-id> --agent qwen-implementer)")
-        typer.echo("  3. Reviewer stage:   devflow task local <task-id> --agent gemma-reviewer")
-        typer.echo("  4. Apply patch:      devflow task apply-patch <task-id> --agent qwopus-implementer")
-        typer.echo("  5. Verification:     devflow task verify <task-id> --shell \"<command>\"")
-        typer.echo("  6. Frontier:         Escalate to Copilot/frontier only if local evidence is insufficient, risky, contradictory, or verification repeatedly fails.")
+        typer.echo("Local advisory ladder (optional scouting/review evidence):")
+        typer.echo("  1. Planner advisory:     devflow task local <task-id> --agent qwen-planner")
+        typer.echo("  2. Implementation patch: devflow task run <task-id> --worker qwopus-implementer  [canonical]")
+        typer.echo("  3. Review advisory:      devflow task local <task-id> --agent gemma-reviewer")
+        typer.echo("  4. Apply patch:          devflow task apply-patch <task-id> --agent qwopus-implementer")
+        typer.echo("  5. Verification:         devflow task verify <task-id> --shell \"<command>\"")
+        typer.echo("  6. Promotion:            human-controlled promote-preview/promote only after verification.")
 
         if resolved_worker == "qwen-planner":
             typer.echo("")
             typer.echo("Suggested Next Action:")
             typer.echo("  Draft implementation patch using registry-backed qwopus-implementer:")
             typer.echo(f"    devflow task run {task_id} --worker qwopus-implementer")
-        elif resolved_worker in ("qwopus-implementer", "qwen-implementer"):
+        elif resolved_worker == "qwopus-implementer":
+            typer.echo("")
+            typer.echo("Suggested Next Action:")
+            typer.echo("  This was advisory-only qwopus output. For canonical patch evidence, run:")
+            typer.echo(f"    devflow task run {task_id} --worker qwopus-implementer")
+        elif resolved_worker == "qwen-implementer":
             typer.echo("")
             typer.echo("Suggested Next Action:")
             typer.echo("  Review implementation diff using gemma-reviewer:")
@@ -802,7 +812,8 @@ def task_run(
     valid_adapters = list_worker_adapters()
     selected_agent = registry.agents.get(worker)
     if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
-        typer.echo("Registry-backed local Ollama worker: writes proposal.patch evidence only; Dev-Flow applies and verifies separately.")
+        typer.echo("worker_mode: registry_backed_local_ollama_patch_worker")
+        typer.echo("worker_note: writes proposal.patch evidence only; Dev-Flow applies patches separately and verifies separately.")
 
     if worker not in valid_agents:
         from devflow.control_room.worker_adapter import get_worker_adapter
@@ -826,14 +837,28 @@ def task_run(
     typer.echo(f"{task.id}: {task.status}")
     typer.echo(f"log_path: {task.log_path}")
     typer.echo(f"result_path: {task.result_path}")
+    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
+        _echo_registry_patch_worker_evidence_paths(Path.cwd(), task.id, worker)
     handoff_path = Path.cwd() / ".devflow" / "tasks" / task.id / "agents" / worker / "handoff.md"
     if handoff_path.exists():
         typer.echo(f"manual_handoff_path: {_relative(Path.cwd(), handoff_path)}")
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
+    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat" and task.status == "complete":
+        typer.echo(f"suggested_next_action: devflow task apply-patch {task.id} --agent {worker}")
     if task.status != "complete":
         exit_code = task.last_exit_code if task.last_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
+
+
+def _echo_registry_patch_worker_evidence_paths(root: Path, task_id: str, agent_id: str) -> None:
+    agent_dir = root / ".devflow" / "tasks" / task_id / "agents" / agent_id
+    typer.echo(f"agent_packet_path: {_relative(root, agent_dir / 'packet.json')}")
+    typer.echo(f"raw_output_path: {_relative(root, agent_dir / 'raw_output.md')}")
+    typer.echo(f"proposal_patch_path: {_relative(root, agent_dir / 'proposal.patch')}")
+    typer.echo(f"run_metadata_path: {_relative(root, agent_dir / 'run.json')}")
+    typer.echo(f"agent_result_path: {_relative(root, agent_dir / 'result.md')}")
+    typer.echo(f"agent_log_path: {_relative(root, agent_dir / 'logs' / 'worker.log')}")
 
 
 @task_app.command("verify", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -1670,17 +1695,17 @@ def _local_evidence_recommendations(summaries: list[dict[str, str]]) -> list[str
     }
 
     if "qwopus-implementer" in successful_workers and "gemma-reviewer" in successful_workers:
-        lead = "Local implementation + review evidence available."
+        lead = "Legacy local advisory implementation + review evidence available; canonical patch evidence still comes from task run --worker qwopus-implementer."
     elif worker_names == {"qwen-planner"}:
-        lead = "Planning evidence exists; implementation evidence is missing."
+        lead = "Planning advisory evidence exists; canonical implementation patch evidence is missing."
     else:
-        lead = "Use local evidence first; escalate only if outputs are missing, failed, contradictory, or verification fails."
+        lead = "Use local advisory evidence for scouting/review; apply only proposal.patch from task run --worker qwopus-implementer."
 
-    if lead.startswith("Use local evidence first"):
+    if lead.startswith("Use local advisory evidence"):
         return [lead]
     return [
         lead,
-        "Use local evidence first; escalate only if outputs are missing, failed, contradictory, or verification fails.",
+        "Use local advisory evidence for scouting/review; apply only proposal.patch from task run --worker qwopus-implementer.",
     ]
 
 
@@ -1791,6 +1816,42 @@ def _echo_result_summary(path: Path) -> None:
             typer.echo(f"  {stripped}")
             return
     typer.echo("  none")
+
+
+def _echo_agent_patch_evidence_summary(root: Path, task_path: Path) -> None:
+    agents_dir = task_path / "agents"
+    if not agents_dir.exists() or not agents_dir.is_dir():
+        return
+
+    tracked_artifacts = (
+        ("packet_path", "packet.json"),
+        ("raw_output_path", "raw_output.md"),
+        ("proposal_patch_path", "proposal.patch"),
+        ("run_metadata_path", "run.json"),
+        ("agent_result_path", "result.md"),
+        ("agent_log_path", "logs/worker.log"),
+        ("worker_failed_path", "worker_failed.json"),
+        ("questions_path", "questions.jsonl"),
+    )
+
+    entries: list[tuple[str, list[tuple[str, Path]]]] = []
+    for agent_dir in sorted(path for path in agents_dir.iterdir() if path.is_dir()):
+        existing = [
+            (label, agent_dir / artifact)
+            for label, artifact in tracked_artifacts
+            if (agent_dir / artifact).exists()
+        ]
+        if existing:
+            entries.append((agent_dir.name, existing))
+
+    if not entries:
+        return
+
+    typer.echo("agent_evidence:")
+    for agent_id, paths in entries:
+        typer.echo(f"  {agent_id}:")
+        for label, artifact_path in paths:
+            typer.echo(f"    {label}: {_relative(root, artifact_path)}")
 
 
 def _echo_reconciliation_report(report: dict[str, Any]) -> None:

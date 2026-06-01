@@ -55,7 +55,8 @@ def test_qwen_implementer_prompt_composition(tmp_path: Path, monkeypatch: Any) -
         result = runner.invoke(app, ["task", "local", "task-0001", "--agent", "qwen-implementer"])
 
     assert result.exit_code == 0, result.output
-    assert "Local AI Cost-Saving Worker Loop Evidence Captured!" in result.output
+    assert "Legacy Local Ollama Advisory Evidence Captured!" in result.output
+    assert "local_worker_mode: legacy_advisory" in result.output
     assert "Suggested Next Action:" in result.output
     assert "devflow task local task-0001 --agent gemma-reviewer" in result.output
 
@@ -161,7 +162,7 @@ def test_qwopus_registry_and_prompt_composition(tmp_path: Path, monkeypatch: Any
     definition = get_local_worker_definition("qwopus-implementer")
     assert definition.name == "qwopus-implementer"
     assert definition.model == "qwopus:latest"
-    assert definition.role == "primary local implementation model / patch proposal worker"
+    assert definition.role == "legacy advisory implementation scout; canonical patch worker is task run --worker qwopus-implementer"
 
     # Now create qwen-planner output
     planner_dir = tmp_path / ".devflow" / "workspaces" / "task-0001" / "local-workers" / "qwen-planner"
@@ -180,7 +181,8 @@ def test_qwopus_registry_and_prompt_composition(tmp_path: Path, monkeypatch: Any
         result = runner.invoke(app, ["task", "local", "task-0001", "--agent", "qwopus-implementer"])
 
     assert result.exit_code == 0, result.output
-    assert "Local AI Cost-Saving Worker Loop Evidence Captured!" in result.output
+    assert "Legacy Local Ollama Advisory Evidence Captured!" in result.output
+    assert "This was advisory-only qwopus output." in result.output
     assert "qwopus-implementer" in result.output
 
     from devflow.control_room.local_ollama_worker import find_latest_worker_evidence

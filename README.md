@@ -6,7 +6,7 @@ Local checkout note: this workspace uses `DevFlow` as the repository folder name
 
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-Workers are replaceable. The stable code-changing runtime supports shell workers, while the manual proof-agent handoff and local Ollama planner/reviewer wrapper produce evidence only. The registry-backed `qwopus-implementer` local Ollama worker is the narrow first patch-proposal runtime: it writes `proposal.patch` evidence for Dev-Flow to apply and verify. Remote provider adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
+Workers are replaceable. The stable code-changing runtime supports shell workers, while the manual proof-agent handoff and legacy local Ollama advisory ladder produce evidence only. The registry-backed `devflow task run <task-id> --worker qwopus-implementer` path is the narrow first local Ollama patch-proposal runtime: it writes `proposal.patch` evidence for Dev-Flow to apply and verify. Remote provider adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
 
 ## Current Product Contract
 
@@ -73,8 +73,8 @@ Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a li
 Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. It is useful as a control-room kernel, but it is not a security sandbox for untrusted commands, agents, repositories, or multi-user execution.
 
 - Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
-- `devflow task run <task-id> --worker qwopus-implementer` calls local Ollama through the registry-backed adapter, preserves raw output, and writes a proposed unified diff to `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. Dev-Flow must apply the patch, run verification, and gate promotion.
-- `devflow task local` remains a legacy advisory wrapper around `ollama run <model>` for local Qwen/Gemma ladder evidence. It captures raw stdout/stderr plus `run.json`, treats success as subprocess exit code `0` only, and does not apply model output, verify, commit, merge, promote, route models, or call remote provider APIs.
+- `devflow task run <task-id> --worker qwopus-implementer` calls local Ollama through the registry-backed adapter, preserves raw output, and writes a proposed unified diff to `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation route. Dev-Flow must apply the patch, run verification, and gate promotion.
+- `devflow task local` remains a legacy advisory wrapper around `ollama run <model>` for local Qwen/Qwopus/Gemma ladder evidence. It captures raw stdout/stderr plus `run.json`, treats success as subprocess exit code `0` only, and does not write `proposal.patch`, apply model output, verify, commit, merge, promote, route models, or call remote provider APIs.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
 - `devflow task create --git-worktree` creates a branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification to the worker branch commit, and uses Git-aware promotion mechanics. Git cleanup commands are dry-run-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --dry-run` before applying mutations.
@@ -133,14 +133,15 @@ Run the preferred local Qwopus patch-proposal path:
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
 ```
 
-Capture legacy local Qwen/Gemma planning and review evidence without auto-editing files:
+Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-editing files:
 
 ```bash
-.venv/bin/python -m devflow.cli task local "$TASK_ID" --worker qwen-planner
-.venv/bin/python -m devflow.cli task local "$TASK_ID" --worker gemma-reviewer --input-worker qwen-planner
+.venv/bin/python -m devflow.cli task local "$TASK_ID" --agent qwen-planner
+.venv/bin/python -m devflow.cli task local "$TASK_ID" --agent qwopus-implementer
+.venv/bin/python -m devflow.cli task local "$TASK_ID" --agent gemma-reviewer --input-worker qwopus-implementer
 ```
 
-Local worker artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata.
+Local worker artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata. Even when the legacy advisory worker name is `qwopus-implementer`, this path is not the canonical patch worker; use `devflow task run <task-id> --worker qwopus-implementer` to produce `proposal.patch`.
 
 Promotion is explicit and human-controlled:
 
@@ -166,7 +167,7 @@ Git-native promotion refuses if the worker branch HEAD differs from the verified
 
 `devflow reconcile` is a read-only crash/interruption report. It surfaces partial task/system event writes, task/system event divergence, interrupted promotion evidence such as stale promote locks, and inconsistent task artifacts. Use `--json` for machine-readable output or `--task <task-id>` to inspect one task. It does not repair artifacts automatically.
 
-Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future remote provider adapters may be described in registries, but only `shell`, `manual`, and approved local Ollama patch agents such as `qwopus-implementer` are executable through `task run`; local Qwen/Gemma evidence capture uses `task local` and does not apply model output.
+Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future remote provider adapters may be described in registries, but only `shell`, `manual`, and approved local Ollama patch agents such as `qwopus-implementer` are executable through `task run`; local Qwen/Qwopus/Gemma evidence capture uses `task local` and does not apply model output.
 
 ## Release And Versioning
 

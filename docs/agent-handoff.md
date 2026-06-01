@@ -31,7 +31,7 @@ Archive note: legacy software-factory archives are quarantined outside the activ
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker` and one local Ollama evidence wrapper for Qwen/Gemma planning/review. It includes task creation, isolated execution/handoff, local prompt-response capture, verification, visibility, and human-controlled promotion.
+The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, and the registry-backed `task run --worker qwopus-implementer` patch-proposal path. It includes task creation, isolated execution/handoff, local prompt-response capture, verification, visibility, and human-controlled promotion.
 
 The initial Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, and humans promote through Git-aware mechanics rather than blind copy-back.
 
@@ -66,8 +66,9 @@ Current product contract:
 - `devflow task list`
 - `devflow task show <task_id>`
 - `devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"`
-- `devflow task local <task_id> --worker qwen-planner`
-- `devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner`
+- `devflow task local <task_id> --agent qwen-planner`
+- `devflow task local <task_id> --agent qwopus-implementer`
+- `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`
 - `devflow task verify <task_id> --shell "test -f result.txt"`
 - `devflow task packet <task_id>`
 - `devflow agent show devflow-manual-codex-worker`
@@ -141,7 +142,7 @@ devflow task promote <task_id>
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
 - Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, databases, and provider-backed worker adapters as outside the current contract unless a future implementation explicitly promotes them. Default runtime behavior stays copy-workspace unless `--git-worktree` is requested.
-- Future non-shell worker work beyond `devflow-manual-codex-worker` and the narrow `task local` Qwen/Gemma evidence wrapper must follow the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
+- Future non-shell worker work beyond `devflow-manual-codex-worker`, the narrow `task local` advisory wrapper, and the registry-backed `task run --worker qwopus-implementer` patch runtime must follow the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Close every meaningful milestone or product-direction change by aligning active docs, removing stale context, verifying, committing, merging to `main`, pushing, and writing a compact handoff with one next safe action.
 - Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.

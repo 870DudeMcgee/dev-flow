@@ -185,8 +185,29 @@ class OllamaChatWorkerAdapter:
                 res_body = json.loads(response.read().decode("utf-8"))
                 response_text = str(res_body.get("response", ""))
                 run_meta["ollama_response"] = {k: v for k, v in res_body.items() if k != "response"}
+        except urllib.error.HTTPError as exc:
+            raw_error = _http_error_detail(exc)
+            if _looks_like_missing_model(raw_error, model, exc.code):
+                message = (
+                    f"Ollama model '{model}' is missing at configured local URL {base_url}. "
+                    f"Raw Ollama error: {raw_error}. "
+                    f"Suggested next action: run 'ollama pull {model}' or correct the model name "
+                    "in the registry/provider configuration."
+                )
+            else:
+                message = (
+                    f"Ollama HTTP request failed at configured local URL {base_url}. "
+                    f"Raw Ollama error: {raw_error}."
+                )
+            with worker_input.log_file.open("a", encoding="utf-8") as log:
+                log.write(f"{message}\n")
+            return finish(status="worker_failed", summary=message, exit_code=1)
         except urllib.error.URLError as exc:
-            message = f"Error connecting to local Ollama agent: {exc}"
+            message = (
+                f"Ollama could not be reached at configured local URL {base_url}. "
+                f"Raw error: {exc}. "
+                "Suggested next action: start Ollama with 'ollama serve' or the Ollama app, then retry."
+            )
             with worker_input.log_file.open("a", encoding="utf-8") as log:
                 log.write(f"{message}\n")
             return finish(status="worker_failed", summary=message, exit_code=1)
@@ -201,7 +222,7 @@ class OllamaChatWorkerAdapter:
         try:
             diff_data = repair_and_parse_json(response_text)
         except Exception as exc:
-            message = f"JSON parsing of agent response failed: {exc}"
+            message = f"Malformed JSON from local Ollama worker; inspect raw output at {raw_output_path}. Parser error: {exc}"
             with worker_input.log_file.open("a", encoding="utf-8") as log:
                 log.write(f"{message}\n")
                 log.write(f"Raw response preserved at {raw_output_path}\n")
@@ -226,7 +247,7 @@ class OllamaChatWorkerAdapter:
 
         diff_text = str(diff_data.get("diff", ""))
         if not diff_text.strip():
-            message = "Worker returned status ready but did not include a non-empty unified diff."
+            message = f"Worker returned status ready but did not include a non-empty unified diff; inspect raw output at {raw_output_path}."
             with worker_input.log_file.open("a", encoding="utf-8") as log:
                 log.write(f"{message}\n")
             return finish(status="worker_failed", summary=message, exit_code=1, response=response_summary)
@@ -347,3 +368,21 @@ def _append_blocked_question(agent_dir: Path, task_id: str, agent_id: str, quest
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        body = ""
+    prefix = f"HTTP {exc.code} {exc.reason}".strip()
+    return f"{prefix}: {body}" if body else prefix
+
+
+def _looks_like_missing_model(raw_error: str, model: str, status_code: int) -> bool:
+    lowered = raw_error.lower()
+    return (
+        status_code == 404
+        or model.lower() in lowered and ("not found" in lowered or "pull" in lowered or "missing" in lowered)
+        or "model" in lowered and ("not found" in lowered or "pull" in lowered)
+    )

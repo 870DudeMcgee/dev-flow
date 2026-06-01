@@ -263,7 +263,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A first local Ollama evidence wrapper is implemented as `devflow task local` for `qwen-planner` and `gemma-reviewer`; it captures prompt, raw response, stderr, and run metadata under the task workspace without applying model output. The registry-backed `qwopus-implementer` local Ollama worker is active as a patch-proposal runtime: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Context packing and conservative routing remain experimental planning aids. Remote provider-backed execution is not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A legacy local Ollama advisory wrapper is implemented as `devflow task local` for Qwen/Qwopus/Gemma planning, scouting, and review evidence; it captures prompt, raw response, stderr, and run metadata under the task workspace without writing `proposal.patch` or applying model output. The registry-backed `devflow task run <task-id> --worker qwopus-implementer` path is active as the canonical local patch-proposal runtime: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Context packing and conservative routing remain experimental planning aids. Remote provider-backed execution is not active.
 
 Sequence:
 - architecture document only
@@ -273,8 +273,8 @@ Sequence:
 - shell adapter alignment
 - deterministic task-fit and context-size estimation
 - role-based context pack builder
-- local Ollama planner/reviewer evidence wrapper for Qwen and Gemma (implemented as `task local`, not a provider adapter)
-- promoted adapter-runtime Ollama adapter only after the registry sequence and manual/local evidence path stay stable
+- local Ollama advisory evidence wrapper for Qwen/Qwopus/Gemma (implemented as `task local`, not the canonical patch adapter)
+- registry-backed Ollama patch adapter for `task run --worker qwopus-implementer`
 - OpenAI-compatible adapter for LM Studio and Grok-style APIs
 - native OpenAI, Anthropic, and Gemini adapters
 - local scout reports as optional evidence

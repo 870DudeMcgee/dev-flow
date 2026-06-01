@@ -44,7 +44,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract and one local Ollama evidence wrapper. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, and local Qwen/Gemma prompt/response capture that does not edit code.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, and the registry-backed Qwopus patch-proposal path. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, and canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`.
 
 Stable commands:
 
@@ -61,8 +61,9 @@ devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task run <task_id> --worker qwopus-implementer
 devflow task apply-patch <task_id> --agent qwopus-implementer
 devflow task verify <task_id> --shell "test -f result.txt"
-devflow task local <task_id> --worker qwen-planner
-devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
+devflow task local <task_id> --agent qwen-planner
+devflow task local <task_id> --agent qwopus-implementer
+devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer
 devflow task list
 devflow task show <task_id>
 devflow task packet <task_id>
@@ -80,7 +81,7 @@ The proof-agent form is `devflow task run <task_id> --worker devflow-manual-code
 
 The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for applying the patch to the isolated workspace, verification, merge readiness, and human-controlled promotion.
 
-The local Ollama form is `devflow task local <task_id> --worker qwen-planner` or `devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not auto-edit repo files, parse model output as truth, run Qwen and Gemma together, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
+The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
 Do not implement these in the first milestone:
 
@@ -229,7 +230,8 @@ Implemented:
 - clear task-run refusal for `experimental_readonly` and `planned_not_executable` adapters
 - promotion preview from isolated workspace changes
 - human-controlled promotion of verified changes to the main checkout
-- `devflow task local` for local Qwen/Gemma Ollama evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
+- `devflow task local` for local Qwen/Qwopus/Gemma advisory evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
+- `devflow task run --worker qwopus-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
 
 Outside the current product contract:
 

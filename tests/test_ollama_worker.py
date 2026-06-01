@@ -3,17 +3,23 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import urllib.error
 
 import pytest
+from typer.testing import CliRunner
 
+from devflow.cli import app
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
 from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
 from devflow.control_room.service import apply_task_patch, create_task, run_shell_task
+
+
+runner = CliRunner()
 
 
 def test_get_ollama_chat_worker_adapter_rejects_direct_runtime() -> None:
@@ -220,6 +226,74 @@ def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_pat
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello from Qwopus\n"
 
 
+def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("hello.txt").write_text("Hello World\n", encoding="utf-8")
+    created = runner.invoke(app, ["task", "create", "Update hello through canonical Qwopus"])
+    assert created.exit_code == 0, created.output
+
+    context_pack_data = {
+        "context_pack": {
+            "role": "worker",
+            "context_layer": "L1",
+            "includes": [],
+            "excludes": [],
+            "estimated_tokens": 100,
+            "sources_metadata": [
+                {
+                    "path": "hello.txt",
+                    "authority": "canonical",
+                    "mode": "full",
+                    "content": "Hello World\n",
+                }
+            ],
+        }
+    }
+    mock_response = MagicMock()
+    response_dict = {
+        "response": json.dumps(
+            {
+                "status": "ready",
+                "diff": (
+                    "diff --git a/hello.txt b/hello.txt\n"
+                    "--- a/hello.txt\n"
+                    "+++ b/hello.txt\n"
+                    "@@ -1 +1 @@\n"
+                    "-Hello World\n"
+                    "+Hello from canonical Qwopus\n"
+                ),
+                "touched_paths": ["hello.txt"],
+                "risk": "low",
+                "confidence": 0.92,
+            }
+        )
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value=context_pack_data):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = runner.invoke(app, ["task", "run", "task-0001", "--worker", "qwopus-implementer"])
+
+    assert result.exit_code == 0, result.output
+    assert "worker_mode: registry_backed_local_ollama_patch_worker" in result.output
+    assert "worker_note: writes proposal.patch evidence only; Dev-Flow applies patches separately and verifies separately." in result.output
+    assert "raw_output_path: .devflow/tasks/task-0001/agents/qwopus-implementer/raw_output.md" in result.output
+    assert "proposal_patch_path: .devflow/tasks/task-0001/agents/qwopus-implementer/proposal.patch" in result.output
+    assert "run_metadata_path: .devflow/tasks/task-0001/agents/qwopus-implementer/run.json" in result.output
+    assert "agent_result_path: .devflow/tasks/task-0001/agents/qwopus-implementer/result.md" in result.output
+    assert "agent_log_path: .devflow/tasks/task-0001/agents/qwopus-implementer/logs/worker.log" in result.output
+    assert "suggested_next_action: devflow task apply-patch task-0001 --agent qwopus-implementer" in result.output
+
+    show = runner.invoke(app, ["task", "show", "task-0001"])
+    assert show.exit_code == 0, show.output
+    assert "agent_evidence:" in show.output
+    assert "proposal_patch_path: .devflow/tasks/task-0001/agents/qwopus-implementer/proposal.patch" in show.output
+
+
 def test_ollama_worker_connection_failure(tmp_path: Path) -> None:
     # Set up task directories
     task_dir = tmp_path / ".devflow" / "tasks" / "task-ollama-2"
@@ -253,9 +327,73 @@ def test_ollama_worker_connection_failure(tmp_path: Path) -> None:
         result = adapter.run(worker_input)
 
         assert result.status == "worker_failed"
-        assert "Error connecting to local Ollama agent" in result.summary
+        assert "Ollama could not be reached at configured local URL http://127.0.0.1:11434" in result.summary
+        assert "ollama serve" in result.summary
         assert result.exit_code == 1
         assert log_file.exists()
+
+
+def test_registry_backed_qwopus_missing_model_failure_preserves_raw_ollama_error(tmp_path: Path) -> None:
+    Path(tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    task = create_task(tmp_path, "Missing Qwopus model")
+    raw_error = b'{"error":"model \\"qwopus:latest\\" not found, try pulling it first"}'
+    http_error = urllib.error.HTTPError(
+        "http://127.0.0.1:11434/api/generate",
+        404,
+        "Not Found",
+        {},
+        BytesIO(raw_error),
+    )
+
+    with patch("urllib.request.urlopen", side_effect=http_error), \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        task_res = run_shell_task(tmp_path, task.id, [], worker_adapter="qwopus-implementer")
+
+    assert task_res.status == "worker_failed"
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "qwopus-implementer"
+    run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
+    worker_failed = json.loads((agent_dir / "worker_failed.json").read_text(encoding="utf-8"))
+    assert "Ollama model 'qwopus:latest' is missing" in run_json["summary"]
+    assert "ollama pull qwopus:latest" in run_json["summary"]
+    assert "model \\\"qwopus:latest\\\" not found" in run_json["summary"]
+    assert worker_failed["summary"] == run_json["summary"]
+
+
+def test_ollama_worker_malformed_json_preserves_raw_output_and_points_to_it(tmp_path: Path) -> None:
+    task_dir = tmp_path / ".devflow" / "tasks" / "task-ollama-json"
+    task_dir.mkdir(parents=True)
+    (task_dir / "logs").mkdir(parents=True)
+
+    workspace_path = tmp_path / ".devflow" / "workspaces" / "task-ollama-json"
+    workspace_path.mkdir(parents=True)
+    log_file = task_dir / "logs" / "worker.log"
+
+    worker_input = WorkerInput(
+        task_id="task-ollama-json",
+        repo_root=tmp_path,
+        workspace_path=workspace_path,
+        task_file=task_dir / "task.yaml",
+        context_file=task_dir / "events.jsonl",
+        status_file=task_dir / "task.yaml",
+        questions_file=task_dir / "questions.jsonl",
+        result_file=task_dir / "result.md",
+        log_file=log_file,
+        command=["ollama", "task"],
+        timeout_seconds=60,
+    )
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps({"response": "not json at all"}).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = OllamaChatWorkerAdapter().run(worker_input)
+
+    raw_output = task_dir / "agents" / "default_agent" / "raw_output.md"
+    assert result.status == "worker_failed"
+    assert raw_output.read_text(encoding="utf-8") == "not json at all"
+    assert "Malformed JSON from local Ollama worker; inspect raw output" in result.summary
 
 
 def test_ollama_worker_blocked_status(tmp_path: Path) -> None:

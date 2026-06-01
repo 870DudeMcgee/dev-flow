@@ -8,13 +8,13 @@ complete
 
 - AGENTS.md: clarified that `devflow task local` is a narrow local Ollama evidence wrapper, not a code-changing adapter path.
 - README.md: documented the `task local` commands, artifact layout, safety boundary, and future Ollama resource-control work.
-- docs/agent-handoff.md: added the local Qwen/Gemma command and artifact contract for future agents.
+- docs/agent-handoff.md: added the legacy local Qwen/Qwopus/Gemma advisory command and artifact contract for future agents.
 - docs/control-room-mvp.md: aligned the MVP source of truth with the local Ollama evidence wrapper and its non-goals.
 - docs/mvp-contract.md: added `devflow task local` to the stable command contract and described local-worker artifacts.
 - docs/roadmap.md: recorded the first local Ollama wrapper as implemented while keeping promoted provider adapters deferred.
 - src/devflow/cli.py: added `devflow task local <task_id> --worker <name> [--input-worker <name>] [--timeout-seconds N]`.
 - src/devflow/control_room/service.py: added task-local service orchestration with locks, `task.yaml` updates, and hash-chained local-worker events.
-- src/devflow/control_room/local_ollama_worker.py: added Qwen/Gemma worker definitions, prompt composition, `ollama run` subprocess execution, timeout handling, artifact writing, and run metadata.
+- src/devflow/control_room/local_ollama_worker.py: added Qwen/Qwopus/Gemma advisory worker definitions, prompt composition, `ollama run` subprocess execution, timeout handling, artifact writing, and run metadata.
 - tests/test_local_ollama_worker.py: added mocked subprocess coverage for prompt composition, artifact writes, reviewer input, missing input failure, nonzero exit, timeout, unknown worker, and exit-code-based success.
 
 ## Verification

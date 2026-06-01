@@ -67,14 +67,14 @@ LOCAL_WORKERS: dict[str, LocalWorkerDefinition] = {
     "qwopus-implementer": LocalWorkerDefinition(
         name="qwopus-implementer",
         model="qwopus:latest",
-        role="primary local implementation model / patch proposal worker",
+        role="legacy advisory implementation scout; canonical patch worker is task run --worker qwopus-implementer",
         default_timeout_seconds=600,
         default_input_worker="qwen-planner",
     ),
     "qwen-implementer": LocalWorkerDefinition(
         name="qwen-implementer",
         model="qwen3.6:latest",
-        role="code implementation worker / patch draft generator",
+        role="legacy advisory implementation scout / patch draft generator",
         default_timeout_seconds=600,
         default_input_worker="qwen-planner",
     ),
