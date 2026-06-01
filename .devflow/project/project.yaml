@@ -1,5 +1,6 @@
 id: devflow
 name: Dev-Flow
+checkout_folder: DevFlow
 status: rebuilding_control_room
 purpose: "Local-first control room for parallel AI coding workers."
 canonical_state_note: "Machine-readable runtime and planning state lives under .devflow/project, .devflow/goals, .devflow/tasks, and related YAML/JSON/JSONL files."
