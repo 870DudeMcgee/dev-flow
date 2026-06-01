@@ -66,3 +66,29 @@ def test_doctor_reports_tampered_task_event_hash_chain() -> None:
             assert "event_hash mismatch" in result.output
         finally:
             os.chdir(old_cwd)
+
+
+def test_event_append_durability(tmp_path: Path) -> None:
+    # Directly test the append_event function's durability path
+    from devflow.control_room.persistence import append_event, validate_event_log
+
+    # Setup necessary paths
+    task_dir = tmp_path / ".devflow" / "tasks" / "task-durable-1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.yaml").write_text("id: task-durable-1\ntitle: Durable Task\nstatus: created\n", encoding="utf-8")
+
+    # Set default system events path via environment or mock if needed
+    # (persistence uses system_events_path which resolves relative to tmp_path if root is tmp_path)
+    append_event(tmp_path, "task-durable-1", "durable_event", {"some": "payload"})
+
+    events_path = task_dir / "events.jsonl"
+    assert events_path.exists()
+
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["event"] == "durable_event"
+    assert "event_hash" in event
+
+    ok, detail = validate_event_log(events_path)
+    assert ok, detail

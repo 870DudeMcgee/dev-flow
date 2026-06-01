@@ -31,13 +31,15 @@ class OpenAICompatibleWorkerAdapter:
         model = "gpt-4o"
         base_url = "https://api.openai.com/v1"
         timeout = worker_input.timeout_seconds or 300
-        api_key = "mock-key"
+        api_key_env = None
+        provider_name = "unknown"
 
         if agent_id:
             try:
                 registry = load_agent_registry(worker_input.repo_root)
                 agent = registry.require_agent(agent_id)
                 model = agent.model
+                provider_name = agent.provider
                 
                 providers = load_provider_registry(worker_input.repo_root)
                 provider_def = providers.require_provider(agent.provider)
@@ -46,15 +48,42 @@ class OpenAICompatibleWorkerAdapter:
                 if provider_def.default_timeout_seconds:
                     timeout = provider_def.default_timeout_seconds
                 if provider_def.api_key_env:
-                    api_key = os.environ.get(provider_def.api_key_env, "mock-key")
+                    api_key_env = provider_def.api_key_env
             except Exception as exc:
                 with worker_input.log_file.open("a", encoding="utf-8") as log:
                     log.write(f"Warning resolving agent/provider registry: {exc}\n")
                     log.flush()
 
-        # Fallback to default OPENAI_API_KEY environment variable if not resolved/set
-        if api_key == "mock-key" or not api_key:
-            api_key = os.environ.get("OPENAI_API_KEY", "mock-key")
+        if api_key_env:
+            api_key = os.environ.get(api_key_env)
+            if not api_key:
+                err_msg = f"Provider '{provider_name}' requires api_key_env '{api_key_env}', but that environment variable is not set."
+                with worker_input.log_file.open("a", encoding="utf-8") as log:
+                    log.write(f"{err_msg}\n")
+                    log.flush()
+                return WorkerResult(
+                    status="worker_failed",
+                    summary=err_msg,
+                    exit_code=1,
+                    latest_log_line=err_msg,
+                    result_file=worker_input.result_file,
+                    log_file=worker_input.log_file,
+                )
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                err_msg = "OpenAI-compatible provider API key is not configured. Set api_key_env in provider config and export the matching environment variable."
+                with worker_input.log_file.open("a", encoding="utf-8") as log:
+                    log.write(f"{err_msg}\n")
+                    log.flush()
+                return WorkerResult(
+                    status="worker_failed",
+                    summary=err_msg,
+                    exit_code=1,
+                    latest_log_line=err_msg,
+                    result_file=worker_input.result_file,
+                    log_file=worker_input.log_file,
+                )
 
         # 2. Build or load Context Pack for 'worker' role
         try:

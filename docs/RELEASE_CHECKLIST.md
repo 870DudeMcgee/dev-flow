@@ -87,19 +87,32 @@ Verify the installability and packaging metadata constraints:
 
 ---
 
-### 6. Version, Changelog, And State Compatibility
+### 6. Executable Companion Release Check
+
+Verify using the automated companion script:
+
+- [ ] Run the executable release-check script:
+  ```bash
+  ./scripts/release-check.sh
+  ```
+  Note: The script is a helper to run compilation, syntax check, the pytest suite, command help smoke validation, and built wheel verification. It complements but does not replace the manual checklist.
+
+---
+
+### 7. Version, Changelog, And State Compatibility
 
 Confirm the release can be understood and upgraded safely:
 
 - [ ] Update `CHANGELOG.md` for the exact version being tagged.
 - [ ] Confirm the version in `pyproject.toml` matches the tag.
+- [ ] Verify that broad lower-bound dependencies in `pyproject.toml` are correctly documented as alpha-compatible (and that production-grade strict environment verification is managed via separate clean virtualenvs and the CI matrix).
 - [ ] Document every state-shape change affecting `.devflow/config.yaml`, `task.yaml`, `verification.json`, `merge-readiness.json`, task event records, or workspace layout.
 - [ ] For each state-shape change, provide one of: backward compatibility, a migration path, or a clear refusal/upgrade message.
 - [ ] Confirm `README.md` describes the stable runtime surface without implying provider-backed execution, autonomous routing, web dashboard, database state, or git worktree orchestration are currently supported.
 
 ---
 
-### 7. Release Publication
+### 8. Release Publication
 
 Only after the checks above pass:
 

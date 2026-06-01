@@ -171,9 +171,22 @@ def append_event(root: Path, task_id: str, event_type: str, payload: dict[str, A
     task_events.parent.mkdir(parents=True, exist_ok=True)
     with task_events.open("a", encoding="utf-8") as handle:
         handle.write(line)
+        handle.flush()
+        try:
+            os.fsync(handle.fileno())
+        except OSError:
+            pass
+    _fsync_directory(task_events.parent)
+
     system_events_path(root).parent.mkdir(parents=True, exist_ok=True)
     with system_events_path(root).open("a", encoding="utf-8") as handle:
         handle.write(line)
+        handle.flush()
+        try:
+            os.fsync(handle.fileno())
+        except OSError:
+            pass
+    _fsync_directory(system_events_path(root).parent)
 
 
 def event_content_hash(event: dict[str, Any]) -> str:
@@ -278,8 +291,13 @@ def _fsync_directory(directory: Path) -> None:
         return
     try:
         os.fsync(directory_fd)
+    except OSError:
+        pass
     finally:
-        os.close(directory_fd)
+        try:
+            os.close(directory_fd)
+        except OSError:
+            pass
 
 
 def _read_yaml_scalars(path: Path) -> dict[str, Any]:

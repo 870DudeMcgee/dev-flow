@@ -76,10 +76,21 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - `devflow task run <task-id> --worker qwopus-implementer` calls local Ollama through the registry-backed adapter, preserves raw output, and writes a proposed unified diff to `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation route. Dev-Flow must apply the patch, run verification, and gate promotion.
 - `devflow task local` remains a legacy advisory wrapper around `ollama run <model>` for local Qwen/Qwopus/Gemma ladder evidence. It captures raw stdout/stderr plus `run.json`, treats success as subprocess exit code `0` only, and does not write `proposal.patch`, apply model output, verify, commit, merge, promote, route models, or call remote provider APIs.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
-- Default task workspaces are copy-based scratchpads. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
-- `devflow task create --git-worktree` creates a branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification to the worker branch commit, and uses Git-aware promotion mechanics. Git cleanup commands are dry-run-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --dry-run` before applying mutations.
-- Promotion is explicit, readiness-gated, and human-controlled. Copy-workspace tasks promote by copying verified workspace changes back into the main checkout; Git worktree tasks promote through the worker branch path.
+- Default task workspaces are copy-based scratchpads. This keeps the MVP simple and is the default mode, but it can be slow for large repositories, does not use git merge machinery inside the workspace, and is recommended only for simple/experimental work.
+- **Git-Native Task Lanes**: `devflow task create --git-worktree` is strongly recommended for all serious, high-assurance development work. It creates an isolated, branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification directly to the worker branch commit, and uses robust Git-aware promotion mechanics rather than simple filesystem copies.
+- Git cleanup commands are dry-run-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --dry-run` before applying mutations.
+- Promotion is explicit, readiness-gated, and human-controlled. Copy-workspace tasks promote by copying verified workspace changes back into the main checkout; Git worktree tasks promote through Git branch merges.
 - The patch applier is a text-only MVP path with strong path validation and durable patch hash evidence. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
+
+### Safe Alpha Usage
+
+To ensure safety and reliability during the trusted-local alpha phase, strictly adhere to these practices:
+1. **Trusted Repos Only**: Use Dev-Flow only on repositories and with worker commands that you fully trust.
+2. **Git-Native Lanes**: Prefer `devflow task create --git-worktree` for high-assurance tasks where branch semantics, merge conflict prediction, and commit-bound verification matter.
+3. **Verify Before Promotion**: Always execute and review task verifications (`devflow task verify`) before running promotion.
+4. **Inspect Previews**: Always review the promotion preview via `devflow task promote-preview` before committing to a merge.
+5. **Local User Permissions**: Remember that shell commands run with standard local user permissions and are path-isolated, not sandboxed or security-isolated.
+6. **Remote Providers Non-Stable**: Remote provider adapters (e.g. OpenAI, Anthropic, Gemini) are experimental planning aids and not stable, executable production runtimes. Standard task execution refuses to run them.
 
 Use Dev-Flow only on repositories and worker commands you trust. The Git-native shell-worker path now moves worker isolation and promotion onto git worktrees/branches, binds verification to commits, extends strict readiness checks with Git facts, and includes dry-run-first cleanup for orphaned Dev-Flow worktrees and branches. Stricter command policy, multi-worker worktree scheduling, Ollama keep-alive/model-stop controls, and optional network/resource controls remain later hardening layers.
 

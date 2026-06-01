@@ -26,11 +26,8 @@ jobs:
       - name: Install package and dependencies
         run: pip install -e ".[test]"
 
-      - name: Verify syntax (compileall)
-        run: python -m compileall src
-
-      - name: Run tests
-        run: python -m pytest tests/ -q --tb=short
+      - name: Run release readiness checks
+        run: ./scripts/release-check.sh
 
   package:
     runs-on: ubuntu-latest
