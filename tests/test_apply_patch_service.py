@@ -41,8 +41,21 @@ def test_service_apply_patch_flow(tmp_path: Path):
     applied_events = [json.loads(line) for line in lines if "patch_applied" in line]
     assert len(applied_events) == 1
     assert applied_events[0]["agent_id"] == "test_agent"
+    assert applied_events[0]["patch_hash"]
     assert len(applied_events[0]["changed_files"]) == 1
     assert applied_events[0]["changed_files"][0]["path"] == "hello.txt"
+
+    evidence_path = task_path / "patches" / f"{applied_events[0]['patch_hash']}.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert evidence["schema_version"] == 1
+    assert evidence["task_id"] == task.id
+    assert evidence["agent_id"] == "test_agent"
+    assert evidence["patch_path"] == f".devflow/tasks/{task.id}/agents/test_agent/proposal.patch"
+    assert evidence["patch_hash"] == applied_events[0]["patch_hash"]
+    assert evidence["changed_files"][0]["operation"] == "modified"
+
+    latest_evidence = json.loads((task_path / "patch-application.json").read_text(encoding="utf-8"))
+    assert latest_evidence["patch_hash"] == applied_events[0]["patch_hash"]
 
     
     # Idempotency block

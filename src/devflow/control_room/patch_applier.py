@@ -1,5 +1,7 @@
 from __future__ import annotations
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -149,9 +151,11 @@ class PatchApplyResult:
 def apply_patch_files(
     workspace_root: Path,
     patch_files: list[PatchFile],
-    dry_run: bool = False
+    dry_run: bool = False,
+    patch_hash: str | None = None,
 ) -> PatchApplyResult:
     workspace_root = workspace_root.resolve()
+    effective_patch_hash = patch_hash or _hash_patch_files(patch_files)
     
     # 1. Validate paths and resolve changes in-memory
     file_updates: dict[Path, list[str]] = {}
@@ -288,7 +292,7 @@ def apply_patch_files(
             changed_files_list.append(ChangedFile(path=rel_target_path, operation="modified", additions=additions, deletions=deletions))
 
     if dry_run:
-        return PatchApplyResult(changed_files=changed_files_list, patch_hash="")
+        return PatchApplyResult(changed_files=changed_files_list, patch_hash=effective_patch_hash)
 
     # 2. Validation passed! Commit disk writes atomically using temp-file replacement
     for path, lines_content in file_updates.items():
@@ -307,6 +311,11 @@ def apply_patch_files(
         if path.exists():
             path.unlink()
 
-    return PatchApplyResult(changed_files=changed_files_list, patch_hash="")
+    return PatchApplyResult(changed_files=changed_files_list, patch_hash=effective_patch_hash)
+
+
+def _hash_patch_files(patch_files: list[PatchFile]) -> str:
+    payload = json.dumps([asdict(patch_file) for patch_file in patch_files], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

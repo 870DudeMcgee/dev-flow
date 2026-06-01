@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import os
+import json
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.service import init_control_room, doctor
+from devflow.control_room.service import create_task, init_control_room, doctor
 
 runner = CliRunner()
 
@@ -85,3 +87,102 @@ agents:
 
         finally:
             os.chdir(old_cwd)
+
+
+def test_doctor_strict_reports_task_artifact_gaps(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "strict artifact gaps")
+    task_path = tmp_path / ".devflow" / "tasks" / task.id
+
+    # Tampered workspace path that still points at an existing directory should fail strict mode.
+    task_yaml = task_path / "task.yaml"
+    task_yaml.write_text(
+        task_yaml.read_text(encoding="utf-8").replace(
+            f'workspace: ".devflow/workspaces/{task.id}"',
+            f'workspace: "{tmp_path.as_posix()}"',
+        ),
+        encoding="utf-8",
+    )
+
+    # Present-but-invalid derived state should be reported; canonical task.yaml still wins.
+    (task_path / "summary.json").write_text('{"task_id":"wrong-task","status":"created"}\n', encoding="utf-8")
+    (task_path / "merge-readiness.json").write_text("not json\n", encoding="utf-8")
+
+    # Missing logs and stale locks should be visible in strict mode.
+    (task_path / "logs" / "verify.log").unlink()
+    lock_dir = task_path / ".lock"
+    lock_dir.mkdir()
+    old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    (lock_dir / "owner.json").write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "operation": "verify",
+                "pid": 1,
+                "host": "old-host",
+                "acquired_at": old_time.isoformat(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    checks = doctor(tmp_path, strict=True)
+    failed = {name: detail for name, ok, detail in checks if not ok}
+
+    assert failed[f"strict: {task.id} workspace path"] == f"expected .devflow/workspaces/{task.id}"
+    assert "task_id does not match" in failed[f"strict: {task.id} summary.json"]
+    assert "invalid JSON" in failed[f"strict: {task.id} merge-readiness.json"]
+    assert failed[f"strict: {task.id} verify.log"] == str(task_path / "logs" / "verify.log")
+    assert "stale lock" in failed[f"strict: {task.id} task lock"]
+
+
+def test_doctor_strict_reports_malformed_manual_agent_evidence(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "manual evidence gaps")
+    task_path = tmp_path / ".devflow" / "tasks" / task.id
+    task_yaml = task_path / "task.yaml"
+    task_yaml.write_text(
+        task_yaml.read_text(encoding="utf-8").replace(
+            "worker: shell",
+            "worker: devflow-manual-codex-worker",
+        ),
+        encoding="utf-8",
+    )
+    agent_dir = task_path / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "worker_failed.json").write_text("not json\n", encoding="utf-8")
+    (agent_dir / "questions.jsonl").write_text("{bad json}\n", encoding="utf-8")
+
+    checks = doctor(tmp_path, strict=True)
+    failed = {name: detail for name, ok, detail in checks if not ok}
+
+    assert "invalid JSON" in failed[f"strict: {task.id} devflow-manual-codex-worker worker_failed.json"]
+    assert "line 1: invalid JSON" in failed[f"strict: {task.id} devflow-manual-codex-worker questions.jsonl"]
+
+
+def test_doctor_strict_reports_promoted_task_without_promotion_event(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "promoted consistency")
+    task_path = tmp_path / ".devflow" / "tasks" / task.id
+    task_yaml = task_path / "task.yaml"
+    task_yaml.write_text(
+        task_yaml.read_text(encoding="utf-8").replace('status: "created"', 'status: "promoted"'),
+        encoding="utf-8",
+    )
+
+    checks = doctor(tmp_path, strict=True)
+    failed = {name: detail for name, ok, detail in checks if not ok}
+
+    assert failed[f"strict: {task.id} promoted consistency"] == "missing task_promoted event"
+
+
+def test_init_and_strict_doctor_print_trusted_local_warning(tmp_path: Path) -> None:
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        init_result = runner.invoke(app, ["init"])
+        assert init_result.exit_code == 0
+        assert "shell execution is path-isolated, not sandboxed" in init_result.output
+
+        doctor_result = runner.invoke(app, ["doctor", "--strict"])
+        assert "shell execution is path-isolated, not sandboxed" in doctor_result.output
+    finally:
+        os.chdir(old_cwd)

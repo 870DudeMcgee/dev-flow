@@ -46,6 +46,8 @@ agent_app = typer.Typer(help="Manage and inspect agents")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 
+TRUSTED_LOCAL_WARNING = "Security: shell execution is path-isolated, not sandboxed; run only trusted local commands."
+
 
 @app.command("init")
 def init_command() -> None:
@@ -56,6 +58,7 @@ def init_command() -> None:
     typer.echo("config: .devflow/config.yaml")
     typer.echo("tasks: .devflow/tasks")
     typer.echo("workspaces: .devflow/workspaces")
+    typer.echo(TRUSTED_LOCAL_WARNING)
 
 
 @app.command("doctor")
@@ -64,6 +67,8 @@ def doctor_command(
 ) -> None:
     """Check local control-room runtime readiness."""
     root = Path.cwd()
+    if strict:
+        typer.echo(TRUSTED_LOCAL_WARNING)
     checks = doctor(root, strict=strict)
     failed = False
     for name, ok, detail in checks:
@@ -574,7 +579,7 @@ def task_run(
     if worker == "manual":
         typer.echo("Warning: 'manual' worker is experimental and does not execute work.")
     elif worker == "shell":
-        typer.echo("Note: Shell worker is trusted local execution. Destructive command filtering is minimal.")
+        typer.echo(TRUSTED_LOCAL_WARNING)
     from devflow.control_room.agent_registry import load_agent_registry
     from devflow.control_room.worker_adapter import list_worker_adapters, UnsupportedWorkerAdapter
 
@@ -656,6 +661,7 @@ def task_apply_patch(
         task_path = root / ".devflow" / "tasks" / task.id
         events_file = task_path / "events.jsonl"
         patch_hash = "unknown"
+        patch_evidence_path = None
         agent_id = agent or "default"
         changed_files = []
         if events_file.exists():
@@ -666,6 +672,7 @@ def task_apply_patch(
                     evt = json.loads(line)
                     if evt.get("event") == "patch_applied":
                         patch_hash = evt.get("patch_hash", "unknown")
+                        patch_evidence_path = evt.get("patch_evidence_path")
                         agent_id = evt.get("agent_id", agent_id)
                         changed_files = evt.get("changed_files", [])
                 except Exception:
@@ -674,6 +681,8 @@ def task_apply_patch(
         typer.echo(f"Successfully applied patch from agent '{agent_id}' to task workspace '{task.id}'.")
         typer.echo(f"Workspace: .devflow/workspaces/{task.id}")
         typer.echo(f"Patch Hash: {patch_hash}")
+        if patch_evidence_path:
+            typer.echo(f"Patch Evidence: {patch_evidence_path}")
         typer.echo("")
         typer.echo("Modified files:")
         for cf in changed_files:

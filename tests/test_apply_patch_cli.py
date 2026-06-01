@@ -65,6 +65,7 @@ def test_cli_apply_patch_success():
             res_apply = runner.invoke(app, ["task", "apply-patch", task_id])
             assert res_apply.exit_code == 0
             assert "Successfully applied patch from agent 'agent-45'" in res_apply.output
+            assert "Patch Evidence: .devflow/tasks/task-0001/patches/" in res_apply.output
             assert "hello.txt (modified)" in res_apply.output
             assert "devflow task verify" in res_apply.output
             

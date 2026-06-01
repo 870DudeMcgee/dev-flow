@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord, WorkerInput, WorkerResult
-from devflow.control_room.locks import task_mutation_lock
+from devflow.control_room.locks import TASK_LOCK_STALE_AFTER_SECONDS, task_mutation_lock
 from devflow.control_room.paths import (
     absolute_path,
     relative_path,
@@ -364,6 +364,8 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                     checks.append((f"{path.name} {name}", (path / name).exists(), str(path / name)))
                 events_ok, events_detail = validate_event_log(path / "events.jsonl")
                 checks.append((f"{path.name} events integrity", events_ok, events_detail))
+                if strict:
+                    checks.extend(_strict_task_checks(root, path, task))
     if strict:
         # 1. No experimental provider adapters enabled in loaded registry
         try:
@@ -391,6 +393,210 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
         except Exception as exc:
             checks.append(("strict: git worktree check", False, str(exc)))
     return checks
+
+
+def _strict_task_checks(root: Path, task_path: Path, task: TaskRecord) -> list[tuple[str, bool, str]]:
+    checks: list[tuple[str, bool, str]] = []
+    task_id = task.id
+    expected_workspace_rel = f".devflow/workspaces/{task_id}"
+    expected_workspace = (workspaces_dir(root) / task_id).resolve()
+    workspace = _absolute(root, task.workspace).resolve()
+    workspace_rel_ok = Path(task.workspace).as_posix() == expected_workspace_rel
+    workspace_resolved_ok = workspace == expected_workspace
+    checks.append((
+        f"strict: {task_id} workspace path",
+        workspace_rel_ok and workspace_resolved_ok,
+        expected_workspace_rel if workspace_rel_ok and workspace_resolved_ok else f"expected {expected_workspace_rel}",
+    ))
+
+    logs_dir = task_path / "logs"
+    for log_name in ("worker.log", "verify.log"):
+        log_path = logs_dir / log_name
+        checks.append((f"strict: {task_id} {log_name}", log_path.exists(), str(log_path)))
+
+    checks.extend(_strict_task_json_checks(task_path, task))
+    checks.append(_strict_task_lock_check(task_path, task_id))
+    checks.extend(_strict_manual_evidence_checks(task_path, task_id))
+    checks.extend(_strict_patch_evidence_checks(root, task_path, task_id))
+    checks.append(_strict_promoted_consistency_check(task_path, task))
+    return checks
+
+
+def _strict_task_json_checks(task_path: Path, task: TaskRecord) -> list[tuple[str, bool, str]]:
+    checks: list[tuple[str, bool, str]] = []
+    task_id = task.id
+    for artifact_name, optional in (
+        ("verification.json", False),
+        ("summary.json", True),
+        ("merge-readiness.json", True),
+    ):
+        artifact_path = task_path / artifact_name
+        if optional and not artifact_path.exists():
+            continue
+        ok, detail = _strict_json_artifact_detail(artifact_path, task)
+        checks.append((f"strict: {task_id} {artifact_name}", ok, detail))
+    return checks
+
+
+def _strict_json_artifact_detail(path: Path, task: TaskRecord) -> tuple[bool, str]:
+    if not path.exists():
+        return False, str(path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return False, f"invalid JSON: {exc.msg}"
+    if not isinstance(payload, dict):
+        return False, "invalid JSON: expected object"
+    if payload.get("task_id") not in (None, task.id):
+        return False, "task_id does not match task.yaml"
+    if path.name == "summary.json" and payload.get("status") not in (None, task.status):
+        return False, "status does not match task.yaml"
+    if path.name == "merge-readiness.json" and not isinstance(payload.get("ready"), bool):
+        return False, "ready must be boolean"
+    return True, str(path)
+
+
+def _strict_task_lock_check(task_path: Path, task_id: str) -> tuple[str, bool, str]:
+    lock_dir = task_path / ".lock"
+    name = f"strict: {task_id} task lock"
+    if not lock_dir.exists():
+        return (name, True, "no task lock present")
+    owner_path = lock_dir / "owner.json"
+    try:
+        payload = json.loads(owner_path.read_text(encoding="utf-8"))
+        acquired_at = datetime.fromisoformat(str(payload.get("acquired_at")))
+    except Exception as exc:
+        return (name, False, f"lock owner unreadable: {exc}")
+    if acquired_at.tzinfo is None:
+        acquired_at = acquired_at.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - acquired_at).total_seconds()
+    operation = payload.get("operation") or "unknown"
+    if age_seconds > TASK_LOCK_STALE_AFTER_SECONDS:
+        return (name, False, f"stale lock: operation {operation}, acquired_at {payload.get('acquired_at')}")
+    return (name, False, f"active lock: operation {operation}, acquired_at {payload.get('acquired_at')}")
+
+
+def _strict_manual_evidence_checks(task_path: Path, task_id: str) -> list[tuple[str, bool, str]]:
+    checks: list[tuple[str, bool, str]] = []
+    agents_dir = task_path / "agents"
+    if not agents_dir.exists():
+        return checks
+    for agent_dir in sorted(path for path in agents_dir.iterdir() if path.is_dir()):
+        agent_id = agent_dir.name
+        failed_path = agent_dir / "worker_failed.json"
+        if failed_path.exists():
+            checks.append(_strict_worker_failed_check(failed_path, task_id, agent_id))
+        questions_path = agent_dir / "questions.jsonl"
+        if questions_path.exists():
+            checks.append(_strict_questions_check(questions_path, task_id, agent_id))
+    return checks
+
+
+def _strict_worker_failed_check(path: Path, task_id: str, agent_id: str) -> tuple[str, bool, str]:
+    name = f"strict: {task_id} {agent_id} worker_failed.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return (name, False, f"invalid JSON: {exc.msg}")
+    if not isinstance(payload, dict):
+        return (name, False, "invalid JSON: expected object")
+    if payload.get("status") != "worker_failed":
+        return (name, False, "status must be worker_failed")
+    if payload.get("task_id") != task_id or payload.get("agent_id") != agent_id:
+        return (name, False, "task_id or agent_id does not match")
+    if not isinstance(payload.get("summary"), str) or not payload.get("summary", "").strip():
+        return (name, False, "summary is required")
+    return (name, True, str(path))
+
+
+def _strict_questions_check(path: Path, task_id: str, agent_id: str) -> tuple[str, bool, str]:
+    name = f"strict: {task_id} {agent_id} questions.jsonl"
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not raw_line.strip():
+            continue
+        try:
+            payload = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            return (name, False, f"line {line_number}: invalid JSON ({exc.msg})")
+        if not isinstance(payload, dict):
+            return (name, False, f"line {line_number}: expected JSON object")
+        if payload.get("type") != "blocked_question":
+            return (name, False, f"line {line_number}: type must be blocked_question")
+        if payload.get("task_id") != task_id or payload.get("agent_id") != agent_id:
+            return (name, False, f"line {line_number}: task_id or agent_id does not match")
+        if not isinstance(payload.get("question"), str) or not payload.get("question", "").strip():
+            return (name, False, f"line {line_number}: question is required")
+    return (name, True, str(path))
+
+
+def _strict_patch_evidence_checks(root: Path, task_path: Path, task_id: str) -> list[tuple[str, bool, str]]:
+    checks: list[tuple[str, bool, str]] = []
+    events_path = task_path / "events.jsonl"
+    if not events_path.exists():
+        return checks
+    for event in _read_task_events(events_path):
+        if event.get("event") != "patch_applied":
+            continue
+        patch_hash = event.get("patch_hash")
+        evidence_path_text = event.get("patch_evidence_path")
+        name = f"strict: {task_id} patch evidence {patch_hash or 'missing-hash'}"
+        if not isinstance(patch_hash, str) or not patch_hash:
+            checks.append((name, False, "patch_applied event missing patch_hash"))
+            continue
+        if not isinstance(evidence_path_text, str) or not evidence_path_text:
+            checks.append((name, False, "patch_applied event missing patch_evidence_path"))
+            continue
+        evidence_path = _absolute(root, evidence_path_text)
+        ok, detail = _strict_patch_evidence_detail(evidence_path, task_id, patch_hash)
+        checks.append((name, ok, detail))
+    return checks
+
+
+def _strict_patch_evidence_detail(path: Path, task_id: str, patch_hash: str) -> tuple[bool, str]:
+    if not path.exists():
+        return False, str(path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return False, f"invalid JSON: {exc.msg}"
+    if not isinstance(payload, dict):
+        return False, "invalid JSON: expected object"
+    if payload.get("task_id") != task_id:
+        return False, "task_id does not match patch_applied event"
+    if payload.get("patch_hash") != patch_hash:
+        return False, "patch_hash does not match patch_applied event"
+    if not isinstance(payload.get("changed_files"), list):
+        return False, "changed_files must be a list"
+    return True, str(path)
+
+
+def _strict_promoted_consistency_check(task_path: Path, task: TaskRecord) -> tuple[str, bool, str]:
+    name = f"strict: {task.id} promoted consistency"
+    if task.status != "promoted":
+        return (name, True, "not promoted")
+    events = _read_task_events(task_path / "events.jsonl")
+    promoted_events = [event for event in events if event.get("event") == "task_promoted"]
+    if not promoted_events:
+        return (name, False, "missing task_promoted event")
+    if task.verification_status != "passed":
+        return (name, False, "promoted task verification_status is not passed")
+    return (name, True, "task_promoted event present")
+
+
+def _read_task_events(path: Path) -> list[dict[str, Any]]:
+    events = []
+    if not path.exists():
+        return events
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.strip():
+            continue
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
 
 
 def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) -> None:
@@ -596,7 +802,7 @@ def _apply_task_patch_locked(root: Path, task_id: str, agent_id: str | None = No
 
     # Parse and apply patch
     patch_files = parse_unified_diff(patch_content)
-    result = apply_patch_files(workspace, patch_files)
+    result = apply_patch_files(workspace, patch_files, patch_hash=patch_hash)
     
     # Structure changes payload
     changed_files_payload = [
@@ -604,10 +810,21 @@ def _apply_task_patch_locked(root: Path, task_id: str, agent_id: str | None = No
         for f in result.changed_files
     ]
     
+    evidence_path = _write_patch_application_evidence(
+        root,
+        task_path,
+        task,
+        selected_agent,
+        target_patch,
+        result.patch_hash,
+        changed_files_payload,
+    )
+
     _append_event(root, task_id, "patch_applied", {
         "agent_id": selected_agent,
         "patch_path": _relative(root, target_patch),
-        "patch_hash": patch_hash,
+        "patch_hash": result.patch_hash,
+        "patch_evidence_path": _relative(root, evidence_path),
         "changed_files": changed_files_payload,
     })
 
@@ -617,3 +834,35 @@ def _apply_task_patch_locked(root: Path, task_id: str, agent_id: str | None = No
     _save_task(task_path, task)
     _write_merge_readiness(root, task_path, task)
     return task
+
+
+def _write_patch_application_evidence(
+    root: Path,
+    task_path: Path,
+    task: TaskRecord,
+    agent_id: str | None,
+    patch_path: Path,
+    patch_hash: str,
+    changed_files: list[dict[str, Any]],
+) -> Path:
+    evidence = {
+        "schema_version": TASK_SCHEMA_VERSION,
+        "task_id": task.id,
+        "agent_id": agent_id,
+        "patch_path": _relative(root, patch_path),
+        "patch_hash": patch_hash,
+        "workspace": task.workspace,
+        "changed_files": changed_files,
+        "operation_summary": {
+            "created": sum(1 for item in changed_files if item.get("operation") == "created"),
+            "modified": sum(1 for item in changed_files if item.get("operation") == "modified"),
+            "deleted": sum(1 for item in changed_files if item.get("operation") == "deleted"),
+        },
+        "applied_at": utc_now().isoformat(),
+    }
+    patches_dir = task_path / "patches"
+    evidence_path = patches_dir / f"{patch_hash}.json"
+    body = json.dumps(evidence, indent=2, sort_keys=True) + "\n"
+    atomic_write_text(evidence_path, body)
+    atomic_write_text(task_path / "patch-application.json", body)
+    return evidence_path

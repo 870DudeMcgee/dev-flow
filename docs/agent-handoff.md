@@ -66,12 +66,14 @@ Current product contract:
 - `devflow agent packet <task_id> devflow-manual-codex-worker`
 - `devflow task run <task_id> --worker devflow-manual-codex-worker`
 - `devflow task log <task_id>`
+- `devflow task apply-patch <task_id>` with SHA-256 patch evidence under `.devflow/tasks/<task_id>/patches/`
 - `devflow task promote-preview <task_id>`
 - `devflow task promote <task_id>`
 - filesystem task state with canonical `task.yaml`
 - atomic write-then-replace for canonical `task.yaml`, derived `summary.json`, latest `verification.json`, and `merge-readiness.json`
 - task append-only `events.jsonl`
 - task-local worker logs, verification logs, verification JSON, and YAML artifacts
+- strict doctor read-only diagnostics for stale locks, unsafe workspace paths, invalid JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
 - POSIX process-group cleanup for shell and verification timeout paths

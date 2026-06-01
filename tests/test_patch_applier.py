@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import pytest
 from pathlib import Path
 from devflow.control_room.patch_applier import (
@@ -61,8 +62,29 @@ def test_apply_modify_exact_match(tmp_path: Path):
         "+line beautiful three\n"
     )
     patch_files = parse_unified_diff(diff)
-    apply_patch_files(tmp_path, patch_files)
+    patch_hash = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+    result = apply_patch_files(tmp_path, patch_files, patch_hash=patch_hash)
     assert target.read_text(encoding="utf-8") == "line one\nline two\nline beautiful three\n"
+    assert result.patch_hash == patch_hash
+
+
+def test_apply_dry_run_returns_patch_hash(tmp_path: Path):
+    target = tmp_path / "hello.txt"
+    target.write_text("one\n", encoding="utf-8")
+    diff = (
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1 +1 @@\n"
+        "-one\n"
+        "+two\n"
+    )
+    patch_files = parse_unified_diff(diff)
+    patch_hash = hashlib.sha256(diff.encode("utf-8")).hexdigest()
+
+    result = apply_patch_files(tmp_path, patch_files, dry_run=True, patch_hash=patch_hash)
+
+    assert result.patch_hash == patch_hash
+    assert target.read_text(encoding="utf-8") == "one\n"
 
 def test_apply_offset_multi_hunk(tmp_path: Path):
     target = tmp_path / "hello.txt"

@@ -85,6 +85,8 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/verification.json
 .devflow/tasks/<task-id>/logs/worker.log
 .devflow/tasks/<task-id>/logs/verify.log
+.devflow/tasks/<task-id>/patch-application.json
+.devflow/tasks/<task-id>/patches/<patch-hash>.json
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/handoff.md
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/result.md
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/questions.jsonl
@@ -92,7 +94,7 @@ For a created task, the MVP contract is:
 .devflow/workspaces/<task-id>/
 ```
 
-`task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. The workspace is the only current place where shell-worker results are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
+`task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. Patch application writes a SHA-256-addressed evidence artifact under `patches/` and updates latest `patch-application.json`; `patch_applied` events point at that evidence. The workspace is the only current place where shell-worker results are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
 
 Mutating task operations use a task-local `.lock/` directory with `owner.json` metadata. `run`, `verify`, `apply-patch`, and `promote` refuse concurrent mutations for the same task, report the current lock owner, and recover locks that are stale beyond the lock TTL.
 
@@ -116,6 +118,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Promotion to the main checkout is explicit, human-confirmed, and gated on verification readiness.
 - Promotion refuses unsafe workspace paths and blocks dirty main-checkout changes unless explicitly forced.
 - New task events are hash-chained with monotonic indexes, previous-event hashes, and current-event hashes; `doctor` reports malformed or edited task event logs.
+- `doctor --strict` is read-only and reports stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency.
 - No SQLite database is created.
 - No `.devflow/worktrees/` directory is created.
 - Legacy agent, memory, DAG, trace, worktree, database, and software-factory systems remain bypassed for this MVP path.
@@ -139,7 +142,7 @@ Current MVP implementation limits:
 
 - workspaces are copy-based scratchpads, not git worktrees
 - promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
-- patch application supports validated text patches only and rejects binary diffs, renames, copies, mode changes, and similarity metadata
+- patch application supports validated text patches only, records SHA-256 patch evidence, and rejects binary diffs, renames, copies, mode changes, and similarity metadata
 - event logs are append-only evidence, but task and system event writes are still separate writes and may require future reconciliation tooling after a crash
 
 Future security hardening items:

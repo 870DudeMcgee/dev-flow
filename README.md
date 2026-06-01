@@ -38,10 +38,12 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     logs/
       worker.log
       verify.log
+    patch-application.json
+    patches/<patch-hash>.json
   workspaces/<task-id>/
 ```
 
-`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Shell worker output stays in `.devflow/workspaces/<task-id>/` until a human explicitly previews and promotes verified changes.
+`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output stays in `.devflow/workspaces/<task-id>/` until a human explicitly previews and promotes verified changes.
 
 Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
 
@@ -53,7 +55,7 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Task workspaces are copy-based scratchpads, not git worktrees. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
 - Promotion is explicit, readiness-gated, and human-controlled, but the current implementation promotes by copying verified workspace changes back into the main checkout. It is not a three-way git merge system.
-- The patch applier is a text-only MVP path with strong path validation. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
+- The patch applier is a text-only MVP path with strong path validation and durable patch hash evidence. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
 
 Use Dev-Flow only on repositories and worker commands you trust. Future production hardening should prefer git worktrees or branch-backed workspaces, stricter command policy, optional network/resource controls, and git-native promotion.
 
@@ -106,6 +108,8 @@ Promotion is explicit and human-controlled:
 
 Use promotion only after reviewing the preview and verification evidence.
 If the main checkout advanced after the task workspace was created, promotion refuses by default. Use `--force-stale-baseline` only after manually reviewing that stale-baseline risk.
+
+`devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency. It does not repair artifacts automatically.
 
 Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future provider adapters may be described in registries, but only the `shell` and `manual` adapters are executable in the stable runtime.
 

@@ -153,10 +153,14 @@ Implemented:
 - README and MVP contract state the trusted-local safety model and known limitations
 - shell and verification subprocesses use process-group cleanup on POSIX timeout paths
 - canonical task YAML/JSON artifacts use atomic write-then-replace for `task.yaml`, `summary.json`, `verification.json`, and `merge-readiness.json`
+- patch application records real SHA-256 patch hashes, hash-addressed patch evidence artifacts, changed-file summaries, and latest patch application evidence
+- `doctor --strict` reports stale task locks, unsafe workspace paths, invalid derived/canonical JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency
+- `devflow init`, `devflow doctor --strict`, and shell task runs visibly warn that shell execution is path-isolated, not sandboxed
 
 Remaining before production-grade local beta:
 
-- broaden `doctor --strict` recovery checks for stale locks, corrupt JSONL/JSON artifacts, missing logs, and invalid task state
+- add read-only crash/interruption reconciliation reporting for partial event writes, interrupted promotion, and task/system event divergence
+- design a cautious `devflow repair --dry-run` follow-up after strict reporting stays stable
 - add installed-wheel CLI smoke tests in CI
 - publish passing CI evidence before tags or releases
 - decide whether the next workspace/promotion step is documented copy-promotion hardening or git worktree promotion
