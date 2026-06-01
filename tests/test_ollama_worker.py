@@ -9,15 +9,14 @@ import urllib.error
 
 import pytest
 
-from devflow.control_room.worker_adapter import get_worker_adapter
+from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
 
 
-def test_get_ollama_chat_worker_adapter() -> None:
-    adapter = get_worker_adapter("ollama_chat")
-    assert isinstance(adapter, OllamaChatWorkerAdapter)
-    assert adapter.name == "ollama_chat"
+def test_get_ollama_chat_worker_adapter_rejects_experimental_runtime() -> None:
+    with pytest.raises(UnsupportedWorkerAdapter, match="experimental_readonly"):
+        get_worker_adapter("ollama_chat")
 
 
 def test_ollama_worker_success(tmp_path: Path) -> None:

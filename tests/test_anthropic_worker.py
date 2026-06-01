@@ -9,15 +9,14 @@ import urllib.error
 
 import pytest
 
-from devflow.control_room.worker_adapter import get_worker_adapter
+from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.anthropic_worker import AnthropicMessagesWorkerAdapter
 
 
-def test_get_anthropic_messages_worker_adapter() -> None:
-    adapter = get_worker_adapter("anthropic_messages")
-    assert isinstance(adapter, AnthropicMessagesWorkerAdapter)
-    assert adapter.name == "anthropic_messages"
+def test_get_anthropic_messages_worker_adapter_rejects_experimental_runtime() -> None:
+    with pytest.raises(UnsupportedWorkerAdapter, match="experimental_readonly"):
+        get_worker_adapter("anthropic_messages")
 
 
 def test_anthropic_worker_success(tmp_path: Path) -> None:

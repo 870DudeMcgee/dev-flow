@@ -9,15 +9,14 @@ import urllib.error
 
 import pytest
 
-from devflow.control_room.worker_adapter import get_worker_adapter
+from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.gemini_worker import GeminiWorkerAdapter
 
 
-def test_get_gemini_worker_adapter() -> None:
-    adapter = get_worker_adapter("gemini")
-    assert isinstance(adapter, GeminiWorkerAdapter)
-    assert adapter.name == "gemini"
+def test_get_gemini_worker_adapter_rejects_experimental_runtime() -> None:
+    with pytest.raises(UnsupportedWorkerAdapter, match="experimental_readonly"):
+        get_worker_adapter("gemini")
 
 
 def test_gemini_worker_success(tmp_path: Path) -> None:
