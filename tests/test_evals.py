@@ -45,11 +45,13 @@ class TestEvals(unittest.TestCase):
         os.chdir(self.old_cwd)
         shutil.rmtree(self.tmpdir)
 
+    @patch("devflow.agents.runner.ollama.invoke_local_model")
     @patch("devflow._legacy.agents.runner.ollama.invoke_local_model")
     @patch("devflow.agents.ollama.invoke_local_model")
-    def test_run_role_eval_success(self, mock_invoke, mock_runner_invoke):
+    def test_run_role_eval_success(self, mock_invoke, mock_legacy_runner_invoke, mock_runner_invoke):
         # Mock LLM to return the fixture's pre-seeded output
         mock_invoke.return_value = self.fixture_data["mock_model_response"]
+        mock_legacy_runner_invoke.return_value = self.fixture_data["mock_model_response"]
         mock_runner_invoke.return_value = self.fixture_data["mock_model_response"]
 
         # Run implementer evaluations
@@ -64,15 +66,17 @@ class TestEvals(unittest.TestCase):
         self.assertTrue(len(artifacts) > 0)
         self.assertEqual(artifacts[-1].metadata.get("artifact_type"), "diff_result.json")
 
+    @patch("devflow.agents.runner.ollama.invoke_local_model")
     @patch("devflow._legacy.agents.runner.ollama.invoke_local_model")
     @patch("devflow.agents.ollama.invoke_local_model")
-    def test_run_role_eval_failure_assertion(self, mock_invoke, mock_runner_invoke):
+    def test_run_role_eval_failure_assertion(self, mock_invoke, mock_legacy_runner_invoke, mock_runner_invoke):
         # Change assertion to expect COMPLETED instead of PREVIEWED (which will fail because it's a dry-run)
         self.fixture_data["assertions"]["expected_status"] = "COMPLETED"
         with open(".devflow/evals/fixtures/mock_impl.json", "w", encoding="utf-8") as f:
             json.dump(self.fixture_data, f)
 
         mock_invoke.return_value = self.fixture_data["mock_model_response"]
+        mock_legacy_runner_invoke.return_value = self.fixture_data["mock_model_response"]
         mock_runner_invoke.return_value = self.fixture_data["mock_model_response"]
 
         results = run_role_eval("implementer", root_dir=self.tmpdir)
