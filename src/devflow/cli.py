@@ -1211,6 +1211,203 @@ def task_open(
         typer.echo(f"Failed to open automatically. Exact path:\n{top_candidate.resolve()}")
 
 
+@task_app.command("evidence")
+def task_evidence(
+    task_id: str = typer.Argument(..., help="The task ID (e.g. task-0002)."),
+) -> None:
+    """Show a concise terminal summary of the task's evidence."""
+    import json
+    import fnmatch
+    from devflow.control_room.service import get_task
+    from devflow.control_room.paths import workspaces_dir, task_dir
+
+    root = Path.cwd()
+
+    try:
+        task = get_task(root, task_id)
+    except KeyError:
+        typer.echo(f"Error: Task '{task_id}' not found.", err=True)
+        raise typer.Exit(code=1)
+
+    workspace = (workspaces_dir(root) / task_id).resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        typer.echo(f"Error: Task workspace not found at {workspace}", err=True)
+        raise typer.Exit(code=1)
+
+    # 1. Print Task ID and Title
+    typer.echo(f"Task: {task.id} {task.title}")
+
+    # 2. Print Task Status
+    typer.echo(f"Status: {task.status}")
+    typer.echo()
+
+    # 3. Retrieve and print Verification status
+    v_status = task.verification_status or "not_run"
+    v_command = task.verification_command
+    v_exit_code = task.verification_exit_code
+
+    # Check if verification.json exists
+    t_dir = task_dir(root, task_id)
+    v_json_path = t_dir / "verification.json"
+    if v_json_path.exists():
+        try:
+            v_data = json.loads(v_json_path.read_text(encoding="utf-8"))
+            if isinstance(v_data, dict) and v_data.get("task_id") == task_id:
+                v_status = v_data.get("status", v_status)
+                v_command = v_data.get("command", v_command)
+                v_exit_code = v_data.get("exit_code", v_exit_code)
+        except Exception:
+            pass
+
+    typer.echo("Verification:")
+    if v_status == "passed":
+        typer.echo(f"  passed  {v_command or ''}")
+    elif v_status == "failed":
+        exit_suffix = f" (exit={v_exit_code})" if v_exit_code is not None else ""
+        typer.echo(f"  failed{exit_suffix}  {v_command or ''}")
+    else:
+        typer.echo("  not_run")
+    typer.echo()
+
+    # 4. Search and parse local worker runs
+    local_workers_dir = workspace / "local-workers"
+    worker_runs = []
+    failed_workers = []
+    timeout_workers = []
+    missing_inputs = []
+
+    if local_workers_dir.exists() and local_workers_dir.is_dir():
+        for worker_subdir in sorted(local_workers_dir.iterdir()):
+            if not worker_subdir.is_dir():
+                continue
+            run_json = worker_subdir / "run.json"
+            if run_json.exists():
+                try:
+                    run_data = json.loads(run_json.read_text(encoding="utf-8"))
+                    if isinstance(run_data, dict):
+                        worker_name = run_data.get("worker_name", worker_subdir.name)
+                        model = run_data.get("model", "unknown")
+                        status = run_data.get("status", "unknown")
+                        duration = run_data.get("duration_seconds", 0.0)
+                        resp_path = run_data.get("response_path", f"local-workers/{worker_subdir.name}/response.md")
+                        
+                        # Store run info
+                        worker_runs.append({
+                            "name": worker_name,
+                            "model": model,
+                            "status": status,
+                            "duration": duration,
+                            "response_path": resp_path,
+                        })
+
+                        # Collect potential warning contexts
+                        if status == "failed":
+                            failed_workers.append(worker_name)
+                        elif status == "timeout":
+                            timeout_workers.append(worker_name)
+
+                        # Check for missing input in run.json error_message
+                        err_msg = run_data.get("error_message") or ""
+                        if "Missing input worker output" in err_msg:
+                            missing_inputs.append(worker_name)
+                except Exception:
+                    pass
+
+    if worker_runs:
+        typer.echo("Local workers:")
+        for r in worker_runs:
+            resp_name = Path(r["response_path"]).name
+            duration_str = f"{int(round(r['duration']))}s"
+            typer.echo(f"  {r['name']:<16}  {r['status']:<8}  {duration_str:>4}  {resp_name}")
+        typer.echo()
+
+    # 5. Discover Useful Artifacts
+    all_candidate_files = []
+    for p in workspace.rglob("*"):
+        if p.is_file():
+            try:
+                # Path resolution traversal safety
+                p.resolve().relative_to(workspace)
+                all_candidate_files.append(p)
+            except ValueError:
+                continue
+
+    def get_sort_key(p: Path) -> tuple[int, str]:
+        rel_path = p.relative_to(workspace).as_posix()
+        rel_path_lower = rel_path.lower()
+        name = p.name.lower()
+
+        patterns = [
+            "local-workers/*/response.md",
+            "local-workers/*/response.raw.md",
+            "*response.md",
+            "*review.md",
+            "*.md",
+            "*.txt",
+            "logs/*.log",
+            "*.log",
+        ]
+        
+        for idx, pattern in enumerate(patterns):
+            if fnmatch.fnmatch(rel_path_lower, pattern) or fnmatch.fnmatch(name, pattern):
+                return (idx, rel_path_lower)
+        return (len(patterns), rel_path_lower)
+
+    sorted_files = sorted(all_candidate_files, key=get_sort_key)
+    valid_candidates = []
+    for f in sorted_files:
+        key = get_sort_key(f)
+        if key[0] < 8:
+            valid_candidates.append(f)
+
+    if valid_candidates:
+        typer.echo("Artifacts:")
+        for f in valid_candidates[:10]:
+            typer.echo(f"  {_relative(root, f)}")
+        typer.echo()
+
+    # 6. Warnings
+    warnings = []
+    for w in failed_workers:
+        warnings.append(f"failed worker run: {w}")
+    for w in timeout_workers:
+        warnings.append(f"timeout worker run: {w}")
+    for w in missing_inputs:
+        warnings.append(f"missing input-worker output for: {w}")
+    if v_status != "passed":
+        warnings.append("unverified task")
+
+    if warnings:
+        typer.echo("Warnings:")
+        for w in warnings:
+            typer.echo(f"  - {w}")
+        typer.echo()
+
+    # 7. Recommended next action & Suggested next commands
+    typer.echo("Recommended next action:")
+    if v_status == "passed":
+        if any(w["name"] == "gemma-reviewer" and w["status"] == "success" for w in worker_runs):
+            typer.echo("  review gemma-reviewer response, then handoff to Codex")
+        else:
+            typer.echo(f"  review promotion preview, then run 'devflow task promote {task_id}'")
+    else:
+        if v_status == "failed":
+            typer.echo(f"  fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'")
+        else:
+            typer.echo(f"  verify the task using 'devflow task verify {task_id} -- <command>'")
+
+    typer.echo()
+    typer.echo("Suggested next commands:")
+    typer.echo(f"  devflow task open {task_id}")
+    if worker_runs:
+        latest_worker = worker_runs[-1]["name"]
+        typer.echo(f"  devflow task open {task_id} --worker {latest_worker}")
+    if v_status != "passed":
+        typer.echo(f"  devflow task verify {task_id} -- <command>")
+    else:
+        typer.echo(f"  devflow task promote-preview {task_id}")
+
+
 # Backward-compatible names for importers while the old CLI is retired.
 def init_workspace() -> None:
     init_control_room(Path.cwd())
