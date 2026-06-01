@@ -61,6 +61,7 @@ from devflow.control_room.local_ollama_worker import (
     get_local_worker_definition,
     run_local_ollama_worker,
 )
+from devflow.control_room.log_sanitizer import DEFAULT_LATEST_LOG_LINE_MAX_CHARS, latest_visible_log_line
 from devflow.control_room.patch_applier import (
     PatchError,
     PatchSelectionError,
@@ -334,44 +335,26 @@ def run_local_model_task(
     if timeout <= 0:
         raise ValueError("Local worker timeout must be greater than zero.")
 
+    # Resolve workspace and read configuration lock-free
+    task = get_task(root, task_id)
+    task_path = task_dir(root, task_id)
+    workspace = _resolve_task_workspace(root, task)
+    task_yaml_text = (task_path / "task.yaml").read_text(encoding="utf-8")
+
+    # Run the Ollama subprocess lock-free so multiple local workers can run in parallel
+    result = run_local_ollama_worker(
+        root,
+        task_id,
+        workspace,
+        worker_name,
+        input_worker=input_worker,
+        timeout_seconds=timeout,
+        task_yaml_text=task_yaml_text,
+    )
+
+    # Acquire the task lock briefly post-run to synchronize canonical task updates and event appends
     with task_mutation_lock(root, task_id, "local-worker"):
         task = get_task(root, task_id)
-        task_path = task_dir(root, task_id)
-        workspace = _resolve_task_workspace(root, task)
-        artifact_dir = workspace / "local-workers" / worker_name
-        task_yaml_text = (task_path / "task.yaml").read_text(encoding="utf-8")
-
-        task.status = "running"
-        task.worker = worker_name
-        task.worker_adapter = "local-ollama"
-        task.timeout_seconds = timeout
-        task.worker_command = shlex.join(["ollama", "run", definition.model])
-        task.started_at = utc_now()
-        task.updated_at = task.started_at
-        task.last_event = "local_worker_started"
-        _save_task(task_path, task)
-        _append_event(
-            root,
-            task_id,
-            "local_worker_started",
-            {
-                "worker_name": worker_name,
-                "model": definition.model,
-                "artifact_dir": _relative(root, artifact_dir),
-                "input_worker": input_worker or definition.default_input_worker,
-            },
-        )
-
-        result = run_local_ollama_worker(
-            root,
-            task_id,
-            workspace,
-            worker_name,
-            input_worker=input_worker,
-            timeout_seconds=timeout,
-            task_yaml_text=task_yaml_text,
-        )
-
         task.status = result.task_status
         task.last_exit_code = result.exit_code
         task.latest_log_line = _local_worker_latest_line(result)
@@ -383,8 +366,20 @@ def run_local_model_task(
             task.workspace_dirty = bool(state["dirty"])
         task.updated_at = task.finished_at
         task.last_event = "local_worker_finished"
-        _save_task(task_path, task)
-        _write_merge_readiness(root, task_path, task)
+
+        # Chronologically append start and finish events to task history under synchronized lock
+        _append_event(
+            root,
+            task_id,
+            "local_worker_started",
+            {
+                "worker_name": worker_name,
+                "model": definition.model,
+                "artifact_dir": _relative(root, result.artifact_dir),
+                "input_worker": input_worker or definition.default_input_worker,
+                "run_id": result.run_id,
+            },
+        )
         _append_event(
             root,
             task_id,
@@ -394,12 +389,17 @@ def run_local_model_task(
                 "model": definition.model,
                 "status": result.status,
                 "exit_code": result.exit_code,
+                "run_id": result.run_id,
                 "run_json_path": _relative(root, result.run_json_path),
                 "response_path": _relative(root, result.response_path),
                 "stderr_path": _relative(root, result.stderr_path),
             },
         )
-        return result
+
+        _save_task(task_path, task)
+        _write_merge_readiness(root, task_path, task)
+
+    return result
 
 
 def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 120) -> TaskRecord:
@@ -764,11 +764,8 @@ def _local_worker_latest_line(result: LocalOllamaRunResult) -> str | None:
         return result.error_message
     if not result.stderr_path.exists():
         return None
-    for line in reversed(result.stderr_path.read_text(encoding="utf-8").splitlines()):
-        stripped = line.strip()
-        if stripped:
-            return stripped
-    return None
+    latest = latest_visible_log_line(result.stderr_path, max_chars=DEFAULT_LATEST_LOG_LINE_MAX_CHARS)
+    return latest or None
 
 
 def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, result: VerificationResult) -> None:

@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import yaml
 
+from devflow.control_room.log_sanitizer import DEFAULT_LATEST_LOG_LINE_MAX_CHARS, sanitize_log_line
 from devflow.control_room.persistence import atomic_write_text
 from devflow.control_room.paths import relative_path, task_dir
 
@@ -44,6 +45,7 @@ class LocalOllamaRunResult:
     response_path: Path
     run_json_path: Path
     stderr_path: Path
+    run_id: str
     error_message: str | None = None
 
     @property
@@ -62,12 +64,26 @@ LOCAL_WORKERS: dict[str, LocalWorkerDefinition] = {
         role="coding planner / implementation scout",
         default_timeout_seconds=600,
     ),
+    "qwopus-implementer": LocalWorkerDefinition(
+        name="qwopus-implementer",
+        model="qwopus:latest",
+        role="primary local implementation model / patch proposal worker",
+        default_timeout_seconds=600,
+        default_input_worker="qwen-planner",
+    ),
+    "qwen-implementer": LocalWorkerDefinition(
+        name="qwen-implementer",
+        model="qwen3.6:latest",
+        role="code implementation worker / patch draft generator",
+        default_timeout_seconds=600,
+        default_input_worker="qwen-planner",
+    ),
     "gemma-reviewer": LocalWorkerDefinition(
         name="gemma-reviewer",
         model="gemma4:latest",
         role="reviewer / summarizer / handoff compressor",
         default_timeout_seconds=600,
-        default_input_worker="qwen-planner",
+        default_input_worker="qwopus-implementer",
     ),
 }
 
@@ -80,6 +96,42 @@ def get_local_worker_definition(worker_name: str) -> LocalWorkerDefinition:
         raise ValueError(f"Unknown local worker '{worker_name}'. Available local workers: {available}.") from exc
 
 
+def find_latest_worker_evidence(workspace: Path, worker_name: str) -> tuple[Path | None, Path | None]:
+    """
+    Finds the latest run directory and response.md path for a given worker.
+    Returns (run_dir, response_path).
+    Supports new run ID folders and falls back to legacy flat folder if no run subfolders exist.
+    """
+    worker_dir = workspace / "local-workers" / worker_name
+    if not worker_dir.exists():
+        return None, None
+
+    # Find run subdirectories (e.g. run_*)
+    run_dirs = []
+    try:
+        for child in worker_dir.iterdir():
+            if child.is_dir() and child.name.startswith("run_"):
+                response_file = child / "response.md"
+                run_json_file = child / "run.json"
+                if response_file.exists() and run_json_file.exists():
+                    run_dirs.append(child)
+    except OSError:
+        pass
+
+    if run_dirs:
+        # Sort by run.json modification time for absolute chronological order
+        run_dirs.sort(key=lambda d: (d / "run.json").stat().st_mtime)
+        latest_run_dir = run_dirs[-1]
+        return latest_run_dir, latest_run_dir / "response.md"
+
+    # Legacy fallback
+    legacy_response = worker_dir / "response.md"
+    if legacy_response.exists():
+        return worker_dir, legacy_response
+
+    return None, None
+
+
 def run_local_ollama_worker(
     root: Path,
     task_id: str,
@@ -90,10 +142,16 @@ def run_local_ollama_worker(
     timeout_seconds: int | None = None,
     task_yaml_text: str | None = None,
 ) -> LocalOllamaRunResult:
+    import os
     definition = get_local_worker_definition(worker_name)
     timeout = timeout_seconds or definition.default_timeout_seconds
     command = ["ollama", "run", definition.model]
-    artifact_dir = workspace / "local-workers" / worker_name
+
+    started_at = _utc_now()
+    monotonic_started_at = time.monotonic()
+
+    run_id = f"run_{started_at.strftime('%Y%m%d_%H%M%S')}_{os.urandom(4).hex()}"
+    artifact_dir = workspace / "local-workers" / worker_name / run_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_path = artifact_dir / "prompt.md"
@@ -102,17 +160,30 @@ def run_local_ollama_worker(
     run_json_path = artifact_dir / "run.json"
     stderr_path = artifact_dir / "stderr.log"
 
-    started_at = _utc_now()
-    monotonic_started_at = time.monotonic()
-
     selected_input_worker = input_worker or definition.default_input_worker
     input_worker_output_path: Path | None = None
     input_worker_output: str | None = None
-    if definition.name == "gemma-reviewer":
-        if not selected_input_worker:
-            selected_input_worker = "qwen-planner"
-        input_worker_output_path = workspace / "local-workers" / selected_input_worker / "response.md"
-        if not input_worker_output_path.exists():
+
+    if definition.name == "gemma-reviewer" and not input_worker:
+        # Dynamic fallback: try qwopus-implementer, then qwen-implementer, then qwen-planner
+        _, qwopus_response_path = find_latest_worker_evidence(workspace, "qwopus-implementer")
+        if qwopus_response_path:
+            selected_input_worker = "qwopus-implementer"
+        else:
+            _, qwen_response_path = find_latest_worker_evidence(workspace, "qwen-implementer")
+            if qwen_response_path:
+                selected_input_worker = "qwen-implementer"
+            else:
+                selected_input_worker = "qwen-planner"
+
+    if selected_input_worker:
+        _, found_response_path = find_latest_worker_evidence(workspace, selected_input_worker)
+        if found_response_path:
+            input_worker_output_path = found_response_path
+            input_worker_output = found_response_path.read_text(encoding="utf-8")
+        else:
+            # Construct a theoretical/fallback path for legacy error reporting (so tests match exactly)
+            input_worker_output_path = workspace / "local-workers" / selected_input_worker / "response.md"
             error_message = (
                 "Missing input worker output: "
                 f"{relative_path(root, input_worker_output_path)}. "
@@ -149,9 +220,9 @@ def run_local_ollama_worker(
                 response_path,
                 run_json_path,
                 stderr_path,
+                run_id,
                 error_message=error_message,
             )
-        input_worker_output = input_worker_output_path.read_text(encoding="utf-8")
 
     prompt = _compose_prompt(
         root,
@@ -215,6 +286,7 @@ def run_local_ollama_worker(
         response_path,
         run_json_path,
         stderr_path,
+        run_id,
         error_message=error_message,
     )
 
@@ -236,7 +308,8 @@ def _compose_prompt(
     raw_task_yaml = task_yaml_text
     if raw_task_yaml is None:
         raw_task_yaml = task_yaml_path.read_text(encoding="utf-8") if task_yaml_path.exists() else ""
-    task_data = _safe_yaml_mapping(raw_task_yaml)
+    prompt_task_yaml = _sanitize_task_yaml_for_prompt(raw_task_yaml)
+    task_data = _safe_yaml_mapping(prompt_task_yaml)
     context_listing = _file_listing(task_path, root=root)
     workspace_listing = _file_listing(workspace, root=workspace)
 
@@ -274,7 +347,7 @@ def _compose_prompt(
             "",
             "## task.yaml",
             "```yaml",
-            raw_task_yaml.rstrip(),
+            prompt_task_yaml.rstrip(),
             "```",
             "",
             "## Workspace file listing",
@@ -315,6 +388,31 @@ def _compose_prompt(
                 "7. Clean Codex/Antigravity prompt if useful",
             ]
         )
+    elif definition.name == "qwopus-implementer":
+        lines.extend(
+            [
+                "## Response request",
+                "Please respond with:",
+                "1. Brief task understanding",
+                "2. Relevant files likely to change",
+                "3. Proposed implementation approach",
+                "4. Unified diff of proposed changes if enough context is present",
+                "5. Changed-file summary",
+                "6. Focused pytest commands to run for verification",
+                "7. Risks and assumptions",
+                "8. Explicit reminder that this output is advisory evidence only and must not be applied automatically",
+            ]
+        )
+    elif definition.name == "qwen-implementer":
+        lines.extend(
+            [
+                "## Response request",
+                "Please respond with:",
+                "1. Unified diff or patch proposal of proposed changes",
+                "2. Detailed explanation of changes",
+                "3. Targeted test plan or focused pytest commands",
+            ]
+        )
     elif definition.name == "gemma-reviewer":
         lines.extend(
             [
@@ -330,6 +428,30 @@ def _compose_prompt(
         )
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _sanitize_task_yaml_for_prompt(raw_task_yaml: str) -> str:
+    lines = []
+    for line in raw_task_yaml.splitlines():
+        if line.startswith("latest_log_line:"):
+            lines.append(_sanitize_latest_log_line_yaml(line))
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _sanitize_latest_log_line_yaml(line: str) -> str:
+    _, raw_value = line.split(":", 1)
+    try:
+        value = yaml.safe_load(raw_value.strip())
+    except yaml.YAMLError:
+        value = raw_value.strip()
+    if value is None:
+        return "latest_log_line: null"
+    sanitized = sanitize_log_line(str(value), max_chars=DEFAULT_LATEST_LOG_LINE_MAX_CHARS)
+    if not sanitized:
+        return "latest_log_line: null"
+    return f"latest_log_line: {json.dumps(sanitized)}"
 
 
 def _write_run_result(
@@ -348,6 +470,7 @@ def _write_run_result(
     response_path: Path,
     run_json_path: Path,
     stderr_path: Path,
+    run_id: str,
     *,
     error_message: str | None = None,
 ) -> LocalOllamaRunResult:
@@ -358,8 +481,11 @@ def _write_run_result(
         "worker_name": definition.name,
         "model": definition.model,
         "command": command,
+        "role": definition.role,
+        "run_id": run_id,
         "started_at": started_at.isoformat(),
         "finished_at": finished_at.isoformat(),
+        "completed_at": finished_at.isoformat(),
         "duration_seconds": duration_seconds,
         "timeout_seconds": timeout_seconds,
         "exit_code": exit_code,
@@ -368,6 +494,7 @@ def _write_run_result(
         "raw_response_path": relative_path(root, raw_response_path),
         "response_path": relative_path(root, response_path),
         "stderr_path": relative_path(root, stderr_path),
+        "evidence_path": relative_path(root, artifact_dir),
     }
     if error_message is not None:
         payload["error_message"] = error_message
@@ -389,6 +516,7 @@ def _write_run_result(
         response_path=response_path,
         run_json_path=run_json_path,
         stderr_path=stderr_path,
+        run_id=run_id,
         error_message=error_message,
     )
 

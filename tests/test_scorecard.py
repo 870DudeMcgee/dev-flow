@@ -64,6 +64,8 @@ def test_scorecard_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     assert result.exit_code == 0
     assert "Compiled routing-quality scorecard for task" in result.output
+    assert "First-Run Verification Pass: unknown" in result.output
+    assert "First-Run Verification Pass: yes" not in result.output
     assert "Wrote scorecard.yaml" in result.output
 
     # Check files exist

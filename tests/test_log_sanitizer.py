@@ -17,6 +17,16 @@ def test_sanitize_log_line_drops_spinner_only_lines() -> None:
     assert sanitize_log_line("⠙ ⠹ ⠸ ⠼") == ""
 
 
+def test_sanitize_log_line_truncates_long_visible_noise() -> None:
+    raw = "\x1b[1G" + ("loading local model " * 40) + "\x1b[K"
+
+    sanitized = sanitize_log_line(raw, max_chars=80)
+
+    assert len(sanitized) <= 80
+    assert sanitized.endswith("[truncated]")
+    assert "\x1b[" not in sanitized
+
+
 def test_latest_visible_log_line_skips_progress_noise(tmp_path: Path) -> None:
     log = tmp_path / "worker.log"
     log.write_text(

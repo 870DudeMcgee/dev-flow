@@ -15,10 +15,12 @@ import os
 import tempfile
 import json
 from pathlib import Path
+from typing import Any
 
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.service import get_task
 
 runner = CliRunner()
 
@@ -265,3 +267,174 @@ def test_task_evidence_read_only() -> None:
             assert mtime_before == mtime_after
         finally:
             os.chdir(old_cwd)
+
+
+def _write_local_run(
+    workspace: Path,
+    worker_name: str,
+    *,
+    run_id: str | None = None,
+    model: str = "test-model:latest",
+    status: str = "success",
+    exit_code: int | None = 0,
+    completed_at: str = "2026-06-01T12:00:00+00:00",
+    response_text: str = "response body",
+    raw_response_text: str = "raw response body",
+    prompt_text: str | None = None,
+    extra_run_data: dict[str, object] | None = None,
+) -> Path:
+    worker_dir = workspace / "local-workers" / worker_name
+    evidence_dir = worker_dir / run_id if run_id is not None else worker_dir
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    response_path = evidence_dir / "response.md"
+    response_path.write_text(response_text, encoding="utf-8")
+    (evidence_dir / "response.raw.md").write_text(raw_response_text, encoding="utf-8")
+    (evidence_dir / "prompt.md").write_text(prompt_text or "", encoding="utf-8")
+    (evidence_dir / "stderr.log").write_text("", encoding="utf-8")
+
+    run_data: dict[str, object] = {
+        "task_id": "task-0001",
+        "worker_name": worker_name,
+        "model": model,
+        "status": status,
+        "exit_code": exit_code,
+        "completed_at": completed_at,
+        "response_path": response_path.as_posix(),
+        "evidence_path": evidence_dir.as_posix(),
+    }
+    if run_id is not None:
+        run_data["run_id"] = run_id
+    if extra_run_data:
+        run_data.update(extra_run_data)
+    (evidence_dir / "run.json").write_text(json.dumps(run_data), encoding="utf-8")
+    return evidence_dir
+
+
+def test_task_evidence_local_summary_displays_latest_qwopus_run_id_and_evidence_dir(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["task", "create", "local summary task"])
+    workspace = Path(".devflow/workspaces/task-0001")
+
+    older_run = _write_local_run(
+        workspace,
+        "qwopus-implementer",
+        run_id="run_20260601_120000_aaaa",
+        model="qwopus:latest",
+        completed_at="2026-06-01T12:00:00+00:00",
+    )
+    latest_run = _write_local_run(
+        workspace,
+        "qwopus-implementer",
+        run_id="run_20260601_120500_bbbb",
+        model="qwopus:latest",
+        completed_at="2026-06-01T12:05:00+00:00",
+    )
+    os.utime(older_run / "run.json", (1, 1))
+    os.utime(latest_run / "run.json", (2, 2))
+
+    result = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+
+    assert result.exit_code == 0, result.output
+    assert "Local runs for task-0001" in result.output
+    assert "qwopus-implementer" in result.output
+    assert "latest run: run_20260601_120500_bbbb" in result.output
+    assert ".devflow/workspaces/task-0001/local-workers/qwopus-implementer/run_20260601_120500_bbbb" in result.output
+    assert "run_20260601_120000_aaaa" not in result.output
+
+
+def test_task_evidence_local_summary_uses_preferred_worker_order(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["task", "create", "ordered local summary task"])
+    workspace = Path(".devflow/workspaces/task-0001")
+
+    _write_local_run(workspace, "zeta-worker", run_id="run_20260601_120000_zeta")
+    _write_local_run(
+        workspace,
+        "gemma-reviewer",
+        run_id="run_20260601_120000_gemma",
+        model="gemma4:latest",
+        prompt_text="Input worker: qwopus-implementer\nSource: .devflow/workspaces/task-0001/local-workers/qwopus-implementer/run_20260601_120000_qwopus/response.md\n",
+    )
+    _write_local_run(workspace, "qwen-implementer", run_id="run_20260601_120000_qwenimpl", model="qwen3.6:latest")
+    _write_local_run(workspace, "qwopus-implementer", run_id="run_20260601_120000_qwopus", model="qwopus:latest")
+    _write_local_run(workspace, "qwen-planner", run_id="run_20260601_120000_qwen", model="qwen3.6:latest")
+
+    result = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+
+    assert result.exit_code == 0, result.output
+    planner_index = result.output.index("qwen-planner")
+    qwopus_index = result.output.index("qwopus-implementer")
+    qwen_impl_index = result.output.index("qwen-implementer")
+    gemma_index = result.output.index("gemma-reviewer")
+    zeta_index = result.output.index("zeta-worker")
+    assert planner_index < qwopus_index < qwen_impl_index < gemma_index < zeta_index
+    assert "reviewed: qwopus-implementer" in result.output
+
+
+def test_task_evidence_local_summary_handles_no_local_evidence(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["task", "create", "empty local summary task"])
+
+    result = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+
+    assert result.exit_code == 0, result.output
+    assert "Local runs for task-0001" in result.output
+    assert "No local AI evidence found." in result.output
+
+
+def test_task_evidence_local_summary_handles_legacy_flat_worker_folder(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["task", "create", "legacy local summary task"])
+    workspace = Path(".devflow/workspaces/task-0001")
+    worker_dir = workspace / "local-workers" / "qwen-planner"
+    worker_dir.mkdir(parents=True, exist_ok=True)
+    (worker_dir / "response.md").write_text("legacy response", encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+
+    assert result.exit_code == 0, result.output
+    assert "qwen-planner" in result.output
+    assert "latest run: legacy" in result.output
+    assert "model: unknown" in result.output
+    assert ".devflow/workspaces/task-0001/local-workers/qwen-planner" in result.output
+
+
+def test_task_evidence_local_summary_does_not_print_raw_or_full_response(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["task", "create", "quiet local summary task"])
+    workspace = Path(".devflow/workspaces/task-0001")
+    _write_local_run(
+        workspace,
+        "qwopus-implementer",
+        run_id="run_20260601_120000_quiet",
+        model="qwopus:latest",
+        response_text="FULL RESPONSE BODY SHOULD NOT PRINT",
+        raw_response_text="RAW MODEL BODY SHOULD NOT PRINT",
+    )
+
+    result = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+
+    assert result.exit_code == 0, result.output
+    assert "FULL RESPONSE BODY SHOULD NOT PRINT" not in result.output
+    assert "RAW MODEL BODY SHOULD NOT PRINT" not in result.output
+    assert "response.raw.md" not in result.output
+
+
+def test_task_evidence_local_summary_does_not_change_task_state(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["task", "create", "read only local summary task"])
+    workspace = Path(".devflow/workspaces/task-0001")
+    _write_local_run(workspace, "qwen-planner", run_id="run_20260601_120000_readonly", model="qwen3.6:latest")
+
+    task_before = get_task(tmp_path, "task-0001")
+    readiness_path = Path(".devflow/tasks/task-0001/merge-readiness.json")
+    readiness_before = readiness_path.read_text(encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+
+    task_after = get_task(tmp_path, "task-0001")
+    assert result.exit_code == 0, result.output
+    assert task_after.status == task_before.status
+    assert task_after.verification_status == task_before.verification_status
+    assert readiness_path.read_text(encoding="utf-8") == readiness_before

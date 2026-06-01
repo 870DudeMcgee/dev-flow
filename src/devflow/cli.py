@@ -443,7 +443,7 @@ def task_fit_command(task_id: str) -> None:
     # Render a beautiful terminal breakdown
     typer.echo(f"Estimated task-fit profile for task: {task_id}")
     typer.echo("-" * 50)
-    
+
     tf = fit_data["task_fit"]
     typer.echo(f"Task Type:                 {tf['task_type']}")
     typer.echo(f"Repository Scope:          {tf['repo_scope']}")
@@ -454,13 +454,13 @@ def task_fit_command(task_id: str) -> None:
     typer.echo(f"Verification Complexity:   {tf['verification_complexity']}")
     typer.echo(f"Context Layer:             {tf['context_layer']}")
     typer.echo(f"Confidence Score:          {tf['confidence']}")
-    
+
     typer.echo("")
     typer.echo("Recommended Agent Tiers:")
     typer.echo(f"  Planner:  {tf['recommended_planner_tier']}")
     typer.echo(f"  Worker:   {tf['recommended_worker_tier']}")
     typer.echo(f"  Reviewer: {tf['recommended_reviewer_tier']}")
-    
+
     typer.echo("")
     typer.echo("Deterministic Context Metrics:")
     rs = fit_data["repo_scan"]
@@ -472,7 +472,7 @@ def task_fit_command(task_id: str) -> None:
     typer.echo(f"  Docs Needed:             {rs['docs_needed']}")
     typer.echo(f"  Task History Tokens:     {rs['task_history_tokens']}")
     typer.echo(f"  Total Context Estimate:  {rs['total_context_estimate']}")
-    
+
     typer.echo("-" * 50)
     typer.echo(f"Wrote task-fit.yaml under .devflow/tasks/{task_id}/")
 
@@ -497,21 +497,21 @@ def task_pack_command(task_id: str, role: str) -> None:
     typer.echo(f"Compiled context pack for task: {task_id}")
     typer.echo(f"Role:                          {role.upper()}")
     typer.echo("-" * 50)
-    
+
     cp = pack_data["context_pack"]
     typer.echo(f"Context Layer:                 {cp['context_layer']}")
     typer.echo(f"Estimated Pack Tokens:         {cp['estimated_tokens']}")
-    
+
     typer.echo("")
     typer.echo("Included Sources:")
     for inc in cp["includes"]:
         typer.echo(f"  - {inc}")
-        
+
     typer.echo("")
     typer.echo("Excluded Sources:")
     for exc in cp["excludes"]:
         typer.echo(f"  - {exc}")
-        
+
     typer.echo("-" * 50)
     typer.echo(f"Wrote context-pack-{role}.yaml under .devflow/tasks/{task_id}/")
 
@@ -557,7 +557,7 @@ def task_scout_command(task_id: str, role: str) -> None:
                     typer.echo(f"    - {item}")
             else:
                 typer.echo(f"  {key}: {val}")
-                
+
         typer.echo(f"Wrote scout-{r}.yaml under .devflow/tasks/{task_id}/")
     typer.echo("-" * 50)
 
@@ -581,21 +581,21 @@ def task_route_command(task_id: str) -> None:
     # Render beautiful breakdown
     typer.echo(f"Executed routing mapping for task: {task_id}")
     typer.echo("-" * 50)
-    
+
     rd = decision_data["routing_decision"]
     typer.echo(f"Policy Version:              {rd['policy_version']}")
-    
+
     typer.echo("")
     typer.echo("Selected Agent Assignments:")
     selected = rd["selected"]
     for key in sorted(selected.keys()):
         typer.echo(f"  {key:<12}: {selected[key]}")
-        
+
     typer.echo("")
     typer.echo("Recorded Reasons:")
     for reason in rd["reason"]:
         typer.echo(f"  - {reason}")
-        
+
     typer.echo("")
     typer.echo("Rejected Agents:")
     rejected = rd["rejected"]
@@ -605,7 +605,7 @@ def task_route_command(task_id: str) -> None:
         for rej in rejected:
             typer.echo(f"  - agent:  {rej['agent']}")
             typer.echo(f"    reason: {rej['reason']}")
-            
+
     typer.echo("-" * 50)
     typer.echo(f"Wrote routing-decision.yaml under .devflow/tasks/{task_id}/")
 
@@ -629,17 +629,19 @@ def task_scorecard_command(task_id: str) -> None:
     # Render beautiful scorecard breakdown
     typer.echo(f"Compiled routing-quality scorecard for task: {task_id}")
     typer.echo("-" * 50)
-    
+
     sc = scorecard_data["scorecard"]
-    typer.echo(f"Overall Quality Rating:     {sc['overall_quality_rating'] * 100}%")
-    typer.echo(f"First-Run Verification Pass:{' yes' if sc['first_run_pass'] else ' no'}")
-    typer.echo(f"Boundary Violations:        {' yes' if sc['boundary_violations'] else ' no'}")
-    typer.echo(f"Frontier Escalation Needed: {' yes' if sc['frontier_escalation_needed'] else ' no'}")
-    typer.echo(f"Context Ceiling Exceeded:   {' yes' if sc['context_limit_exceeded'] else ' no'}")
-    typer.echo(f"Review Mistakes Found:      {' yes' if sc['review_mistakes_found'] else ' no'}")
+    typer.echo(f"Overall Quality Rating:     {_format_scorecard_rating(sc['overall_quality_rating'])}")
+    typer.echo(f"First-Run Verification Pass: {_format_scorecard_flag(sc['first_run_pass'])}")
+    typer.echo(f"Boundary Violations:        {_format_scorecard_flag(sc['boundary_violations'])}")
+    typer.echo(f"Frontier Escalation Needed: {_format_scorecard_flag(sc['frontier_escalation_needed'])}")
+    if "frontier_escalation_avoided" in sc:
+        typer.echo(f"Frontier Escalation Avoided: {_format_scorecard_flag(sc['frontier_escalation_avoided'])}")
+    typer.echo(f"Context Ceiling Exceeded:   {_format_scorecard_flag(sc['context_limit_exceeded'])}")
+    typer.echo(f"Review Mistakes Found:      {_format_scorecard_flag(sc['review_mistakes_found'])}")
     typer.echo(f"Latency:                    {sc['latency_seconds']} seconds")
-    typer.echo(f"Cost Avoided:               ${sc['cost_avoided_usd']:.2f} USD")
-    
+    typer.echo(f"Cost Avoided:               {_format_scorecard_cost(sc['cost_avoided_usd'])}")
+
     typer.echo("-" * 50)
     typer.echo(f"Wrote scorecard.yaml under .devflow/tasks/{task_id}/")
 
@@ -696,16 +698,22 @@ def task_log(
 @task_app.command("local")
 def task_local(
     task_id: str,
-    worker: str = typer.Option(..., "--worker", help="Local Ollama worker name."),
+    worker: str | None = typer.Option(None, "--worker", help="Local Ollama worker name."),
+    agent: str | None = typer.Option(None, "--agent", help="Local Ollama agent name (alias for --worker)."),
     input_worker: str | None = typer.Option(None, "--input-worker", help="Prior local worker output to review."),
     timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1),
 ) -> None:
     """Run a first-class local Ollama worker for a task."""
+    resolved_worker = agent or worker
+    if not resolved_worker:
+        typer.echo("Error: Please provide either --worker or --agent option.", err=True)
+        raise typer.Exit(code=1)
+
     try:
         result = run_local_model_task(
             Path.cwd(),
             task_id,
-            worker,
+            resolved_worker,
             input_worker=input_worker,
             timeout_seconds=timeout_seconds,
         )
@@ -713,16 +721,61 @@ def task_local(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
+    # Beautiful Cost-Saving ladder output
+    typer.echo("-" * 50)
+    typer.echo("Local AI Cost-Saving Worker Loop Evidence Captured!")
+    typer.echo(f"  Agent:             {resolved_worker}")
+    typer.echo(f"  Model:             {result.model}")
+    typer.echo(f"  Status:            {result.status}")
+    typer.echo(f"  Run ID:            {result.run_id}")
+    typer.echo(f"  Evidence Dir:      {_relative(Path.cwd(), result.artifact_dir)}")
+    typer.echo(f"  Prompt evidence:   {_relative(Path.cwd(), result.prompt_path)}")
+    typer.echo(f"  Response evidence: {_relative(Path.cwd(), result.response_path)}")
+    typer.echo(f"  Run Metadata:      {_relative(Path.cwd(), result.run_json_path)}")
+    typer.echo("-" * 50)
+
+    # Standard compatibility outputs
     typer.echo(f"{task_id}: {result.status}")
-    typer.echo(f"local_worker: {worker}")
+    typer.echo(f"local_worker: {resolved_worker}")
     typer.echo(f"model: {result.model}")
+    typer.echo(f"run_id: {result.run_id}")
+    typer.echo(f"evidence_dir: {_relative(Path.cwd(), result.artifact_dir)}")
     typer.echo(f"prompt_path: {_relative(Path.cwd(), result.prompt_path)}")
     typer.echo(f"raw_response_path: {_relative(Path.cwd(), result.raw_response_path)}")
     typer.echo(f"response_path: {_relative(Path.cwd(), result.response_path)}")
     typer.echo(f"stderr_path: {_relative(Path.cwd(), result.stderr_path)}")
     typer.echo(f"local_worker_run: {_relative(Path.cwd(), result.run_json_path)}")
+
     if result.error_message:
         typer.echo(result.error_message)
+
+    if result.status == "success":
+        typer.echo("")
+        typer.echo("Local Cost-Saving Ladder:")
+        typer.echo("  1. Planner stage:    devflow task local <task-id> --agent qwen-planner")
+        typer.echo("  2. Implementer:      devflow task local <task-id> --agent qwopus-implementer  [Preferred]")
+        typer.echo("                       (or fallback --agent qwen-implementer)")
+        typer.echo("  3. Reviewer stage:   devflow task local <task-id> --agent gemma-reviewer")
+        typer.echo("  4. Verification:     devflow task verify <task-id> --shell \"<command>\"")
+        typer.echo("  5. Frontier:         Escalate to Copilot/frontier only if local evidence is insufficient, risky, contradictory, or verification repeatedly fails.")
+
+        if resolved_worker == "qwen-planner":
+            typer.echo("")
+            typer.echo("Suggested Next Action:")
+            typer.echo("  Draft implementation patch using qwopus-implementer:")
+            typer.echo(f"    devflow task local {task_id} --agent qwopus-implementer")
+        elif resolved_worker in ("qwopus-implementer", "qwen-implementer"):
+            typer.echo("")
+            typer.echo("Suggested Next Action:")
+            typer.echo("  Review implementation diff using gemma-reviewer:")
+            typer.echo(f"    devflow task local {task_id} --agent gemma-reviewer")
+        elif resolved_worker == "gemma-reviewer":
+            typer.echo("")
+            typer.echo("Suggested Next Action:")
+            typer.echo("  Inspect evidence review, apply the patch, and run verification:")
+            typer.echo(f"    devflow task verify {task_id} --shell \"<test-command>\"")
+        typer.echo("-" * 50)
+
     if result.status != "success":
         raise typer.Exit(code=result.exit_code if result.exit_code is not None else 1)
 
@@ -816,7 +869,7 @@ def task_apply_patch(
     root = Path.cwd()
     try:
         task = apply_task_patch(root, task_id, agent_id=agent)
-        
+
         # Retrieve the latest patch_applied event to print details
         task_path = root / ".devflow" / "tasks" / task.id
         events_file = task_path / "events.jsonl"
@@ -1214,6 +1267,7 @@ def task_open(
 @task_app.command("evidence")
 def task_evidence(
     task_id: str = typer.Argument(..., help="The task ID (e.g. task-0002)."),
+    local: bool = typer.Option(False, "--local", help="Show the latest local AI worker evidence summary."),
 ) -> None:
     """Show a concise terminal summary of the task's evidence."""
     import json
@@ -1233,6 +1287,10 @@ def task_evidence(
     if not workspace.exists() or not workspace.is_dir():
         typer.echo(f"Error: Task workspace not found at {workspace}", err=True)
         raise typer.Exit(code=1)
+
+    if local:
+        _render_local_evidence_summary(root, task_id, workspace)
+        return
 
     # 1. Print Task ID and Title
     typer.echo(f"Task: {task.id} {task.title}")
@@ -1290,7 +1348,7 @@ def task_evidence(
                         status = run_data.get("status", "unknown")
                         duration = run_data.get("duration_seconds", 0.0)
                         resp_path = run_data.get("response_path", f"local-workers/{worker_subdir.name}/response.md")
-                        
+
                         # Store run info
                         worker_runs.append({
                             "name": worker_name,
@@ -1347,7 +1405,7 @@ def task_evidence(
             "logs/*.log",
             "*.log",
         ]
-        
+
         for idx, pattern in enumerate(patterns):
             if fnmatch.fnmatch(rel_path_lower, pattern) or fnmatch.fnmatch(name, pattern):
                 return (idx, rel_path_lower)
@@ -1406,6 +1464,220 @@ def task_evidence(
         typer.echo(f"  devflow task verify {task_id} -- <command>")
     else:
         typer.echo(f"  devflow task promote-preview {task_id}")
+
+
+_LOCAL_WORKER_DISPLAY_ORDER = (
+    "qwen-planner",
+    "qwopus-implementer",
+    "qwen-implementer",
+    "gemma-reviewer",
+)
+
+
+def _render_local_evidence_summary(root: Path, task_id: str, workspace: Path) -> None:
+    summaries = _collect_local_worker_summaries(root, workspace)
+
+    typer.echo(f"Local runs for {task_id}")
+    typer.echo()
+
+    if not summaries:
+        typer.echo("No local AI evidence found.")
+        typer.echo()
+        typer.echo("Recommendation:")
+        typer.echo("  No local AI evidence found.")
+        return
+
+    for summary in summaries:
+        typer.echo(summary["worker_name"])
+        typer.echo(f"  latest run: {summary['run_id']}")
+        typer.echo(f"  status: {summary['status']}")
+        typer.echo(f"  exit code: {summary['exit_code']}")
+        typer.echo(f"  model: {summary['model']}")
+        typer.echo(f"  evidence: {summary['evidence_path']}")
+        typer.echo(f"  response: {summary['response_path']}")
+        typer.echo(f"  completed: {summary['completed_at']}")
+        if summary.get("reviewed_worker"):
+            reviewed = summary["reviewed_worker"]
+            reviewed_source = summary.get("reviewed_source")
+            if reviewed_source:
+                reviewed = f"{reviewed} ({reviewed_source})"
+            typer.echo(f"  reviewed: {reviewed}")
+        typer.echo()
+
+    typer.echo("Recommendation:")
+    for line in _local_evidence_recommendations(summaries):
+        typer.echo(f"  {line}")
+
+
+def _collect_local_worker_summaries(root: Path, workspace: Path) -> list[dict[str, str]]:
+    from devflow.control_room.local_ollama_worker import find_latest_worker_evidence
+
+    local_workers_dir = workspace / "local-workers"
+    if not local_workers_dir.exists() or not local_workers_dir.is_dir():
+        return []
+
+    try:
+        worker_names = sorted(
+            {child.name for child in local_workers_dir.iterdir() if child.is_dir()},
+            key=_local_worker_sort_key,
+        )
+    except OSError:
+        return []
+
+    summaries: list[dict[str, str]] = []
+    for worker_name in worker_names:
+        evidence_dir, response_path = find_latest_worker_evidence(workspace, worker_name)
+        if evidence_dir is None or response_path is None:
+            continue
+
+        run_json_path = evidence_dir / "run.json"
+        run_data = _read_json_mapping(run_json_path)
+        reviewed_worker, reviewed_source = _reviewed_input_from_metadata(evidence_dir, run_data)
+
+        summary = {
+            "worker_name": _string_metadata(run_data, "worker_name", worker_name),
+            "run_id": _local_run_id(evidence_dir, run_data),
+            "status": _string_metadata(run_data, "status"),
+            "exit_code": _exit_code_metadata(run_data),
+            "model": _string_metadata(run_data, "model"),
+            "evidence_path": _metadata_path(root, workspace, run_data.get("evidence_path"), evidence_dir),
+            "response_path": _metadata_path(root, workspace, run_data.get("response_path"), response_path),
+            "completed_at": _completion_metadata(run_data),
+        }
+        if reviewed_worker:
+            summary["reviewed_worker"] = reviewed_worker
+        if reviewed_source:
+            summary["reviewed_source"] = reviewed_source
+        summaries.append(summary)
+
+    return summaries
+
+
+def _local_worker_sort_key(worker_name: str) -> tuple[int, str]:
+    try:
+        return (_LOCAL_WORKER_DISPLAY_ORDER.index(worker_name), "")
+    except ValueError:
+        return (len(_LOCAL_WORKER_DISPLAY_ORDER), worker_name)
+
+
+def _read_json_mapping(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _string_metadata(run_data: dict[str, object], key: str, default: str = "unknown") -> str:
+    value = run_data.get(key)
+    return value if isinstance(value, str) and value else default
+
+
+def _exit_code_metadata(run_data: dict[str, object]) -> str:
+    if "exit_code" not in run_data:
+        return "unknown"
+    value = run_data.get("exit_code")
+    return "none" if value is None else str(value)
+
+
+def _completion_metadata(run_data: dict[str, object]) -> str:
+    for key in ("completed_at", "finished_at"):
+        value = run_data.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return "unknown"
+
+
+def _local_run_id(evidence_dir: Path, run_data: dict[str, object]) -> str:
+    run_id = run_data.get("run_id")
+    if isinstance(run_id, str) and run_id:
+        return run_id
+    if evidence_dir.name.startswith("run_"):
+        return evidence_dir.name
+    return "legacy"
+
+
+def _metadata_path(root: Path, workspace: Path, value: object, fallback: Path) -> str:
+    if isinstance(value, str) and value.strip():
+        raw_path = value.strip()
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            if raw_path.startswith("local-workers/"):
+                candidate = workspace / candidate
+            else:
+                candidate = root / candidate
+        return _relative(root, candidate)
+    return _relative(root, fallback)
+
+
+def _reviewed_input_from_metadata(evidence_dir: Path, run_data: dict[str, object]) -> tuple[str | None, str | None]:
+    reviewed_worker = _first_string_metadata(run_data, ("reviewed_worker", "input_worker"))
+    reviewed_source = _first_string_metadata(
+        run_data,
+        ("reviewed_response_path", "input_response_path", "input_worker_output_path"),
+    )
+    if reviewed_worker and reviewed_source:
+        return reviewed_worker, reviewed_source
+
+    prompt_worker, prompt_source = _reviewed_input_from_prompt(evidence_dir / "prompt.md")
+    return reviewed_worker or prompt_worker, reviewed_source or prompt_source
+
+
+def _first_string_metadata(run_data: dict[str, object], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = run_data.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _reviewed_input_from_prompt(prompt_path: Path) -> tuple[str | None, str | None]:
+    if not prompt_path.exists():
+        return None, None
+
+    reviewed_worker: str | None = None
+    reviewed_source: str | None = None
+    try:
+        with prompt_path.open("r", encoding="utf-8") as prompt_file:
+            for _ in range(200):
+                line = prompt_file.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if not reviewed_worker and stripped.startswith("Input worker:"):
+                    reviewed_worker = stripped.split(":", 1)[1].strip() or None
+                elif not reviewed_source and stripped.startswith("Source:"):
+                    reviewed_source = stripped.split(":", 1)[1].strip() or None
+                if reviewed_worker and reviewed_source:
+                    break
+    except OSError:
+        return None, None
+    return reviewed_worker, reviewed_source
+
+
+def _local_evidence_recommendations(summaries: list[dict[str, str]]) -> list[str]:
+    worker_names = {summary["worker_name"] for summary in summaries}
+    successful_workers = {
+        summary["worker_name"]
+        for summary in summaries
+        if summary.get("status") == "success"
+    }
+
+    if "qwopus-implementer" in successful_workers and "gemma-reviewer" in successful_workers:
+        lead = "Local implementation + review evidence available."
+    elif worker_names == {"qwen-planner"}:
+        lead = "Planning evidence exists; implementation evidence is missing."
+    else:
+        lead = "Use local evidence first; escalate only if outputs are missing, failed, contradictory, or verification fails."
+
+    if lead.startswith("Use local evidence first"):
+        return [lead]
+    return [
+        lead,
+        "Use local evidence first; escalate only if outputs are missing, failed, contradictory, or verification fails.",
+    ]
 
 
 # Backward-compatible names for importers while the old CLI is retired.
@@ -1482,6 +1754,26 @@ def _relative(root: Path, path: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
         return str(path)
+
+
+def _format_scorecard_flag(value: object) -> str:
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    return "unknown" if value is None or value == "unknown" else str(value)
+
+
+def _format_scorecard_rating(value: object) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value * 100}%"
+    return "unknown" if value is None or value == "unknown" else str(value)
+
+
+def _format_scorecard_cost(value: object) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"${value:.2f} USD"
+    return "unknown" if value is None or value == "unknown" else str(value)
 
 
 def _echo_result_summary(path: Path) -> None:

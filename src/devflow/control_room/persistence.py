@@ -16,6 +16,7 @@ from devflow.control_room.paths import (
     task_dir,
     tasks_dir,
 )
+from devflow.control_room.log_sanitizer import DEFAULT_LATEST_LOG_LINE_MAX_CHARS, sanitize_log_line
 from devflow.control_room.readiness import readiness_state
 
 
@@ -60,7 +61,7 @@ def save_task(task_path: Path, task: TaskRecord) -> None:
         "last_event": task.last_event,
         "last_exit_code": task.last_exit_code,
         "verification_status": task.verification_status,
-        "latest_log_line": task.latest_log_line,
+        "latest_log_line": _stored_latest_log_line(task.latest_log_line),
         "log_path": task.log_path,
         "result_path": task.result_path,
         "worker_command": task.worker_command,
@@ -301,6 +302,13 @@ def _yaml_scalar(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     return json.dumps(str(value))
+
+
+def _stored_latest_log_line(value: str | None) -> str | None:
+    if value is None:
+        return None
+    sanitized = sanitize_log_line(value, max_chars=DEFAULT_LATEST_LOG_LINE_MAX_CHARS)
+    return sanitized or None
 
 
 def _parse_yaml_scalar(value: str) -> Any:

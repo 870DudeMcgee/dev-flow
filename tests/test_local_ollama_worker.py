@@ -15,6 +15,14 @@ from devflow.control_room.service import get_task
 runner = CliRunner()
 
 
+def _find_run_dir(worker_name: str) -> Path:
+    from devflow.control_room.local_ollama_worker import find_latest_worker_evidence
+    workspace = Path(".devflow/workspaces/task-0001")
+    run_dir, _ = find_latest_worker_evidence(workspace, worker_name)
+    assert run_dir is not None
+    return run_dir
+
+
 def test_qwen_planner_prompt_is_composed_from_task_yaml_and_devflow_rules(
     tmp_path: Path,
     monkeypatch: Any,
@@ -39,9 +47,8 @@ def test_qwen_planner_prompt_is_composed_from_task_yaml_and_devflow_rules(
         result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
 
     assert result.exit_code == 0, result.output
-    prompt = Path(".devflow/workspaces/task-0001/local-workers/qwen-planner/prompt.md").read_text(
-        encoding="utf-8"
-    )
+    worker_dir = _find_run_dir("qwen-planner")
+    prompt = (worker_dir / "prompt.md").read_text(encoding="utf-8")
     assert "Dev-Flow rules" in prompt
     assert "Dev-Flow owns task state, isolated workspaces, logs, verification evidence, and human-controlled promotion." in prompt
     assert "Do not auto-edit repo files from model output." in prompt
@@ -54,6 +61,40 @@ def test_qwen_planner_prompt_is_composed_from_task_yaml_and_devflow_rules(
     assert "Clean Codex/Antigravity prompt if useful" in prompt
     assert run_mock.call_args.kwargs["input"] == prompt
     assert run_mock.call_args.kwargs["timeout"] == 600
+
+
+def test_qwen_planner_prompt_scrubs_existing_noisy_latest_log_line(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_task("Prompt hygiene")
+    task_yaml = Path(".devflow/tasks/task-0001/task.yaml")
+    noisy_latest = "\x1b[?2026h" + ("\x1b[1G⠙ \x1b[K\x1b[1G⠹ \x1b[K" * 200) + "\x1b[?2026l"
+    task_yaml.write_text(
+        task_yaml.read_text(encoding="utf-8").replace(
+            "latest_log_line: null",
+            f"latest_log_line: {json.dumps(noisy_latest)}",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("devflow.control_room.local_ollama_worker.subprocess.run") as run_mock:
+        run_mock.return_value = subprocess.CompletedProcess(
+            ["ollama", "run", "qwen3.6:latest"],
+            0,
+            stdout="plan body",
+            stderr="",
+        )
+
+        result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
+
+    assert result.exit_code == 0, result.output
+    worker_dir = _find_run_dir("qwen-planner")
+    prompt = (worker_dir / "prompt.md").read_text(encoding="utf-8")
+    assert "latest_log_line: null" in prompt
+    assert "\\u001b" not in prompt
+    assert "\\u2819" not in prompt
 
 
 def test_qwen_planner_writes_prompt_response_and_run_metadata(
@@ -74,7 +115,7 @@ def test_qwen_planner_writes_prompt_response_and_run_metadata(
         result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
 
     assert result.exit_code == 0, result.output
-    worker_dir = Path(".devflow/workspaces/task-0001/local-workers/qwen-planner")
+    worker_dir = _find_run_dir("qwen-planner")
     assert (worker_dir / "prompt.md").exists()
     assert (worker_dir / "response.raw.md").read_text(encoding="utf-8") == "raw qwen response"
     assert (worker_dir / "response.md").read_text(encoding="utf-8") == "raw qwen response"
@@ -87,12 +128,40 @@ def test_qwen_planner_writes_prompt_response_and_run_metadata(
     assert run_json["timeout_seconds"] == 600
     assert run_json["exit_code"] == 0
     assert run_json["status"] == "success"
-    assert run_json["prompt_path"] == ".devflow/workspaces/task-0001/local-workers/qwen-planner/prompt.md"
-    assert run_json["raw_response_path"] == ".devflow/workspaces/task-0001/local-workers/qwen-planner/response.raw.md"
-    assert run_json["response_path"] == ".devflow/workspaces/task-0001/local-workers/qwen-planner/response.md"
-    assert run_json["stderr_path"] == ".devflow/workspaces/task-0001/local-workers/qwen-planner/stderr.log"
-    assert result.output.count("local_worker_run: .devflow/workspaces/task-0001/local-workers/qwen-planner/run.json") == 1
+    assert run_json["prompt_path"] == f".devflow/workspaces/task-0001/local-workers/qwen-planner/{worker_dir.name}/prompt.md"
+    assert run_json["raw_response_path"] == f".devflow/workspaces/task-0001/local-workers/qwen-planner/{worker_dir.name}/response.raw.md"
+    assert run_json["response_path"] == f".devflow/workspaces/task-0001/local-workers/qwen-planner/{worker_dir.name}/response.md"
+    assert run_json["stderr_path"] == f".devflow/workspaces/task-0001/local-workers/qwen-planner/{worker_dir.name}/stderr.log"
+    assert result.output.count(f"local_worker_run: .devflow/workspaces/task-0001/local-workers/qwen-planner/{worker_dir.name}/run.json") == 1
     assert get_task(Path.cwd(), "task-0001").status == "complete"
+
+
+def test_success_sanitizes_spinner_stderr_before_task_latest_log_line(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_task("Noisy local stderr")
+    spinner_stderr = "\x1b[?2026h" + ("\x1b[1G⠙ \x1b[K\x1b[1G⠹ \x1b[K" * 200) + "\x1b[?2026l"
+
+    with patch("devflow.control_room.local_ollama_worker.subprocess.run") as run_mock:
+        run_mock.return_value = subprocess.CompletedProcess(
+            ["ollama", "run", "qwen3.6:latest"],
+            0,
+            stdout="raw qwen response",
+            stderr=spinner_stderr,
+        )
+
+        result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
+
+    assert result.exit_code == 0, result.output
+    worker_dir = _find_run_dir("qwen-planner")
+    assert (worker_dir / "stderr.log").read_text(encoding="utf-8") == spinner_stderr
+    task = get_task(Path.cwd(), "task-0001")
+    assert task.latest_log_line is None
+    task_yaml = Path(".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8")
+    assert "⠙" not in task_yaml
+    assert "\x1b" not in task_yaml
 
 
 def test_gemma_reviewer_consumes_qwen_planner_output(
@@ -134,9 +203,8 @@ def test_gemma_reviewer_consumes_qwen_planner_output(
         )
 
     assert gemma.exit_code == 0, gemma.output
-    prompt = Path(".devflow/workspaces/task-0001/local-workers/gemma-reviewer/prompt.md").read_text(
-        encoding="utf-8"
-    )
+    worker_dir = _find_run_dir("gemma-reviewer")
+    prompt = (worker_dir / "prompt.md").read_text(encoding="utf-8")
     assert "Input worker: qwen-planner" in prompt
     assert "Qwen says keep the slice tiny." in prompt
     assert "Verdict" in prompt
@@ -166,7 +234,7 @@ def test_gemma_reviewer_fails_clearly_when_input_worker_output_is_missing(
 
     assert result.exit_code == 1, result.output
     run_mock.assert_not_called()
-    worker_dir = Path(".devflow/workspaces/task-0001/local-workers/gemma-reviewer")
+    worker_dir = _find_run_dir("gemma-reviewer")
     assert "Missing input worker output" in (worker_dir / "stderr.log").read_text(encoding="utf-8")
     run_json = json.loads((worker_dir / "run.json").read_text(encoding="utf-8"))
     assert run_json["status"] == "failed"
@@ -191,7 +259,7 @@ def test_subprocess_nonzero_exit_writes_stderr_and_failed_run_json(
         result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
 
     assert result.exit_code == 2, result.output
-    worker_dir = Path(".devflow/workspaces/task-0001/local-workers/qwen-planner")
+    worker_dir = _find_run_dir("qwen-planner")
     assert (worker_dir / "stderr.log").read_text(encoding="utf-8") == "ollama failed\n"
     run_json = json.loads((worker_dir / "run.json").read_text(encoding="utf-8"))
     assert run_json["status"] == "failed"
@@ -216,7 +284,7 @@ def test_subprocess_timeout_writes_timeout_status_in_run_json(
         result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
 
     assert result.exit_code == 1, result.output
-    worker_dir = Path(".devflow/workspaces/task-0001/local-workers/qwen-planner")
+    worker_dir = _find_run_dir("qwen-planner")
     assert (worker_dir / "response.raw.md").read_text(encoding="utf-8") == "partial response"
     assert (worker_dir / "stderr.log").read_text(encoding="utf-8") == "still running"
     run_json = json.loads((worker_dir / "run.json").read_text(encoding="utf-8"))
@@ -253,7 +321,7 @@ def test_success_requires_zero_exit_code_not_nonempty_output(
         result = runner.invoke(app, ["task", "local", "task-0001", "--worker", "qwen-planner"])
 
     assert result.exit_code == 9, result.output
-    worker_dir = Path(".devflow/workspaces/task-0001/local-workers/qwen-planner")
+    worker_dir = _find_run_dir("qwen-planner")
     assert (worker_dir / "response.raw.md").read_text(encoding="utf-8") == "this looks like a useful answer"
     run_json = json.loads((worker_dir / "run.json").read_text(encoding="utf-8"))
     assert run_json["status"] == "failed"

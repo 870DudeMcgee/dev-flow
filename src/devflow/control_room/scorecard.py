@@ -93,6 +93,17 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
         if "escalate" in str(e).lower() or "escalation" in str(e).lower():
             frontier_escalation_needed = True
 
+    # 3b. Frontier escalation avoided
+    # We successfully avoided frontier escalation if no frontier escalation was needed
+    # AND at least one successful local worker execution was captured.
+    local_worker_runs = [
+        e for e in events
+        if e.get("event") == "local_worker_finished" and e.get("status") == "success"
+    ]
+    frontier_escalation_avoided = False
+    if not frontier_escalation_needed and len(local_worker_runs) > 0:
+        frontier_escalation_avoided = True
+
     # 4. Latency
     latency_seconds = 45 # default heuristic
     if task.started_at and task.finished_at:
@@ -162,6 +173,7 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
             "first_run_pass": first_run_pass,
             "boundary_violations": boundary_violations,
             "frontier_escalation_needed": frontier_escalation_needed,
+            "frontier_escalation_avoided": frontier_escalation_avoided,
             "context_limit_exceeded": context_limit_exceeded,
             "review_mistakes_found": review_mistakes_found,
             "latency_seconds": latency_seconds,
