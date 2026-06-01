@@ -61,6 +61,74 @@ agents:
     can_promote: false
     enabled: true
 
+  qwopus-implementer:
+    provider: ollama
+    model: qwopus:latest
+    adapter: ollama_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    execution_mode: automated
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/qwopus-implementer/proposal.patch"
+      - "<task>/agents/qwopus-implementer/raw_output.md"
+      - "<task>/agents/qwopus-implementer/result.md"
+      - "<task>/agents/qwopus-implementer/run.json"
+      - "<task>/agents/qwopus-implementer/logs/**"
+      - "<task>/agents/qwopus-implementer/questions.jsonl"
+      - "<task>/agents/qwopus-implementer/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/qwopus-implementer/proposal.patch"
+      - "<task>/agents/qwopus-implementer/raw_output.md"
+      - "<task>/agents/qwopus-implementer/result.md"
+      - "<task>/agents/qwopus-implementer/run.json"
+      - "<task>/agents/qwopus-implementer/logs/**"
+      - "<task>/agents/qwopus-implementer/questions.jsonl"
+      - "<task>/agents/qwopus-implementer/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/qwopus-implementer/proposal.patch and <task>/agents/qwopus-implementer/result.md with status, summary, changed files, and suggested verification."
+      - "Always preserve raw model output in <task>/agents/qwopus-implementer/raw_output.md and run metadata in <task>/agents/qwopus-implementer/run.json."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/qwopus-implementer/questions.jsonl."
+      - "When failed, write <task>/agents/qwopus-implementer/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Propose changes only as a unified diff in proposal.patch; do not directly edit the main checkout."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Dev-Flow must apply proposal.patch to the isolated workspace and run verification after this worker completes."
+      - "Worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+
   devflow-ollama-worker:
     provider: ollama
     model: qwen2.5-coder:14b
@@ -118,7 +186,7 @@ agents:
     can_run_shell: false
     can_use_network: false
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-worker:
     provider: openai
@@ -177,7 +245,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-anthropic-worker:
     provider: anthropic
@@ -236,7 +304,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-gemini-worker:
     provider: gemini
@@ -295,7 +363,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-compatible-worker:
     provider: openai_compatible
@@ -354,7 +422,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-planner:
     provider: openai
@@ -412,7 +480,7 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-openai-reviewer:
     provider: openai
@@ -470,4 +538,4 @@ agents:
     can_run_shell: false
     can_use_network: true
     can_promote: false
-    enabled: true
+    enabled: false

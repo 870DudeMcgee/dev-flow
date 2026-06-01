@@ -72,9 +72,10 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
             if not enabled_agents:
                 # Extreme fallback if registry is completely empty
                 return "deterministic-shell"
-            if role_name in ("planner", "reviewer"):
-                raise ValueError(f"No enabled agents found for role '{role_name}' matching keywords: {keyword_filters}")
-            # Fall back to any enabled agents if none match keyword filters
+            reasons.append(
+                f"no enabled {role_name} agent matched keywords {keyword_filters}; "
+                "falling back to an enabled local agent"
+            )
             eligible = list(enabled_agents)
 
         if not eligible:

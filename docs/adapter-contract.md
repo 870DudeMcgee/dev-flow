@@ -13,10 +13,11 @@ Dev-Flow owns task state, workspace boundaries, verification evidence, and merge
 Every known adapter is classified before it can be considered for task execution:
 
 - `stable_runtime`: executable through `devflow task run`.
+- `local_patch_runtime`: executable only for explicitly enabled, loopback-only Ollama agents with workspace-write patch evidence permissions and `can_promote: false`.
 - `experimental_readonly`: may be described, inspected, packeted, or tested directly, but cannot execute through the task runner.
 - `planned_not_executable`: design placeholder only; invoking it as a task worker must fail clearly.
 
-Only `shell` and `manual` are `stable_runtime` adapters in the current milestone. Provider-backed adapters remain non-executable until a future slice promotes them with explicit tests, threat modeling, enable flags, and updated docs.
+Only `shell` and `manual` are `stable_runtime` adapters in the current milestone. `ollama_chat` is a narrow `local_patch_runtime` adapter for approved local agents such as `qwopus-implementer`; it proposes `proposal.patch` evidence but does not apply, verify, or promote work. Remote provider-backed adapters remain non-executable until a future slice promotes them with explicit tests, threat modeling, enable flags, and updated docs.
 
 ## Reference Adapter: Shell Worker
 

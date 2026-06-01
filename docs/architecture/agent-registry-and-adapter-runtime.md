@@ -254,11 +254,12 @@ default_timeout_seconds: 120
 
 ```yaml
 # .devflow/providers/ollama.yaml
+version: 1
 provider: ollama
 adapter: ollama_chat
 base_url: http://127.0.0.1:11434
 api_key_env: null
-default_timeout_seconds: 300
+default_timeout_seconds: 600
 ```
 
 ```yaml

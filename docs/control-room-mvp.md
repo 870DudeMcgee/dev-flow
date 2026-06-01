@@ -58,6 +58,8 @@ devflow task --help
 devflow task create "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
+devflow task run <task_id> --worker qwopus-implementer
+devflow task apply-patch <task_id> --agent qwopus-implementer
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task local <task_id> --worker qwen-planner
 devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
@@ -76,6 +78,8 @@ The preferred shell-worker form is `devflow task run <task_id> --worker shell --
 
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 
+The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for applying the patch to the isolated workspace, verification, merge readiness, and human-controlled promotion.
+
 The local Ollama form is `devflow task local <task_id> --worker qwen-planner` or `devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not auto-edit repo files, parse model output as truth, run Qwen and Gemma together, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
 Do not implement these in the first milestone:
@@ -86,7 +90,7 @@ Do not implement these in the first milestone:
 - memory
 - complex scheduling
 - autonomous routing
-- provider-backed adapter calls before manual proof-agent and shell alignment
+- remote provider-backed adapter calls before explicit promotion into the runtime contract
 - old task-packet workflow orchestration
 - PR automation
 - browser or web dashboard UI

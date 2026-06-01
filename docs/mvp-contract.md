@@ -6,7 +6,7 @@ This is the stable contract for the current Dev-Flow control-room milestone. It 
 
 Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The opt-in Git-native worker isolation and promotion slice is described in [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md). The registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md).
 
-The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a local Ollama evidence wrapper for Qwen/Gemma planning and review output; it is not a provider adapter, router, auto-editor, verification runner, or promotion path.
+The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a local Ollama evidence wrapper for Qwen/Gemma planning and review output; it is not a router, auto-editor, verification runner, or promotion path. The narrow registry-backed local patch runtime is `devflow task run <task-id> --worker qwopus-implementer`, which writes patch evidence for Dev-Flow to apply and verify.
 
 ## Stable Commands
 
@@ -21,6 +21,8 @@ devflow task create "example task"
 devflow task create --git-worktree "example git task"
 devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
+devflow task run <task-id> --worker qwopus-implementer
+devflow task apply-patch <task-id> --agent qwopus-implementer
 devflow task verify <task-id> --shell "test -f result.txt"
 devflow task local <task-id> --worker qwen-planner
 devflow task local <task-id> --worker gemma-reviewer --input-worker qwen-planner
@@ -63,7 +65,7 @@ To guarantee execution safety and prevent automated agents from operating on uns
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
-Agent adapters also carry runtime maturity: `stable_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. Planned provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
+Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable only as a safe `local_patch_runtime` agent such as `qwopus-implementer`: provider `ollama`, loopback base URL, `workspace_write`, no shell, no network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
 
 Experimental task-fit, scout, route, scorecard, context, and supervisor commands are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The proof-agent registry commands are visible because they are part of this stable milestone.
 
@@ -72,6 +74,8 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 `devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
 
 `devflow task local <task-id> --worker qwen-planner` and `devflow task local <task-id> --worker gemma-reviewer --input-worker qwen-planner` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as evidence only; Dev-Flow does not parse it as truth, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
+
+`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, and writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. The model does not edit main, promote, or verify. The human-controlled path is `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`.
 
 `devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Promotion is not automatic and does not stage, commit, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
@@ -104,6 +108,12 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/result.md
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/questions.jsonl
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/worker_failed.json
+.devflow/tasks/<task-id>/agents/qwopus-implementer/packet.json
+.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md
+.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch
+.devflow/tasks/<task-id>/agents/qwopus-implementer/result.md
+.devflow/tasks/<task-id>/agents/qwopus-implementer/run.json
+.devflow/tasks/<task-id>/agents/qwopus-implementer/logs/worker.log
 .devflow/workspaces/<task-id>/
 .devflow/workspaces/<task-id>/local-workers/<worker-name>/prompt.md
 .devflow/workspaces/<task-id>/local-workers/<worker-name>/response.raw.md

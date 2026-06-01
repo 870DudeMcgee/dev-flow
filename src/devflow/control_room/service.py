@@ -207,12 +207,15 @@ def run_shell_task(
 ) -> TaskRecord:
     from devflow.control_room.agent_registry import (
         adapter_execution_refusal,
-        is_stable_runtime_adapter,
+        is_executable_agent_runtime,
         load_agent_registry,
+        load_provider_registry,
     )
     registry = load_agent_registry(root)
+    providers = load_provider_registry(root)
 
     agent = None
+    provider = None
     resolved_adapter_name = worker_adapter
 
     if worker_adapter in registry.agents:
@@ -220,11 +223,12 @@ def run_shell_task(
         if not agent.enabled:
             raise ValueError(f"Agent '{worker_adapter}' is disabled.")
         resolved_adapter_name = agent.adapter
-        if not is_stable_runtime_adapter(agent.adapter):
+        provider = providers.providers.get(agent.provider)
+        if not is_executable_agent_runtime(agent, provider=provider):
             raise ValueError(adapter_execution_refusal(agent.adapter, agent_id=agent.id))
 
-    adapter = get_worker_adapter(resolved_adapter_name)
-    if not command and resolved_adapter_name != "manual":
+    adapter = get_worker_adapter(resolved_adapter_name, agent=agent, provider=provider)
+    if not command and resolved_adapter_name not in {"manual", "ollama_chat"}:
         raise ValueError("Shell worker requires a command after '--'.")
     if not command and resolved_adapter_name == "manual":
         command = ["manual-handoff", worker_adapter]
@@ -483,16 +487,18 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
 
         # 1. No experimental provider adapters enabled in loaded registry
         try:
-            from devflow.control_room.agent_registry import load_agent_registry
+            from devflow.control_room.agent_registry import is_executable_agent_runtime, load_agent_registry, load_provider_registry
             registry = load_agent_registry(root)
+            providers = load_provider_registry(root)
             unstable_agents = []
             for agent in registry.enabled_agents():
-                if agent.adapter_maturity != "stable_runtime":
+                provider = providers.providers.get(agent.provider)
+                if not is_executable_agent_runtime(agent, provider=provider):
                     unstable_agents.append(f"{agent.id} ({agent.adapter})")
             if unstable_agents:
-                checks.append(("strict: only stable runtime agents enabled", False, f"unstable: {', '.join(unstable_agents)}"))
+                checks.append(("strict: only executable runtime agents enabled", False, f"unstable: {', '.join(unstable_agents)}"))
             else:
-                checks.append(("strict: only stable runtime agents enabled", True, "all enabled agents use stable adapters"))
+                checks.append(("strict: only executable runtime agents enabled", True, "all enabled agents use approved runtime adapters"))
         except Exception as exc:
             checks.append(("strict: agent registry validation", False, str(exc)))
 

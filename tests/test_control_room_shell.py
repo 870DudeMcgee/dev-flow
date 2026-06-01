@@ -235,7 +235,7 @@ def test_unsupported_worker_adapter_values_are_refused() -> None:
     assert isinstance(get_worker_adapter("manual"), ManualWorkerAdapter)
     non_executable = {
         "manual_packet": "experimental_readonly",
-        "ollama_chat": "experimental_readonly",
+        "ollama_chat": "local_patch_runtime",
         "openai_responses": "planned_not_executable",
         "codex": "planned_not_executable",
     }
@@ -309,7 +309,7 @@ agents:
             )
             assert run.exit_code == 1, run.output
             assert "Adapter 'openai_chat' for agent 'experimental-openai' is experimental_readonly" in run.output
-            assert "Only stable_runtime adapters can execute. Stable runtime adapters: manual, shell." in run.output
+            assert "Only stable_runtime adapters or explicitly safe local_patch_runtime agents can execute" in run.output
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
             assert get_task(Path.cwd(), "task-0001").status == "created"
         finally:
@@ -359,7 +359,7 @@ agents:
             )
             assert run.exit_code == 1, run.output
             assert "Adapter 'openai_responses' for agent 'planned-openai' is planned_not_executable" in run.output
-            assert "Only stable_runtime adapters can execute. Stable runtime adapters: manual, shell." in run.output
+            assert "Only stable_runtime adapters or explicitly safe local_patch_runtime agents can execute" in run.output
             assert Path(".devflow/tasks/task-0001/logs/worker.log").read_text(encoding="utf-8") == ""
             assert get_task(Path.cwd(), "task-0001").status == "created"
         finally:

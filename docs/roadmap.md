@@ -263,7 +263,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A first local Ollama evidence wrapper is implemented as `devflow task local` for `qwen-planner` and `gemma-reviewer`; it captures prompt, raw response, stderr, and run metadata under the task workspace without applying model output. Context packing and conservative routing remain experimental planning aids. Full provider-backed execution is not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A first local Ollama evidence wrapper is implemented as `devflow task local` for `qwen-planner` and `gemma-reviewer`; it captures prompt, raw response, stderr, and run metadata under the task workspace without applying model output. The registry-backed `qwopus-implementer` local Ollama worker is active as a patch-proposal runtime: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Context packing and conservative routing remain experimental planning aids. Remote provider-backed execution is not active.
 
 Sequence:
 - architecture document only

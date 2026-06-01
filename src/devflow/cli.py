@@ -753,17 +753,18 @@ def task_local(
         typer.echo("")
         typer.echo("Local Cost-Saving Ladder:")
         typer.echo("  1. Planner stage:    devflow task local <task-id> --agent qwen-planner")
-        typer.echo("  2. Implementer:      devflow task local <task-id> --agent qwopus-implementer  [Preferred]")
-        typer.echo("                       (or fallback --agent qwen-implementer)")
+        typer.echo("  2. Implementer:      devflow task run <task-id> --worker qwopus-implementer  [Preferred]")
+        typer.echo("                       (legacy advisory fallback: devflow task local <task-id> --agent qwen-implementer)")
         typer.echo("  3. Reviewer stage:   devflow task local <task-id> --agent gemma-reviewer")
-        typer.echo("  4. Verification:     devflow task verify <task-id> --shell \"<command>\"")
-        typer.echo("  5. Frontier:         Escalate to Copilot/frontier only if local evidence is insufficient, risky, contradictory, or verification repeatedly fails.")
+        typer.echo("  4. Apply patch:      devflow task apply-patch <task-id> --agent qwopus-implementer")
+        typer.echo("  5. Verification:     devflow task verify <task-id> --shell \"<command>\"")
+        typer.echo("  6. Frontier:         Escalate to Copilot/frontier only if local evidence is insufficient, risky, contradictory, or verification repeatedly fails.")
 
         if resolved_worker == "qwen-planner":
             typer.echo("")
             typer.echo("Suggested Next Action:")
-            typer.echo("  Draft implementation patch using qwopus-implementer:")
-            typer.echo(f"    devflow task local {task_id} --agent qwopus-implementer")
+            typer.echo("  Draft implementation patch using registry-backed qwopus-implementer:")
+            typer.echo(f"    devflow task run {task_id} --worker qwopus-implementer")
         elif resolved_worker in ("qwopus-implementer", "qwen-implementer"):
             typer.echo("")
             typer.echo("Suggested Next Action:")
@@ -799,6 +800,9 @@ def task_run(
     registry = load_agent_registry(Path.cwd())
     valid_agents = list(registry.agents.keys())
     valid_adapters = list_worker_adapters()
+    selected_agent = registry.agents.get(worker)
+    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
+        typer.echo("Registry-backed local Ollama worker: writes proposal.patch evidence only; Dev-Flow applies and verifies separately.")
 
     if worker not in valid_agents:
         from devflow.control_room.worker_adapter import get_worker_adapter

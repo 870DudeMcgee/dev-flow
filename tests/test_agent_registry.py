@@ -55,6 +55,7 @@ agents:
     assert registry.default_agent().id == "local-shell"
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "local-shell",
+        "qwopus-implementer",
         "devflow-manual-codex-worker",
     ])
     agent = registry.require_agent("local-shell")
@@ -104,6 +105,7 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
     seeded_registry = load_agent_registry(tmp_path)
     assert seeded_registry.default_agent().id == "devflow-manual-codex-worker"
     assert sorted(seeded_registry.enabled_agent_ids()) == sorted([
+        "qwopus-implementer",
         "devflow-manual-codex-worker",
     ])
 
@@ -157,6 +159,7 @@ agents:
 
     expected_agents = [
         "devflow-manual-codex-worker",
+        "qwopus-implementer",
         "devflow-ollama-worker",
         "devflow-openai-worker",
         "devflow-anthropic-worker",
@@ -169,6 +172,7 @@ agents:
     ]
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
+        "qwopus-implementer",
         "local-shell",
         "devflow-manual-codex-worker",
     ])
@@ -579,12 +583,13 @@ agents:
 def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     
-    # Verify agent registry loads all 7 automated agents plus manual worker
+    # Verify agent registry loads all automated agents plus manual worker
     registry = load_agent_registry(tmp_path)
-    assert len(registry.agents) >= 8
+    assert len(registry.agents) >= 9
     
     expected_agents = [
         "devflow-manual-codex-worker",
+        "qwopus-implementer",
         "devflow-ollama-worker",
         "devflow-openai-worker",
         "devflow-anthropic-worker",
@@ -597,7 +602,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
     for agent_id in expected_agents:
         assert agent_id in registry.agents
         agent = registry.require_agent(agent_id)
-        assert agent.enabled is (agent_id == "devflow-manual-codex-worker")
+        assert agent.enabled is (agent_id in {"devflow-manual-codex-worker", "qwopus-implementer"})
         assert agent.workspace == "isolated_task_workspace"
         
         # Verify specific fields
@@ -605,6 +610,16 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.tier == "manual"
             assert agent.can_use_network is False
             assert agent.role == "implementation_worker"
+        elif agent_id == "qwopus-implementer":
+            assert agent.tier == "strong_local"
+            assert agent.execution_mode == "automated"
+            assert agent.role == "implementation_worker"
+            assert agent.provider == "ollama"
+            assert agent.model == "qwopus:latest"
+            assert agent.adapter == "ollama_chat"
+            assert agent.adapter_maturity == "local_patch_runtime"
+            assert agent.can_use_network is False
+            assert "<task>/agents/qwopus-implementer/proposal.patch" in agent.allowed_writes
         elif agent_id in ("devflow-openai-planner", "devflow-openai-reviewer"):
             assert agent.tier == "frontier"
             assert agent.execution_mode == "automated"
@@ -630,21 +645,25 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
         assert prov_id in provider_registry.providers
         prov = provider_registry.require_provider(prov_id)
         assert prov.enabled is True
-        assert prov.default_timeout_seconds == 300
         
         if prov_id == "ollama":
             assert prov.adapter == "ollama_chat"
             assert prov.base_url == "http://127.0.0.1:11434"
             assert prov.api_key_env is None
+            assert prov.default_timeout_seconds == 600
         elif prov_id == "openai":
             assert prov.adapter == "openai_chat"
             assert prov.base_url == "https://api.openai.com/v1"
+            assert prov.default_timeout_seconds == 300
         elif prov_id == "anthropic":
             assert prov.adapter == "anthropic_messages"
             assert prov.base_url == "https://api.anthropic.com/v1"
+            assert prov.default_timeout_seconds == 300
         elif prov_id == "gemini":
             assert prov.adapter == "gemini"
             assert prov.base_url == "https://generativelanguage.googleapis.com"
+            assert prov.default_timeout_seconds == 300
         elif prov_id == "openai_compatible":
             assert prov.adapter == "openai_compatible"
             assert prov.base_url == "http://127.0.0.1:8000/v1"
+            assert prov.default_timeout_seconds == 300

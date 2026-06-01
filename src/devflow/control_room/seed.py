@@ -247,10 +247,11 @@ Reports are useful for review and orientation, but they are never authoritative.
     ".devflow/reports/task-summaries/README.md": "# Task Summaries\n\nDerived task summaries live here.\n",
     ".devflow/reports/model-scorecards/README.md": "# Model Scorecards\n\nDerived model scorecards live here.\n",
     ".devflow/tasks/README.md": "# Tasks\n\nRuntime task directories live here.\n",
-    ".devflow/providers/ollama.yaml": """provider: ollama
+    ".devflow/providers/ollama.yaml": """version: 1
+provider: ollama
 adapter: ollama_chat
 base_url: http://127.0.0.1:11434
-default_timeout_seconds: 300
+default_timeout_seconds: 600
 enabled: true
 """,
     ".devflow/providers/openai.yaml": """provider: openai
@@ -363,6 +364,74 @@ agents:
       - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
       - "Stop after writing exactly one terminal evidence artifact."
       - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+
+  qwopus-implementer:
+    provider: ollama
+    model: qwopus:latest
+    adapter: ollama_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    execution_mode: automated
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/qwopus-implementer/proposal.patch"
+      - "<task>/agents/qwopus-implementer/raw_output.md"
+      - "<task>/agents/qwopus-implementer/result.md"
+      - "<task>/agents/qwopus-implementer/run.json"
+      - "<task>/agents/qwopus-implementer/logs/**"
+      - "<task>/agents/qwopus-implementer/questions.jsonl"
+      - "<task>/agents/qwopus-implementer/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/qwopus-implementer/proposal.patch"
+      - "<task>/agents/qwopus-implementer/raw_output.md"
+      - "<task>/agents/qwopus-implementer/result.md"
+      - "<task>/agents/qwopus-implementer/run.json"
+      - "<task>/agents/qwopus-implementer/logs/**"
+      - "<task>/agents/qwopus-implementer/questions.jsonl"
+      - "<task>/agents/qwopus-implementer/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/qwopus-implementer/proposal.patch and <task>/agents/qwopus-implementer/result.md with status, summary, changed files, and suggested verification."
+      - "Always preserve raw model output in <task>/agents/qwopus-implementer/raw_output.md and run metadata in <task>/agents/qwopus-implementer/run.json."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/qwopus-implementer/questions.jsonl."
+      - "When failed, write <task>/agents/qwopus-implementer/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Propose changes only as a unified diff in proposal.patch; do not directly edit the main checkout."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Dev-Flow must apply proposal.patch to the isolated workspace and run verification after this worker completes."
+      - "Worker completion is not promotion readiness."
     can_run_shell: false
     can_use_network: false
     can_promote: false

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -15,13 +16,13 @@ AgentPermissionMode = Literal[
     "frontier_read_only",
     "manual_packet_only",
 ]
-AdapterMaturity = Literal["stable_runtime", "experimental_readonly", "planned_not_executable"]
+AdapterMaturity = Literal["stable_runtime", "local_patch_runtime", "experimental_readonly", "planned_not_executable"]
 
 ADAPTER_MATURITY: dict[str, AdapterMaturity] = {
     "shell": "stable_runtime",
     "manual": "stable_runtime",
     "manual_packet": "experimental_readonly",
-    "ollama_chat": "experimental_readonly",
+    "ollama_chat": "local_patch_runtime",
     "openai_responses": "planned_not_executable",
     "openai_compatible": "experimental_readonly",
     "anthropic_messages": "experimental_readonly",
@@ -29,6 +30,9 @@ ADAPTER_MATURITY: dict[str, AdapterMaturity] = {
     "openai_chat": "experimental_readonly",
 }
 STABLE_RUNTIME_ADAPTERS = tuple(sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "stable_runtime"))
+LOCAL_PATCH_RUNTIME_ADAPTERS = tuple(
+    sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "local_patch_runtime")
+)
 
 
 def adapter_maturity(adapter: str) -> AdapterMaturity:
@@ -39,8 +43,16 @@ def is_stable_runtime_adapter(adapter: str) -> bool:
     return adapter_maturity(adapter) == "stable_runtime"
 
 
+def is_local_patch_runtime_adapter(adapter: str) -> bool:
+    return adapter_maturity(adapter) == "local_patch_runtime"
+
+
 def stable_runtime_adapters_label() -> str:
     return ", ".join(STABLE_RUNTIME_ADAPTERS)
+
+
+def local_patch_runtime_adapters_label() -> str:
+    return ", ".join(LOCAL_PATCH_RUNTIME_ADAPTERS)
 
 
 def adapter_execution_refusal(adapter: str, agent_id: str | None = None) -> str:
@@ -49,7 +61,9 @@ def adapter_execution_refusal(adapter: str, agent_id: str | None = None) -> str:
         subject = f"{subject} for agent '{agent_id}'"
     return (
         f"{subject} is {adapter_maturity(adapter)} and cannot execute. "
-        f"Only stable_runtime adapters can execute. Stable runtime adapters: {stable_runtime_adapters_label()}."
+        "Only stable_runtime adapters or explicitly safe local_patch_runtime agents can execute. "
+        f"Stable runtime adapters: {stable_runtime_adapters_label()}. "
+        f"Local patch runtime adapters: {local_patch_runtime_adapters_label() or 'none'}."
     )
 
 
@@ -125,6 +139,41 @@ class ProviderDefinition(BaseModel):
     default_timeout_seconds: int | None = None
     delivery: str | None = None
     enabled: bool = True
+
+
+def is_executable_agent_runtime(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
+    if is_stable_runtime_adapter(agent.adapter):
+        return True
+    return is_local_patch_runtime_agent(agent, provider=provider)
+
+
+def is_local_patch_runtime_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
+    if not is_local_patch_runtime_adapter(agent.adapter):
+        return False
+    if agent.adapter != "ollama_chat" or agent.provider != "ollama":
+        return False
+    if not agent.enabled:
+        return False
+    if agent.default_mode != "workspace_write":
+        return False
+    if agent.execution_mode != "automated":
+        return False
+    if agent.workspace != "isolated_task_workspace":
+        return False
+    if agent.can_promote or agent.can_run_shell or agent.can_use_network:
+        return False
+    if provider is None:
+        return True
+    if not provider.enabled or provider.provider != "ollama" or provider.adapter != "ollama_chat":
+        return False
+    return is_local_ollama_base_url(provider.base_url)
+
+
+def is_local_ollama_base_url(base_url: str | None) -> bool:
+    if base_url is None or not base_url.strip():
+        return True
+    parsed = urlparse(base_url)
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
 
 
 class ProviderRegistry(BaseModel):
@@ -465,30 +514,38 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
     )
     agents = {proof_agent.id: proof_agent}
 
-    # Define standard automated agents mapping to each new execution runtime
-    # Provider-backed adapters are experimental_readonly — not yet safe for automated execution.
-    # Set enabled=False until each adapter has its own tests, threat model, and explicit enable flag.
+    # Define standard automated agents mapping to each new execution runtime.
+    # Only local Ollama patch agents may execute; remote provider agents stay disabled.
     presets = [
-        ("devflow-ollama-worker", "ollama", "qwen2.5-coder:14b", "ollama_chat", False, "implementation_worker", "strong_local", "workspace_write"),
-        ("devflow-openai-worker", "openai", "gpt-4o", "openai_chat", True, "implementation_worker", "strong_local", "workspace_write"),
-        ("devflow-anthropic-worker", "anthropic", "claude-3-5-sonnet", "anthropic_messages", True, "implementation_worker", "strong_local", "workspace_write"),
-        ("devflow-gemini-worker", "gemini", "gemini-1.5-pro", "gemini", True, "implementation_worker", "strong_local", "workspace_write"),
-        ("devflow-openai-compatible-worker", "openai_compatible", "custom-model", "openai_compatible", True, "implementation_worker", "strong_local", "workspace_write"),
-        ("devflow-openai-planner", "openai", "gpt-4o", "openai_chat", True, "frontier_planner_architect_reviewer", "frontier", "frontier_read_only"),
-        ("devflow-openai-reviewer", "openai", "gpt-4o", "openai_chat", True, "frontier_planner_architect_reviewer", "frontier", "frontier_read_only"),
+        ("qwopus-implementer", "ollama", "qwopus:latest", "ollama_chat", False, "implementation_worker", "strong_local", "workspace_write", True),
+        ("devflow-ollama-worker", "ollama", "qwen2.5-coder:14b", "ollama_chat", False, "implementation_worker", "strong_local", "workspace_write", False),
+        ("devflow-openai-worker", "openai", "gpt-4o", "openai_chat", True, "implementation_worker", "strong_local", "workspace_write", False),
+        ("devflow-anthropic-worker", "anthropic", "claude-3-5-sonnet", "anthropic_messages", True, "implementation_worker", "strong_local", "workspace_write", False),
+        ("devflow-gemini-worker", "gemini", "gemini-1.5-pro", "gemini", True, "implementation_worker", "strong_local", "workspace_write", False),
+        ("devflow-openai-compatible-worker", "openai_compatible", "custom-model", "openai_compatible", True, "implementation_worker", "strong_local", "workspace_write", False),
+        ("devflow-openai-planner", "openai", "gpt-4o", "openai_chat", True, "frontier_planner_architect_reviewer", "frontier", "frontier_read_only", False),
+        ("devflow-openai-reviewer", "openai", "gpt-4o", "openai_chat", True, "frontier_planner_architect_reviewer", "frontier", "frontier_read_only", False),
     ]
 
-    for agent_id, provider, model, adapter, can_use_network, role, tier, default_mode in presets:
+    for agent_id, provider, model, adapter, can_use_network, role, tier, default_mode, enabled in presets:
         if default_mode == "workspace_write":
             can_touch = [
                 "<workspace>/**",
+                f"<task>/agents/{agent_id}/proposal.patch",
+                f"<task>/agents/{agent_id}/raw_output.md",
                 f"<task>/agents/{agent_id}/result.md",
+                f"<task>/agents/{agent_id}/run.json",
+                f"<task>/agents/{agent_id}/logs/**",
                 f"<task>/agents/{agent_id}/questions.jsonl",
                 f"<task>/agents/{agent_id}/worker_failed.json",
             ]
             allowed_writes = [
                 "<workspace>/**",
+                f"<task>/agents/{agent_id}/proposal.patch",
+                f"<task>/agents/{agent_id}/raw_output.md",
                 f"<task>/agents/{agent_id}/result.md",
+                f"<task>/agents/{agent_id}/run.json",
+                f"<task>/agents/{agent_id}/logs/**",
                 f"<task>/agents/{agent_id}/questions.jsonl",
                 f"<task>/agents/{agent_id}/worker_failed.json",
             ]
@@ -580,7 +637,7 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             can_run_shell=False,
             can_use_network=can_use_network,
             can_promote=False,
-            enabled=False,
+            enabled=enabled,
         )
 
     return agents

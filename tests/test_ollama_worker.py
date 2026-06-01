@@ -12,11 +12,43 @@ import pytest
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
+from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
+from devflow.control_room.service import apply_task_patch, create_task, run_shell_task
 
 
-def test_get_ollama_chat_worker_adapter_rejects_experimental_runtime() -> None:
-    with pytest.raises(UnsupportedWorkerAdapter, match="experimental_readonly"):
+def test_get_ollama_chat_worker_adapter_rejects_direct_runtime() -> None:
+    with pytest.raises(UnsupportedWorkerAdapter, match="local_patch_runtime"):
         get_worker_adapter("ollama_chat")
+
+
+def test_get_ollama_chat_worker_adapter_allows_safe_local_patch_agent() -> None:
+    agent = AgentDefinition(
+        id="qwopus-implementer",
+        provider="ollama",
+        model="qwopus:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        can_run_shell=False,
+        can_use_network=False,
+        can_promote=False,
+        enabled=True,
+    )
+    provider = ProviderDefinition(
+        id="ollama",
+        provider="ollama",
+        adapter="ollama_chat",
+        base_url="http://127.0.0.1:11434",
+        default_timeout_seconds=600,
+        enabled=True,
+    )
+
+    adapter = get_worker_adapter("ollama_chat", agent=agent, provider=provider)
+
+    assert isinstance(adapter, OllamaChatWorkerAdapter)
 
 
 def test_ollama_worker_success(tmp_path: Path) -> None:
@@ -115,6 +147,77 @@ def test_ollama_worker_success(tmp_path: Path) -> None:
         patch_file = task_dir / "agents" / "default_agent" / "proposal.patch"
         assert patch_file.exists()
         assert "Hello beautiful World" in patch_file.read_text(encoding="utf-8")
+        assert (task_dir / "agents" / "default_agent" / "raw_output.md").exists()
+        assert (task_dir / "agents" / "default_agent" / "run.json").exists()
+
+
+def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_path: Path) -> None:
+    (tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    task = create_task(tmp_path, "Update hello with Qwopus")
+    workspace_path = tmp_path / task.workspace
+    assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
+
+    context_pack_data = {
+        "context_pack": {
+            "role": "worker",
+            "context_layer": "L1",
+            "includes": [],
+            "excludes": [],
+            "estimated_tokens": 100,
+            "sources_metadata": [
+                {
+                    "path": "hello.txt",
+                    "authority": "canonical",
+                    "mode": "full",
+                    "content": "Hello World\n",
+                }
+            ],
+        }
+    }
+    mock_response = MagicMock()
+    response_dict = {
+        "response": json.dumps(
+            {
+                "status": "ready",
+                "diff": (
+                    "diff --git a/hello.txt b/hello.txt\n"
+                    "--- a/hello.txt\n"
+                    "+++ b/hello.txt\n"
+                    "@@ -1 +1 @@\n"
+                    "-Hello World\n"
+                    "+Hello from Qwopus\n"
+                ),
+                "touched_paths": ["hello.txt"],
+                "risk": "low",
+                "confidence": 0.91,
+            }
+        )
+    }
+    mock_response.read.return_value = json.dumps(response_dict).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value=context_pack_data):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        task_res = run_shell_task(tmp_path, task.id, [], worker_adapter="qwopus-implementer")
+
+    assert task_res.status == "complete"
+    request = mock_urlopen.call_args.args[0]
+    assert json.loads(request.data.decode("utf-8"))["model"] == "qwopus:latest"
+
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "qwopus-implementer"
+    assert (agent_dir / "packet.json").exists()
+    assert (agent_dir / "raw_output.md").exists()
+    assert (agent_dir / "proposal.patch").exists()
+    assert (agent_dir / "result.md").exists()
+    assert (agent_dir / "run.json").exists()
+    assert (agent_dir / "logs" / "worker.log").exists()
+    assert "Hello from Qwopus" in (agent_dir / "proposal.patch").read_text(encoding="utf-8")
+    assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
+
+    apply_task_patch(tmp_path, task.id, agent_id="qwopus-implementer")
+
+    assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello from Qwopus\n"
 
 
 def test_ollama_worker_connection_failure(tmp_path: Path) -> None:

@@ -38,10 +38,10 @@ def test_doctor_strict_checks() -> None:
             res = runner.invoke(app, ["doctor"])
             assert res.exit_code == 0, res.output
 
-            # Strict doctor should pass since worktree is clean and only stable agents (manual-codex-worker) are enabled
+            # Strict doctor should pass since worktree is clean and only approved runtime agents are enabled
             res_strict = runner.invoke(app, ["doctor", "--strict"])
             assert res_strict.exit_code == 0, res_strict.output
-            assert "strict: only stable runtime agents enabled" in res_strict.output
+            assert "strict: only executable runtime agents enabled" in res_strict.output
             assert "strict: clean main worktree" in res_strict.output
 
             # 1. Test dirty worktree failure under strict mode

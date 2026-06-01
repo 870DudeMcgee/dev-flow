@@ -27,7 +27,7 @@ Verify that the runtime directories and agent configurations meet production saf
   python -m devflow doctor --strict
   ```
 - [ ] Assert that every diagnostic check outputs `ok`.
-- [ ] Confirm that no un-tested experimental provider adapters (such as `openai_chat`, `anthropic_messages`, `gemini`, `ollama_chat`, `openai_compatible`) are marked enabled or as stable runtimes.
+- [ ] Confirm that no un-tested remote provider adapters (such as `openai_chat`, `anthropic_messages`, `gemini`, `openai_compatible`) are marked enabled or as stable runtimes; `ollama_chat` may execute only through approved local patch-runtime agents such as `qwopus-implementer`.
 
 ---
 

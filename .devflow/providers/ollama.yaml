@@ -1,5 +1,6 @@
+version: 1
 provider: ollama
 adapter: ollama_chat
 base_url: http://127.0.0.1:11434
-default_timeout_seconds: 300
+default_timeout_seconds: 600
 enabled: true

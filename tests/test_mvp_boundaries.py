@@ -16,9 +16,14 @@ class TestMVPBoundaries(unittest.TestCase):
         for fragment in forbidden_fragments:
             self.assertNotIn(fragment, cli_source)
 
-    def test_only_shell_and_manual_are_stable_runtime(self):
-        """Contract test: only shell and manual may be stable_runtime adapters."""
-        from devflow.control_room.agent_registry import ADAPTER_MATURITY, STABLE_RUNTIME_ADAPTERS, adapter_maturity
+    def test_only_shell_manual_and_local_ollama_patch_runtime_are_executable(self):
+        """Contract test: remote provider adapters remain non-executable."""
+        from devflow.control_room.agent_registry import (
+            ADAPTER_MATURITY,
+            LOCAL_PATCH_RUNTIME_ADAPTERS,
+            STABLE_RUNTIME_ADAPTERS,
+            adapter_maturity,
+        )
 
         self.assertEqual(
             ADAPTER_MATURITY,
@@ -26,7 +31,7 @@ class TestMVPBoundaries(unittest.TestCase):
                 "shell": "stable_runtime",
                 "manual": "stable_runtime",
                 "manual_packet": "experimental_readonly",
-                "ollama_chat": "experimental_readonly",
+                "ollama_chat": "local_patch_runtime",
                 "openai_responses": "planned_not_executable",
                 "openai_compatible": "experimental_readonly",
                 "anthropic_messages": "experimental_readonly",
@@ -42,6 +47,7 @@ class TestMVPBoundaries(unittest.TestCase):
             "STABLE_RUNTIME_ADAPTERS must contain only 'shell' and 'manual' until provider "
             "adapters have tests, threat models, and explicit enable flags.",
         )
+        self.assertEqual(set(LOCAL_PATCH_RUNTIME_ADAPTERS), {"ollama_chat"})
 
         provider_adapters = {
             "ollama_chat", "openai_compatible", "anthropic_messages", "gemini", "openai_chat"
@@ -54,12 +60,11 @@ class TestMVPBoundaries(unittest.TestCase):
                 f"Provider adapter '{adapter}' must not be stable_runtime. Got: {maturity}.",
             )
 
-    def test_provider_builtin_agents_are_disabled(self):
-        """Contract test: all provider-backed builtin agents must be disabled by default."""
-        from devflow.control_room.agent_registry import _builtin_agents
+    def test_remote_provider_builtin_agents_are_disabled(self):
+        """Contract test: only the local Qwopus patch worker is enabled by default."""
+        from devflow.control_room.agent_registry import _builtin_agents, is_local_patch_runtime_agent
 
         provider_agent_ids = {
-            "devflow-ollama-worker",
             "devflow-openai-worker",
             "devflow-anthropic-worker",
             "devflow-gemini-worker",
@@ -68,17 +73,22 @@ class TestMVPBoundaries(unittest.TestCase):
             "devflow-openai-reviewer",
         }
         agents = _builtin_agents()
+        qwopus = agents.get("qwopus-implementer")
+        self.assertIsNotNone(qwopus)
+        self.assertTrue(qwopus.enabled)
+        self.assertTrue(is_local_patch_runtime_agent(qwopus))
+        self.assertFalse(agents["devflow-ollama-worker"].enabled)
         for agent_id in provider_agent_ids:
             agent = agents.get(agent_id)
             self.assertIsNotNone(agent, f"Builtin agent '{agent_id}' not found")
             self.assertFalse(
                 agent.enabled,
-                f"Provider-backed agent '{agent_id}' must be disabled until it has "
+                f"Remote provider-backed agent '{agent_id}' must be disabled until it has "
                 "its own tests, threat model, and explicit enable flag.",
             )
 
     def test_get_worker_adapter_rejects_non_stable(self):
-        """Contract test: get_worker_adapter must reject experimental/planned adapters."""
+        """Contract test: direct adapter lookup rejects non-stable adapters."""
         from devflow.control_room.worker_adapter import get_worker_adapter, UnsupportedWorkerAdapter
 
         non_stable = [
