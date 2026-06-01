@@ -78,8 +78,8 @@ def test_manual_worker_interactive_success(tmp_path: Path, monkeypatch: pytest.M
 
     result = adapter.run(worker_input)
 
-    assert result.status == "complete"
-    assert result.summary == "Manual work completed by user"
+    assert result.status == "blocked"
+    assert "Manual instructions generated" in result.summary
     assert result.exit_code == 0
     assert log_file.exists()
 
@@ -116,7 +116,7 @@ def test_manual_worker_interactive_cancelled(tmp_path: Path, monkeypatch: pytest
 
     result = adapter.run(worker_input)
 
-    assert result.status == "worker_failed"
-    assert result.summary == "Manual session cancelled by user"
-    assert result.exit_code == 1
+    assert result.status == "blocked"
+    assert "Manual instructions generated" in result.summary
+    assert result.exit_code == 0
     assert log_file.exists()

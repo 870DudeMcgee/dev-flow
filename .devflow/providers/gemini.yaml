@@ -1,0 +1,6 @@
+provider: gemini
+adapter: gemini
+base_url: https://generativelanguage.googleapis.com
+api_key_env: GEMINI_API_KEY
+default_timeout_seconds: 300
+enabled: true

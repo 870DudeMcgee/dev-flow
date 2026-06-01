@@ -38,6 +38,8 @@ DIRECTORIES = [
     ".devflow/reports/task-summaries",
     ".devflow/reports/model-scorecards",
     ".devflow/tasks",
+    ".devflow/providers",
+    ".devflow/agents",
 ]
 
 JSONL_FILES = [
@@ -245,6 +247,538 @@ Reports are useful for review and orientation, but they are never authoritative.
     ".devflow/reports/task-summaries/README.md": "# Task Summaries\n\nDerived task summaries live here.\n",
     ".devflow/reports/model-scorecards/README.md": "# Model Scorecards\n\nDerived model scorecards live here.\n",
     ".devflow/tasks/README.md": "# Tasks\n\nRuntime task directories live here.\n",
+    ".devflow/providers/ollama.yaml": """provider: ollama
+adapter: ollama_chat
+base_url: http://127.0.0.1:11434
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/openai.yaml": """provider: openai
+adapter: openai_chat
+base_url: https://api.openai.com/v1
+api_key_env: OPENAI_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/anthropic.yaml": """provider: anthropic
+adapter: anthropic_messages
+base_url: https://api.anthropic.com/v1
+api_key_env: ANTHROPIC_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/gemini.yaml": """provider: gemini
+adapter: gemini
+base_url: https://generativelanguage.googleapis.com
+api_key_env: GEMINI_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/openai_compatible.yaml": """provider: openai_compatible
+adapter: openai_compatible
+base_url: http://127.0.0.1:8000/v1
+api_key_env: OPENAI_COMPATIBLE_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/agents/roles.yaml": """version: 1
+roles:
+  implementation_worker:
+    description: "Consume a bounded Dev-Flow task packet, edit only the assigned isolated workspace, produce structured results."
+    enabled: true
+  local_senior_worker:
+    description: "Local senior worker for implementation tasks."
+    enabled: true
+  test_runner:
+    description: "Runs verification tests."
+    enabled: true
+  frontier_code_reviewer:
+    description: "Frontier tier code reviewer."
+    enabled: true
+  tester:
+    description: "Executes test scripts."
+    enabled: true
+  senior:
+    description: "Senior implementation agent."
+    enabled: true
+  frontier_planner_architect_reviewer:
+    description: "Frontier planner, architect, and reviewer."
+    enabled: true
+""",
+    ".devflow/agents/registry.yaml": """version: 1
+default_agent: devflow-manual-codex-worker
+agents:
+  devflow-manual-codex-worker:
+    provider: manual
+    model: human-launched-codex
+    adapter: manual
+    role: implementation_worker
+    tier: manual
+    default_mode: workspace_write
+    execution_mode: human_launched_agent
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-manual-codex-worker/result.md"
+      - "<task>/agents/devflow-manual-codex-worker/questions.jsonl"
+      - "<task>/agents/devflow-manual-codex-worker/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-manual-codex-worker/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-manual-codex-worker/result.md"
+      - "<task>/agents/devflow-manual-codex-worker/questions.jsonl"
+      - "<task>/agents/devflow-manual-codex-worker/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-manual-codex-worker/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-manual-codex-worker/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-manual-codex-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Edit only files under <workspace>."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+
+  devflow-ollama-worker:
+    provider: ollama
+    model: qwen2.5-coder:14b
+    adapter: ollama_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-ollama-worker/result.md"
+      - "<task>/agents/devflow-ollama-worker/questions.jsonl"
+      - "<task>/agents/devflow-ollama-worker/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-ollama-worker/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-ollama-worker/result.md"
+      - "<task>/agents/devflow-ollama-worker/questions.jsonl"
+      - "<task>/agents/devflow-ollama-worker/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-ollama-worker/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-ollama-worker/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-ollama-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Edit only files under <workspace>."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+
+  devflow-openai-worker:
+    provider: openai
+    model: gpt-4o
+    adapter: openai_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-openai-worker/result.md"
+      - "<task>/agents/devflow-openai-worker/questions.jsonl"
+      - "<task>/agents/devflow-openai-worker/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-openai-worker/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-openai-worker/result.md"
+      - "<task>/agents/devflow-openai-worker/questions.jsonl"
+      - "<task>/agents/devflow-openai-worker/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-openai-worker/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-openai-worker/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-openai-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Edit only files under <workspace>."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+
+  devflow-anthropic-worker:
+    provider: anthropic
+    model: claude-3-5-sonnet
+    adapter: anthropic_messages
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-anthropic-worker/result.md"
+      - "<task>/agents/devflow-anthropic-worker/questions.jsonl"
+      - "<task>/agents/devflow-anthropic-worker/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-anthropic-worker/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-anthropic-worker/result.md"
+      - "<task>/agents/devflow-anthropic-worker/questions.jsonl"
+      - "<task>/agents/devflow-anthropic-worker/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-anthropic-worker/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-anthropic-worker/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-anthropic-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Edit only files under <workspace>."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+
+  devflow-gemini-worker:
+    provider: gemini
+    model: gemini-1.5-pro
+    adapter: gemini
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-gemini-worker/result.md"
+      - "<task>/agents/devflow-gemini-worker/questions.jsonl"
+      - "<task>/agents/devflow-gemini-worker/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-gemini-worker/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-gemini-worker/result.md"
+      - "<task>/agents/devflow-gemini-worker/questions.jsonl"
+      - "<task>/agents/devflow-gemini-worker/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-gemini-worker/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-gemini-worker/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-gemini-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Edit only files under <workspace>."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+
+  devflow-openai-compatible-worker:
+    provider: openai_compatible
+    model: custom-model
+    adapter: openai_compatible
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-openai-compatible-worker/result.md"
+      - "<task>/agents/devflow-openai-compatible-worker/questions.jsonl"
+      - "<task>/agents/devflow-openai-compatible-worker/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-openai-compatible-worker/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/devflow-openai-compatible-worker/result.md"
+      - "<task>/agents/devflow-openai-compatible-worker/questions.jsonl"
+      - "<task>/agents/devflow-openai-compatible-worker/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-openai-compatible-worker/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-openai-compatible-worker/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-openai-compatible-worker/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Edit only files under <workspace>."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+
+  devflow-openai-planner:
+    provider: openai
+    model: gpt-4o
+    adapter: openai_chat
+    role: frontier_planner_architect_reviewer
+    tier: frontier
+    default_mode: frontier_read_only
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<task>/agents/devflow-openai-planner/result.md"
+      - "<task>/agents/devflow-openai-planner/questions.jsonl"
+      - "<task>/agents/devflow-openai-planner/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-openai-planner/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<task>/agents/devflow-openai-planner/result.md"
+      - "<task>/agents/devflow-openai-planner/questions.jsonl"
+      - "<task>/agents/devflow-openai-planner/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+      - "<workspace>/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-openai-planner/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-openai-planner/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-openai-planner/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Do not edit files in the workspace."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+
+  devflow-openai-reviewer:
+    provider: openai
+    model: gpt-4o
+    adapter: openai_chat
+    role: frontier_planner_architect_reviewer
+    tier: frontier
+    default_mode: frontier_read_only
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<task>/agents/devflow-openai-reviewer/result.md"
+      - "<task>/agents/devflow-openai-reviewer/questions.jsonl"
+      - "<task>/agents/devflow-openai-reviewer/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<task>/agents/devflow-openai-reviewer/handoff.md"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<task>/agents/devflow-openai-reviewer/result.md"
+      - "<task>/agents/devflow-openai-reviewer/questions.jsonl"
+      - "<task>/agents/devflow-openai-reviewer/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+      - "<workspace>/**"
+    required_outputs:
+      - "On completion, write <task>/agents/devflow-openai-reviewer/result.md with status, summary, changed files, and suggested verification."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/devflow-openai-reviewer/questions.jsonl."
+      - "When failed, write <task>/agents/devflow-openai-reviewer/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Do not edit files in the workspace."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Stop after writing exactly one terminal evidence artifact."
+      - "Dev-Flow verification is required after result.md; worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+""",
 }
 
 CONTEXT_CONGRUENCE_RULES = [
