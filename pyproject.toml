@@ -38,6 +38,8 @@ test = [
 
 [project.scripts]
 devflow = "devflow.cli:main"
+df = "devflow.cli:df_main"
+qwopus = "devflow.cli:qwopus_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

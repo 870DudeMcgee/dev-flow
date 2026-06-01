@@ -2001,5 +2001,288 @@ def agent_packet(task_id: str, agent_id: str) -> None:
 
 
 
+@agent_app.command("ask")
+def agent_ask(
+    agent_id: str = typer.Argument(..., help="The local agent name."),
+    prompt: list[str] = typer.Argument(None, help="The prompt to send."),
+    file: str | None = typer.Option(None, "--file", help="File to include."),
+    show_paths: bool = typer.Option(False, "--show-paths"),
+    no_save: bool = typer.Option(False, "--no-save"),
+    allow_disabled: bool = typer.Option(False, "--allow-disabled"),
+) -> None:
+    """[LEGACY] Ask a local agent a prompt directly."""
+    if not prompt:
+        typer.echo(
+            "Error: prompt is required.\n\n"
+            "Try:\n"
+            "  df ask \"your prompt\"\n"
+            "  qwopus \"your prompt\"\n"
+            "  qwopus chat\n"
+            "  df quick",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    prompt_text = " ".join(prompt)
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent_id, allow_disabled=allow_disabled)
+    runner.run_one_shot(
+        command="ask",
+        prompt=prompt_text,
+        file_to_include=file,
+        no_save=no_save,
+        show_paths=show_paths,
+    )
+
+
+@agent_app.command("chat")
+def agent_chat(
+    agent_id: str = typer.Argument(..., help="The local agent name."),
+    no_save: bool = typer.Option(False, "--no-save"),
+    allow_disabled: bool = typer.Option(False, "--allow-disabled"),
+) -> None:
+    """[LEGACY] Start an interactive chat session with a local agent."""
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent_id, allow_disabled=allow_disabled)
+    runner.run_chat(no_save=no_save)
+
+
+@agent_app.command("run")
+def agent_run(
+    agent_id: str = typer.Argument(..., help="The local agent name."),
+    prompt: str | None = typer.Option(None, "--prompt"),
+    prompt_file: str | None = typer.Option(None, "--prompt-file"),
+    stdin: bool = typer.Option(False, "--stdin"),
+    file: str | None = typer.Option(None, "--file"),
+    show_paths: bool = typer.Option(False, "--show-paths"),
+    no_save: bool = typer.Option(False, "--no-save"),
+    allow_disabled: bool = typer.Option(False, "--allow-disabled"),
+) -> None:
+    """[LEGACY] Run a task-less one-shot prompt with a local agent."""
+    import sys
+    prompt_text = ""
+    if stdin:
+        prompt_text = sys.stdin.read()
+    elif prompt_file:
+        try:
+            prompt_text = Path(prompt_file).read_text(encoding="utf-8")
+        except Exception as exc:
+            typer.echo(f"Error: Failed to read prompt-file: {exc}", err=True)
+            raise typer.Exit(code=1)
+    elif prompt:
+        prompt_text = prompt
+    else:
+        typer.echo("Error: One of --prompt, --prompt-file, or --stdin is required.", err=True)
+        raise typer.Exit(code=1)
+
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent_id, allow_disabled=allow_disabled)
+    runner.run_one_shot(
+        command="run",
+        prompt=prompt_text,
+        file_to_include=file,
+        no_save=no_save,
+        show_paths=show_paths,
+    )
+
+
+df_app = typer.Typer(help="Dev-Flow short-command terminal interface")
+
+
+@df_app.command("quick")
+def df_quick() -> None:
+    """Print a concise reminder of Dev-Flow local agent commands."""
+    reminder = (
+        "Dev-Flow local agent commands\n\n"
+        "Talk to Qwopus:\n"
+        "  qwopus \"your prompt\"\n"
+        "  qwopus chat\n"
+        "  qwopus --project \"what is this project?\"\n"
+        "  qwopus --file path/to/file \"explain this\"\n"
+        "  qwopus --show-paths \"your prompt\"\n"
+        "  qwopus --no-save \"your prompt\"\n\n"
+        "Default Dev-Flow agent:\n"
+        "  df ask \"your prompt\"\n"
+        "  df ask --project \"what is this project?\"\n"
+        "  df chat\n"
+        "  df run --prompt \"your prompt\"\n"
+        "  df run --project --prompt \"summarize this project\"\n"
+        "  df run --prompt-file prompt.md\n"
+        "  cat prompt.md | df run --stdin\n\n"
+        "Code-change task mode:\n"
+        "  devflow task create \"task title\"\n"
+        "  devflow task run <task-id> --worker qwopus-implementer\n"
+        "  devflow task apply-patch <task-id> --agent qwopus-implementer\n"
+        "  devflow task verify <task-id> --shell '<command>'\n"
+        "  devflow task promote-preview <task-id>\n\n"
+        "Tip:\n"
+        "  Quotes are optional for simple prompts. Use quotes for shell-sensitive characters, or use qwopus chat."
+    )
+    typer.echo(reminder)
+
+
+@df_app.command("help-local")
+def df_help_local() -> None:
+    """Print a concise reminder of Dev-Flow local agent commands."""
+    df_quick()
+
+
+@df_app.command("ask")
+def df_ask(
+    prompt: list[str] = typer.Argument(None, help="The prompt to send to the agent."),
+    agent: str = typer.Option("qwopus-implementer", "--agent", help="The local agent name."),
+    project: bool = typer.Option(False, "--project", help="Include compact project context."),
+    file: str | None = typer.Option(None, "--file", help="An optional file to include in the context."),
+    show_paths: bool = typer.Option(False, "--show-paths", help="Print saved paths of evidence files."),
+    no_save: bool = typer.Option(False, "--no-save", help="Disable saving evidence to disk."),
+    allow_disabled: bool = typer.Option(False, "--allow-disabled", help="Allow using disabled agents."),
+) -> None:
+    """Ask a local agent a prompt directly."""
+    if not prompt:
+        typer.echo(
+            "Error: prompt is required.\n\n"
+            "Try:\n"
+            "  df ask \"your prompt\"\n"
+            "  qwopus \"your prompt\"\n"
+            "  qwopus chat\n"
+            "  df quick",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    prompt_text = " ".join(prompt)
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent, allow_disabled=allow_disabled)
+    runner.run_one_shot(
+        command="ask",
+        prompt=prompt_text,
+        file_to_include=file,
+        no_save=no_save,
+        show_paths=show_paths,
+        include_project=project,
+    )
+
+
+@df_app.command("run")
+def df_run(
+    prompt: str | None = typer.Option(None, "--prompt", help="The prompt to send to the agent."),
+    prompt_file: str | None = typer.Option(None, "--prompt-file", help="Read prompt from a file."),
+    stdin: bool = typer.Option(False, "--stdin", help="Read prompt from stdin."),
+    agent: str = typer.Option("qwopus-implementer", "--agent", help="The local agent name."),
+    project: bool = typer.Option(False, "--project", help="Include compact project context."),
+    file: str | None = typer.Option(None, "--file", help="An optional file to include in the context."),
+    show_paths: bool = typer.Option(False, "--show-paths", help="Print saved paths of evidence files."),
+    no_save: bool = typer.Option(False, "--no-save", help="Disable saving evidence to disk."),
+    allow_disabled: bool = typer.Option(False, "--allow-disabled", help="Allow using disabled agents."),
+) -> None:
+    """Run a task-less one-shot prompt with a local agent."""
+    import sys
+    prompt_text = ""
+    if stdin:
+        prompt_text = sys.stdin.read()
+    elif prompt_file:
+        try:
+            prompt_text = Path(prompt_file).read_text(encoding="utf-8")
+        except Exception as exc:
+            typer.echo(f"Error: Failed to read prompt-file: {exc}", err=True)
+            raise typer.Exit(code=1)
+    elif prompt:
+        prompt_text = prompt
+    else:
+        typer.echo("Error: One of --prompt, --prompt-file, or --stdin is required.", err=True)
+        raise typer.Exit(code=1)
+
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent, allow_disabled=allow_disabled)
+    runner.run_one_shot(
+        command="run",
+        prompt=prompt_text,
+        file_to_include=file,
+        no_save=no_save,
+        show_paths=show_paths,
+        include_project=project,
+    )
+
+
+@df_app.command("chat")
+def df_chat(
+    agent: str = typer.Option("qwopus-implementer", "--agent", help="The local agent name."),
+    no_save: bool = typer.Option(False, "--no-save", help="Disable saving transcript to disk."),
+    allow_disabled: bool = typer.Option(False, "--allow-disabled", help="Allow using disabled agents."),
+) -> None:
+    """Start an interactive chat session with a local agent."""
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent, allow_disabled=allow_disabled)
+    runner.run_chat(no_save=no_save)
+
+
+def df_main() -> None:
+    df_app()
+
+
+def qwopus_main() -> None:
+    import argparse
+    import sys
+    parser = argparse.ArgumentParser(description="Direct qwopus shortcut mapping to qwopus-implementer.")
+    parser.add_argument("prompt_or_cmd", nargs="*", default=None, help="The prompt or 'chat' command.")
+    parser.add_argument("--project", action="store_true", help="Include compact project context.")
+    parser.add_argument("--file", help="An optional file to include.")
+    parser.add_argument("--show-paths", action="store_true", help="Show saved evidence file paths.")
+    parser.add_argument("--no-save", action="store_true", help="Disable saving evidence or transcript.")
+    parser.add_argument("--allow-disabled", action="store_true", help="Allow using disabled agent.")
+
+    args = parser.parse_args()
+
+    if not args.prompt_or_cmd:
+        # Check if stdin is not a tty. In this case, we read from stdin as the prompt!
+        if not sys.stdin.isatty():
+            prompt_text = sys.stdin.read().strip()
+            if prompt_text:
+                from devflow.control_room.agent_terminal import AgentTerminalRunner
+                runner = AgentTerminalRunner(
+                    repo_root=Path.cwd(),
+                    agent_name="qwopus-implementer",
+                    allow_disabled=args.allow_disabled,
+                )
+                runner.run_one_shot(
+                    command="ask",
+                    prompt=prompt_text,
+                    file_to_include=args.file,
+                    no_save=args.no_save,
+                    show_paths=args.show_paths,
+                    include_project=args.project,
+                )
+                return
+        print(
+            "Error: prompt is required.\n\n"
+            "Try:\n"
+            "  df ask \"your prompt\"\n"
+            "  qwopus \"your prompt\"\n"
+            "  qwopus chat\n"
+            "  df quick",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    runner = AgentTerminalRunner(
+        repo_root=Path.cwd(),
+        agent_name="qwopus-implementer",
+        allow_disabled=args.allow_disabled,
+    )
+
+    if len(args.prompt_or_cmd) == 1 and args.prompt_or_cmd[0] == "chat" and not args.project:
+        runner.run_chat(no_save=args.no_save)
+    else:
+        prompt_text = " ".join(args.prompt_or_cmd)
+        runner.run_one_shot(
+            command="ask",
+            prompt=prompt_text,
+            file_to_include=args.file,
+            no_save=args.no_save,
+            show_paths=args.show_paths,
+            include_project=args.project,
+        )
+
+
 if __name__ == "__main__":
     main()
+
