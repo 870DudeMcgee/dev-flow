@@ -19,6 +19,10 @@ def promotion_readiness_errors(task: TaskRecord, task_path: Path | None = None) 
             errors.append(f"verification exit code is {task.verification_exit_code}, expected 0")
     if task_path is not None:
         errors.extend(_verification_json_readiness_errors(task, task_path / "verification.json"))
+        if task.workspace_kind == "git_worktree":
+            from devflow.control_room.git_worktree import git_worktree_readiness_errors
+
+            errors.extend(git_worktree_readiness_errors(task_path.parents[2], task))
     return errors
 
 

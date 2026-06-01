@@ -17,8 +17,20 @@ from devflow.control_room.paths import (
     system_dir,
     system_events_path,
     task_dir,
+    task_worker_dir,
     tasks_dir,
+    worktree_path,
     workspaces_dir,
+)
+from devflow.control_room.git_worktree import (
+    GitWorktreeError,
+    build_git_promotion_preview,
+    create_git_worktree,
+    git_doctor_checks,
+    git_worktree_readiness_errors,
+    is_git_worktree_task,
+    refresh_git_worker_evidence,
+    worker_id_for_task,
 )
 from devflow.control_room.persistence import (
     append_event,
@@ -112,7 +124,7 @@ def init_control_room(root: Path) -> None:
         )
 
 
-def create_task(root: Path, title: str) -> TaskRecord:
+def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: str = "shell") -> TaskRecord:
     init_control_room(root)
 
     # Concurrency Lock: Retryatomic directory creation to prevent task creation races
@@ -139,7 +151,7 @@ def create_task(root: Path, title: str) -> TaskRecord:
         except Exception:
             pass
 
-    workspace = create_workspace(root, task_id)
+    workspace = create_git_worktree(root, task_id, worker_id=worker_id) if git_worktree else create_workspace(root, task_id)
 
     now = utc_now()
     record = TaskRecord(
@@ -149,6 +161,8 @@ def create_task(root: Path, title: str) -> TaskRecord:
         created_at=now,
         updated_at=now,
         workspace=_relative(root, workspace.path),
+        workspace_path=_relative(root, workspace.path),
+        workspace_kind=workspace.kind,
         worker="shell",
         last_event="task_created",
         verification_status="not_run",
@@ -157,12 +171,15 @@ def create_task(root: Path, title: str) -> TaskRecord:
         workspace_dirty=workspace.dirty,
     )
     _write_initial_artifacts(task_path, task_id, record.workspace)
+    if git_worktree:
+        refresh_git_worker_evidence(root, record, worker_id=worker_id)
     event_payload: dict[str, Any] = {
         "title": title,
         "workspace": record.workspace,
         "branch_name": workspace.branch_name,
         "workspace_commit": workspace.commit_sha,
         "workspace_dirty": workspace.dirty,
+        "workspace_kind": workspace.kind,
     }
     if workspace.skipped_symlinks:
         event_payload["skipped_symlinks"] = list(workspace.skipped_symlinks)
@@ -282,6 +299,9 @@ def run_shell_task(
         task.log_path = _relative(root, log_file)
         task.result_path = _relative(root, result_file) if result_file.exists() else None
         task.finished_at = utc_now()
+        if is_git_worktree_task(task):
+            state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
+            task.workspace_dirty = bool(state["dirty"])
         task.updated_at = task.finished_at
         task.last_event = "worker_finished"
         _save_task(task_path, task)
@@ -318,6 +338,9 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
         task.verification_exit_code = result.exit_code
         task.verification_log_path = _relative(root, result.log_file)
         task.latest_log_line = result.latest_log_line
+        if is_git_worktree_task(task):
+            state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
+            task.workspace_dirty = bool(state["dirty"])
         task.updated_at = utc_now()
         task.last_event = "verification_finished"
         _write_verification_json(root, task_path, task, result)
@@ -398,8 +421,17 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
 def _strict_task_checks(root: Path, task_path: Path, task: TaskRecord) -> list[tuple[str, bool, str]]:
     checks: list[tuple[str, bool, str]] = []
     task_id = task.id
-    expected_workspace_rel = f".devflow/workspaces/{task_id}"
-    expected_workspace = (workspaces_dir(root) / task_id).resolve()
+    worker_id = worker_id_for_task(task) if is_git_worktree_task(task) else "shell"
+    expected_workspace_rel = (
+        f".devflow/worktrees/{task_id}/{worker_id}"
+        if is_git_worktree_task(task)
+        else f".devflow/workspaces/{task_id}"
+    )
+    expected_workspace = (
+        worktree_path(root, task_id, worker_id).resolve()
+        if is_git_worktree_task(task)
+        else (workspaces_dir(root) / task_id).resolve()
+    )
     workspace = _absolute(root, task.workspace).resolve()
     workspace_rel_ok = Path(task.workspace).as_posix() == expected_workspace_rel
     workspace_resolved_ok = workspace == expected_workspace
@@ -418,6 +450,7 @@ def _strict_task_checks(root: Path, task_path: Path, task: TaskRecord) -> list[t
     checks.append(_strict_task_lock_check(task_path, task_id))
     checks.extend(_strict_manual_evidence_checks(task_path, task_id))
     checks.extend(_strict_patch_evidence_checks(root, task_path, task_id))
+    checks.extend(git_doctor_checks(root, task))
     checks.append(_strict_promoted_consistency_check(task_path, task))
     return checks
 
@@ -648,6 +681,20 @@ def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, resu
         "log_path": _relative(root, result.log_file),
         "finished_at": utc_now().isoformat(),
     }
+    if is_git_worktree_task(task):
+        state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
+        payload.update(
+            {
+                "worker_id": state["worker_id"],
+                "branch": state["worker_branch"],
+                "verified_commit": state["head_commit"],
+                "base_commit": state["base_commit"],
+                "main_head_at_verification": current_main_head(root),
+                "dirty_at_verification": state["dirty"],
+            }
+        )
+        worker_verification = task_worker_dir(root, task.id, state["worker_id"]) / "verification.json"
+        atomic_write_text(worker_verification, json.dumps(payload, indent=2) + "\n")
     atomic_write_text(task_path / "verification.json", json.dumps(payload, indent=2) + "\n")
 
 
@@ -712,7 +759,10 @@ def _next_task_id(root: Path) -> str:
 
 def _resolve_task_workspace(root: Path, task: TaskRecord) -> Path:
     workspace = _absolute(root, task.workspace).resolve()
-    expected = (workspaces_dir(root) / task.id).resolve()
+    if is_git_worktree_task(task):
+        expected = worktree_path(root, task.id, worker_id_for_task(task)).resolve()
+    else:
+        expected = (workspaces_dir(root) / task.id).resolve()
     if workspace != expected:
         _refuse_workspace(root, task, workspace, expected)
     if not workspace.is_dir():

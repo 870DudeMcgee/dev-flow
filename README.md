@@ -14,6 +14,7 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
 - **Dashboard**: `devflow dashboard`
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Git-Native Task Lane**: `devflow task create --git-worktree`
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 
 ### Planning And Manual Transition Commands
@@ -23,7 +24,7 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 
 These transition commands are allowed only as read-only or manual planning aids until promoted into the stable contract. Experimental ones remain gated outside the default help surface, and none of them execute provider APIs or make autonomous routing decisions in the stable runtime.
 
-The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, git worktree orchestration, and autonomous scheduling/routing. The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
+The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, autonomous scheduling/routing, and provider-backed worktree orchestration. An opt-in Git-native shell-worker isolation and promotion slice is available through `devflow task create --git-worktree`, documented in [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md). The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
 
 ## Runtime Shape
 
@@ -41,6 +42,11 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     patch-application.json
     patches/<patch-hash>.json
   workspaces/<task-id>/
+  worktrees/<task-id>/shell/                    # only for --git-worktree tasks
+  tasks/<task-id>/workers/shell/git.json        # only for --git-worktree tasks
+  tasks/<task-id>/workers/shell/diff.patch      # only for --git-worktree tasks
+  tasks/<task-id>/workers/shell/diff-summary.json
+  tasks/<task-id>/workers/shell/promotion-preview.json
 ```
 
 `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output stays in `.devflow/workspaces/<task-id>/` until a human explicitly previews and promotes verified changes.
@@ -53,11 +59,12 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 
 - Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
-- Task workspaces are copy-based scratchpads, not git worktrees. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
-- Promotion is explicit, readiness-gated, and human-controlled, but the current implementation promotes by copying verified workspace changes back into the main checkout. It is not a three-way git merge system.
+- Default task workspaces are copy-based scratchpads. This keeps the MVP simple but can be slow for large repositories and does not use git merge machinery inside the workspace.
+- `devflow task create --git-worktree` creates a branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification to the worker branch commit, and uses Git-aware promotion mechanics.
+- Promotion is explicit, readiness-gated, and human-controlled. Copy-workspace tasks promote by copying verified workspace changes back into the main checkout; Git worktree tasks promote through the worker branch path.
 - The patch applier is a text-only MVP path with strong path validation and durable patch hash evidence. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
 
-Use Dev-Flow only on repositories and worker commands you trust. Future production hardening should prefer git worktrees or branch-backed workspaces, stricter command policy, optional network/resource controls, and git-native promotion.
+Use Dev-Flow only on repositories and worker commands you trust. The Git-native shell-worker path now moves worker isolation and promotion onto git worktrees/branches, binds verification to commits, and extends strict readiness checks with Git facts. Stricter command policy, multi-worker branch cleanup, and optional network/resource controls remain later hardening layers.
 
 ## Durable Context Structure
 
@@ -89,7 +96,7 @@ Initialize the control-room structure:
 .venv/bin/python -m devflow.cli doctor
 ```
 
-Create, run, verify, inspect, and preview one shell task:
+Create, run, verify, inspect, and preview one default copy-workspace shell task:
 
 ```bash
 TASK_ID=$(.venv/bin/python -m devflow.cli task create "write hello result" | sed -n 's/^Created \(task-[^:]*\):.*/\1/p')
@@ -108,6 +115,17 @@ Promotion is explicit and human-controlled:
 
 Use promotion only after reviewing the preview and verification evidence.
 If the main checkout advanced after the task workspace was created, promotion refuses by default. Use `--force-stale-baseline` only after manually reviewing that stale-baseline risk.
+
+Create an opt-in Git-native shell task:
+
+```bash
+TASK_ID=$(.venv/bin/python -m devflow.cli task create --git-worktree "write hello result" | sed -n 's/^Created \(task-[^:]*\):.*/\1/p')
+.venv/bin/python -m devflow.cli task run "$TASK_ID" --worker shell -- /bin/sh -c "echo hello > result.txt && git add result.txt && git commit -m devflow-result"
+.venv/bin/python -m devflow.cli task verify "$TASK_ID" --shell "test -f result.txt"
+.venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
+```
+
+Git-native promotion refuses if the worker branch HEAD differs from the verified commit, the worktree is dirty after verification, the baseline is stale without explicit review, or merge conflicts are predicted.
 
 `devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency. It does not repair artifacts automatically.
 
@@ -138,6 +156,7 @@ DevMode harness compatibility is tracked in [docs/harness-compatibility.md](docs
 - [docs/mvp-contract.md](docs/mvp-contract.md): stable current command, filesystem, and safety contract.
 - [docs/control-room-mvp.md](docs/control-room-mvp.md): near-term MVP authority.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md): next architecture direction for provider, agent, role, permission, adapter, and routing contracts.
+- [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md): opt-in Git-backed worker isolation, verification binding, and promotion readiness.
 - [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md): future task-fit, context-estimation, model-capability, context-pack, scout, and routing-quality design.
 - [docs/roadmap.md](docs/roadmap.md): current sequencing and deferred work.
 - [docs/agent-handoff.md](docs/agent-handoff.md): orientation for future agents.
@@ -169,7 +188,7 @@ Focused control-room verification:
 .venv/bin/python -m pytest tests/test_architecture_boundaries.py tests/test_devflow_init_structure.py tests/test_control_room_shell.py tests/test_promote_preview.py tests/test_task_packet.py -q
 ```
 
-Current development should keep strengthening the control-room loop: shell-worker task lifecycle, the `devflow-manual-codex-worker` proof-agent handoff, workspace isolation, status visibility, verification evidence, human-controlled promotion, and merge readiness.
+Current development should keep the shell-worker/manual proof-agent loop stable while hardening opt-in Git-native worker isolation, commit-bound verification evidence, human-controlled promotion, and merge readiness.
 
 ## License
 

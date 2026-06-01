@@ -17,6 +17,8 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
+Current production hardening slice: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md)
+
 Next architecture direction: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing defined in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
@@ -105,7 +107,7 @@ Acceptance:
 
 Goal: keep work in the scratchpad workspace until the user explicitly approves promotion.
 
-Status: first human-controlled promotion slice is active.
+Status: first human-controlled copy-promotion slice is active.
 
 Acceptance:
 
@@ -113,7 +115,7 @@ Acceptance:
 - promotion requires verified readiness and human confirmation
 - promotion refuses a stale task baseline unless `--force-stale-baseline` is explicitly provided after review
 - main checkout remains untouched until explicit human promotion
-- git worktree orchestration remains out of scope
+- copy-workspace promotion remains the default path; Git worktree promotion is available through `devflow task create --git-worktree`
 
 ## Phase 4b: Manual Proof-Agent Truthfulness
 
@@ -163,8 +165,49 @@ Remaining before production-grade local beta:
 - design a cautious `devflow repair --dry-run` follow-up after strict reporting stays stable
 - add installed-wheel CLI smoke tests in CI
 - publish passing CI evidence before tags or releases
-- decide whether the next workspace/promotion step is documented copy-promotion hardening or git worktree promotion
+- harden the opt-in Git-native worker isolation and promotion slice
 - keep patch application documented as text-only until complex diffs are delegated to a git-native path
+
+## Phase 4e: Git-Native Worker Isolation And Promotion
+
+Goal: move worker isolation from copied scratchpads to Git branches/worktrees while keeping Dev-Flow-owned state, verification evidence, and human-controlled promotion.
+
+Status: initial opt-in vertical slice implemented. Design and remaining contract: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md).
+
+Required first contract:
+
+```text
+task_id: task-001
+worker_id: codex-implementation
+base_branch: main
+base_commit: <sha>
+worker_branch: devflow/task-001/codex-implementation
+worktree_path: .devflow/worktrees/task-001/codex-implementation
+head_commit: <sha>
+dirty: true/false
+```
+
+Minimum vertical slice:
+
+- create a worktree-backed task with `devflow task create --git-worktree`
+- create a task branch from current `main` HEAD
+- create `.devflow/worktrees/<task_id>/<worker_id>/`
+- run the shell worker inside that worktree
+- record base commit, worker branch, worktree path, HEAD, and dirty state
+- run verification inside that worktree
+- bind verification to the worker branch HEAD commit
+- make `devflow task promote-preview` report base commit, current main HEAD, worker branch HEAD, merge-base, stale-baseline state, changed/deleted/renamed/untracked/binary files, conflict prediction, verification status, and promotion readiness
+- refuse promotion when worker HEAD differs from the verified commit
+- refuse promotion when main moved and stale baseline or conflicts are unresolved
+- promote with Git-aware mechanics instead of blind workspace copy-back
+
+Git evidence artifacts should live under `.devflow/tasks/<task_id>/workers/<worker_id>/` and include `git.json`, `diff.patch`, `diff-summary.json`, `verification.json`, and `promotion-preview.json`.
+
+`doctor --strict` now checks Git integrity for worktree-backed tasks: worker branch existence, worktree existence, safe worktree paths, base commit existence, branch ancestry, verified commit matching worker HEAD, and dirty worktree state after verification. Orphaned worktree/branch inventory and branch-sharing detection remain follow-up cleanup work.
+
+Cleanup and repair should stay cautious and dry-run-first in the next follow-up: `devflow task cleanup <task_id> --dry-run`, `devflow worktree list`, `devflow worktree prune --dry-run`, `devflow branch list`, and `devflow branch archive <branch>`.
+
+This milestone must not become a generic sandboxing detour, provider-adapter expansion, autonomous routing layer, or release automation project.
 
 ## Dogfooding Requirement
 
@@ -251,7 +294,7 @@ Related design contracts:
 - [docs/task-packet-contract.md](task-packet-contract.md)
 
 > [!IMPORTANT]
-> **Next Priority**: Keep focus on the shell-worker control room plus the stable manual proof-agent. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
+> **Next Priority**: Build Git-native worker isolation and promotion as the production vertical slice while keeping the shell-worker/manual proof-agent contract stable. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
 
 ## Later, Not Now
 

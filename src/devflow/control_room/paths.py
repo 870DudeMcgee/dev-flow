@@ -39,6 +39,22 @@ def workspace_path(root: Path, task_id: str) -> Path:
     return workspaces_dir(root) / task_id
 
 
+def worktrees_dir(root: Path) -> Path:
+    return devflow_dir(root) / "worktrees"
+
+
+def worktree_path(root: Path, task_id: str, worker_id: str) -> Path:
+    return worktrees_dir(root) / task_id / worker_id
+
+
+def task_workers_dir(root: Path, task_id: str) -> Path:
+    return task_dir(root, task_id) / "workers"
+
+
+def task_worker_dir(root: Path, task_id: str, worker_id: str) -> Path:
+    return task_workers_dir(root, task_id) / worker_id
+
+
 def relative_path(root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()

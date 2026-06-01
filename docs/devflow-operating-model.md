@@ -186,7 +186,7 @@ The current MVP uses copied task workspaces under:
 
 Worker and verification commands run inside the assigned task workspace.
 
-Future git worktree orchestration may strengthen the isolation model, but it must be explicitly promoted into the contract before becoming required runtime behavior.
+The initial Git-native isolation slice is active for shell workers through `devflow task create --git-worktree`: each task gets a branch and worktree under `.devflow/worktrees/<task_id>/shell/`, with Git facts recorded as Dev-Flow evidence. Multi-worker attempts remain follow-up work.
 
 The principle is stable:
 
@@ -204,7 +204,7 @@ Work is not ready for promotion until verification evidence exists or the lack o
 
 Promotion must be human-controlled.
 
-Future promotion mechanisms may include copy-back, patch application, git worktree merge, pull request creation, or branch promotion. None of those should bypass human review.
+The production promotion direction is Git-native: worker branches propose diffs, Dev-Flow previews merge readiness and verification evidence, and humans promote with Git-aware mechanics. Copy-back and patch application remain MVP or transitional paths. None of those should bypass human review.
 
 ## What Dev-Flow Is Not
 
@@ -236,7 +236,7 @@ It proves:
 * CLI visibility
 * canonical filesystem state
 
-Enabled non-shell worker adapters, git worktree orchestration, browser/web dashboard expansion, scheduling, automatic commits, automatic pull requests, and automated promotion are future layers unless explicitly promoted into the active contract. The current text-only terminal dashboard and human-controlled promotion commands are active contract surfaces. Non-shell adapter work must start with registry loading, manual packets, and shell alignment before provider-backed execution or routing.
+Enabled non-shell worker adapters, browser/web dashboard expansion, scheduling, automatic commits, automatic pull requests, and automated promotion are future layers unless explicitly promoted into the active contract. Git-native shell-worker isolation and promotion is opt-in; default task creation remains copy-workspace. The current text-only terminal dashboard and human-controlled promotion commands are active contract surfaces. Non-shell adapter work must start with registry loading, manual packets, and shell alignment before provider-backed execution or routing.
 
 ## Future Direction
 

@@ -20,10 +20,13 @@ from devflow.control_room.persistence import (
     utc_now,
 )
 from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
+from devflow.control_room.git_worktree import build_git_promotion_preview, is_git_worktree_task, promote_git_worktree
 
 
 def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     task = get_task(root, task_id)
+    if is_git_worktree_task(task):
+        return build_git_promotion_preview(root, task)
     baseline = promotion_baseline(root, task)
     workspace = absolute_path(root, task.workspace).resolve()
     expected = (workspaces_dir(root) / task.id).resolve()
@@ -196,6 +199,24 @@ def promote_task(
     # Double check dirty repository status to ensure safety
     if not force and main_checkout_has_uncommitted_changes(root):
         raise ValueError("Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.")
+
+    if is_git_worktree_task(task):
+        preview = promote_git_worktree(root, task)
+        task.status = "promoted"
+        task.updated_at = utc_now()
+        task.last_event = "task_promoted"
+        save_task(task_dir(root, task_id), task)
+        append_event(root, task_id, "task_promoted", {
+            "mode": "git_worktree",
+            "worker_id": preview["git"]["worker_id"],
+            "worker_branch": preview["git"]["worker_branch"],
+            "verified_commit": preview["git"]["worker_branch_head"],
+            "added": preview["added"],
+            "modified": preview["modified"],
+            "deleted": preview["deleted"],
+            "renamed": preview.get("renamed", []),
+        })
+        return task
 
     workspace = absolute_path(root, task.workspace).resolve()
     expected = (workspaces_dir(root) / task.id).resolve()

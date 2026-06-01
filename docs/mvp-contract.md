@@ -4,7 +4,9 @@ Status: active, reconciled on 2026-05-30.
 
 This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, visibility, verification, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
 
-Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The next registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md). These design documents do not change this current product contract.
+Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The opt-in Git-native worker isolation and promotion slice is described in [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md). The registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md).
+
+The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace.
 
 ## Stable Commands
 
@@ -16,6 +18,7 @@ devflow reconcile
 devflow dashboard
 devflow task --help
 devflow task create "example task"
+devflow task create --git-worktree "example git task"
 devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task verify <task-id> --shell "test -f result.txt"
@@ -93,6 +96,12 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/questions.jsonl
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/worker_failed.json
 .devflow/workspaces/<task-id>/
+.devflow/worktrees/<task-id>/shell/                          # only for --git-worktree tasks
+.devflow/tasks/<task-id>/workers/shell/git.json              # only for --git-worktree tasks
+.devflow/tasks/<task-id>/workers/shell/diff.patch            # only for --git-worktree tasks
+.devflow/tasks/<task-id>/workers/shell/diff-summary.json     # only for --git-worktree tasks
+.devflow/tasks/<task-id>/workers/shell/verification.json     # only for --git-worktree tasks
+.devflow/tasks/<task-id>/workers/shell/promotion-preview.json # only for --git-worktree tasks
 ```
 
 `task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. Patch application writes a SHA-256-addressed evidence artifact under `patches/` and updates latest `patch-application.json`; `patch_applied` events point at that evidence. The workspace is the only current place where shell-worker results are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
@@ -122,7 +131,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - `doctor --strict` is read-only and reports stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, and promoted-task consistency.
 - `devflow reconcile` is read-only and reports partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts.
 - No SQLite database is created.
-- No `.devflow/worktrees/` directory is created.
+- Default copy-workspace tasks do not create `.devflow/worktrees/`; `--git-worktree` tasks do.
 - Legacy agent, memory, DAG, trace, worktree, database, and software-factory systems remain bypassed for this MVP path.
 - Manual proof-agent workers may write only to the assigned isolated workspace and their agent evidence directory.
 - Manual proof-agent completion does not imply verification or promotion readiness.
@@ -142,19 +151,22 @@ This does not stop a command from using the local user's filesystem permissions,
 
 Current MVP implementation limits:
 
-- workspaces are copy-based scratchpads, not git worktrees
-- promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
+- default workspaces are copy-based scratchpads
+- opt-in `--git-worktree` tasks create branch-backed worktrees and promote with Git-aware merge mechanics
+- copy-workspace promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
 - patch application supports validated text patches only, records SHA-256 patch evidence, and rejects binary diffs, renames, copies, mode changes, and similarity metadata
 - event logs are append-only evidence, but task and system event writes are still separate writes and may require human-reviewed reconciliation after a crash
 
-Future security hardening items:
+Future production hardening items:
+- Multi-worker Git worktree attempts per task beyond the initial shell worker lane.
+- Orphaned worktree/branch cleanup and dry-run repair commands.
+- Richer Git-native conflict handling and resolver-task UX.
+- Dry-run-first worktree and branch cleanup/recovery commands.
 - Per-task temporary `HOME` and temp directories.
 - Network-off runner policies.
 - Resource limits for CPU, memory, file descriptors, and process counts.
 - Allowlisted command profiles and absolute path inspections.
 - Container, firejail, macOS sandbox, or other OS-level isolation.
-- Git worktree or branch-backed workspaces.
-- Git-native promotion and conflict handling.
 - Cautious `devflow repair --dry-run` design after read-only reconciliation reporting stays stable.
 
 ## Out Of The Current Contract
@@ -163,10 +175,10 @@ Future security hardening items:
 - Token-context helper as runtime authority. The helper may exist as visible planning guidance, but it does not execute token tools, route models, install hooks, or change shell-worker, verification, or promotion behavior.
 - Task-fit/context routing runtime.
 - Provider-backed worker adapters. The only stable non-shell worker path is the manual proof-agent handoff; it does not execute model APIs or own canonical task state.
-- Git worktree orchestration.
+- Provider-backed Git worktree orchestration beyond the opt-in shell-worker lane.
 - SQLite or any other database.
 - Automatic merge, automatic copy-back, commit, push, or PR automation.
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Next Priority**: Keep the shell-worker control-room loop stable while adding the next layer only in order: registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing.
+> **Next Priority**: Harden the opt-in Git-native shell-worker isolation and promotion slice while keeping the current shell-worker/manual proof-agent loop stable. Provider-backed adapters, autonomous routing, and PR automation remain later layers.

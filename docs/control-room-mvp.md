@@ -14,6 +14,7 @@ For details on the project's design and boundaries:
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction. [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the later task-fit, context-estimation, capability-profile, context-pack, scout, and routing feedback design. Both are design-only until implementation work explicitly promotes a slice.
+- [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees, commit-bound verification, Git-native promotion preview, and human-controlled promotion slice.
 
 
 ## Product Direction
@@ -118,7 +119,9 @@ Task-local mutation commands (`run`, `verify`, `apply-patch`, and `promote`) cre
 
 Manual proof-agent files are evidence artifacts, not canonical state. `task show` and `dashboard` surface complete, blocked, and failed manual-agent evidence while leaving canonical task state under Dev-Flow control.
 
-The current control-room contract does not create a SQLite database or `.devflow/worktrees/` directory. Shell-worker results stay in the task workspace until a human explicitly previews and promotes verified changes.
+The default control-room task path does not create a SQLite database or `.devflow/worktrees/` directory. Shell-worker results stay in the task workspace until a human explicitly previews and promotes verified changes. `devflow task create --git-worktree` is the opt-in Git-native path and creates `.devflow/worktrees/<task_id>/shell/` plus branch/evidence artifacts.
+
+The production direction after the copy-workspace MVP is Git-native worker isolation and promotion: workers run in `.devflow/worktrees/<task_id>/<worker_id>/` on branches like `devflow/<task_id>/<worker_id>`, verification records the exact worker branch commit it checked, and promotion preview reports Git merge readiness instead of only copy-workspace changes. The first opt-in shell-worker slice is active.
 
 ## Files To Keep Or Salvage Later
 
@@ -221,10 +224,11 @@ Outside the current product contract:
 - provider-backed non-shell worker adapters
 - agent registry and adapter-runtime implementation beyond the stable proof-agent contract
 - SQLite or other databases
-- `.devflow/worktrees/` orchestration
+- provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
+- multi-worker worktree scheduling, branch cleanup, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
 
 > [!IMPORTANT]
-> **Next Priority**: Keep the shell-worker and manual proof-agent loop stable. Future worker expansion must continue in order: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
+> **Next Priority**: Harden the opt-in Git-native worker isolation and promotion slice while keeping the shell-worker and manual proof-agent loop stable. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

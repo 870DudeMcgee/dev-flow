@@ -418,7 +418,7 @@ Required capabilities:
 - skip symlinks during scratchpad copy
 - preview promotion from isolated workspace changes
 - promote verified changes only after explicit human approval
-- avoid SQLite databases and `.devflow/worktrees/`
+- for default MVP tasks, avoid SQLite databases and `.devflow/worktrees/`
 
 Required runtime shape:
 
@@ -435,6 +435,8 @@ Required runtime shape:
 ```
 
 The MVP passes when Dev-Flow can create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, `result.txt` must stay out of the main checkout.
+
+The initial production hardening slice adds opt-in Git-native worker isolation and promotion: branches and worktrees isolate workers, Dev-Flow records Git facts as evidence, verification binds to a worker branch commit, and humans promote with Git-aware readiness checks.
 
 ---
 
@@ -502,7 +504,7 @@ Deliverables:
 - copied scratchpad workspace per task
 - tampered workspace path refusal
 - symlink skipping during scratchpad copy
-- explicit future design for copy-back or promotion
+- explicit Git-native branch/worktree promotion design
 
 Success check:
 
@@ -528,6 +530,29 @@ Success check:
 
 ```text
 Can a task produce a diff, run tests, and become ready for human review?
+```
+
+---
+
+### Phase 3b: Git-Native Worker Isolation And Promotion
+
+Goal: make Git branches/worktrees the production isolation and promotion substrate while Dev-Flow remains the control layer.
+
+Deliverables:
+
+- per-worker branch from assignment-time `main` HEAD
+- per-worker worktree under `.devflow/worktrees/<task_id>/<worker_id>/`
+- recorded base commit, worker branch, worktree path, HEAD, and dirty state
+- verification evidence bound to the worker HEAD commit
+- Git-native promotion preview with merge-base, stale-baseline state, file changes, conflict prediction, and promotion readiness
+- refusal when worker HEAD changed after verification
+- refusal when main moved and stale baseline or conflicts are unresolved
+- human-controlled Git-aware promotion
+
+Success check:
+
+```text
+Can a worker produce a branch-backed diff, prove it at a specific commit, and let the human promote it with Git merge semantics instead of copy-back?
 ```
 
 ---

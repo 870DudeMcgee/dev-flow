@@ -18,6 +18,7 @@ Active source of truth:
 - [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
+- [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees and Git-native promotion slice.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter runtime direction.
 - [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the future task-fit, context-estimation, model-capability, context-pack, scout, and routing-quality design.
 
@@ -29,6 +30,8 @@ Archive note: legacy software-factory archives are quarantined outside the activ
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
 The current milestone is a non-AI shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, with task creation, isolated execution/handoff, verification, visibility, and human-controlled promotion.
+
+The initial Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, and humans promote through Git-aware mechanics rather than blind copy-back.
 
 ## Code Architecture Boundary
 
@@ -82,11 +85,26 @@ Current product contract:
 - `verified` and `verification_failed` task statuses from verification
 - text-only terminal dashboard from canonical task artifacts
 - human-controlled promotion preview and promotion from isolated workspaces
-- no SQLite database or `.devflow/worktrees/` directory in the MVP path
+- no SQLite database; default copy-workspace tasks do not create `.devflow/worktrees/`
 - read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is consumed by the manual proof-agent handoff without becoming canonical state
 - design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
 - design-only task-fit/context routing architecture; not active runtime behavior yet
+- opt-in Git-native shell-worker isolation and promotion slice through `devflow task create --git-worktree`
 - trusted-local safety model only: shell execution is path-isolated in a copied workspace, not OS-sandboxed
+
+## Git-Native Slice
+
+Implemented from [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md):
+
+- create a Dev-Flow task branch from current `main` HEAD
+- create `.devflow/worktrees/<task_id>/<worker_id>/`
+- run the shell worker and verification inside that worktree
+- record base commit, worker branch, worktree path, worker HEAD, and dirty state
+- bind verification to the exact worker HEAD commit
+- make `promote-preview` report base commit, main HEAD, worker branch HEAD, merge-base, changed/deleted/renamed/untracked/binary files, conflict prediction, verification status, and promotion readiness
+- refuse promotion if worker HEAD changed after verification
+- refuse promotion if main moved and stale baseline or conflicts are unresolved
+- promote with Git-aware mechanics under human control
 
 ## Required Current Commands
 
@@ -114,7 +132,7 @@ devflow task promote <task_id>
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
 - Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
-- Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, worktree orchestration, databases, and provider-backed worker adapters as outside the current contract unless a future implementation explicitly promotes them.
+- Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, databases, and provider-backed worker adapters as outside the current contract unless a future implementation explicitly promotes them. Default runtime behavior stays copy-workspace unless `--git-worktree` is requested.
 - Future non-shell worker work beyond `devflow-manual-codex-worker` must follow the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Close every meaningful milestone or product-direction change by aligning active docs, removing stale context, verifying, committing, merging to `main`, pushing, and writing a compact handoff with one next safe action.
@@ -130,7 +148,7 @@ devflow task promote <task_id>
 
 ## Acceptance Check
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/` before promotion, the task artifacts exist, no SQLite database is created, and no `.devflow/worktrees/` directory is created.
+Create one default shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/` before promotion and the task artifacts exist. For the Git-native path, create a task with `--git-worktree`, commit worker changes on `devflow/<task_id>/shell`, verify, preview Git readiness, and promote only after explicit human approval.
 
 Current verification covers the command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, symlink skipping, dashboard projection, and promotion safety in the focused tests. Focused task-packet projection coverage lives in `tests/test_task_packet.py`.
 

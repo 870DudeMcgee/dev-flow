@@ -207,12 +207,23 @@ def context_command(
 
 
 @task_app.command("create")
-def task_create(title: str) -> None:
+def task_create(
+    title: str,
+    git_worktree: bool = typer.Option(False, "--git-worktree", help="Create a Git branch/worktree-backed worker lane."),
+) -> None:
     """Create a task and its artifact directory."""
-    task = create_task(Path.cwd(), title)
+    try:
+        task = create_task(Path.cwd(), title, git_worktree=git_worktree)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(f"Created {task.id}: {task.title}")
     typer.echo(f"status: {task.status}")
     typer.echo(f"workspace: {task.workspace_path}")
+    if task.workspace_kind:
+        typer.echo(f"workspace_kind: {task.workspace_kind}")
+    if task.branch_name:
+        typer.echo(f"worker_branch: {task.branch_name}")
     if task.workspace_dirty:
         typer.echo("Warning: Main worktree has uncommitted changes. Workspace contains dirty modifications.")
 
@@ -728,14 +739,30 @@ def task_promote_preview(task_id: str) -> None:
     added = res["added"]
     modified = res["modified"]
     deleted = res["deleted"]
+    renamed = res.get("renamed", [])
+    untracked = res.get("untracked", [])
+    binary = res.get("binary", [])
     diffs = res["diffs"]
     baseline = res["baseline"]
+    git_preview = res.get("git")
 
     typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
     typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
     typer.echo(f"baseline_status: {baseline['baseline_status']}")
+    if git_preview:
+        typer.echo(f"task_id: {git_preview['task_id']}")
+        typer.echo(f"worker_id: {git_preview['worker_id']}")
+        typer.echo(f"base_commit: {git_preview['base_commit'] or 'unavailable'}")
+        typer.echo(f"main_current_head: {git_preview['main_current_head'] or 'unavailable'}")
+        typer.echo(f"worker_branch: {git_preview['worker_branch']}")
+        typer.echo(f"worker_branch_head: {git_preview['worker_branch_head'] or 'unavailable'}")
+        typer.echo(f"merge_base: {git_preview['merge_base'] or 'unavailable'}")
+        typer.echo(f"baseline_stale: {'yes' if git_preview['baseline_stale'] else 'no'}")
+        typer.echo(f"conflict_prediction: {git_preview['conflict_prediction']}")
+        typer.echo(f"verification_status: {git_preview['verification_status']}")
+        typer.echo(f"promotion_readiness: {git_preview['promotion_readiness']}")
 
-    if not added and not modified and not deleted:
+    if not added and not modified and not deleted and not renamed and not untracked and not binary:
         typer.echo("No changes to promote")
         return
 
@@ -754,6 +781,24 @@ def task_promote_preview(task_id: str) -> None:
     if deleted:
         typer.echo("Deleted files:")
         for name in deleted:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if renamed:
+        typer.echo("Renamed files:")
+        for item in renamed:
+            typer.echo(f"  - {item['from']} -> {item['to']}")
+        typer.echo()
+
+    if untracked:
+        typer.echo("Untracked files:")
+        for name in untracked:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if binary:
+        typer.echo("Binary files:")
+        for name in binary:
             typer.echo(f"  - {name}")
         typer.echo()
 
@@ -828,9 +873,12 @@ def task_promote(
     added = res["added"]
     modified = res["modified"]
     deleted = res["deleted"]
+    renamed = res.get("renamed", [])
+    untracked = res.get("untracked", [])
+    binary = res.get("binary", [])
     diffs = res["diffs"]
 
-    if not added and not modified and not deleted:
+    if not added and not modified and not deleted and not renamed and not untracked and not binary:
         typer.echo("No changes to promote")
         return
 
@@ -849,6 +897,24 @@ def task_promote(
     if deleted:
         typer.echo("Deleted files:")
         for name in deleted:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if renamed:
+        typer.echo("Renamed files:")
+        for item in renamed:
+            typer.echo(f"  - {item['from']} -> {item['to']}")
+        typer.echo()
+
+    if untracked:
+        typer.echo("Untracked files:")
+        for name in untracked:
+            typer.echo(f"  - {name}")
+        typer.echo()
+
+    if binary:
+        typer.echo("Binary files:")
+        for name in binary:
             typer.echo(f"  - {name}")
         typer.echo()
 
