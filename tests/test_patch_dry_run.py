@@ -119,6 +119,27 @@ def _write_workspace_file(tmp_path: Path, path: str, text: str) -> Path:
     return file_path
 
 
+def test_agent_patch_dry_run_uses_normalized_agent_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _create_task(tmp_path, monkeypatch)
+    _write_workspace_file(tmp_path, "docs/agent.md", "old\n")
+    agent_dir = tmp_path / ".devflow" / "tasks" / "task-0001" / "agents" / "qwopus-implementer"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "proposal.patch").write_text(_modify_patch("docs/agent.md"), encoding="utf-8")
+    review = runner.invoke(app, ["task", "review-patch", "task-0001", "--agent", "qwopus-implementer"])
+    assert review.exit_code == 0, review.output
+
+    result = runner.invoke(app, ["task", "patch-dry-run", "task-0001", "--agent", "qwopus-implementer"])
+
+    assert result.exit_code == 0, result.output
+    assert "Run: agent-qwopus-implementer" in result.output
+    data = _dry_run_json(tmp_path, "agent-qwopus-implementer")
+    assert data["dry_run_status"] == "would_apply_cleanly"
+    assert data["files_would_modify"] == ["docs/agent.md"]
+    assert _workspace(tmp_path).joinpath("docs/agent.md").read_text(encoding="utf-8") == "old\n"
+
+
 def test_missing_local_model_run_fails_clearly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _create_task(tmp_path, monkeypatch)
 

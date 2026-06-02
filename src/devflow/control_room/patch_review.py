@@ -223,6 +223,56 @@ def review_patch_candidate(root: Path, task_id: str, *, run_id: str | None = Non
     return review
 
 
+def normalize_agent_patch_candidate(root: Path, task_id: str, agent_id: str) -> str:
+    repo_root = root.resolve()
+    task_path = task_dir(repo_root, task_id)
+    if not task_path.exists():
+        raise KeyError(f"Task '{task_id}' not found.")
+    if Path(agent_id).is_absolute() or ".." in Path(agent_id).parts:
+        raise ValueError(f"Invalid agent id: {agent_id}")
+
+    agent_dir = task_path / "agents" / agent_id
+    agent_patch = agent_dir / "proposal.patch"
+    if not agent_patch.exists():
+        raise FileNotFoundError(f"proposal.patch not found for agent '{agent_id}'.")
+
+    run_id = f"agent-{_slug(agent_id)}"
+    run_path = task_path / "local-model-runs" / run_id
+    run_path.mkdir(parents=True, exist_ok=True)
+    patch_path = run_path / "proposal.patch"
+    patch_text = agent_patch.read_text(encoding="utf-8")
+    if not patch_path.exists() or patch_path.read_text(encoding="utf-8") != patch_text:
+        patch_path.write_text(patch_text, encoding="utf-8")
+
+    proposal = {
+        "schema_version": 1,
+        "task_id": task_id,
+        "run_id": run_id,
+        "response_path": _agent_response_path(repo_root, agent_dir),
+        "classification": "patch_candidate",
+        "confidence": "high",
+        "has_patch_candidate": True,
+        "patch_candidate_path": relative_path(repo_root, patch_path),
+        "proposal_path": relative_path(repo_root, run_path / "proposal.md"),
+        "proposal_json_path": relative_path(repo_root, run_path / "proposal.json"),
+        "validation_path": None,
+        "warnings": [f"Normalized from agent proposal evidence: {agent_id}"],
+        "next_action": {
+            "label": "Review patch candidate",
+            "command": f"devflow task review-patch {task_id} --run-id {run_id}",
+        },
+    }
+    (run_path / "proposal.json").write_text(json.dumps(proposal, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (run_path / "proposal.md").write_text(
+        "# Normalized Agent Patch Candidate\n\n"
+        f"Task: {task_id}\n"
+        f"Agent: {agent_id}\n"
+        f"Patch: {relative_path(repo_root, patch_path)}\n",
+        encoding="utf-8",
+    )
+    return run_id
+
+
 def latest_patch_review(root: Path, task_id: str) -> dict[str, Any] | None:
     runs_dir = task_dir(root, task_id) / "local-model-runs"
     if not runs_dir.exists() or not runs_dir.is_dir():
@@ -351,6 +401,19 @@ def _read_optional_run_evidence(run_path: Path) -> list[str]:
         except json.JSONDecodeError:
             warnings.append("validation.json is present but malformed.")
     return warnings
+
+
+def _slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
+    return slug or "agent"
+
+
+def _agent_response_path(root: Path, agent_dir: Path) -> str | None:
+    for name in ("raw_output.md", "result.md"):
+        candidate = agent_dir / name
+        if candidate.exists():
+            return relative_path(root, candidate)
+    return None
 
 
 def _slice_alignment(root: Path, task_id: str, files_touched: list[str]) -> dict[str, Any]:

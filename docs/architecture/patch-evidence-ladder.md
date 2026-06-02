@@ -368,13 +368,14 @@ Human review boundary: Dry-run is not patch application, verification, or promot
 
 ### I. Explicit Patch Apply to Isolated Workspace
 
-Purpose: Apply a reviewed and preferably dry-run-clean patch only after explicit human command.
+Purpose: Apply a reviewed and dry-run-checked patch only after explicit human command.
 
-Status: Current for `devflow task apply-patch`; planned for Milestone 9 hardening that requires fresh acceptable patch review and dry-run evidence before mutation.
+Status: Current. Milestone 9 hardening requires matching fresh acceptable patch review and dry-run evidence before mutation.
 
 Command surface:
 
 - Current: `devflow task apply-patch <task-id> --agent <agent-id>`
+- Current: `devflow task apply-patch <task-id> --run-id <run-id>`
 
 Artifact surface:
 
@@ -382,7 +383,7 @@ Artifact surface:
 - `.devflow/tasks/<task-id>/patches/<patch-hash>.json`
 - `patch_applied` events in `.devflow/tasks/<task-id>/events.jsonl`
 
-Mutation and state: Patch apply mutates the isolated task workspace and writes durable patch application evidence. Current patch application supports validated text patches and rejects unsupported complex metadata.
+Mutation and state: Patch apply mutates the isolated task workspace and writes durable patch application evidence. Current patch application supports validated text patches, records the matching review and dry-run evidence paths, and rejects unsupported complex metadata.
 
 Type: Mutation.
 
@@ -477,7 +478,7 @@ Human review boundary: Promotion is human-controlled, readiness-gated, and must 
 
 ## Relationship to Existing task apply-patch
 
-The existing patch application path, if implemented, remains the explicit mutation boundary. Patch dry-run preview sits before patch application and must not replace the patch applier. Dry-run evidence should make later explicit application safer, more visible, and easier to review.
+The existing patch application path remains the explicit mutation boundary. Patch dry-run preview sits before patch application and does not replace the patch applier. Apply-patch now refuses mutation unless the selected patch has matching fresh acceptable review and dry-run evidence.
 
 ## Relationship to Verification
 
@@ -600,8 +601,7 @@ The following remain deferred and are not part of the current stable runtime:
 
 - Milestone 8A: Documentation alignment for Patch Evidence Ladder and future context intake roadmap.
 - Milestone 8B: Deterministic patch dry-run preview. Status: implemented in commit `1acc4ce` according to milestone handoff and confirmed by current source/tests. Command: `devflow task patch-dry-run <task-id>` with optional `--run-id <run-id>`. Boundary: no mutation.
-- Milestone 9: Explicit reviewed patch apply to isolated workspace only. This should require fresh acceptable patch review and dry-run evidence before mutating the isolated workspace.
-- Milestone 10: Verification/readiness hardening around applied patches.
+- Milestone 9: Explicit reviewed patch apply to isolated workspace only. Status: implemented; apply-patch now requires fresh acceptable patch review and dry-run evidence before mutating the isolated workspace.
+- Milestone 10: Verification/readiness hardening around applied patches. Status: next recommended implementation milestone.
 - Milestone 11: Project Code Map MVP.
 - Milestone 12: Idea Foundry MVP.
-

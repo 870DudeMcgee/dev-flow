@@ -428,7 +428,7 @@ def _proposed_file_paths(diff_text: str) -> list[str]:
 
 def _next_suggested_command(task_id: str, agent_id: str, status: str, patch_file: Path) -> str:
     if status == "complete" and patch_file.exists() and patch_file.stat().st_size > 0:
-        return f"devflow task apply-patch {task_id} --agent {agent_id}"
+        return f"devflow task review-patch {task_id} --agent {agent_id}"
     if status in {"worker_failed", "blocked"}:
         return f"devflow task escalation-packet {task_id} --agent {agent_id}"
     return f"devflow task show {task_id}"

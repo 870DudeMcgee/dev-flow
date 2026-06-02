@@ -116,7 +116,7 @@ def qwopus_suggested_next_action(
 
     if evidence.has_proposal_patch:
         if not qwopus_patch_application_succeeded(root, task_id, agent_id=agent_id):
-            return f"devflow task apply-patch {task_id} --agent {agent_id}"
+            return _next_patch_gate_command(evidence.task_path, task_id, agent_id, evidence.proposal_patch_path)
         if verification_status == "passed":
             return f"devflow task promote-preview {task_id}"
         return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
@@ -136,7 +136,7 @@ def qwopus_next_command(
     if status not in {"complete", "success"}:
         return f"devflow task escalation-packet {task_id} --agent {agent_id}"
     if patch_found and not patch_applied:
-        return f"devflow task apply-patch {task_id} --agent {agent_id}"
+        return _next_patch_gate_command(verification.parent, task_id, agent_id)
     if patch_applied and verification.exists():
         data = read_json_object(verification)
         if data.get("status") == "passed":
@@ -145,6 +145,40 @@ def qwopus_next_command(
     if patch_applied:
         return f"devflow task verify {task_id} --shell \"<focused test command>\""
     return f"devflow task escalation-packet {task_id} --agent {agent_id}"
+
+
+def _next_patch_gate_command(
+    task_path: Path,
+    task_id: str,
+    agent_id: str,
+    proposal_patch_path: Path | None = None,
+) -> str:
+    review_exists, dry_run_exists = _matching_agent_patch_gate_evidence(task_path, agent_id, proposal_patch_path)
+    if not review_exists:
+        return f"devflow task review-patch {task_id} --agent {agent_id}"
+    if not dry_run_exists:
+        return f"devflow task patch-dry-run {task_id} --agent {agent_id}"
+    return f"devflow task apply-patch {task_id} --agent {agent_id}"
+
+
+def _matching_agent_patch_gate_evidence(
+    task_path: Path,
+    agent_id: str,
+    proposal_patch_path: Path | None,
+) -> tuple[bool, bool]:
+    if proposal_patch_path is None:
+        proposal_patch_path = task_path / "agents" / agent_id / "proposal.patch"
+    if not proposal_patch_path.exists():
+        return False, False
+    run_dir = task_path / "local-model-runs" / f"agent-{_slug(agent_id)}"
+    run_patch = run_dir / "proposal.patch"
+    if not run_patch.exists() or _hash_file(run_patch) != _hash_file(proposal_patch_path):
+        return False, False
+    return (run_dir / "patch-review.json").exists(), (run_dir / "patch-dry-run.json").exists()
+
+
+def _slug(value: str) -> str:
+    return "".join(char if char.isalnum() or char in "_.-" else "-" for char in value).strip("-") or "agent"
 
 
 def build_qwopus_summary(root: Path, task_path: Path, agent_id: str) -> dict[str, Any] | None:

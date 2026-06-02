@@ -92,7 +92,7 @@ Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a li
 Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. It is useful as a control-room kernel, but it is not a security sandbox for untrusted commands, agents, repositories, or multi-user execution.
 
 - Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
-- `devflow task run <task-id> --worker qwopus-implementer` calls local Ollama through the registry-backed adapter, preserves raw output, and writes a proposed unified diff to `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation route. Dev-Flow must apply the patch, run verification, and gate promotion.
+- `devflow task run <task-id> --worker qwopus-implementer` calls local Ollama through the registry-backed adapter, preserves raw output, and writes a proposed unified diff to `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation route. Dev-Flow requires fresh acceptable patch review and dry-run evidence before explicit patch application, then runs verification and gates promotion separately.
 - `devflow task local` remains a legacy advisory wrapper around `ollama run <model>` for local Qwen/Qwopus/Gemma ladder evidence. It captures raw stdout/stderr plus `run.json`, treats success as subprocess exit code `0` only, and does not write `proposal.patch`, apply model output, verify, commit, merge, promote, route models, or call remote provider APIs.
 - `devflow task orchestrate <task-id> --plan-only` writes orchestration policy evidence only. It records Git/DevMode guardrails, worker roles, permissions, stop conditions, and human-promotion requirements; it does not execute workers, call providers, apply patches, verify, promote, or mutate main.
 - `devflow worker validate-outcome <outcome.json>` validates worker outcome metadata only and writes validation evidence. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
@@ -173,8 +173,8 @@ Run the preferred local Qwopus patch-proposal path:
 ```bash
 .venv/bin/python -m devflow.cli task run "$TASK_ID" --worker qwopus-implementer
 .venv/bin/python -m devflow.cli task show "$TASK_ID"
-.venv/bin/python -m devflow.cli task review-patch "$TASK_ID"
-.venv/bin/python -m devflow.cli task patch-dry-run "$TASK_ID"
+.venv/bin/python -m devflow.cli task review-patch "$TASK_ID" --agent qwopus-implementer
+.venv/bin/python -m devflow.cli task patch-dry-run "$TASK_ID" --agent qwopus-implementer
 .venv/bin/python -m devflow.cli task apply-patch "$TASK_ID" --agent qwopus-implementer
 .venv/bin/python -m devflow.cli task verify "$TASK_ID" --shell "<test-command>"
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
@@ -309,7 +309,7 @@ Focused control-room verification:
 .venv/bin/python -m pytest tests/test_architecture_boundaries.py tests/test_devflow_init_structure.py tests/test_control_room_shell.py tests/test_promote_preview.py tests/test_task_packet.py -q
 ```
 
-Current development should keep the shell-worker/manual proof-agent loop stable while hardening explicit reviewed patch application to require fresh acceptable review and dry-run evidence before isolated workspace mutation.
+Current development should keep the shell-worker/manual proof-agent loop stable while tightening verification and readiness evidence around applied patches without collapsing apply-patch, verification, or promotion into one step.
 
 ## License
 

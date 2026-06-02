@@ -80,6 +80,32 @@ def _review_json(tmp_path: Path, run_id: str = "run-1") -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_agent_patch_review_creates_normalized_run_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _create_task(tmp_path, monkeypatch)
+    agent_dir = tmp_path / ".devflow" / "tasks" / "task-0001" / "agents" / "qwopus-implementer"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "proposal.patch").write_text(_patch("docs/agent.md"), encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "review-patch", "task-0001", "--agent", "qwopus-implementer"])
+
+    assert result.exit_code == 0, result.output
+    assert "Run: agent-qwopus-implementer" in result.output
+    data = _review_json(tmp_path, "agent-qwopus-implementer")
+    assert data["review_status"] == "low_risk_candidate"
+    assert data["patch_path"] == ".devflow/tasks/task-0001/local-model-runs/agent-qwopus-implementer/proposal.patch"
+    assert (
+        tmp_path
+        / ".devflow"
+        / "tasks"
+        / "task-0001"
+        / "local-model-runs"
+        / "agent-qwopus-implementer"
+        / "proposal.patch"
+    ).read_text(encoding="utf-8") == _patch("docs/agent.md")
+
+
 def test_no_patch_candidate_writes_review_without_source_mutation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _create_task(tmp_path, monkeypatch)
     _write_proposal(tmp_path, has_patch_candidate=False, classification="advisory_only")

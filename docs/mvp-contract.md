@@ -23,8 +23,11 @@ devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task run <task-id> --worker qwopus-implementer
 devflow task review-patch <task-id>
+devflow task review-patch <task-id> --agent qwopus-implementer
 devflow task patch-dry-run <task-id>
+devflow task patch-dry-run <task-id> --agent qwopus-implementer
 devflow task apply-patch <task-id> --agent qwopus-implementer
+devflow task apply-patch <task-id> --run-id <run-id>
 devflow task verify <task-id> --shell "test -f result.txt"
 devflow task local <task-id> --agent qwen-planner
 devflow task local <task-id> --agent qwopus-implementer
@@ -98,9 +101,9 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 
 `devflow task local <task-id> --agent qwen-planner`, `devflow task local <task-id> --agent qwopus-implementer`, and `devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as advisory evidence only; Dev-Flow does not parse it as truth, write `proposal.patch`, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
 
-`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch` when a unified diff is present, and records inspectable `run.json` plus `result.md` summaries. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is `devflow task show <task-id>`, review evidence, dry-run preview evidence where available, `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`. If Qwopus fails or produces no usable patch, `devflow task escalation-packet <task-id> --agent qwopus-implementer` writes a compact copy-paste packet from local evidence only; it does not call remote providers.
+`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch` when a unified diff is present, and records inspectable `run.json` plus `result.md` summaries. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is `devflow task show <task-id>`, `devflow task review-patch <task-id> --agent qwopus-implementer`, `devflow task patch-dry-run <task-id> --agent qwopus-implementer`, `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`. If Qwopus fails or produces no usable patch, `devflow task escalation-packet <task-id> --agent qwopus-implementer` writes a compact copy-paste packet from local evidence only; it does not call remote providers.
 
-`devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
+`devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. The `--agent <agent-id>` form first normalizes that agent's `proposal.patch` into a matching local-model run evidence folder. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. `devflow task apply-patch` refuses mutation unless the selected patch has matching fresh acceptable patch review and dry-run evidence. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
 
 `devflow git status`, `devflow sync-main`, and `devflow push-main` are Git guardrail surfaces. `git status` is read-only and reports DevMode presence plus branch, dirty, operation-in-progress, origin/main, promotion, and push safety. `sync-main` fetches origin and fast-forwards `main` only. `push-main` pushes `main` only when the local checkout is clean and `origin/main` is not ahead or diverged.
 
@@ -248,7 +251,7 @@ Current MVP implementation limits:
 - default workspaces are copy-based scratchpads
 - opt-in `--git-worktree` tasks create branch-backed worktrees and promote with Git-aware merge mechanics
 - copy-workspace promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
-- patch application supports validated text patches only, records SHA-256 patch evidence, and rejects binary diffs, renames, copies, mode changes, and similarity metadata
+- patch application supports validated text patches only, requires matching fresh acceptable review and dry-run evidence, records SHA-256 patch evidence, and rejects binary diffs, renames, copies, mode changes, and similarity metadata
 - event logs are append-only evidence, but task and system event writes are still separate writes and may require human-reviewed reconciliation after a crash
 
 Future production hardening items:
@@ -276,4 +279,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation while keeping verification and promotion separate. Provider-backed adapters, autonomous routing, and PR automation remain later layers.
+> **Next Priority**: Milestone 10, verification/readiness hardening around applied patches. Keep verification and promotion separate from patch application, and keep provider-backed adapters, autonomous routing, and PR automation as later layers.

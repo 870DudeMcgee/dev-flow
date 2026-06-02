@@ -55,7 +55,7 @@ from devflow.control_room.agent_registry import load_agent_registry, AgentRegist
 from devflow.control_room.task_packet import build_agent_packet
 from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
 from devflow.control_room.patch_dry_run import latest_patch_dry_run, preview_patch_dry_run
-from devflow.control_room.patch_review import latest_patch_review, review_patch_candidate
+from devflow.control_room.patch_review import latest_patch_review, normalize_agent_patch_candidate, review_patch_candidate
 from devflow.control_room.qwopus_evidence import qwopus_result_summary
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
@@ -1112,10 +1112,13 @@ def task_normalize_proposal(
 def task_review_patch(
     task_id: str,
     run_id: str | None = typer.Option(None, "--run-id", help="Review a specific normalized local model run id."),
+    agent: str | None = typer.Option(None, "--agent", help="Normalize and review proposal.patch from a task agent."),
 ) -> None:
     """Review normalized proposal.patch evidence without applying it."""
     root = Path.cwd()
     try:
+        if agent:
+            run_id = normalize_agent_patch_candidate(root, task_id, agent)
         review = review_patch_candidate(root, task_id, run_id=run_id)
     except (KeyError, FileNotFoundError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -1154,10 +1157,13 @@ def task_review_patch(
 def task_patch_dry_run(
     task_id: str,
     run_id: str | None = typer.Option(None, "--run-id", help="Dry-run a specific reviewed local model run id."),
+    agent: str | None = typer.Option(None, "--agent", help="Dry-run a reviewed proposal.patch from a task agent."),
 ) -> None:
     """Preview whether reviewed proposal.patch evidence would apply without mutating files."""
     root = Path.cwd()
     try:
+        if agent:
+            run_id = normalize_agent_patch_candidate(root, task_id, agent)
         result = preview_patch_dry_run(root, task_id, run_id=run_id)
     except (KeyError, FileNotFoundError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -1321,9 +1327,11 @@ def task_local(
         typer.echo("  1. Planner advisory:     devflow task local <task-id> --agent qwen-planner")
         typer.echo("  2. Implementation patch: devflow task run <task-id> --worker qwopus-implementer  [canonical]")
         typer.echo("  3. Review advisory:      devflow task local <task-id> --agent gemma-reviewer")
-        typer.echo("  4. Apply patch:          devflow task apply-patch <task-id> --agent qwopus-implementer")
-        typer.echo("  5. Verification:         devflow task verify <task-id> --shell \"<command>\"")
-        typer.echo("  6. Promotion:            human-controlled promote-preview/promote only after verification.")
+        typer.echo("  4. Review patch:         devflow task review-patch <task-id> --agent qwopus-implementer")
+        typer.echo("  5. Dry-run patch:        devflow task patch-dry-run <task-id> --agent qwopus-implementer")
+        typer.echo("  6. Apply patch:          devflow task apply-patch <task-id> --agent qwopus-implementer")
+        typer.echo("  7. Verification:         devflow task verify <task-id> --shell \"<command>\"")
+        typer.echo("  8. Promotion:            human-controlled promote-preview/promote only after verification.")
 
         if resolved_worker == "qwen-planner":
             typer.echo("")
@@ -1456,7 +1464,7 @@ def task_run(
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat" and task.status == "complete":
-        typer.echo(f"suggested_next_action: devflow task apply-patch {task.id} --agent {worker}")
+        typer.echo(f"suggested_next_action: devflow task review-patch {task.id} --agent {worker}")
     _echo_review_capsule(Path.cwd(), task.id)
     if task.status != "complete":
         exit_code = task.last_exit_code if task.last_exit_code is not None else 1
@@ -1571,18 +1579,22 @@ def task_verify(
 def task_apply_patch(
     task_id: str,
     agent: str | None = typer.Option(None, "--agent", help="The specific agent's patch to apply."),
+    run_id: str | None = typer.Option(None, "--run-id", help="Apply a specific reviewed local model run proposal.patch."),
 ) -> None:
     """Apply a proposed patch from a worker agent to the isolated task workspace."""
     root = Path.cwd()
     try:
-        task = apply_task_patch(root, task_id, agent_id=agent)
+        task = apply_task_patch(root, task_id, agent_id=agent, run_id=run_id)
 
         # Retrieve the latest patch_applied event to print details
         task_path = root / ".devflow" / "tasks" / task.id
         events_file = task_path / "events.jsonl"
         patch_hash = "unknown"
         patch_evidence_path = None
+        patch_review_path = None
+        patch_dry_run_path = None
         agent_id = agent or "default"
+        applied_run_id = run_id
         changed_files = []
         if events_file.exists():
             for line in events_file.read_text(encoding="utf-8").splitlines():
@@ -1593,14 +1605,23 @@ def task_apply_patch(
                     if evt.get("event") == "patch_applied":
                         patch_hash = evt.get("patch_hash", "unknown")
                         patch_evidence_path = evt.get("patch_evidence_path")
-                        agent_id = evt.get("agent_id", agent_id)
+                        patch_review_path = evt.get("patch_review_path")
+                        patch_dry_run_path = evt.get("patch_dry_run_path")
+                        agent_id = evt.get("agent_id") or agent_id
+                        applied_run_id = evt.get("run_id", applied_run_id)
                         changed_files = evt.get("changed_files", [])
                 except Exception:
                     pass
 
         typer.echo(f"Successfully applied patch from agent '{agent_id}' to task workspace '{task.id}'.")
         typer.echo(f"Workspace: .devflow/workspaces/{task.id}")
+        if applied_run_id:
+            typer.echo(f"Run ID: {applied_run_id}")
         typer.echo(f"Patch Hash: {patch_hash}")
+        if patch_review_path:
+            typer.echo(f"Patch Review: {patch_review_path}")
+        if patch_dry_run_path:
+            typer.echo(f"Patch Dry-run: {patch_dry_run_path}")
         if patch_evidence_path:
             typer.echo(f"Patch Evidence: {patch_evidence_path}")
         typer.echo("")
@@ -3056,6 +3077,8 @@ def df_quick() -> None:
         "Code-change task mode:\n"
         "  devflow task create \"task title\"\n"
         "  devflow task run <task-id> --worker qwopus-implementer\n"
+        "  devflow task review-patch <task-id> --agent qwopus-implementer\n"
+        "  devflow task patch-dry-run <task-id> --agent qwopus-implementer\n"
         "  devflow task apply-patch <task-id> --agent qwopus-implementer\n"
         "  devflow task verify <task-id> --shell '<command>'\n"
         "  devflow task promote-preview <task-id>\n\n"

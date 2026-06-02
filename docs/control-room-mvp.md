@@ -62,8 +62,11 @@ devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt
 devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task run <task_id> --worker qwopus-implementer
 devflow task review-patch <task_id>
+devflow task review-patch <task_id> --agent qwopus-implementer
 devflow task patch-dry-run <task_id>
+devflow task patch-dry-run <task_id> --agent qwopus-implementer
 devflow task apply-patch <task_id> --agent qwopus-implementer
+devflow task apply-patch <task_id> --run-id <run_id>
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task local <task_id> --agent qwen-planner
 devflow task local <task_id> --agent qwopus-implementer
@@ -104,7 +107,7 @@ The preferred shell-worker form is `devflow task run <task_id> --worker shell --
 
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 
-The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for applying the patch to the isolated workspace, verification, merge readiness, and human-controlled promotion. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
+The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for explicit patch review, dry-run preview, application to the isolated workspace, verification, merge readiness, and human-controlled promotion. The `review-patch --agent` and `patch-dry-run --agent` forms normalize agent patch evidence into `.devflow/tasks/<task_id>/local-model-runs/<run_id>/`; apply-patch refuses mutation unless matching fresh acceptable review and dry-run evidence exists. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
 
 The orchestration policy form is `devflow task orchestrate <task_id> --plan-only`. It writes task-local policy evidence with Git/DevMode baseline, allowed roles, context layers, write boundaries, stop conditions, and human promotion requirements. It does not execute workers, call provider APIs, route autonomously, apply patches, verify, promote, or mutate main.
 
@@ -297,7 +300,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation while keeping verification and promotion separate. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
+> **Next Priority**: Milestone 10, verification/readiness hardening around applied patches. Keep verification and promotion separate from patch application. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

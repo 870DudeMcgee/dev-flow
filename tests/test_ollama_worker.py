@@ -17,6 +17,8 @@ from devflow.control_room.models import WorkerInput
 from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
 from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
 from devflow.control_room.persistence import save_task
+from devflow.control_room.patch_dry_run import preview_patch_dry_run
+from devflow.control_room.patch_review import normalize_agent_patch_candidate, review_patch_candidate
 from devflow.control_room.service import apply_task_patch, create_task, run_shell_task
 
 
@@ -79,6 +81,12 @@ def _write_qwopus_task_0015_shape(root: Path):
     return task
 
 
+def _review_and_dry_run_qwopus(root: Path, task_id: str) -> None:
+    run_id = normalize_agent_patch_candidate(root, task_id, "qwopus-implementer")
+    review_patch_candidate(root, task_id, run_id=run_id)
+    preview_patch_dry_run(root, task_id, run_id=run_id)
+
+
 def test_get_ollama_chat_worker_adapter_rejects_direct_runtime() -> None:
     with pytest.raises(UnsupportedWorkerAdapter, match="local_patch_runtime"):
         get_worker_adapter("ollama_chat")
@@ -123,7 +131,7 @@ def test_task_show_qwopus_proposal_without_patch_application_suggests_apply_patc
     result = runner.invoke(app, ["task", "show", task.id])
 
     assert result.exit_code == 0, result.output
-    assert f"suggested_next_action: devflow task apply-patch {task.id} --agent qwopus-implementer" in result.output
+    assert f"suggested_next_action: devflow task review-patch {task.id} --agent qwopus-implementer" in result.output
 
 
 def test_task_show_qwopus_result_summary_uses_agent_result(
@@ -144,6 +152,7 @@ def test_task_show_qwopus_patch_applied_without_verification_suggests_verify(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     task = _write_qwopus_task_0015_shape(tmp_path)
+    _review_and_dry_run_qwopus(tmp_path, task.id)
     apply_task_patch(tmp_path, task.id, agent_id="qwopus-implementer")
 
     result = runner.invoke(app, ["task", "show", task.id])
@@ -158,6 +167,7 @@ def test_task_show_qwopus_verified_patch_suggests_promote_preview(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     task = _write_qwopus_task_0015_shape(tmp_path)
+    _review_and_dry_run_qwopus(tmp_path, task.id)
     apply_task_patch(tmp_path, task.id, agent_id="qwopus-implementer")
     verified = runner.invoke(app, ["task", "verify", task.id, "--shell", "test -f hello.txt"])
     assert verified.exit_code == 0, verified.output
@@ -350,6 +360,7 @@ def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_pat
     assert "Hello from Qwopus" in (agent_dir / "proposal.patch").read_text(encoding="utf-8")
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
 
+    _review_and_dry_run_qwopus(tmp_path, task.id)
     apply_task_patch(tmp_path, task.id, agent_id="qwopus-implementer")
 
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello from Qwopus\n"
@@ -415,7 +426,7 @@ def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
     assert "run_metadata_path: .devflow/tasks/task-0001/agents/qwopus-implementer/run.json" in result.output
     assert "agent_result_path: .devflow/tasks/task-0001/agents/qwopus-implementer/result.md" in result.output
     assert "agent_log_path: .devflow/tasks/task-0001/agents/qwopus-implementer/logs/worker.log" in result.output
-    assert "suggested_next_action: devflow task apply-patch task-0001 --agent qwopus-implementer" in result.output
+    assert "suggested_next_action: devflow task review-patch task-0001 --agent qwopus-implementer" in result.output
 
     show = runner.invoke(app, ["task", "show", "task-0001"])
     assert show.exit_code == 0, show.output
@@ -424,7 +435,7 @@ def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
     assert "latest_run_status: complete" in show.output
     assert "proposal_patch_bytes:" in show.output
     assert "proposed_file_count: 1" in show.output
-    assert "next_suggested_command: devflow task apply-patch task-0001 --agent qwopus-implementer" in show.output
+    assert "next_suggested_command: devflow task review-patch task-0001 --agent qwopus-implementer" in show.output
 
     run_json = json.loads((Path(".devflow/tasks/task-0001/agents/qwopus-implementer/run.json")).read_text(encoding="utf-8"))
     assert run_json["proposal_patch_found"] is True
@@ -441,7 +452,7 @@ def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
     assert "patch dry-run artifacts" in serialized_packet
 
     result_md = Path(".devflow/tasks/task-0001/agents/qwopus-implementer/result.md").read_text(encoding="utf-8")
-    assert "Next action: `devflow task apply-patch task-0001 --agent qwopus-implementer`" in result_md
+    assert "Next action: `devflow task review-patch task-0001 --agent qwopus-implementer`" in result_md
 
 
 def test_ollama_worker_connection_failure(tmp_path: Path) -> None:
