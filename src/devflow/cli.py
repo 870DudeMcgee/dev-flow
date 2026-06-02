@@ -13,7 +13,12 @@ def _enforce_experimental(cmd_name: str) -> None:
 
 import typer
 
-from devflow.control_room.dashboard import run_dashboard
+from devflow.control_room.dashboard import (
+    run_dashboard,
+    render_dashboard_json,
+    render_next_action,
+    render_task_history,
+)
 from devflow.control_room.service import (
     create_task,
     doctor,
@@ -109,9 +114,36 @@ def reconcile_command(
 
 
 @app.command("dashboard")
-def dashboard_command(refresh_seconds: int = typer.Option(0, "--refresh-seconds", min=0)) -> None:
-    """Render the text-only terminal dashboard."""
-    run_dashboard(refresh_seconds=refresh_seconds)
+def dashboard_command(
+    refresh_seconds: int = typer.Option(0, "--refresh-seconds", min=0),
+    json_output: bool = typer.Option(False, "--json", help="Print dashboard state as JSON.")
+) -> None:
+    """Render the terminal Control Room Dashboard."""
+    if json_output:
+        if refresh_seconds > 0:
+            typer.echo("Error: --json cannot be used with --refresh-seconds.", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(render_dashboard_json(Path.cwd()), nl=False)
+    else:
+        run_dashboard(refresh_seconds=refresh_seconds)
+
+
+@app.command("status")
+def status_command(
+    json_output: bool = typer.Option(False, "--json", help="Print dashboard state as JSON.")
+) -> None:
+    """Render the terminal Control Room Dashboard alias."""
+    if json_output:
+        typer.echo(render_dashboard_json(Path.cwd()), nl=False)
+    else:
+        from devflow.control_room.dashboard import render_dashboard
+        typer.echo(render_dashboard(Path.cwd()), nl=False)
+
+
+@app.command("next")
+def next_command() -> None:
+    """Print exactly one recommended next safe action and its command."""
+    typer.echo(render_next_action(Path.cwd()), nl=False)
 
 
 @app.command(
@@ -694,6 +726,15 @@ def task_log(
 
     for line in lines:
         typer.echo(line)
+
+
+@task_app.command("history")
+def task_history(
+    task_id: str,
+    limit: int = typer.Option(20, "--limit", min=1, help="Limit chronological history timeline events count.")
+) -> None:
+    """Render a compact timeline of chronological task events."""
+    typer.echo(render_task_history(Path.cwd(), task_id, limit=limit), nl=False)
 
 
 @task_app.command("local")
