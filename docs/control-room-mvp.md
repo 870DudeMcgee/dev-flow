@@ -90,6 +90,11 @@ devflow knowledge show <knowledge_id>
 devflow knowledge promote <knowledge_id>
 devflow knowledge reject <knowledge_id>
 devflow knowledge search "<query>"
+devflow dogfood list
+devflow dogfood show <case_id>
+devflow dogfood run --suite production-readiness
+devflow dogfood score <run_id>
+devflow dogfood report <run_id>
 devflow agent show devflow-manual-codex-worker
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-manual-codex-worker
@@ -106,6 +111,8 @@ The orchestration policy form is `devflow task orchestrate <task_id> --plan-only
 The guardrail outcome metadata form is `devflow worker validate-outcome <path-to-outcome-json>`. It validates worker outcome metadata and writes validation evidence only. It does not run agents, apply patches, verify code, promote, route models, or mutate `task.yaml`.
 
 Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
+
+The dogfood production-readiness form is `devflow dogfood run --suite production-readiness`. It runs deterministic local cases against existing Dev-Flow control-room surfaces and writes scorecards under `.devflow/dogfood/`. It measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. It is not autonomous model execution: it does not call providers, route workers, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models.
 
 The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
@@ -349,6 +356,8 @@ The following areas are out-of-scope for the completed MVP and deferred:
 ### Dogfooding Requirement
 
 Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed adapters, autonomous routing, scheduling, or old workflow machinery before the shell-worker and manual proof-agent loop stays stable.
+
+Run `devflow dogfood run --suite production-readiness` as the lightweight milestone readiness harness when changing the control-room pipeline. Silver is the current local readiness gate; lower scores should drive the smallest real improvement rather than weaker cases.
 
 ---
 

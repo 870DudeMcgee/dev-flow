@@ -97,6 +97,7 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - `devflow task orchestrate <task-id> --plan-only` writes orchestration policy evidence only. It records Git/DevMode guardrails, worker roles, permissions, stop conditions, and human-promotion requirements; it does not execute workers, call providers, apply patches, verify, promote, or mutate main.
 - `devflow worker validate-outcome <outcome.json>` validates worker outcome metadata only and writes validation evidence. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
 - Knowledge Foundry commands store proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never converts ideas into tasks or goals and is not ML training, hidden memory, vector search, or RAG.
+- `devflow dogfood run --suite production-readiness` runs a deterministic local production-readiness harness and writes scorecards under `.devflow/dogfood/`. It exercises existing task, orchestration, worker outcome, verification, and knowledge surfaces; it does not call providers, route models, promote, push, create a dashboard, create a database, or train anything.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple and is the default mode, but it can be slow for large repositories, does not use git merge machinery inside the workspace, and is recommended only for simple/experimental work.
 - **Git-Native Task Lanes**: `devflow task create --git-worktree` is strongly recommended for all serious, high-assurance development work. It creates an isolated, branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification directly to the worker branch commit, and uses robust Git-aware promotion mechanics rather than simple filesystem copies.
@@ -156,6 +157,16 @@ TASK_ID=$(.venv/bin/python -m devflow.cli task create "write hello result" | sed
 .venv/bin/python -m devflow.cli dashboard
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
 ```
+
+Run the local production-readiness dogfood suite:
+
+```bash
+.venv/bin/python -m devflow.cli dogfood list
+.venv/bin/python -m devflow.cli dogfood run --suite production-readiness
+.venv/bin/python -m devflow.cli dogfood report latest
+```
+
+The score is deterministic local evidence, not autonomous model execution. Silver is the default pass gate for the production-readiness suite.
 
 Run the preferred local Qwopus patch-proposal path:
 

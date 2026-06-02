@@ -82,6 +82,7 @@ git_app = typer.Typer(help="Inspect guarded Git state")
 goal_app = typer.Typer(help="Manage goals and planning scaffolds")
 worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
+dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -90,6 +91,7 @@ app.add_typer(git_app, name="git")
 app.add_typer(goal_app, name="goal")
 app.add_typer(worker_app, name="worker")
 app.add_typer(knowledge_app, name="knowledge")
+app.add_typer(dogfood_app, name="dogfood")
 
 
 @goal_app.command("init")
@@ -2670,6 +2672,94 @@ def worker_validate_outcome(outcome_json: str) -> None:
     typer.echo(render_worker_outcome_validation(result), nl=False)
     if result["status"] != "passed":
         raise typer.Exit(code=1)
+
+
+@dogfood_app.command("list")
+def dogfood_list() -> None:
+    """List built-in dogfood production-readiness cases."""
+    from devflow.control_room.dogfood import materialize_dogfood_cases, production_readiness_cases, render_dogfood_case_list
+
+    materialize_dogfood_cases(Path.cwd())
+    typer.echo(render_dogfood_case_list(production_readiness_cases()), nl=False)
+
+
+@dogfood_app.command("show")
+def dogfood_show(case_id: str) -> None:
+    """Show a built-in dogfood case definition."""
+    try:
+        from devflow.control_room.dogfood import materialize_dogfood_cases, render_dogfood_case
+
+        materialize_dogfood_cases(Path.cwd())
+        typer.echo(render_dogfood_case(case_id), nl=False)
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@dogfood_app.command("run")
+def dogfood_run(
+    suite: str = typer.Option("production-readiness", "--suite"),
+    case: list[str] | None = typer.Option(None, "--case", help="Run only the selected case id. Repeatable."),
+    fail_below_silver: bool = typer.Option(
+        True,
+        "--fail-below-silver/--no-fail-below-silver",
+        help="Exit non-zero when the run does not satisfy the Silver threshold.",
+    ),
+) -> None:
+    """Run a deterministic local production-readiness dogfood suite."""
+    try:
+        from devflow.control_room.dogfood import run_dogfood_suite
+
+        result = run_dogfood_suite(Path.cwd(), suite=suite, case_ids=case)
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    scorecard = result["scorecard"]
+    threshold = scorecard["threshold_result"]
+    typer.echo(f"dogfood_run_id: {result['run_id']}")
+    typer.echo(f"score: {scorecard['total_score']}/{scorecard['max_score']}")
+    typer.echo(f"threshold: {threshold['achieved']}")
+    typer.echo(f"silver_met: {'yes' if threshold['silver_met'] else 'no'}")
+    typer.echo(f"run_path: {result['run_path']}")
+    typer.echo(f"scorecard_path: {result['scorecard_path']}")
+    typer.echo(f"report_path: {result['report_path']}")
+    if scorecard["failures"]:
+        typer.echo("failures:")
+        for failure in scorecard["failures"]:
+            typer.echo(f"  - {failure}")
+    if scorecard["warnings"]:
+        typer.echo("warnings:")
+        for warning in scorecard["warnings"]:
+            typer.echo(f"  - {warning}")
+    if fail_below_silver and not threshold["silver_met"]:
+        raise typer.Exit(code=1)
+
+
+@dogfood_app.command("score")
+def dogfood_score(run_id: str) -> None:
+    """Show a dogfood scorecard summary for a run id, or 'latest'."""
+    try:
+        from devflow.control_room.dogfood import load_dogfood_run, render_dogfood_score
+
+        loaded = load_dogfood_run(Path.cwd(), run_id)
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_dogfood_score(loaded["scorecard"]), nl=False)
+
+
+@dogfood_app.command("report")
+def dogfood_report(run_id: str) -> None:
+    """Print a dogfood report for a run id, or 'latest'."""
+    try:
+        from devflow.control_room.dogfood import load_dogfood_run
+
+        loaded = load_dogfood_run(Path.cwd(), run_id)
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(loaded["report"], nl=False)
 
 
 @knowledge_app.command("capture")

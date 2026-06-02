@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import yaml
+from typer.testing import CliRunner
+
+from devflow.cli import app
+from devflow.control_room import dogfood
+from devflow.control_room.dogfood import (
+    CATEGORY_MAX,
+    production_readiness_cases,
+    run_dogfood_suite,
+    validate_dogfood_case,
+)
+
+
+runner = CliRunner()
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True)
+
+
+def _init_dogfood_repo(root: Path) -> None:
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.email", "dogfood@example.com")
+    _git(root, "config", "user.name", "Dogfood Test")
+    (root / ".gitignore").write_text(".devflow/\n__pycache__/\n", encoding="utf-8")
+    (root / "README.md").write_text("# Dogfood Repo\n", encoding="utf-8")
+    skill = root / "skills" / "using-devmode" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("name: using-devmode\n", encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "baseline")
+
+
+def test_case_schema_and_suite_totals() -> None:
+    cases = production_readiness_cases()
+
+    assert len(cases) == 10
+    assert {case["id"] for case in cases} >= {
+        "tiny-deterministic-docs-task",
+        "unsafe-worker-outcome",
+        "knowledge-capture-from-validation-failure",
+        "central-schema-refactor-risk",
+    }
+    for case in cases:
+        assert validate_dogfood_case(case) == []
+
+    totals = {category: 0 for category in CATEGORY_MAX}
+    for case in cases:
+        for category, points in case["scoring"].items():
+            totals[category] += points
+    assert totals == CATEGORY_MAX
+
+
+def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, suite="production-readiness")
+
+    run_dir = tmp_path / result["run_dir"]
+    assert (run_dir / "run.yaml").exists()
+    assert (run_dir / "scorecard.yaml").exists()
+    assert (run_dir / "report.md").exists()
+    assert result["scorecard"]["total_score"] >= 82
+    assert result["scorecard"]["threshold_result"]["silver_met"] is True
+    assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
+    assert len(result["run"]["cases_run"]) == 10
+
+    report = (run_dir / "report.md").read_text(encoding="utf-8")
+    assert "threshold:" in report
+    assert "provider_api_calls: none" in report
+    assert "auto_promotion: none" in report
+
+
+def test_unsafe_worker_outcome_case_fails_validation_as_expected(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["unsafe-worker-outcome"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    command = case_result["commands_run"][0]
+    assert command["status"] == "failed"
+    validation = yaml.safe_load((tmp_path / command["output"]).read_text(encoding="utf-8"))
+    assert validation["status"] == "failed"
+    assert any("parent traversal is rejected" in error for error in validation["errors"])
+    assert any(".git paths are rejected" in error for error in validation["errors"])
+
+
+def test_success_empty_case_scores_empty_below_useful_result(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["success-empty-worker-outcome"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert any("success_empty usefulness score 1" in lesson for lesson in case_result["lessons"])
+    assert any("empty result is scored below useful result" in lesson for lesson in case_result["lessons"])
+
+
+def test_plan_only_unsafe_git_case_records_blocked_human_review(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["plan-only-unsafe-git-state"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["cleanup_status"] == "marker_removed"
+    assert any("dirty Git tree stop condition was active" in lesson for lesson in case_result["lessons"])
+    assert not list(tmp_path.glob(".dogfood-dirty-marker-*"))
+
+
+def test_knowledge_capture_case_creates_proposed_source_linked_knowledge(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["knowledge-capture-from-validation-failure"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    knowledge_paths = list((tmp_path / ".devflow" / "knowledge").glob("K-*/knowledge.json"))
+    assert knowledge_paths
+    item = yaml.safe_load(knowledge_paths[0].read_text(encoding="utf-8"))
+    assert item["status"] == "proposed"
+    assert item["linked_artifacts"]
+    assert item["promoted_at"] is None
+    assert item["rejected_at"] is None
+
+
+def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["missing-case"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "skipped"
+    assert case_result["score"] == 0
+    assert case_result["failure_reason"] == "case not found in suite"
+    assert "requested case was not found" in case_result["warnings"][0]
+
+
+def test_cleanup_failure_is_visible(tmp_path: Path, monkeypatch) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    def fake_cleanup(path: Path, warnings: list[str]) -> bool:
+        warnings.append("cleanup failed for marker")
+        return False
+
+    monkeypatch.setattr(dogfood, "_cleanup_file", fake_cleanup)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["plan-only-unsafe-git-state"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "failed"
+    assert "cleanup_failed" in case_result["cleanup_status"]
+    assert any("cleanup failed" in warning for warning in case_result["warnings"])
+
+
+def test_cli_commands_and_report_lookup(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        listed = runner.invoke(app, ["dogfood", "list"])
+        shown = runner.invoke(app, ["dogfood", "show", "unsafe-worker-outcome"])
+        run = runner.invoke(app, ["dogfood", "run", "--suite", "production-readiness"])
+        score = runner.invoke(app, ["dogfood", "score", "latest"])
+        report = runner.invoke(app, ["dogfood", "report", "latest"])
+    finally:
+        os.chdir(old_cwd)
+
+    assert listed.exit_code == 0, listed.output
+    assert "tiny-deterministic-docs-task" in listed.output
+    assert shown.exit_code == 0, shown.output
+    assert "files_touched with parent traversal fails" in shown.output
+    assert run.exit_code == 0, run.output
+    assert "silver_met: yes" in run.output
+    assert score.exit_code == 0, score.output
+    assert "threshold:" in score.output
+    assert report.exit_code == 0, report.output
+    assert "Boundary Confirmation" in report.output
+
+
+def test_harness_avoids_forbidden_surfaces(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, suite="production-readiness")
+    commands = [
+        str(command["command"]).lower()
+        for case_result in result["results"]
+        for command in case_result["commands_run"]
+    ]
+    forbidden_tokens = ["ollama", "openai", "anthropic", "gemini", "push-main", " task promote", "route"]
+    assert not any(token in command for token in forbidden_tokens for command in commands)
+    assert not (tmp_path / ".devflow" / "dogfood" / "dashboard").exists()
+    assert not (tmp_path / ".devflow" / "dogfood" / "database.sqlite").exists()
+    assert not (tmp_path / ".devflow" / "dogfood" / "vector").exists()

@@ -59,6 +59,18 @@ def outcome_validations_dir(root: Path) -> Path:
     return devflow_dir(root) / "outcome-validations"
 
 
+def dogfood_dir(root: Path) -> Path:
+    return devflow_dir(root) / "dogfood"
+
+
+def dogfood_cases_dir(root: Path) -> Path:
+    return dogfood_dir(root) / "cases"
+
+
+def dogfood_runs_dir(root: Path) -> Path:
+    return dogfood_dir(root) / "runs"
+
+
 def worktree_path(root: Path, task_id: str, worker_id: str) -> Path:
     return worktrees_dir(root) / task_id / worker_id
 

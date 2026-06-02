@@ -45,6 +45,11 @@ devflow knowledge show <knowledge-id>
 devflow knowledge promote <knowledge-id>
 devflow knowledge reject <knowledge-id>
 devflow knowledge search "<query>"
+devflow dogfood list
+devflow dogfood show <case-id>
+devflow dogfood run --suite production-readiness
+devflow dogfood score <run-id>
+devflow dogfood report <run-id>
 devflow task promote-preview <task-id>
 devflow task promote <task-id>
 devflow task close <task-id> --outcome rejected --reason "superseded by manual repair"
@@ -78,7 +83,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -108,6 +113,8 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 `devflow worker validate-outcome <path-to-outcome-json>` validates worker outcome metadata and writes validation evidence under the task folder when possible, otherwise under `.devflow/outcome-validations/`. It rejects malformed JSON, missing fields, unknown source/outcome/tool statuses, unsafe touched paths, task-id mismatches, and outcomes that need human review but do not declare it. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
 
 `devflow knowledge capture`, `knowledge list`, `knowledge show`, `knowledge promote`, `knowledge reject`, and `knowledge search` manage local Knowledge Foundry notes under `.devflow/knowledge/`. Capture creates proposed notes only from existing task or validation evidence; promotion/rejection changes knowledge status only and is separate from task promotion. This is human-reviewed knowledge curation, not ML training, hidden agent memory, vector search, RAG, or automatic task/goal creation.
+
+`devflow dogfood run --suite production-readiness` runs deterministic local production-readiness cases and writes `.devflow/dogfood/runs/<run-id>/run.yaml`, `scorecard.yaml`, `report.md`, and per-case `case-result.yaml` evidence. The suite measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. It reuses existing task, orchestration, worker outcome validation, verification, promotion-readiness, and knowledge surfaces. It does not execute providers, route autonomously, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models. Silver is the default pass gate for the production-readiness run.
 
 `devflow task close` marks a task inactive without deleting evidence. It requires an explicit outcome and reason, writes `.devflow/tasks/<task-id>/closure.json`, appends a close event, and preserves logs, proposal patches, verification, finalization, and promotion artifacts. `devflow task show` and `devflow task list` surface closed tasks with their outcome. `devflow task cleanup <task-id> --preview` refuses active tasks, reports conservative task-owned runtime cleanup candidates, and deletes nothing. `--apply` reruns the same safety analysis, removes only safe `.devflow/workspaces/<task-id>` or `.devflow/worktrees/<task-id>/<worker>` runtime targets, writes `cleanup.json`, and appends cleanup evidence. The older `--dry-run` spelling remains a compatibility preview for existing Git-native cleanup reporting.
 
@@ -174,6 +181,11 @@ For a created task, the MVP contract is:
 .devflow/knowledge/<knowledge-id>/knowledge.json
 .devflow/knowledge/<knowledge-id>/note.md
 .devflow/knowledge/<knowledge-id>/events.jsonl
+.devflow/dogfood/cases/<case-id>.yaml
+.devflow/dogfood/runs/<run-id>/run.yaml
+.devflow/dogfood/runs/<run-id>/scorecard.yaml
+.devflow/dogfood/runs/<run-id>/report.md
+.devflow/dogfood/runs/<run-id>/cases/<case-id>/case-result.yaml
 ```
 
 `task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. Patch application writes a SHA-256-addressed evidence artifact under `patches/` and updates latest `patch-application.json`; `patch_applied` events point at that evidence. The workspace is the only current place where shell-worker results and local Ollama worker artifacts are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
