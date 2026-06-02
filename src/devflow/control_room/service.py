@@ -296,12 +296,12 @@ def run_shell_task(
             (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
 
         result = adapter.run(worker_input)
-        if resolved_adapter_name != "manual":
+        if resolved_adapter_name not in {"manual", "ollama_chat"}:
             _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
         if agent is not None:
             compat_log = task_path / "logs" / "worker.log"
             compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
-            if resolved_adapter_name != "manual":
+            if resolved_adapter_name not in {"manual", "ollama_chat"}:
                 _write_result(task_path, task_id, command, result)
 
         task.status = result.status

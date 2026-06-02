@@ -421,6 +421,27 @@ def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
     assert show.exit_code == 0, show.output
     assert "agent_evidence:" in show.output
     assert "proposal_patch_path: .devflow/tasks/task-0001/agents/qwopus-implementer/proposal.patch" in show.output
+    assert "latest_run_status: complete" in show.output
+    assert "proposal_patch_bytes:" in show.output
+    assert "proposed_file_count: 1" in show.output
+    assert "next_suggested_command: devflow task apply-patch task-0001 --agent qwopus-implementer" in show.output
+
+    run_json = json.loads((Path(".devflow/tasks/task-0001/agents/qwopus-implementer/run.json")).read_text(encoding="utf-8"))
+    assert run_json["proposal_patch_found"] is True
+    assert run_json["proposal_patch_path"].endswith("proposal.patch")
+    assert run_json["proposal_patch_byte_length"] > 0
+    assert run_json["proposed_file_count"] == 1
+    assert run_json["proposed_file_paths"] == ["hello.txt"]
+
+    packet_json = json.loads((Path(".devflow/tasks/task-0001/agents/qwopus-implementer/packet.json")).read_text(encoding="utf-8"))
+    serialized_packet = json.dumps(packet_json)
+    assert "Update hello through canonical Qwopus" in serialized_packet
+    assert "Produce a unified diff only" in serialized_packet
+    assert "Dev-Flow applies patches, runs verification, and controls promotion separately." in serialized_packet
+    assert "patch dry-run artifacts" in serialized_packet
+
+    result_md = Path(".devflow/tasks/task-0001/agents/qwopus-implementer/result.md").read_text(encoding="utf-8")
+    assert "Next action: `devflow task apply-patch task-0001 --agent qwopus-implementer`" in result_md
 
 
 def test_ollama_worker_connection_failure(tmp_path: Path) -> None:
@@ -486,6 +507,92 @@ def test_registry_backed_qwopus_missing_model_failure_preserves_raw_ollama_error
     assert "ollama pull qwopus:latest" in run_json["summary"]
     assert "model \\\"qwopus:latest\\\" not found" in run_json["summary"]
     assert worker_failed["summary"] == run_json["summary"]
+
+
+def test_qwopus_no_patch_failure_is_visible_and_suggests_escalation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("hello.txt").write_text("Hello World\n", encoding="utf-8")
+    created = runner.invoke(app, ["task", "create", "No patch Qwopus run"])
+    assert created.exit_code == 0, created.output
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps(
+        {
+            "response": json.dumps(
+                {
+                    "status": "ready",
+                    "diff": "",
+                    "touched_paths": [],
+                    "risk": "low",
+                    "confidence": 0.4,
+                }
+            )
+        }
+    ).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        run = runner.invoke(app, ["task", "run", "task-0001", "--worker", "qwopus-implementer"])
+
+    assert run.exit_code == 1, run.output
+    agent_dir = Path(".devflow/tasks/task-0001/agents/qwopus-implementer")
+    run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_json["proposal_patch_found"] is False
+    assert run_json["proposal_patch_byte_length"] == 0
+    assert "did not include a non-empty unified diff" in run_json["failure_reason"]
+
+    show = runner.invoke(app, ["task", "show", "task-0001"])
+    assert show.exit_code == 0, show.output
+    assert "latest_run_status: worker_failed" in show.output
+    assert "next_suggested_command: devflow task escalation-packet task-0001 --agent qwopus-implementer" in show.output
+
+
+def test_qwopus_escalation_packet_is_compact_local_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("hello.txt").write_text("Hello World\n", encoding="utf-8")
+    created = runner.invoke(app, ["task", "create", "Escalate Qwopus failure"])
+    assert created.exit_code == 0, created.output
+
+    agent_dir = Path(".devflow/tasks/task-0001/agents/qwopus-implementer")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "result.md").write_text("# Result\n\nSummary: no usable patch\n", encoding="utf-8")
+    (agent_dir / "raw_output.md").write_text("raw local output", encoding="utf-8")
+    (agent_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "status": "worker_failed",
+                "summary": "no diff",
+                "failure_reason": "output without unified diff",
+                "proposal_patch_byte_length": 0,
+                "proposed_file_paths": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    Path(".devflow/tasks/task-0001/patch-application.json").write_text(
+        json.dumps({"error": "patch did not apply"}),
+        encoding="utf-8",
+    )
+    Path(".devflow/tasks/task-0001/verification.json").write_text(
+        json.dumps({"status": "failed", "command": "pytest tests/test_ollama_worker.py", "log_path": "logs/verify.log"}),
+        encoding="utf-8",
+    )
+    unrelated_log = Path(".devflow/tasks/task-0001/logs/unrelated.log")
+    unrelated_log.write_text("NOISY ARCHIVE MATERIAL", encoding="utf-8")
+
+    result = runner.invoke(app, ["task", "escalation-packet", "task-0001", "--agent", "qwopus-implementer"])
+
+    assert result.exit_code == 0, result.output
+    assert "provider_calls: none" in result.output
+    packet = Path(".devflow/tasks/task-0001/agents/qwopus-implementer/escalation-packet.md")
+    packet_text = packet.read_text(encoding="utf-8")
+    assert "Escalate Qwopus failure" in packet_text
+    assert "output without unified diff" in packet_text
+    assert "patch did not apply" in packet_text
+    assert "Verification status: failed" in packet_text
+    assert "Given this bounded Dev-Flow task" in packet_text
+    assert "NOISY ARCHIVE MATERIAL" not in packet_text
 
 
 def test_ollama_worker_malformed_json_preserves_raw_output_and_points_to_it(tmp_path: Path) -> None:

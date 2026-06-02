@@ -66,6 +66,7 @@ from devflow.control_room.git_worktree import (
     list_devflow_worktrees,
     prune_orphan_worktrees,
 )
+from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwopus_escalation_packet
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -1390,6 +1391,24 @@ def _echo_registry_patch_worker_evidence_paths(root: Path, task_id: str, agent_i
     typer.echo(f"agent_log_path: {_relative(root, agent_dir / 'logs' / 'worker.log')}")
 
 
+@task_app.command("escalation-packet")
+def task_escalation_packet(
+    task_id: str,
+    agent: str = typer.Option("qwopus-implementer", "--agent", help="The local agent evidence to escalate."),
+) -> None:
+    """Write a compact frontier-review packet from local worker evidence without calling providers."""
+    root = Path.cwd()
+    try:
+        task = get_task(root, task_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    packet_path = write_qwopus_escalation_packet(root, task, agent)
+    typer.echo(f"escalation_packet_path: {_relative(root, packet_path)}")
+    typer.echo("provider_calls: none")
+
+
 @task_app.command("finalize")
 def task_finalize(
     task_id: str,
@@ -2438,6 +2457,27 @@ def _echo_agent_patch_evidence_summary(root: Path, task_path: Path) -> None:
         typer.echo(f"  {agent_id}:")
         for label, artifact_path in paths:
             typer.echo(f"    {label}: {_relative(root, artifact_path)}")
+        if agent_id == "qwopus-implementer":
+            _echo_qwopus_latest_summary(root, task_path, agent_id)
+
+
+def _echo_qwopus_latest_summary(root: Path, task_path: Path, agent_id: str) -> None:
+    summary = build_qwopus_summary(root, task_path, agent_id)
+    if not summary:
+        return
+    typer.echo(f"    latest_run_status: {summary['status']}")
+    typer.echo(f"    proposal_patch_bytes: {summary.get('proposal_patch_byte_length', 0)}")
+    proposed_paths = summary.get("proposed_file_paths") or []
+    typer.echo(f"    proposed_file_count: {summary.get('proposed_file_count', 0)}")
+    if proposed_paths:
+        typer.echo(f"    proposed_files: {', '.join(str(p) for p in proposed_paths)}")
+    if summary.get("failure_reason"):
+        typer.echo(f"    failure_reason: {summary.get('failure_reason')}")
+    if summary.get("patch_application_path"):
+        typer.echo(f"    patch_application_path: {summary.get('patch_application_path')}")
+    if summary.get("latest_verification_status"):
+        typer.echo(f"    latest_verification_status: {summary.get('latest_verification_status')}")
+    typer.echo(f"    next_suggested_command: {summary.get('next_suggested_command')}")
 
 
 def _echo_reconciliation_report(report: dict[str, Any]) -> None:

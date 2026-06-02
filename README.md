@@ -150,11 +150,18 @@ Run the preferred local Qwopus patch-proposal path:
 
 ```bash
 .venv/bin/python -m devflow.cli task run "$TASK_ID" --worker qwopus-implementer
+.venv/bin/python -m devflow.cli task show "$TASK_ID"
 .venv/bin/python -m devflow.cli task review-patch "$TASK_ID"
 .venv/bin/python -m devflow.cli task patch-dry-run "$TASK_ID"
 .venv/bin/python -m devflow.cli task apply-patch "$TASK_ID" --agent qwopus-implementer
 .venv/bin/python -m devflow.cli task verify "$TASK_ID" --shell "<test-command>"
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
+```
+
+`task show` surfaces the latest Qwopus run status, raw output path, proposal patch path/size, proposed files, and the next safe command. If Qwopus fails or returns no usable diff, create a compact frontier-review handoff without calling remote providers:
+
+```bash
+.venv/bin/python -m devflow.cli task escalation-packet "$TASK_ID" --agent qwopus-implementer
 ```
 
 Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-editing files:
@@ -165,7 +172,7 @@ Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-e
 .venv/bin/python -m devflow.cli task local "$TASK_ID" --agent gemma-reviewer --input-worker qwopus-implementer
 ```
 
-Local worker artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata. Even when the legacy advisory worker name is `qwopus-implementer`, this path is not the canonical patch worker; use `devflow task run <task-id> --worker qwopus-implementer` to produce `proposal.patch`.
+Canonical Qwopus artifacts are written under `.devflow/tasks/<task-id>/agents/qwopus-implementer/` as `packet.json`, `raw_output.md`, `proposal.patch`, `result.md`, `run.json`, and `logs/worker.log`. Local advisory artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata. Even when the legacy advisory worker name is `qwopus-implementer`, this path is not the canonical patch worker; use `devflow task run <task-id> --worker qwopus-implementer` to produce `proposal.patch`.
 
 Promotion is explicit and human-controlled:
 
