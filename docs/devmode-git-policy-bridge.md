@@ -16,6 +16,7 @@ Dev-Flow commands must not depend on agents remembering those skills. Runtime co
 Dev-Flow enforcement surfaces:
 
 - `devflow git status` reports branch, dirty state, operations in progress, origin/main relationship, push/promotion safety, and DevMode skill presence.
+- `devflow task orchestrate <task-id> --plan-only` records Git/DevMode baseline assumptions and stop conditions as planning evidence only; it does not execute workers or promote.
 - `devflow sync-main` fetches origin, switches to `main`, and fast-forwards only. It does not merge or rebase.
 - `devflow push-main` pushes `main` only when the worktree is clean, no Git operation is in progress, and `origin/main` is not ahead or diverged.
 - `devflow task promote-preview` and `devflow task promote` remain human-controlled promotion gates and refuse unsafe Git-native promotion states.

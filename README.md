@@ -18,6 +18,8 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
 - **Dashboard**: `devflow dashboard`
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Policy & Evidence**: `devflow task orchestrate --plan-only`, `devflow worker validate-outcome`
+- **Knowledge Foundry**: `devflow knowledge capture`, `devflow knowledge list`, `devflow knowledge show`, `devflow knowledge promote`, `devflow knowledge reject`, `devflow knowledge search`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`, `devflow task finalize` (dry-run & `--commit`)
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
@@ -43,6 +45,8 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     verification.json
     closure.json
     cleanup.json
+    orchestration-plan.yaml
+    worker-outcome-validation.json
     agents/<agent-id>/packet.json
     agents/<agent-id>/raw_output.md
     agents/<agent-id>/proposal.patch
@@ -73,6 +77,10 @@ Dev-Flow stores durable task state as local filesystem artifacts:
   tasks/<task-id>/workers/shell/diff-summary.json
   tasks/<task-id>/workers/shell/verification.json
   tasks/<task-id>/workers/shell/promotion-preview.json
+  outcome-validations/<name>-validation.json
+  knowledge/<knowledge-id>/knowledge.json
+  knowledge/<knowledge-id>/note.md
+  knowledge/<knowledge-id>/events.jsonl
 ```
 
 `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output and local Ollama prompt/response artifacts stay in `.devflow/workspaces/<task-id>/` until a human explicitly reviews them; promotion remains separate and verification-gated. Closing a task writes `closure.json`, marks it inactive, and preserves task evidence. Cleanup is preview-first and writes `cleanup.json` only when `--apply` removes safe task-owned runtime artifacts.
@@ -86,6 +94,9 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - Shell and verification commands run as local subprocesses in the assigned `.devflow/workspaces/<task-id>/` directory with a filtered environment, timeout, process-group cleanup on POSIX systems, and capped worker logs.
 - `devflow task run <task-id> --worker qwopus-implementer` calls local Ollama through the registry-backed adapter, preserves raw output, and writes a proposed unified diff to `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation route. Dev-Flow must apply the patch, run verification, and gate promotion.
 - `devflow task local` remains a legacy advisory wrapper around `ollama run <model>` for local Qwen/Qwopus/Gemma ladder evidence. It captures raw stdout/stderr plus `run.json`, treats success as subprocess exit code `0` only, and does not write `proposal.patch`, apply model output, verify, commit, merge, promote, route models, or call remote provider APIs.
+- `devflow task orchestrate <task-id> --plan-only` writes orchestration policy evidence only. It records Git/DevMode guardrails, worker roles, permissions, stop conditions, and human-promotion requirements; it does not execute workers, call providers, apply patches, verify, promote, or mutate main.
+- `devflow worker validate-outcome <outcome.json>` validates worker outcome metadata only and writes validation evidence. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
+- Knowledge Foundry commands store proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never converts ideas into tasks or goals and is not ML training, hidden memory, vector search, or RAG.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple and is the default mode, but it can be slow for large repositories, does not use git merge machinery inside the workspace, and is recommended only for simple/experimental work.
 - **Git-Native Task Lanes**: `devflow task create --git-worktree` is strongly recommended for all serious, high-assurance development work. It creates an isolated, branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification directly to the worker branch commit, and uses robust Git-aware promotion mechanics rather than simple filesystem copies.
@@ -173,6 +184,15 @@ Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-e
 ```
 
 Canonical Qwopus artifacts are written under `.devflow/tasks/<task-id>/agents/qwopus-implementer/` as `packet.json`, `raw_output.md`, `proposal.patch`, `result.md`, `run.json`, and `logs/worker.log`. Local advisory artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata. Even when the legacy advisory worker name is `qwopus-implementer`, this path is not the canonical patch worker; use `devflow task run <task-id> --worker qwopus-implementer` to produce `proposal.patch`.
+
+Capture policy, validation, and knowledge evidence without executing workers or promotion:
+
+```bash
+.venv/bin/python -m devflow.cli task orchestrate "$TASK_ID" --plan-only
+.venv/bin/python -m devflow.cli worker validate-outcome <path-to-outcome.json>
+.venv/bin/python -m devflow.cli knowledge capture --from-task "$TASK_ID"
+.venv/bin/python -m devflow.cli knowledge list
+```
 
 Promotion is explicit and human-controlled:
 

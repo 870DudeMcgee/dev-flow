@@ -81,6 +81,15 @@ devflow push-main
 devflow task close <task_id> --outcome rejected --reason "superseded by manual repair"
 devflow task cleanup <task_id> --preview
 devflow task cleanup <task_id> --apply
+devflow task orchestrate <task_id> --plan-only
+devflow worker validate-outcome <path-to-outcome-json>
+devflow knowledge capture --from-task <task_id>
+devflow knowledge capture --from-validation <path-to-validation-json>
+devflow knowledge list
+devflow knowledge show <knowledge_id>
+devflow knowledge promote <knowledge_id>
+devflow knowledge reject <knowledge_id>
+devflow knowledge search "<query>"
 devflow agent show devflow-manual-codex-worker
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-manual-codex-worker
@@ -91,6 +100,12 @@ The preferred shell-worker form is `devflow task run <task_id> --worker shell --
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 
 The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for applying the patch to the isolated workspace, verification, merge readiness, and human-controlled promotion. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
+
+The orchestration policy form is `devflow task orchestrate <task_id> --plan-only`. It writes task-local policy evidence with Git/DevMode baseline, allowed roles, context layers, write boundaries, stop conditions, and human promotion requirements. It does not execute workers, call provider APIs, route autonomously, apply patches, verify, promote, or mutate main.
+
+The guardrail outcome metadata form is `devflow worker validate-outcome <path-to-outcome-json>`. It validates worker outcome metadata and writes validation evidence only. It does not run agents, apply patches, verify code, promote, route models, or mutate `task.yaml`.
+
+Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
 
 The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
@@ -257,6 +272,9 @@ Implemented:
 - preview-first cleanup for closed tasks that removes only conservative task-owned `.devflow` runtime artifacts on `--apply`
 - `devflow task local` for local Qwen/Qwopus/Gemma advisory evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
 - `devflow task run --worker qwopus-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
+- `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence
+- `devflow worker validate-outcome` for structured guardrail outcome metadata validation
+- Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes
 
 Outside the current product contract:
 
@@ -269,6 +287,7 @@ Outside the current product contract:
 - SQLite or other databases
 - provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
 - multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
+- vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
 > **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation while keeping verification and promotion separate. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.

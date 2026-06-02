@@ -76,6 +76,9 @@ Current product contract:
 - `devflow task run <task_id> --worker devflow-manual-codex-worker`
 - `devflow task log <task_id>`
 - `devflow task apply-patch <task_id>` with SHA-256 patch evidence under `.devflow/tasks/<task_id>/patches/`
+- `devflow task orchestrate <task_id> --plan-only`
+- `devflow worker validate-outcome <path-to-outcome-json>`
+- `devflow knowledge capture/list/show/promote/reject/search`
 - `devflow task promote-preview <task_id>`
 - `devflow task promote <task_id>`
 - filesystem task state with canonical `task.yaml`
@@ -98,6 +101,7 @@ Current product contract:
 - opt-in Git-native shell-worker isolation and promotion slice through `devflow task create --git-worktree`
 - explicit post-finalize Git-native UX: `task finalize --commit` reports that the commit landed on the task worker branch and main is unchanged; `task show` points finalized-but-unpromoted tasks to `devflow task promote-preview <task_id>`; `promote-preview` is read-only and points to `devflow task promote <task_id>`; Git-native promotion completes the approved merge without leaving staged leftovers
 - dry-run-first Git cleanup/repair commands: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, and `devflow task cleanup`
+- plan-only orchestration policy evidence, worker outcome metadata validation evidence, and human-reviewed Knowledge Foundry notes
 - trusted-local safety model only: shell execution is path-isolated in a copied workspace, not OS-sandboxed
 
 ## Git-Native Slice
@@ -134,6 +138,9 @@ devflow task show <task_id>
 devflow task list
 devflow task packet <task_id>
 devflow task log <task_id>
+devflow task orchestrate <task_id> --plan-only
+devflow worker validate-outcome <path-to-outcome-json>
+devflow knowledge capture --from-task <task_id>
 devflow task promote-preview <task_id>
 devflow task promote <task_id>
 devflow push-main
@@ -144,7 +151,7 @@ devflow push-main
 - Read the North Star before implementation decisions and use its Periodic Self-Check to catch product drift.
 - Prefer direct implementation over ceremonial workflow.
 - Do not create legacy task files for this rebuild.
-- Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces.
+- Do not route implementation through old agent, memory, context-pack, DAG, trace, eval, or unified-diff runner surfaces. Knowledge Foundry is a separate human-reviewed curation layer, not hidden memory.
 - Treat browser/web dashboards, token-context runtime routing, task-fit/context routing runtime, databases, and provider-backed worker adapters as outside the current contract unless a future implementation explicitly promotes them. Default runtime behavior stays copy-workspace unless `--git-worktree` is requested.
 - Future non-shell worker work beyond `devflow-manual-codex-worker`, the narrow `task local` advisory wrapper, and the registry-backed `task run --worker qwopus-implementer` patch runtime must follow the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, routing, and metrics.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.

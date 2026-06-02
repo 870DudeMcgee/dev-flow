@@ -80,12 +80,16 @@ worktree_app = typer.Typer(help="Inspect and clean Dev-Flow Git worktrees")
 branch_app = typer.Typer(help="Inspect and archive Dev-Flow Git branches")
 git_app = typer.Typer(help="Inspect guarded Git state")
 goal_app = typer.Typer(help="Manage goals and planning scaffolds")
+worker_app = typer.Typer(help="Validate worker outcome metadata")
+knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
 app.add_typer(branch_app, name="branch")
 app.add_typer(git_app, name="git")
 app.add_typer(goal_app, name="goal")
+app.add_typer(worker_app, name="worker")
+app.add_typer(knowledge_app, name="knowledge")
 
 
 @goal_app.command("init")
@@ -789,6 +793,29 @@ def task_capsule(
     if export_md:
         export_path = export_review_capsule_markdown(root, task_id, capsule)
         typer.echo(f"export_path: {_relative(root, export_path)}")
+
+
+@task_app.command("orchestrate")
+def task_orchestrate(
+    task_id: str,
+    plan_only: bool = typer.Option(False, "--plan-only", help="Write plan-only orchestration policy evidence."),
+) -> None:
+    """Create a plan-only parallel-worker orchestration policy artifact."""
+    if not plan_only:
+        typer.echo("Error: task orchestrate currently requires --plan-only.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        from devflow.control_room.orchestration_plan import (
+            OrchestrationPlanError,
+            create_orchestration_plan,
+            render_orchestration_plan_summary,
+        )
+
+        plan = create_orchestration_plan(Path.cwd(), task_id, plan_only=True)
+    except (KeyError, OrchestrationPlanError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_orchestration_plan_summary(Path.cwd(), plan), nl=False)
 
 
 @task_app.command(
@@ -2625,6 +2652,119 @@ def _get_latest_promoted_event(task_path: Path) -> dict[str, Any] | None:
     except Exception:
         pass
     return latest_event
+
+
+@worker_app.command("validate-outcome")
+def worker_validate_outcome(outcome_json: str) -> None:
+    """Validate worker outcome metadata without running agents or mutating task state."""
+    try:
+        from devflow.control_room.worker_outcome import (
+            render_worker_outcome_validation,
+            validate_worker_outcome_file,
+        )
+
+        result = validate_worker_outcome_file(Path.cwd(), Path(outcome_json))
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_worker_outcome_validation(result), nl=False)
+    if result["status"] != "passed":
+        raise typer.Exit(code=1)
+
+
+@knowledge_app.command("capture")
+def knowledge_capture(
+    from_task: str | None = typer.Option(None, "--from-task", help="Capture a proposed knowledge item from an existing task."),
+    from_validation: str | None = typer.Option(
+        None,
+        "--from-validation",
+        help="Capture a proposed knowledge item from worker outcome validation evidence.",
+    ),
+) -> None:
+    """Capture proposed, human-reviewed reusable knowledge from existing evidence."""
+    if bool(from_task) == bool(from_validation):
+        typer.echo("Error: choose exactly one of --from-task or --from-validation.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        from devflow.control_room.knowledge_foundry import (
+            KnowledgeFoundryError,
+            capture_from_task,
+            capture_from_validation,
+        )
+
+        item = (
+            capture_from_task(Path.cwd(), from_task)
+            if from_task
+            else capture_from_validation(Path.cwd(), Path(str(from_validation)))
+        )
+    except (KeyError, KnowledgeFoundryError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"knowledge_id: {item['id']}")
+    typer.echo("status: proposed")
+    typer.echo(f"type: {item['type']}")
+    typer.echo(f"path: .devflow/knowledge/{item['id']}/knowledge.json")
+    typer.echo("task_modified: no")
+    typer.echo("promotion_run: no")
+
+
+@knowledge_app.command("list")
+def knowledge_list() -> None:
+    """List local Knowledge Foundry items."""
+    from devflow.control_room.knowledge_foundry import list_knowledge, render_knowledge_list
+
+    typer.echo(render_knowledge_list(list_knowledge(Path.cwd())), nl=False)
+
+
+@knowledge_app.command("show")
+def knowledge_show(knowledge_id: str) -> None:
+    """Show one Knowledge Foundry item and its note."""
+    try:
+        from devflow.control_room.knowledge_foundry import KnowledgeFoundryError, render_knowledge_show, show_knowledge
+
+        metadata, note = show_knowledge(Path.cwd(), knowledge_id)
+    except (KnowledgeFoundryError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_knowledge_show(metadata, note), nl=False)
+
+
+@knowledge_app.command("promote")
+def knowledge_promote(knowledge_id: str) -> None:
+    """Promote a reviewed knowledge item without promoting task code."""
+    try:
+        from devflow.control_room.knowledge_foundry import KnowledgeFoundryError, promote_knowledge
+
+        item = promote_knowledge(Path.cwd(), knowledge_id)
+    except (KnowledgeFoundryError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"knowledge_id: {item['id']}")
+    typer.echo("status: promoted")
+    typer.echo("task_promotion_run: no")
+
+
+@knowledge_app.command("reject")
+def knowledge_reject(knowledge_id: str) -> None:
+    """Reject a knowledge item while preserving its source references."""
+    try:
+        from devflow.control_room.knowledge_foundry import KnowledgeFoundryError, reject_knowledge
+
+        item = reject_knowledge(Path.cwd(), knowledge_id)
+    except (KnowledgeFoundryError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"knowledge_id: {item['id']}")
+    typer.echo("status: rejected")
+    typer.echo("task_modified: no")
+
+
+@knowledge_app.command("search")
+def knowledge_search(query: str) -> None:
+    """Search local knowledge title, tags, and note text."""
+    from devflow.control_room.knowledge_foundry import render_knowledge_list, search_knowledge
+
+    typer.echo(render_knowledge_list(search_knowledge(Path.cwd(), query)), nl=False)
 
 
 @agent_app.command("list")

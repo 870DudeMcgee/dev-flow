@@ -51,6 +51,14 @@ def worktrees_dir(root: Path) -> Path:
     return devflow_dir(root) / "worktrees"
 
 
+def knowledge_dir(root: Path) -> Path:
+    return devflow_dir(root) / "knowledge"
+
+
+def outcome_validations_dir(root: Path) -> Path:
+    return devflow_dir(root) / "outcome-validations"
+
+
 def worktree_path(root: Path, task_id: str, worker_id: str) -> Path:
     return worktrees_dir(root) / task_id / worker_id
 
@@ -73,4 +81,3 @@ def relative_path(root: Path, path: Path) -> str:
 def absolute_path(root: Path, path: str) -> Path:
     value = Path(path)
     return value if value.is_absolute() else root / value
-

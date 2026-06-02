@@ -36,6 +36,15 @@ devflow task show <task-id>
 devflow task capsule <task-id>
 devflow task packet <task-id>
 devflow task log <task-id>
+devflow task orchestrate <task-id> --plan-only
+devflow worker validate-outcome <path-to-outcome-json>
+devflow knowledge capture --from-task <task-id>
+devflow knowledge capture --from-validation <path-to-validation-json>
+devflow knowledge list
+devflow knowledge show <knowledge-id>
+devflow knowledge promote <knowledge-id>
+devflow knowledge reject <knowledge-id>
+devflow knowledge search "<query>"
 devflow task promote-preview <task-id>
 devflow task promote <task-id>
 devflow task close <task-id> --outcome rejected --reason "superseded by manual repair"
@@ -69,7 +78,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -93,6 +102,12 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 `devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Git-native promotion preview also reports origin/main freshness and conflict prediction. Promotion is not automatic and does not stage, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
 `devflow task capsule <task-id>` renders a read-only Review Capsule from existing evidence. It summarizes task identity, status, worker, workspace/worktree, Git branch and latest commit when available, verification result, promotion-preview readiness, changed files, and inline previews for small changed text files. It labels missing evidence, truncates large text files, refuses absolute paths and `..` traversal, never reads outside the resolved task workspace/worktree, and never dumps binary files. `task run`, `task verify`, `task finalize`, and `task promote-preview` print the capsule after their normal output when current evidence is available. The capsule is a rendered view, not canonical state; it does not mutate task status, promote, close, weaken gates, or create markdown files by default. `--export-md` may write one explicit `.devflow/tasks/<task-id>/review-capsule.md` export only when requested.
+
+`devflow task orchestrate <task-id> --plan-only` writes `.devflow/tasks/<task-id>/orchestration-plan.yaml` as policy evidence. It records Git baseline/freshness assumptions, DevMode requirements, allowed worker roles, context layers, write boundaries, required evidence, stop conditions, and promotion rules. It is plan-only: it does not execute workers or providers, apply patches, verify code, mutate main, route models autonomously, or promote.
+
+`devflow worker validate-outcome <path-to-outcome-json>` validates worker outcome metadata and writes validation evidence under the task folder when possible, otherwise under `.devflow/outcome-validations/`. It rejects malformed JSON, missing fields, unknown source/outcome/tool statuses, unsafe touched paths, task-id mismatches, and outcomes that need human review but do not declare it. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
+
+`devflow knowledge capture`, `knowledge list`, `knowledge show`, `knowledge promote`, `knowledge reject`, and `knowledge search` manage local Knowledge Foundry notes under `.devflow/knowledge/`. Capture creates proposed notes only from existing task or validation evidence; promotion/rejection changes knowledge status only and is separate from task promotion. This is human-reviewed knowledge curation, not ML training, hidden agent memory, vector search, RAG, or automatic task/goal creation.
 
 `devflow task close` marks a task inactive without deleting evidence. It requires an explicit outcome and reason, writes `.devflow/tasks/<task-id>/closure.json`, appends a close event, and preserves logs, proposal patches, verification, finalization, and promotion artifacts. `devflow task show` and `devflow task list` surface closed tasks with their outcome. `devflow task cleanup <task-id> --preview` refuses active tasks, reports conservative task-owned runtime cleanup candidates, and deletes nothing. `--apply` reruns the same safety analysis, removes only safe `.devflow/workspaces/<task-id>` or `.devflow/worktrees/<task-id>/<worker>` runtime targets, writes `cleanup.json`, and appends cleanup evidence. The older `--dry-run` spelling remains a compatibility preview for existing Git-native cleanup reporting.
 
@@ -119,6 +134,8 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/verification.json
 .devflow/tasks/<task-id>/closure.json
 .devflow/tasks/<task-id>/cleanup.json
+.devflow/tasks/<task-id>/orchestration-plan.yaml
+.devflow/tasks/<task-id>/worker-outcome-validation.json
 .devflow/tasks/<task-id>/logs/worker.log
 .devflow/tasks/<task-id>/logs/verify.log
 .devflow/tasks/<task-id>/patch-application.json
@@ -153,6 +170,10 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/workers/shell/diff-summary.json     # only for --git-worktree tasks
 .devflow/tasks/<task-id>/workers/shell/verification.json     # only for --git-worktree tasks
 .devflow/tasks/<task-id>/workers/shell/promotion-preview.json # only for --git-worktree tasks
+.devflow/outcome-validations/<name>-validation.json
+.devflow/knowledge/<knowledge-id>/knowledge.json
+.devflow/knowledge/<knowledge-id>/note.md
+.devflow/knowledge/<knowledge-id>/events.jsonl
 ```
 
 `task.yaml` is the canonical current task state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Logs are raw command evidence. Patch application writes a SHA-256-addressed evidence artifact under `patches/` and updates latest `patch-application.json`; `patch_applied` events point at that evidence. The workspace is the only current place where shell-worker results and local Ollama worker artifacts are written. Versioned state artifacts include `schema_version: 1`; unversioned historical task files are treated as version 1, and unknown task schema versions are refused.
@@ -168,6 +189,8 @@ Mutating task operations use a task-local `.lock/` directory with `owner.json` m
 `.devflow/tasks/<task-id>/result.md` may exist as a human-readable result summary. It is not canonical state.
 
 `.devflow/tasks/<task-id>/review-capsule.md` may exist only after an explicit `devflow task capsule <task-id> --export-md`. It is a point-in-time export of a rendered review view and is never created by default.
+
+`.devflow/tasks/<task-id>/orchestration-plan.yaml` is plan-only policy evidence. `.devflow/tasks/<task-id>/worker-outcome-validation.json` and `.devflow/outcome-validations/*.json` are metadata validation evidence. `.devflow/knowledge/<knowledge-id>/` stores human-reviewed knowledge curation records. None of these files override canonical task state or promotion readiness.
 
 Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/` is worker-produced evidence, not canonical task state. Dev-Flow may display `awaiting_human`, `blocked`, `failed`, and `result_present` in `task show` and `dashboard`, but only Dev-Flow updates `task.yaml`, `events.jsonl`, `verification.json`, merge-readiness, and promotion state.
 
@@ -191,6 +214,9 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Legacy agent, memory, DAG, trace, worktree, database, and software-factory systems remain bypassed for this MVP path.
 - Manual proof-agent workers may write only to the assigned isolated workspace and their agent evidence directory.
 - Manual proof-agent completion does not imply verification or promotion readiness.
+- Orchestration planning is `--plan-only`; it records policy evidence and never schedules providers, runs workers, applies patches, verifies, promotes, or changes main.
+- Worker outcome validation validates metadata only; it does not treat worker claims as proof of correctness and never mutates canonical task state.
+- Knowledge Foundry capture creates proposed notes only; knowledge promotion is separate from task promotion and never creates tasks/goals automatically.
 
 ## Sandbox & Security Boundaries
 
@@ -233,6 +259,7 @@ Future production hardening items:
 - Provider-backed worker adapters. The stable non-shell model path is limited to local `ollama run` evidence capture through `devflow task local`; it does not use remote provider APIs, own canonical task state, or apply model output.
 - Provider-backed Git worktree orchestration beyond the opt-in shell-worker lane.
 - SQLite or any other database.
+- Vector databases, RAG, ML training, hidden memory, or automatic self-training.
 - Automatic merge, automatic copy-back, commit, push, or PR automation.
 - Legacy task-packet and unified-diff workflow rituals.
 
