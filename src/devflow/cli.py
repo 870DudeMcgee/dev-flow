@@ -33,6 +33,7 @@ from devflow.control_room.service import (
 from devflow.control_room.task_closure import (
     TaskClosureError,
     cleanup_task as cleanup_closed_task,
+    closure_next_action,
     close_task,
     read_closure,
 )
@@ -591,11 +592,12 @@ def task_show(task_id: str) -> None:
     typer.echo(f"worker_command: {task.worker_command or ''}")
     closure = read_closure(Path.cwd(), task.id)
     if closure:
+        closed_next_action = closure_next_action(Path.cwd(), task)
         typer.echo("closed: yes")
         typer.echo(f"outcome: {closure.get('outcome') or ''}")
         typer.echo(f"reason: {closure.get('reason') or ''}")
         typer.echo(f"closed_at: {closure.get('closed_at') or ''}")
-        typer.echo(f"next_action: {closure.get('next_suggested_action') or 'none'}")
+        typer.echo(f"next_action: {closed_next_action}")
 
     # Check for Goal Link metadata
     goal_link_yaml = Path(task_path) / "goal-link.yaml"
@@ -625,7 +627,7 @@ def task_show(task_id: str) -> None:
     promoted_event = _get_latest_promoted_event(task_path)
     suggested_next_action = projection.suggested_next_action
     if closure:
-        suggested_next_action = str(closure.get("next_suggested_action") or "none")
+        suggested_next_action = closed_next_action
     finalized_commit = finalization.get("commit_hash")
     if isinstance(finalized_commit, str) and finalized_commit and not promoted_event and not closure:
         typer.echo(f"finalized_commit: {finalized_commit}")

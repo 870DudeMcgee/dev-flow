@@ -199,6 +199,12 @@ def test_cleanup_apply_removes_safe_workspace_and_writes_evidence() -> None:
         events = Path(".devflow/tasks/task-0001/events.jsonl").read_text(encoding="utf-8")
         assert '"event": "task_cleanup_applied"' in events
 
+        show = runner.invoke(app, ["task", "show", "task-0001"])
+        assert show.exit_code == 0, show.output
+        assert "closed: yes" in show.output
+        assert "next_action: none" in show.output
+        assert "suggested_next_action: none" in show.output
+
     _with_temp_cwd(scenario)
 
 

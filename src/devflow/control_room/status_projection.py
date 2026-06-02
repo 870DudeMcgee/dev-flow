@@ -12,7 +12,7 @@ from devflow.control_room.paths import task_dir
 from devflow.control_room.persistence import get_task, list_tasks
 from devflow.control_room.qwopus_evidence import qwopus_suggested_next_action
 from devflow.control_room.readiness import promotion_readiness_errors
-from devflow.control_room.task_closure import read_closure
+from devflow.control_room.task_closure import closure_next_action, read_closure
 
 
 class TaskStatusProjection(BaseModel):
@@ -111,6 +111,7 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
             record.status,
             verification_status,
             record.id,
+            closed_next_action=closure_next_action(root, record) if closure else None,
             promotion_ready=not promotion_errors,
             manual_agent_state=manual_evidence.state if manual_evidence is not None else None,
         ),
@@ -182,6 +183,7 @@ def _suggest_next_action(
     status: str,
     verification_status: str,
     task_id: str,
+    closed_next_action: str | None = None,
     promotion_ready: bool = False,
     manual_agent_state: str | None = None,
 ) -> str:
@@ -202,7 +204,7 @@ def _suggest_next_action(
             return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
 
     if status == "closed":
-        return f"devflow task cleanup {task_id} --preview"
+        return closed_next_action or "none"
     if status == "created":
         return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
     if status == "running":

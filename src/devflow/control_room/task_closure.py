@@ -65,6 +65,13 @@ def read_closure(root: Path, task_id: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def closure_next_action(root: Path, task: TaskRecord) -> str:
+    try:
+        return f"devflow task cleanup {task.id} --preview" if _cleanup_candidate(root, task) is not None else "none"
+    except TaskClosureError:
+        return "review cleanup safety"
+
+
 def cleanup_task(root: Path, task_id: str, *, apply: bool) -> dict[str, Any]:
     task = get_task(root, task_id)
     if task.status != "closed":
