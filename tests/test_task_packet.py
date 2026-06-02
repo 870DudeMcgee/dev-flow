@@ -5,7 +5,8 @@ import tempfile
 from pathlib import Path
 
 from devflow.control_room.service import create_task, verify_task
-from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
+from devflow.control_room.agent_registry import load_agent_registry
+from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packet, build_task_packet
 
 
 def test_task_packet_canonical_files_precedence_on_conflict() -> None:
@@ -50,6 +51,45 @@ def test_task_packet_canonical_files_precedence_on_conflict() -> None:
         assert packet.summary == "task-0001 created: Canonical title"
         assert packet.derived_summary is None
         assert any("Ignored summary.json" in note for note in packet.truncation_notes)
+
+
+def test_qwopus_docs_polish_agent_packet_includes_anti_placeholder_instruction() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        task = create_task(root, "docs/polish: tighten existing task packet docs")
+        agent = load_agent_registry(root).require_agent("qwopus-implementer")
+
+        packet = build_agent_packet(task.id, agent, root=root)
+        completion_rules = "\n".join(packet.completion_rules)
+
+        assert "For docs/polish tasks, do not invent new docs files" in completion_rules
+        assert "commands already exist" in completion_rules
+        assert "If a task explicitly requires a new file, creating it is allowed." in completion_rules
+        assert "Prefer modifying existing relevant files over creating placeholder docs." in completion_rules
+
+
+def test_docs_polish_instruction_is_not_on_generic_task_packets() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "docs/polish: tighten existing task packet docs")
+
+        packet = build_task_packet("task-0001", root=root)
+        serialized = json.dumps(packet.model_dump(mode="json"))
+
+        assert packet.agent_id is None
+        assert packet.worker_adapter == "shell"
+        assert "qwopus-implementer" not in serialized
+        assert "do not invent new docs files" not in serialized
+
+
+def test_task_packet_module_does_not_import_itself() -> None:
+    import inspect
+    import devflow.control_room.task_packet as task_packet_module
+
+    source = inspect.getsource(task_packet_module)
+
+    assert "from devflow.control_room.task_packet import" not in source
+    assert "import devflow.control_room.task_packet" not in source
 
 
 def test_task_packet_recent_events_limit() -> None:

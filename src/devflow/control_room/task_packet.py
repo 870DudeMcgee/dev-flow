@@ -16,6 +16,16 @@ from devflow.control_room.agent_registry import AgentDefinition
 _relative = relative_path
 
 
+DOCS_POLISH_ANTI_PLACEHOLDER_INSTRUCTION = (
+    "For docs/polish tasks, do not invent new docs files, quickstarts, README sections, commands, "
+    "install steps, or usage examples unless the task explicitly asks for them or the packet contains "
+    "evidence that those files/commands already exist. If a task explicitly requires a new file, "
+    "creating it is allowed. If referencing commands, only reference commands present in the packet, "
+    "existing docs, pyproject/scripts, Makefile, or tests. Prefer modifying existing relevant files "
+    "over creating placeholder docs."
+)
+
+
 class TaskPacketLimits(BaseModel):
     recent_events_limit: int = Field(default=20, ge=0)
     worker_log_tail_lines: int = Field(default=20, ge=0)
@@ -691,6 +701,9 @@ def build_agent_packet(
 ) -> TaskPacket:
     packet = build_task_packet(task_id, root=root)
     can_see = agent.can_see or []
+    completion_rules = list(agent.completion_rules)
+    if _needs_docs_polish_anti_placeholder_instruction(packet, agent):
+        completion_rules.append(DOCS_POLISH_ANTI_PLACEHOLDER_INSTRUCTION)
     packet = packet.model_copy(
         update={
             "agent_id": agent.id,
@@ -702,7 +715,7 @@ def build_agent_packet(
             "allowed_writes": agent.allowed_writes,
             "forbidden_writes": agent.forbidden_writes,
             "required_outputs": agent.required_outputs,
-            "completion_rules": agent.completion_rules,
+            "completion_rules": completion_rules,
             "manual_instructions": _manual_instructions(agent),
         }
     )
@@ -717,6 +730,25 @@ def build_agent_packet(
         packet = packet.model_copy(update={"verification": {}})
 
     return packet
+
+
+def _needs_docs_polish_anti_placeholder_instruction(packet: TaskPacket, agent: AgentDefinition) -> bool:
+    if agent.id != "qwopus-implementer":
+        return False
+    if agent.adapter != "ollama_chat" or agent.role != "implementation_worker":
+        return False
+    return _is_docs_polish_task(packet)
+
+
+def _is_docs_polish_task(packet: TaskPacket) -> bool:
+    parts = [packet.title]
+    if packet.task_slice:
+        for key in ("title", "summary"):
+            value = packet.task_slice.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+    combined = "\n".join(part for part in parts if part).lower()
+    return "docs/polish" in combined or (("docs" in combined or "documentation" in combined) and "polish" in combined)
 
 
 def _manual_instructions(agent: AgentDefinition) -> str | None:

@@ -159,7 +159,7 @@ def test_ollama_worker_success(tmp_path: Path) -> None:
 
 def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_path: Path) -> None:
     (tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
-    task = create_task(tmp_path, "Update hello with Qwopus")
+    task = create_task(tmp_path, "docs/polish: update hello with Qwopus")
     workspace_path = tmp_path / task.workspace
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
 
@@ -218,6 +218,11 @@ def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_pat
     assert (agent_dir / "result.md").exists()
     assert (agent_dir / "run.json").exists()
     assert (agent_dir / "logs" / "worker.log").exists()
+    packet_json = json.loads((agent_dir / "packet.json").read_text(encoding="utf-8"))
+    completion_rules = "\n".join(packet_json["completion_rules"])
+    assert "For docs/polish tasks, do not invent new docs files" in completion_rules
+    assert "If a task explicitly requires a new file, creating it is allowed." in completion_rules
+    assert "Do not create files" not in completion_rules
     assert "Hello from Qwopus" in (agent_dir / "proposal.patch").read_text(encoding="utf-8")
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
 
