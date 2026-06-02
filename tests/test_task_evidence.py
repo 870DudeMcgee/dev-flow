@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import tempfile
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -267,6 +268,42 @@ def test_task_evidence_read_only() -> None:
             assert mtime_before == mtime_after
         finally:
             os.chdir(old_cwd)
+
+
+def test_task_evidence_uses_git_worktree_workspace(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.chdir(tmp_path)
+    _init_git_repo()
+    created = runner.invoke(app, ["task", "create", "--git-worktree", "git evidence task"])
+    assert created.exit_code == 0, created.output
+
+    workspace = Path(".devflow/worktrees/task-0001/shell")
+    run_dir = _write_local_run(
+        workspace,
+        "qwen-planner",
+        run_id="run_20260601_120000_git",
+        model="qwen3.6:latest",
+    )
+
+    evidence = runner.invoke(app, ["task", "evidence", "task-0001"])
+    assert evidence.exit_code == 0, evidence.output
+    assert f".devflow/worktrees/task-0001/shell/local-workers/qwen-planner/{run_dir.name}/response.md" in evidence.output
+    assert "Task workspace not found at" not in evidence.output
+    assert ".devflow/workspaces/task-0001" not in evidence.output
+
+    local = runner.invoke(app, ["task", "evidence", "task-0001", "--local"])
+    assert local.exit_code == 0, local.output
+    assert "Local runs for task-0001" in local.output
+    assert ".devflow/worktrees/task-0001/shell/local-workers/qwen-planner/run_20260601_120000_git" in local.output
+    assert ".devflow/workspaces/task-0001" not in local.output
+
+
+def _init_git_repo() -> None:
+    subprocess.run(["git", "init", "-b", "main"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+    Path("base.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "base.txt"], check=True)
+    subprocess.run(["git", "commit", "-m", "init"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def _write_local_run(

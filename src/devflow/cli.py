@@ -2017,7 +2017,8 @@ def task_evidence(
     import json
     import fnmatch
     from devflow.control_room.service import get_task
-    from devflow.control_room.paths import workspaces_dir, task_dir
+    from devflow.control_room.paths import task_dir
+    from devflow.control_room.task_workspace import runtime_workspace_path
 
     root = Path.cwd()
 
@@ -2027,7 +2028,7 @@ def task_evidence(
         typer.echo(f"Error: Task '{task_id}' not found.", err=True)
         raise typer.Exit(code=1)
 
-    workspace = (workspaces_dir(root) / task_id).resolve()
+    workspace = runtime_workspace_path(root, task)
     if not workspace.exists() or not workspace.is_dir():
         typer.echo(f"Error: Task workspace not found at {workspace}", err=True)
         raise typer.Exit(code=1)
