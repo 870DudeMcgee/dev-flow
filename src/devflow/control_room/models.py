@@ -18,6 +18,7 @@ TaskStatus = Literal[
     "worker_failed",
     "timeout",
     "promoted",
+    "closed",
 ]
 
 WorkerPermissionMode = Literal[
@@ -67,6 +68,9 @@ class TaskRecord(BaseModel):
     timeout_seconds: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    close_outcome: str | None = None
+    close_reason: str | None = None
+    closed_at: datetime | None = None
 
     @property
     def merge_ready(self) -> bool:

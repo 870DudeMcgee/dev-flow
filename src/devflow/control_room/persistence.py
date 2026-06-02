@@ -74,6 +74,9 @@ def save_task(task_path: Path, task: TaskRecord) -> None:
         "branch_name": task.branch_name,
         "workspace_commit": task.workspace_commit,
         "workspace_dirty": task.workspace_dirty,
+        "close_outcome": task.close_outcome,
+        "close_reason": task.close_reason,
+        "closed_at": task.closed_at.isoformat() if task.closed_at else None,
     }
     key_order = [
         "schema_version",
@@ -103,6 +106,9 @@ def save_task(task_path: Path, task: TaskRecord) -> None:
         "branch_name",
         "workspace_commit",
         "workspace_dirty",
+        "close_outcome",
+        "close_reason",
+        "closed_at",
     ]
     lines = [f"{key}: {_yaml_scalar(values[key])}" for key in key_order]
     task_path.mkdir(parents=True, exist_ok=True)
@@ -149,7 +155,7 @@ def load_task(task_path: Path) -> TaskRecord:
     missing = [key for key in required if key not in data]
     if missing:
         raise ValueError(f"missing keys in {task_path / 'task.yaml'}: {', '.join(missing)}")
-    for key in ("created_at", "updated_at", "started_at", "finished_at"):
+    for key in ("created_at", "updated_at", "started_at", "finished_at", "closed_at"):
         if data.get(key):
             data[key] = datetime.fromisoformat(str(data[key]))
     return TaskRecord(**data)

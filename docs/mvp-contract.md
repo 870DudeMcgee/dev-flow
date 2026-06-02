@@ -30,11 +30,16 @@ devflow task local <task-id> --agent qwen-planner
 devflow task local <task-id> --agent qwopus-implementer
 devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer
 devflow task list
+devflow task list --active
+devflow task list --closed
 devflow task show <task-id>
 devflow task packet <task-id>
 devflow task log <task-id>
 devflow task promote-preview <task-id>
 devflow task promote <task-id>
+devflow task close <task-id> --outcome rejected --reason "superseded by manual repair"
+devflow task cleanup <task-id> --preview
+devflow task cleanup <task-id> --apply
 devflow task cleanup <task-id> --dry-run
 devflow worktree list
 devflow worktree prune --dry-run
@@ -84,6 +89,8 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 
 `devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Promotion is not automatic and does not stage, commit, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
+`devflow task close` marks a task inactive without deleting evidence. It requires an explicit outcome and reason, writes `.devflow/tasks/<task-id>/closure.json`, appends a close event, and preserves logs, proposal patches, verification, finalization, and promotion artifacts. `devflow task show` and `devflow task list` surface closed tasks with their outcome. `devflow task cleanup <task-id> --preview` refuses active tasks, reports conservative task-owned runtime cleanup candidates, and deletes nothing. `--apply` reruns the same safety analysis, removes only safe `.devflow/workspaces/<task-id>` or `.devflow/worktrees/<task-id>/<worker>` runtime targets, writes `cleanup.json`, and appends cleanup evidence. The older `--dry-run` spelling remains a compatibility preview for existing Git-native cleanup reporting.
+
 `devflow agent show devflow-manual-codex-worker` displays the stable proof-agent contract:
 
 - Agent ID: `devflow-manual-codex-worker`
@@ -105,6 +112,8 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/.lock/owner.json   # live only during task-local mutations
 .devflow/tasks/<task-id>/events.jsonl
 .devflow/tasks/<task-id>/verification.json
+.devflow/tasks/<task-id>/closure.json
+.devflow/tasks/<task-id>/cleanup.json
 .devflow/tasks/<task-id>/logs/worker.log
 .devflow/tasks/<task-id>/logs/verify.log
 .devflow/tasks/<task-id>/patch-application.json

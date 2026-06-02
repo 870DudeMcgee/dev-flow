@@ -12,6 +12,7 @@ from devflow.control_room.paths import task_dir
 from devflow.control_room.persistence import get_task, list_tasks
 from devflow.control_room.qwopus_evidence import qwopus_suggested_next_action
 from devflow.control_room.readiness import promotion_readiness_errors
+from devflow.control_room.task_closure import read_closure
 
 
 class TaskStatusProjection(BaseModel):
@@ -29,6 +30,7 @@ class TaskStatusProjection(BaseModel):
     manual_agent_result_path: str | None = None
     manual_agent_question: str | None = None
     manual_agent_failure: str | None = None
+    closure_outcome: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -42,6 +44,9 @@ class TaskStatusProjection(BaseModel):
 
     @property
     def display_status(self) -> str:
+        if self.task.status == "closed":
+            outcome = self.closure_outcome or self.task.close_outcome
+            return f"closed/{outcome}" if outcome else "closed"
         if self.task.status == "blocked" and self.manual_agent_state:
             if self.manual_agent_state == "awaiting_human":
                 return "awaiting_human"
@@ -83,12 +88,15 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
     verification_log_path = _string_or_default(verification.get("log_path"), record.verification_log_path)
     verification_command = _string_or_default(verification.get("command"), record.verification_command)
     manual_evidence = _manual_evidence(root, record)
-    qwopus_next_action = qwopus_suggested_next_action(
-        root,
-        record.id,
-        task_status=record.status,
-        verification_status=verification_status,
-    )
+    closure = read_closure(root, record.id) if record.status == "closed" else None
+    qwopus_next_action = None
+    if record.status != "closed":
+        qwopus_next_action = qwopus_suggested_next_action(
+            root,
+            record.id,
+            task_status=record.status,
+            verification_status=verification_status,
+        )
 
     return TaskStatusProjection(
         task=record,
@@ -111,6 +119,7 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
         manual_agent_result_path=manual_evidence.result_path if manual_evidence is not None else None,
         manual_agent_question=manual_evidence.question if manual_evidence is not None else None,
         manual_agent_failure=manual_evidence.failure if manual_evidence is not None else None,
+        closure_outcome=str(closure.get("outcome")) if closure and closure.get("outcome") else record.close_outcome,
     )
 
 
@@ -192,6 +201,8 @@ def _suggest_next_action(
                 return f"Fix the failure and re-run verification using 'devflow task verify {task_id} -- <command>'"
             return f"Verify the task using 'devflow task verify {task_id} -- <command>'"
 
+    if status == "closed":
+        return f"devflow task cleanup {task_id} --preview"
     if status == "created":
         return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
     if status == "running":

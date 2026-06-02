@@ -67,11 +67,16 @@ devflow task local <task_id> --agent qwen-planner
 devflow task local <task_id> --agent qwopus-implementer
 devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer
 devflow task list
+devflow task list --active
+devflow task list --closed
 devflow task show <task_id>
 devflow task packet <task_id>
 devflow task log <task_id>
 devflow task promote-preview <task_id>
 devflow task promote <task_id>
+devflow task close <task_id> --outcome rejected --reason "superseded by manual repair"
+devflow task cleanup <task_id> --preview
+devflow task cleanup <task_id> --apply
 devflow agent show devflow-manual-codex-worker
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-manual-codex-worker
@@ -110,6 +115,8 @@ Do not implement these in the first milestone:
     task.yaml
     events.jsonl
     verification.json
+    closure.json
+    cleanup.json
     logs/
       worker.log
       verify.log
@@ -232,6 +239,8 @@ Implemented:
 - clear task-run refusal for `experimental_readonly` and `planned_not_executable` adapters
 - promotion preview from isolated workspace changes
 - human-controlled promotion of verified changes to the main checkout
+- task closure evidence with explicit outcomes, inactive closed status, and preserved logs/artifacts
+- preview-first cleanup for closed tasks that removes only conservative task-owned `.devflow` runtime artifacts on `--apply`
 - `devflow task local` for local Qwen/Qwopus/Gemma advisory evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
 - `devflow task run --worker qwopus-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
 

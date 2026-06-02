@@ -17,7 +17,7 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
 - **Dashboard**: `devflow dashboard`
-- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`, `devflow task finalize` (dry-run & `--commit`)
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
@@ -41,6 +41,8 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     task.yaml
     events.jsonl
     verification.json
+    closure.json
+    cleanup.json
     agents/<agent-id>/packet.json
     agents/<agent-id>/raw_output.md
     agents/<agent-id>/proposal.patch
@@ -73,7 +75,7 @@ Dev-Flow stores durable task state as local filesystem artifacts:
   tasks/<task-id>/workers/shell/promotion-preview.json
 ```
 
-`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output and local Ollama prompt/response artifacts stay in `.devflow/workspaces/<task-id>/` until a human explicitly reviews them; promotion remains separate and verification-gated.
+`task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output and local Ollama prompt/response artifacts stay in `.devflow/workspaces/<task-id>/` until a human explicitly reviews them; promotion remains separate and verification-gated. Closing a task writes `closure.json`, marks it inactive, and preserves task evidence. Cleanup is preview-first and writes `cleanup.json` only when `--apply` removes safe task-owned runtime artifacts.
 
 Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `local`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
 
@@ -87,7 +89,7 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple and is the default mode, but it can be slow for large repositories, does not use git merge machinery inside the workspace, and is recommended only for simple/experimental work.
 - **Git-Native Task Lanes**: `devflow task create --git-worktree` is strongly recommended for all serious, high-assurance development work. It creates an isolated, branch-backed worktree under `.devflow/worktrees/<task-id>/shell/`, records Git evidence, binds verification directly to the worker branch commit, and uses robust Git-aware promotion mechanics rather than simple filesystem copies.
-- Git cleanup commands are dry-run-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --dry-run` before applying mutations.
+- Git cleanup commands are preview-first: use `devflow worktree list`, `devflow branch list`, `devflow worktree prune --dry-run`, `devflow branch archive <branch> --dry-run`, and `devflow task cleanup <task-id> --preview` before applying closed-task cleanup. `devflow task cleanup <task-id> --dry-run` remains available as a compatibility preview for existing Git-native cleanup reporting.
 - Promotion is explicit, readiness-gated, and human-controlled. Copy-workspace tasks promote by copying verified workspace changes back into the main checkout; Git worktree tasks promote through Git branch merges.
 - The patch applier is a text-only MVP path with strong path validation and durable patch hash evidence. It intentionally rejects binary diffs, renames, mode changes, copies, and complex git metadata.
 
@@ -187,6 +189,23 @@ TASK_ID=$(.venv/bin/python -m devflow.cli task create --git-worktree "write hell
 ```
 
 Git-native promotion refuses if the worker branch HEAD differs from the verified commit, the worktree is dirty after verification, the baseline is stale without explicit review, or merge conflicts are predicted.
+
+### Task Lifecycle And Closure
+
+A task normally moves through active work, verification, optional finalization, promotion, and closure:
+
+- **Active task**: created, running, complete, blocked, failed, or awaiting verification.
+- **Verified task**: verification evidence passed and promotion readiness can be inspected.
+- **Finalized task**: a Git-native worker lane has reviewed/staged task-owned changes and optionally committed them.
+- **Promoted task**: verified changes were explicitly promoted to the main checkout.
+- **Closed task**: the task is inactive with a recorded outcome and reason; evidence stays under `.devflow/tasks/<task-id>/`.
+- **Cleanup preview/apply**: preview shows task-owned runtime artifacts that can be removed; apply removes only conservative `.devflow` runtime targets and writes cleanup evidence.
+
+```bash
+devflow task close task-0016 --outcome rejected --reason "Qwopus proposal was unsafe; manual repair committed separately."
+devflow task cleanup task-0016 --preview
+devflow task cleanup task-0016 --apply
+```
 After `task finalize --commit`, the commit is on the task worker branch and main is unchanged; `task show` points the operator to `devflow task promote-preview <task_id>`. `promote-preview` is read-only and reports that main will not change until `devflow task promote <task_id>`. Git-native `promote` completes the approved merge as a clean main-branch commit instead of leaving staged merge leftovers.
 
 `devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks. It does not repair artifacts automatically.

@@ -30,6 +30,12 @@ from devflow.control_room.service import (
     verify_task,
     apply_task_patch,
 )
+from devflow.control_room.task_closure import (
+    TaskClosureError,
+    cleanup_task as cleanup_closed_task,
+    close_task,
+    read_closure,
+)
 from devflow.control_room.patch_applier import (
     PatchError,
     PatchSelectionError,
@@ -397,18 +403,65 @@ def task_create(
 @task_app.command("cleanup")
 def task_cleanup(
     task_id: str,
-    dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Preview cleanup by default; use --apply to mutate."),
-    force: bool = typer.Option(False, "--force", help="Allow cleanup of non-terminal or dirty task resources after review."),
+    preview: bool = typer.Option(False, "--preview", help="Preview closed-task cleanup without deleting anything."),
+    apply: bool = typer.Option(False, "--apply", help="Apply conservative closed-task cleanup."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compatibility preview for existing Git-native cleanup."),
+    force: bool = typer.Option(False, "--force", help="Compatibility option for Git-native --dry-run cleanup."),
 ) -> None:
-    """Dry-run-first cleanup for one Git worktree-backed task."""
+    """Preview or apply cleanup for one task."""
+    if apply and (preview or dry_run):
+        typer.echo("Choose either --preview/--dry-run or --apply, not both.", err=True)
+        raise typer.Exit(code=1)
+    if dry_run:
+        try:
+            actions = cleanup_task_git_resources(Path.cwd(), task_id, dry_run=True, force=force)
+        except (KeyError, GitWorktreeError, ValueError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo("mode: dry-run")
+        typer.echo(f"task: {task_id}")
+        _echo_cleanup_actions(actions, dry_run=True)
+        return
+    if apply:
+        try:
+            task_for_compat = get_task(Path.cwd(), task_id)
+            if task_for_compat.status != "closed":
+                actions = cleanup_task_git_resources(Path.cwd(), task_id, dry_run=False, force=force)
+                typer.echo("mode: apply")
+                typer.echo(f"task: {task_id}")
+                _echo_cleanup_actions(actions, dry_run=False)
+                return
+        except (KeyError, GitWorktreeError, ValueError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
     try:
-        actions = cleanup_task_git_resources(Path.cwd(), task_id, dry_run=dry_run, force=force)
-    except (KeyError, GitWorktreeError, ValueError) as exc:
+        result = cleanup_closed_task(Path.cwd(), task_id, apply=apply)
+    except (KeyError, TaskClosureError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(f"mode: {'dry-run' if dry_run else 'apply'}")
+    typer.echo(f"mode: {'apply' if apply else 'preview'}")
     typer.echo(f"task: {task_id}")
-    _echo_cleanup_actions(actions, dry_run=dry_run)
+    _echo_task_cleanup_result(result)
+
+
+@task_app.command("close")
+def task_close(
+    task_id: str,
+    outcome: str = typer.Option(..., "--outcome", help="Close outcome."),
+    reason: str = typer.Option(..., "--reason", help="Reason for closing the task."),
+) -> None:
+    """Close a task as inactive while preserving evidence."""
+    try:
+        closure = close_task(Path.cwd(), task_id, outcome=outcome, reason=reason)
+    except (KeyError, TaskClosureError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"task: {task_id}")
+    typer.echo("closed: yes")
+    typer.echo(f"outcome: {closure['outcome']}")
+    typer.echo(f"reason: {closure['reason']}")
+    typer.echo(f"closed_at: {closure['closed_at']}")
+    typer.echo(f"next_action: {closure['next_suggested_action']}")
 
 
 @worktree_app.command("list")
@@ -481,9 +534,19 @@ def branch_archive(
 
 
 @task_app.command("list")
-def task_list() -> None:
+def task_list(
+    active: bool = typer.Option(False, "--active", help="Show only active tasks."),
+    closed: bool = typer.Option(False, "--closed", help="Show only closed tasks."),
+) -> None:
     """List tasks from the control-room task files."""
+    if active and closed:
+        typer.echo("Choose either --active or --closed, not both.", err=True)
+        raise typer.Exit(code=1)
     projections = list_task_status_projections(Path.cwd())
+    if active:
+        projections = [projection for projection in projections if projection.task.status != "closed"]
+    if closed:
+        projections = [projection for projection in projections if projection.task.status == "closed"]
     if not projections:
         typer.echo("No tasks found.")
         return
@@ -526,6 +589,13 @@ def task_show(task_id: str) -> None:
     typer.echo(f"log_path: {task.log_path or ''}")
     typer.echo(f"result_path: {task.result_path or ''}")
     typer.echo(f"worker_command: {task.worker_command or ''}")
+    closure = read_closure(Path.cwd(), task.id)
+    if closure:
+        typer.echo("closed: yes")
+        typer.echo(f"outcome: {closure.get('outcome') or ''}")
+        typer.echo(f"reason: {closure.get('reason') or ''}")
+        typer.echo(f"closed_at: {closure.get('closed_at') or ''}")
+        typer.echo(f"next_action: {closure.get('next_suggested_action') or 'none'}")
 
     # Check for Goal Link metadata
     goal_link_yaml = Path(task_path) / "goal-link.yaml"
@@ -554,8 +624,10 @@ def task_show(task_id: str) -> None:
     finalization = _read_json_mapping(task_path / "finalization.json")
     promoted_event = _get_latest_promoted_event(task_path)
     suggested_next_action = projection.suggested_next_action
+    if closure:
+        suggested_next_action = str(closure.get("next_suggested_action") or "none")
     finalized_commit = finalization.get("commit_hash")
-    if isinstance(finalized_commit, str) and finalized_commit and not promoted_event:
+    if isinstance(finalized_commit, str) and finalized_commit and not promoted_event and not closure:
         typer.echo(f"finalized_commit: {finalized_commit}")
         if task.branch_name:
             typer.echo(f"worker_branch_commit: {branch_head(Path.cwd(), task.branch_name) or 'unavailable'}")
@@ -2392,6 +2464,19 @@ def _echo_cleanup_actions(actions: list[dict[str, Any]], dry_run: bool) -> None:
         elif action["action"] == "archive_branch":
             label = "would_archive_branch" if dry_run else "archived_branch"
             typer.echo(f"{label}: {action['branch']} -> {action['archive_branch']}")
+
+
+def _echo_task_cleanup_result(result: dict[str, Any]) -> None:
+    would_remove = result.get("would_remove") or []
+    removed = result.get("removed") or []
+    for path in would_remove:
+        typer.echo(f"would_remove: {path}")
+    for path in removed:
+        typer.echo(f"removed: {path}")
+    if not would_remove and not removed:
+        typer.echo("cleanup_candidates: none")
+    for path in result.get("retained") or []:
+        typer.echo(f"retained: {path}")
 
 
 def _echo_list(label: str, values: list[str]) -> None:
