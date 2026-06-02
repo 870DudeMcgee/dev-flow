@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any
+import yaml
 
 from pydantic import BaseModel, Field
 
@@ -58,6 +59,438 @@ class TaskPacket(BaseModel):
     allowed_artifacts: list[str]
     omitted_counts: dict[str, int]
     truncation_notes: list[str]
+    schema_version: int = 1
+    goal_context: dict[str, Any] | None = None
+    task_slice: dict[str, Any] | None = None
+    context_budget: dict[str, Any] | None = None
+    verification_policy: dict[str, Any] | None = None
+    bounded_sources: dict[str, Any] | None = None
+    operator_warnings: list[str] = Field(default_factory=list)
+    next_action: dict[str, Any] | None = None
+
+
+def load_slice_from_goal(goal_dir: Path, slice_id: str, warnings: list[str]) -> dict[str, Any] | None:
+    slices_file = goal_dir / "task-slices.yaml"
+    if not slices_file.exists():
+        warnings.append(f"warning: task-slices.yaml is missing in {goal_dir.name}")
+        return None
+    try:
+        data = yaml.safe_load(slices_file.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("task_slices"), list):
+            for s in data["task_slices"]:
+                if isinstance(s, dict) and s.get("task_id") == slice_id:
+                    return s
+            warnings.append(f"warning: slice_id '{slice_id}' not found in task-slices.yaml")
+        else:
+            warnings.append(f"warning: task-slices.yaml in {goal_dir.name} is malformed")
+    except Exception as exc:
+        warnings.append(f"warning: failed to parse task-slices.yaml: {exc}")
+    return None
+
+
+def load_context_pointers(goal_dir: Path, warnings: list[str]) -> dict[str, Any]:
+    cp_file = goal_dir / "context-pointers.yaml"
+    default_budget = {
+        "estimated_tokens": None,
+        "risk": "medium",
+        "strategy": "focused_task_packet",
+        "required_context": [],
+        "optional_context": [],
+        "forbidden_context": [
+            "archived_docs",
+            "previous_failed_attempts_unless_explicitly_relevant",
+            "unrelated_brainstorming"
+        ],
+        "stale_or_archived_context": [],
+        "warnings": ["do_not_load_entire_repo"]
+    }
+    if not cp_file.exists():
+        warnings.append(f"warning: context-pointers.yaml is missing in {goal_dir.name}")
+        return default_budget
+
+    try:
+        data = yaml.safe_load(cp_file.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            warnings.append(f"warning: context-pointers.yaml in {goal_dir.name} is malformed")
+            return default_budget
+
+        budget = data.get("context_budget") or {}
+        estimated_tokens = budget.get("estimated_tokens")
+        risk = budget.get("risk") or budget.get("context_risk") or budget.get("context risk") or "medium"
+        strategy = budget.get("strategy") or "focused_task_packet"
+
+        return {
+            "estimated_tokens": estimated_tokens,
+            "risk": risk,
+            "strategy": strategy,
+            "required_context": data.get("required_context") or [],
+            "optional_context": data.get("optional_context") or [],
+            "forbidden_context": data.get("forbidden_context") or default_budget["forbidden_context"],
+            "stale_or_archived_context": data.get("stale_or_archived_context") or [],
+            "warnings": data.get("warnings") or default_budget["warnings"]
+        }
+    except Exception as exc:
+        warnings.append(f"warning: failed to parse context-pointers.yaml: {exc}")
+        return default_budget
+
+
+def is_path_excluded(path_str: str) -> bool:
+    normalized = path_str.replace("\\", "/").lower()
+    
+    # Exclude .devflow/workspaces/**
+    if ".devflow/workspaces/" in normalized:
+        return True
+        
+    # Exclude packet.json and packet.md
+    if "/packet.json" in normalized or normalized.endswith("packet.json") or "/packet.md" in normalized or normalized.endswith("packet.md"):
+        return True
+        
+    # Exclude local-model-runs/**
+    if "local-model-runs/" in normalized:
+        return True
+        
+    # Exclude logs/**
+    if "/logs/" in normalized or normalized.startswith("logs/"):
+        return True
+        
+    # Exclude raw_output.md, run.json
+    if "raw_output.md" in normalized or "run.json" in normalized:
+        return True
+        
+    # Exclude prompt.md, response.md, request.json, response.json, run.json
+    if "prompt.md" in normalized or "response.md" in normalized or "request.json" in normalized or "response.json" in normalized:
+        return True
+        
+    return False
+
+
+def build_bounded_sources(
+    root: Path,
+    task_id: str,
+    goal_id: str,
+    goal_path: Path,
+    task_path: Path,
+    context_budget_data: dict[str, Any],
+    warnings: list[str],
+    operator_warnings: list[str]
+) -> dict[str, Any]:
+    included_summaries = []
+    source_pointers = []
+    excluded_sources = list(context_budget_data.get("forbidden_context") or [])
+
+    # Let's list constants for caps
+    MAX_INCLUDED_SOURCE_CHARS = 4000
+    MAX_OUT_OF_SCOPE_CHARS = 2000
+    MAX_TOTAL_INCLUDED_SOURCE_CHARS = 12000
+    total_loaded_chars = 0
+
+    # Let's check for slice.md
+    slice_md = task_path / "slice.md"
+    slice_rel = relative_path(root, slice_md)
+    if slice_md.exists() and not is_path_excluded(slice_rel):
+        try:
+            content = slice_md.read_text(encoding="utf-8")
+            if len(content) > MAX_INCLUDED_SOURCE_CHARS:
+                content = content[:MAX_INCLUDED_SOURCE_CHARS]
+            
+            if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
+                remaining = MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars
+                content = content[:remaining]
+            
+            total_loaded_chars += len(content)
+            
+            included_summaries.append({
+                "source": slice_rel,
+                "kind": "summary",
+                "content": content
+            })
+            source_pointers.append(slice_rel)
+        except Exception as exc:
+            warnings.append(f"warning: failed to read slice.md: {exc}")
+
+    # Let's check for prd.md
+    prd_md = goal_path / "prd.md"
+    prd_rel = relative_path(root, prd_md)
+    if prd_md.exists() and not is_path_excluded(prd_rel):
+        try:
+            content = prd_md.read_text(encoding="utf-8")
+            original_chars = len(content)
+            truncated = False
+            included_chars = original_chars
+            if original_chars > MAX_INCLUDED_SOURCE_CHARS:
+                content = content[:MAX_INCLUDED_SOURCE_CHARS]
+                truncated = True
+                included_chars = MAX_INCLUDED_SOURCE_CHARS
+            
+            if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
+                remaining = MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars
+                content = content[:remaining]
+                truncated = True
+                included_chars = len(content)
+            
+            total_loaded_chars += len(content)
+            
+            entry = {
+                "source": prd_rel,
+                "kind": "summary",
+                "content": content,
+            }
+            if truncated:
+                entry["truncated"] = True
+                entry["original_chars"] = original_chars
+                entry["included_chars"] = included_chars
+            included_summaries.append(entry)
+            source_pointers.append(prd_rel)
+        except Exception as exc:
+            warnings.append(f"warning: failed to read prd.md: {exc}")
+    else:
+        warnings.append(f"warning: prd.md is missing in {goal_path.name}")
+
+    # Let's check for out-of-scope.md
+    oos_md = goal_path / "out-of-scope.md"
+    oos_rel = relative_path(root, oos_md)
+    if oos_md.exists() and not is_path_excluded(oos_rel):
+        try:
+            content = oos_md.read_text(encoding="utf-8")
+            original_chars = len(content)
+            truncated = False
+            included_chars = original_chars
+            if original_chars > MAX_OUT_OF_SCOPE_CHARS:
+                content = content[:MAX_OUT_OF_SCOPE_CHARS]
+                truncated = True
+                included_chars = MAX_OUT_OF_SCOPE_CHARS
+            
+            if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
+                remaining = MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars
+                content = content[:remaining]
+                truncated = True
+                included_chars = len(content)
+            
+            total_loaded_chars += len(content)
+            
+            entry = {
+                "source": oos_rel,
+                "kind": "summary",
+                "content": content,
+            }
+            if truncated:
+                entry["truncated"] = True
+                entry["original_chars"] = original_chars
+                entry["included_chars"] = included_chars
+            included_summaries.append(entry)
+            source_pointers.append(oos_rel)
+        except Exception as exc:
+            warnings.append(f"warning: failed to read out-of-scope.md: {exc}")
+
+    # Decisions.yaml and open-questions.yaml as parsed YAML summaries
+    decisions_yaml = goal_path / "decisions.yaml"
+    decisions_rel = relative_path(root, decisions_yaml)
+    if decisions_yaml.exists() and not is_path_excluded(decisions_rel):
+        try:
+            dec_data = yaml.safe_load(decisions_yaml.read_text(encoding="utf-8")) or {}
+            dec_str = yaml.safe_dump(dec_data)
+            if total_loaded_chars + len(dec_str) <= MAX_TOTAL_INCLUDED_SOURCE_CHARS:
+                total_loaded_chars += len(dec_str)
+                included_summaries.append({
+                    "source": decisions_rel,
+                    "kind": "yaml_summary",
+                    "content": dec_data
+                })
+                source_pointers.append(decisions_rel)
+            else:
+                warnings.append("warning: decisions.yaml skipped due to total character cap")
+        except Exception as exc:
+            warnings.append(f"warning: failed to read decisions.yaml: {exc}")
+
+    oq_yaml = goal_path / "open-questions.yaml"
+    oq_rel = relative_path(root, oq_yaml)
+    if oq_yaml.exists() and not is_path_excluded(oq_rel):
+        try:
+            oq_data = yaml.safe_load(oq_yaml.read_text(encoding="utf-8")) or {}
+            oq_str = yaml.safe_dump(oq_data)
+            if total_loaded_chars + len(oq_str) <= MAX_TOTAL_INCLUDED_SOURCE_CHARS:
+                total_loaded_chars += len(oq_str)
+                included_summaries.append({
+                    "source": oq_rel,
+                    "kind": "yaml_summary",
+                    "content": oq_data
+                })
+                source_pointers.append(oq_rel)
+            else:
+                warnings.append("warning: open-questions.yaml skipped due to total character cap")
+        except Exception as exc:
+            warnings.append(f"warning: failed to read open-questions.yaml: {exc}")
+
+    # Let's add context-pointers.yaml to source_pointers
+    cp_yaml = goal_path / "context-pointers.yaml"
+    if cp_yaml.exists() and not is_path_excluded(relative_path(root, cp_yaml)):
+        source_pointers.append(relative_path(root, cp_yaml))
+
+    # Let's evaluate required_context and optional_context from context_budget_data
+    stale_terms = ["archive", "archived", "stale", "deprecated", "old"]
+    
+    all_context_pointers = []
+    if "required_context" in context_budget_data:
+        all_context_pointers.extend(context_budget_data["required_context"])
+    if "optional_context" in context_budget_data:
+        all_context_pointers.extend(context_budget_data["optional_context"])
+
+    for p in all_context_pointers:
+        if not isinstance(p, str):
+            continue
+        if is_path_excluded(p):
+            continue
+        is_forbidden = False
+        for f in excluded_sources:
+            if f in p:
+                is_forbidden = True
+                break
+        if is_forbidden:
+            continue
+
+        is_stale = False
+        for term in stale_terms:
+            if term in p.lower():
+                is_stale = True
+                break
+        
+        if is_stale:
+            if p not in source_pointers:
+                source_pointers.append(p)
+            operator_warnings.append(f"Archived context pointer excluded from loading: {p}")
+        else:
+            if p not in source_pointers:
+                source_pointers.append(p)
+
+    return {
+        "included_summaries": included_summaries,
+        "source_pointers": source_pointers[:50],  # MAX_CONTEXT_POINTERS
+        "excluded_sources": excluded_sources
+    }
+
+
+def read_goal_link(root: Path, task_id: str) -> dict | None:
+    task_path = root / ".devflow" / "tasks" / task_id
+    goal_link_yaml = task_path / "goal-link.yaml"
+    if not goal_link_yaml.exists():
+        return None
+    try:
+        return yaml.safe_load(goal_link_yaml.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+
+
+def render_task_packet_text(packet: TaskPacket) -> str:
+    lines = []
+    lines.append(f"# Task Packet: {packet.task_id}")
+    lines.append(f"- **Title**: {packet.title}")
+    lines.append(f"- **Status**: {packet.status}")
+    lines.append(f"- **Worker/Adapter**: {packet.worker_adapter}")
+    lines.append(f"- **Workspace Path**: {packet.workspace_path}")
+    lines.append("")
+
+    if packet.goal_context and packet.goal_context.get("linked"):
+        lines.append("## Goal Link Details")
+        gc = packet.goal_context
+        lines.append(f"- **Goal ID**: {gc.get('goal_id')}")
+        lines.append(f"- **Slice ID**: {gc.get('slice_id')}")
+        lines.append(f"- **Execution Mode**: {gc.get('execution_mode')}")
+        lines.append(f"- **Checkpoint Required**: {gc.get('human_checkpoint_required')}")
+        if gc.get("checkpoint_reason"):
+            lines.append(f"- **Checkpoint Reason**: {gc.get('checkpoint_reason')}")
+        lines.append(f"- **Promotion Allowed**: {gc.get('promotion_allowed')}")
+        lines.append(f"- **Risk**: {gc.get('risk')}")
+        lines.append("")
+
+    if packet.task_slice:
+        lines.append("## Task Slice metadata")
+        ts = packet.task_slice
+        lines.append(f"- **Summary**: {ts.get('summary')}")
+        lines.append("- **Acceptance Criteria**:")
+        for ac in ts.get("acceptance_criteria") or ["None"]:
+            lines.append(f"  - {ac}")
+        lines.append("- **Required Artifacts**:")
+        for art in ts.get("required_artifacts") or ["None"]:
+            lines.append(f"  - {art}")
+        lines.append("")
+
+    if packet.context_budget:
+        lines.append("## Bounded Context Budget")
+        cb = packet.context_budget
+        lines.append(f"- **Strategy**: {cb.get('strategy')}")
+        lines.append(f"- **Risk**: {cb.get('risk')}")
+        lines.append(f"- **Estimated Tokens**: {cb.get('estimated_tokens')}")
+        lines.append("- **Forbidden Context**:")
+        for fc in cb.get("forbidden_context") or ["None"]:
+            lines.append(f"  - {fc}")
+        lines.append("")
+
+    if packet.verification_policy:
+        lines.append("## Verification Policy")
+        vp = packet.verification_policy
+        lines.append(f"- **Test-First Required**: {vp.get('test_first_required')}")
+        lines.append(f"- **Red-Green-Refactor Required**: {vp.get('red_green_required')}")
+        lines.append("- **Required Evidence**:")
+        for ev in vp.get("required_evidence") or ["None"]:
+            lines.append(f"  - {ev}")
+        lines.append("")
+
+    if packet.bounded_sources:
+        lines.append("## Bounded Sources")
+        bs = packet.bounded_sources
+        lines.append("- **Source Pointers**:")
+        for sp in bs.get("source_pointers") or []:
+            lines.append(f"  - {sp}")
+        lines.append("")
+        
+        lines.append("- **Included Summaries**:")
+        for isum in bs.get("included_summaries") or []:
+            lines.append(f"  ### Source: {isum.get('source')} ({isum.get('kind')})")
+            if isum.get("truncated"):
+                lines.append(f"  *(Truncated to {isum.get('included_chars')} of {isum.get('original_chars')} chars)*")
+            content = isum.get("content")
+            if isinstance(content, dict):
+                content_str = yaml.safe_dump(content, default_flow_style=False)
+            else:
+                content_str = str(content)
+            for line in content_str.splitlines():
+                lines.append(f"  > {line}")
+            lines.append("")
+            
+    if packet.operator_warnings:
+        lines.append("## Operator Warnings")
+        for ow in packet.operator_warnings:
+            lines.append(f"- **[WARNING]**: {ow}")
+        lines.append("")
+
+    if packet.next_action:
+        lines.append("## Next Action Recommendation")
+        na = packet.next_action
+        lines.append(f"- **Action**: {na.get('label')}")
+        lines.append(f"- **Command**: `{na.get('command')}`")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def save_task_packet(root: Path, task_id: str, packet: TaskPacket, text_only: bool = False, text_md: str | None = None) -> list[Path]:
+    task_dir = root / ".devflow" / "tasks" / task_id
+    written_paths = []
+    
+    if not text_only:
+        packet_json_path = task_dir / "packet.json"
+        packet_json_path.write_text(
+            json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2),
+            encoding="utf-8"
+        )
+        written_paths.append(packet_json_path)
+        
+    if text_md is not None:
+        packet_md_path = task_dir / "packet.md"
+        packet_md_path.write_text(text_md, encoding="utf-8")
+        written_paths.append(packet_md_path)
+        
+    return written_paths
 
 
 def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, root: Path | None = None) -> TaskPacket:
@@ -110,6 +543,94 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         for p in _allowed_artifacts(repo_root, task_path)
     ]
 
+    goal_link_yaml = task_path / "goal-link.yaml"
+    goal_context = None
+    task_slice = None
+    context_budget = None
+    verification_policy = None
+    bounded_sources = None
+    parsed_op_warnings = []
+    operator_warnings = []
+    next_action = None
+
+    if goal_link_yaml.exists():
+        try:
+            link_data = yaml.safe_load(goal_link_yaml.read_text(encoding="utf-8")) or {}
+            goal_id = link_data.get("goal_id")
+            slice_id = link_data.get("slice_id")
+            goal_path_str = link_data.get("goal_path") or f".devflow/goals/{goal_id}"
+            goal_path = repo_root / goal_path_str
+            
+            goal_context = {
+                "linked": True,
+                "goal_id": goal_id,
+                "slice_id": slice_id,
+                "goal_path": goal_path_str,
+                "slice_source_path": link_data.get("slice_source_path") or f".devflow/goals/{goal_id}/task-slices.yaml",
+                "execution_mode": link_data.get("execution_mode") or "HITL",
+                "human_checkpoint_required": link_data.get("human_checkpoint_required") if link_data.get("human_checkpoint_required") is not None else True,
+                "checkpoint_reason": link_data.get("checkpoint_reason") or "",
+                "promotion_allowed": link_data.get("promotion_allowed") or False,
+                "risk": link_data.get("risk") or "medium"
+            }
+            
+            slice_data = load_slice_from_goal(goal_path, slice_id, parsed_op_warnings) or {}
+            task_slice = {
+                "title": slice_data.get("title") or task.title or "",
+                "summary": slice_data.get("summary") or "",
+                "acceptance_criteria": slice_data.get("acceptance_criteria") or [],
+                "required_artifacts": slice_data.get("required_artifacts") or [],
+                "shared_files": slice_data.get("shared_files") or [],
+                "blocked_by": slice_data.get("blocked_by") or [],
+                "blocks": slice_data.get("blocks") or [],
+                "parallel_safe": slice_data.get("parallel_safe") or False,
+                "workspace_isolation_required": slice_data.get("workspace_isolation_required") or False
+            }
+            
+            context_budget = load_context_pointers(goal_path, parsed_op_warnings)
+            
+            vp = slice_data.get("verification_policy") or {}
+            if isinstance(vp, str):
+                vp_dict = {"policy_type": vp}
+            elif isinstance(vp, dict):
+                vp_dict = vp
+            else:
+                vp_dict = {}
+            verification_policy = {
+                "test_first_required": vp_dict.get("test_first_required", True),
+                "red_green_required": vp_dict.get("red_green_required", True),
+                "required_evidence": vp_dict.get("required_evidence") or []
+            }
+            
+            bounded_sources = build_bounded_sources(
+                repo_root,
+                task_id,
+                goal_id,
+                goal_path,
+                task_path,
+                context_budget,
+                parsed_op_warnings,
+                parsed_op_warnings
+            )
+            
+            operator_warnings = [
+                "Do not load the entire repo by default.",
+                "Do not load archived context unless explicitly requested.",
+                "Promotion remains human-controlled."
+            ] + parsed_op_warnings + (context_budget.get("warnings") or [])
+            
+            next_action = {
+                "label": "Review packet, then run task explicitly",
+                "command": f"devflow task run {task_id} --worker shell -- <command>"
+            }
+        except Exception as exc:
+            parsed_op_warnings.append(f"warning: failed to process goal link context: {exc}")
+            operator_warnings = [
+                "Do not load the entire repo by default.",
+                "Do not load archived context unless explicitly requested.",
+                "Promotion remains human-controlled."
+            ] + parsed_op_warnings
+
     return _redact_secrets_in_value(
         TaskPacket(
             task_id=task.id,
@@ -139,6 +660,14 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
                 "verify_log_bytes": verify_log.omitted_bytes,
             },
             truncation_notes=notes,
+            schema_version=1,
+            goal_context=goal_context,
+            task_slice=task_slice,
+            context_budget=context_budget,
+            verification_policy=verification_policy,
+            bounded_sources=bounded_sources,
+            operator_warnings=operator_warnings,
+            next_action=next_action,
         )
     )
 

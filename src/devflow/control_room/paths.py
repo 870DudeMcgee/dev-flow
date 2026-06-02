@@ -15,6 +15,14 @@ def system_dir(root: Path) -> Path:
     return devflow_dir(root) / "system"
 
 
+def goals_dir(root: Path) -> Path:
+    return devflow_dir(root) / "goals"
+
+
+def goal_dir(root: Path, goal_id: str) -> Path:
+    return goals_dir(root) / goal_id
+
+
 def system_events_path(root: Path) -> Path:
     return system_dir(root) / "events.jsonl"
 

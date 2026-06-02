@@ -60,10 +60,125 @@ task_app = typer.Typer(help="Manage control-room tasks")
 agent_app = typer.Typer(help="Manage and inspect agents")
 worktree_app = typer.Typer(help="Inspect and clean Dev-Flow Git worktrees")
 branch_app = typer.Typer(help="Inspect and archive Dev-Flow Git branches")
+goal_app = typer.Typer(help="Manage goals and planning scaffolds")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
 app.add_typer(branch_app, name="branch")
+app.add_typer(goal_app, name="goal")
+
+
+@goal_app.command("init")
+def goal_init(
+    goal_id: str | None = typer.Argument(None, help="Explicit goal ID (e.g. G-0001)."),
+    from_file: str = typer.Option(..., "--from", help="Path to the goal markdown brief."),
+) -> None:
+    """Initialize a durable goal scaffold from a markdown brief."""
+    from devflow.control_room.goals import create_goal_from_markdown
+    try:
+        from_path = Path(from_file)
+        record = create_goal_from_markdown(Path.cwd(), from_path, goal_id=goal_id)
+        typer.echo(f"Initialized Goal {record.id}")
+        typer.echo(f"Directory: .devflow/goals/{record.id}/")
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@goal_app.command("show")
+def goal_show(goal_id: str) -> None:
+    """Show a goal and its scaffolded artifacts."""
+    from devflow.control_room.goals import render_goal_summary
+    try:
+        summary = render_goal_summary(Path.cwd(), goal_id)
+        typer.echo(summary, nl=False)
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@goal_app.command("list")
+def goal_list() -> None:
+    """List durable goals."""
+    from devflow.control_room.goal_projection import render_goal_list
+    typer.echo(render_goal_list(Path.cwd()), nl=False)
+
+
+@goal_app.command("status")
+def goal_status(goal_id: str) -> None:
+    """Show the status of a specific durable goal."""
+    from devflow.control_room.goal_projection import render_goal_status
+    typer.echo(render_goal_status(Path.cwd(), goal_id), nl=False)
+
+
+@goal_app.command("next")
+def goal_next(goal_id: str) -> None:
+    """Recommend the next safest planning or implementation command for a goal."""
+    from devflow.control_room.goal_projection import build_goal_status_projection
+    try:
+        proj = build_goal_status_projection(Path.cwd(), goal_id)
+        typer.echo(f"Next action: {proj.next_action_label}")
+        typer.echo(f"Command:     {proj.next_action_command or 'None'}")
+        typer.echo(f"Reason:      {proj.next_action_reason}")
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@goal_app.command("slices")
+def goal_slices(goal_id: str) -> None:
+    """Show task slices from task-slices.yaml in a compact reviewable format."""
+    from devflow.control_room.goal_tasks import render_goal_slices
+    try:
+        output = render_goal_slices(Path.cwd(), goal_id)
+        typer.echo(output, nl=False)
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@goal_app.command("create-task")
+def goal_create_task(
+    goal_id: str,
+    slice_id: str,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be created without writing any task artifacts."),
+) -> None:
+    """Create a normal DevFlow task from a selected goal task slice."""
+    from devflow.control_room.goal_tasks import get_goal_task_slice, create_task_from_goal_slice
+    try:
+        if dry_run:
+            slice_data = get_goal_task_slice(Path.cwd(), goal_id, slice_id)
+            typer.echo(f"[Dry Run] Would create task from {goal_id} / {slice_id}")
+            typer.echo(f"Title: {slice_data.title}")
+            return
+
+        created = create_task_from_goal_slice(Path.cwd(), goal_id, slice_id)
+        typer.echo(f"Created {created.task_id} from {created.goal_id} / {created.slice_id}\n")
+        typer.echo("Task:")
+        typer.echo(f"  {created.task_id} — {created.task_title}\n")
+        typer.echo("Linked artifacts:")
+        typer.echo(f"  goal: {created.goal_path}")
+        typer.echo(f"  slice: {created.slice_id}")
+        typer.echo(f"  task: {created.task_path}\n")
+        typer.echo("Next:")
+        typer.echo(f"  devflow task show {created.task_id}")
+
+        slice_data = get_goal_task_slice(Path.cwd(), goal_id, slice_id)
+        if slice_data.execution_mode == "HITL":
+            typer.echo("\nThis slice is HITL. Human review is required before execution/promotion.")
+        elif slice_data.execution_mode == "AFK":
+            typer.echo("\nThis slice is AFK-classified, but execution is still explicit.")
+    except KeyError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
 
 TRUSTED_LOCAL_WARNING = "Security: shell execution is path-isolated, not sandboxed; run only trusted local commands."
 
@@ -406,6 +521,24 @@ def task_show(task_id: str) -> None:
     typer.echo(f"result_path: {task.result_path or ''}")
     typer.echo(f"worker_command: {task.worker_command or ''}")
 
+    # Check for Goal Link metadata
+    goal_link_yaml = Path(task_path) / "goal-link.yaml"
+    if goal_link_yaml.exists():
+        import yaml
+        try:
+            link_data = yaml.safe_load(goal_link_yaml.read_text(encoding="utf-8")) or {}
+            typer.echo("Goal Link:")
+            typer.echo(f"  Goal: {link_data.get('goal_id')}")
+            typer.echo(f"  Slice: {link_data.get('slice_id')}")
+            typer.echo(f"  Execution mode: {link_data.get('execution_mode')}")
+            chk_req = str(link_data.get('human_checkpoint_required')).lower()
+            typer.echo(f"  Human checkpoint required: {chk_req}")
+            promo_allowed = str(link_data.get('promotion_allowed')).lower()
+            typer.echo(f"  Promotion allowed: {promo_allowed}")
+            typer.echo(f"  Source: {link_data.get('slice_source_path')}")
+        except Exception:
+            pass
+
     typer.echo(f"verification_status: {projection.verification_status}")
     typer.echo(f"verification_command: {projection.verification_command or ''}")
     if projection.verification_exit_code is not None:
@@ -444,6 +577,25 @@ def task_show(task_id: str) -> None:
         typer.echo(f"packet_hint: run 'devflow task packet {task.id}' for the latest generated preview")
     else:
         typer.echo("packet_artifact: missing")
+        if goal_link_yaml.exists():
+            typer.echo(f"packet_hint: run 'devflow task packet {task.id}' to preview bounded worker context")
+
+    local_runs_dir = Path(task_path) / "local-model-runs"
+    if local_runs_dir.exists() and local_runs_dir.is_dir():
+        runs = []
+        for run_folder in local_runs_dir.iterdir():
+            if run_folder.is_dir():
+                response_md = run_folder / "response.md"
+                if response_md.exists():
+                    runs.append((run_folder.name, response_md))
+        if runs:
+            runs.sort()
+            latest_run_name, latest_response_md = runs[-1]
+            rel_response_md = _relative(Path.cwd(), latest_response_md)
+            typer.echo("Local Model Runs:")
+            typer.echo(f"  latest: {rel_response_md}")
+            typer.echo("  hint: review this evidence, then decide whether to run/apply/verify explicitly")
+
     _echo_agent_patch_evidence_summary(Path.cwd(), task_path)
     if projection.merge_ready is not None:
         ready_str = "yes" if projection.merge_ready else "no"
@@ -680,17 +832,36 @@ def task_scorecard_command(task_id: str) -> None:
 
 
 @task_app.command("packet")
-def task_packet(task_id: str) -> None:
+def task_packet(
+    task_id: str,
+    save: bool = typer.Option(False, "--save", help="Save the task packet under the task folder."),
+    text: bool = typer.Option(False, "--text", help="Output human-readable text preview instead of JSON."),
+) -> None:
     """Build and print a task's TaskPacket as deterministic JSON."""
     try:
-        from devflow.control_room.task_packet import build_task_packet
+        from devflow.control_room.task_packet import (
+            build_task_packet,
+            render_task_packet_text,
+            save_task_packet,
+        )
         packet = build_task_packet(task_id, root=Path.cwd())
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2)
-    typer.echo(packet_json)
+    text_md = render_task_packet_text(packet)
+
+    if save:
+        written = save_task_packet(Path.cwd(), task_id, packet, text_md=text_md)
+        for p in written:
+            rel_p = _relative(Path.cwd(), p)
+            typer.echo(f"Wrote {rel_p}")
+    else:
+        if text:
+            typer.echo(text_md)
+        else:
+            packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2)
+            typer.echo(packet_json)
 
 
 @task_app.command("log")
@@ -830,6 +1001,57 @@ def task_local(
 
     if result.status != "success":
         raise typer.Exit(code=result.exit_code if result.exit_code is not None else 1)
+
+
+@task_app.command("local-review")
+def task_local_review(
+    task_id: str,
+    base_url: str | None = typer.Option(None, "--base-url", help="Local OpenAI-compatible base URL."),
+    model: str | None = typer.Option(None, "--model", help="Local OpenAI-compatible model ID."),
+    timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1, help="Timeout in seconds."),
+    temperature: float | None = typer.Option(None, "--temperature", min=0.0, max=2.0, help="Temperature for local model."),
+    save_prompt: bool = typer.Option(True, "--save-prompt", help="Save prompt.md under the run folder."),
+    max_packet_chars: int = typer.Option(16000, "--max-packet-chars", help="Capping size of rendered task packet text."),
+) -> None:
+    """Run an advisory local model packet review for a task."""
+    from devflow.control_room.local_packet_worker import run_local_packet_review
+    from devflow.control_room.paths import relative_path
+    
+    try:
+        result = run_local_packet_review(
+            task_id=task_id,
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            temperature=temperature,
+            save_prompt=save_prompt,
+            max_packet_chars=max_packet_chars,
+            root=Path.cwd(),
+        )
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+    rel_evidence_dir = relative_path(Path.cwd(), result["evidence_dir"])
+    rel_response_path = relative_path(Path.cwd(), result["response_path"])
+
+    if result["truncation_warning"]:
+        typer.echo(result["truncation_warning"])
+
+    typer.echo("-" * 50)
+    typer.echo("Local Model Bounded Packet Review Evidence Captured!")
+    typer.echo("  Mode:              local packet review (advisory)")
+    typer.echo(f"  Run ID:            {result['run_id']}")
+    typer.echo(f"  Evidence Dir:      {rel_evidence_dir}")
+    typer.echo(f"  Response evidence: {rel_response_path}")
+    typer.echo("-" * 50)
+    typer.echo("")
+    typer.echo("Recommended Next DevFlow Step:")
+    typer.echo(f"  1. Review the generated proposal evidence at:")
+    typer.echo(f"     {rel_response_path}")
+    typer.echo(f"  2. Explicitly choose to run implementer, apply patch, or verify task:")
+    typer.echo(f"     devflow task show {task_id}")
+    typer.echo("-" * 50)
 
 
 @task_app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})

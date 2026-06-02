@@ -47,6 +47,20 @@ class FocusTaskState(BaseModel):
     verification_status: str
     latest: str
 
+
+class DashboardFocusGoal(BaseModel):
+    goal_id: str
+    state: str
+    open_question_count: int
+    task_slice_count: int
+    context_risk: str | None = None
+
+
+class DashboardGoals(BaseModel):
+    total: int
+    focus_goal: DashboardFocusGoal | None = None
+
+
 class DashboardState(BaseModel):
     project: DashboardProject
     health: DashboardHealth
@@ -58,8 +72,10 @@ class DashboardState(BaseModel):
     recent_activity: list[dict[str, str]] = []
     next_action: DashboardNextAction
     tasks: list[TaskStatusProjection] = []
+    goals: DashboardGoals | None = None
 
     model_config = {"arbitrary_types_allowed": True}
+
 
 # --- Git and Project Helpers ---
 
@@ -283,6 +299,157 @@ def choose_dashboard_next_action(state: DashboardState) -> DashboardNextAction:
         reason="No safer automated action was inferred."
     )
 
+
+def choose_focus_goal_projection(goal_projections: list[Any], task_projections: list[Any]) -> Any | None:
+    if not goal_projections:
+        return None
+
+    def get_sort_key(p: Any):
+        ts = 0.0
+        try:
+            if p.updated_at:
+                ts = datetime.fromisoformat(p.updated_at).timestamp()
+            elif p.created_at:
+                ts = datetime.fromisoformat(p.created_at).timestamp()
+        except Exception:
+            pass
+        return (ts, p.goal_id)
+
+    # 1. Goal with implementation_blocked=true
+    tier1 = [p for p in goal_projections if p.implementation_blocked]
+    if tier1:
+        return max(tier1, key=get_sort_key)
+
+    # 2. Goal with open questions
+    tier2 = [p for p in goal_projections if p.open_question_count > 0]
+    if tier2:
+        return max(tier2, key=get_sort_key)
+
+    # 3. Goal with task slices and no corresponding created tasks
+    tier3 = [p for p in goal_projections if p.task_slice_count > 0 and len(task_projections) == 0]
+    if tier3:
+        return max(tier3, key=get_sort_key)
+
+    # 4. Most recently modified goal
+    # 5. Highest goal id
+    return max(goal_projections, key=get_sort_key)
+
+
+def choose_dashboard_next_action_v2(state: DashboardState, goal_projections: list[Any]) -> DashboardNextAction:
+    # 1. Failed verification task
+    failed_verify = [p for p in state.tasks if p.task.status == "verification_failed" or p.verification_status == "failed"]
+    if failed_verify:
+        p = max(failed_verify, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
+        return DashboardNextAction(
+            label="Inspect verification failure",
+            task_id=p.task.id,
+            command=f"devflow task log {p.task.id} --verify --tail 80",
+            reason="Verification failed and needs inspection before rerun."
+        )
+
+    # 2. Task ready to promote-preview
+    ready_promote = [p for p in state.tasks if (p.task.status == "verified" or p.verification_status == "passed") and not promotion_readiness_errors(p.task, p.task_path)]
+    if ready_promote:
+        p = max(ready_promote, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
+        return DashboardNextAction(
+            label="Preview promotion",
+            task_id=p.task.id,
+            command=f"devflow task promote-preview {p.task.id}",
+            reason="Verification passed; user should review promotion before promote."
+        )
+
+    # 3. Complete task needing verification
+    needs_verify = [
+        p for p in state.tasks
+        if p.task.status == "complete" or
+           (p.manual_agent_state == "result_present" and p.verification_status != "passed") or
+           (p.verification_status in ("not_run", "pending") and p.task.status not in ("promoted", "verified", "created"))
+    ]
+    if needs_verify:
+        p = max(needs_verify, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
+        return DashboardNextAction(
+            label="Run verification",
+            task_id=p.task.id,
+            command=f"devflow task verify {p.task.id} --shell \"<command>\"",
+            reason="Worker completed but verification has not passed."
+        )
+
+    # 4. Goal with implementation blocked / open questions
+    blocked_goals = [g for g in goal_projections if g.state == "blocked"]
+    if blocked_goals:
+        def get_goal_sort_key(p: Any):
+            ts = 0.0
+            try:
+                if p.updated_at:
+                    ts = datetime.fromisoformat(p.updated_at).timestamp()
+                elif p.created_at:
+                    ts = datetime.fromisoformat(p.created_at).timestamp()
+            except Exception:
+                pass
+            return (ts, p.goal_id)
+        g = max(blocked_goals, key=get_goal_sort_key)
+        return DashboardNextAction(
+            label="Resolve goal blocker",
+            task_id=None,
+            command=f"devflow goal status {g.goal_id}",
+            reason="Implementation is blocked on open questions."
+        )
+
+    # 5. Goal with task slices ready for review
+    ready_goals = [g for g in goal_projections if g.state == "ready_for_task_creation"]
+    if ready_goals:
+        def get_goal_sort_key(p: Any):
+            ts = 0.0
+            try:
+                if p.updated_at:
+                    ts = datetime.fromisoformat(p.updated_at).timestamp()
+                elif p.created_at:
+                    ts = datetime.fromisoformat(p.created_at).timestamp()
+            except Exception:
+                pass
+            return (ts, p.goal_id)
+        g = max(ready_goals, key=get_goal_sort_key)
+        return DashboardNextAction(
+            label="Create or review task slice",
+            task_id=None,
+            command=f"devflow goal status {g.goal_id}",
+            reason="Goal task slices are ready for review."
+        )
+
+    # 6. Created task waiting to run
+    created_tasks = [p for p in state.tasks if p.task.status == "created"]
+    if created_tasks:
+        p = max(created_tasks, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
+        return DashboardNextAction(
+            label="Run task",
+            task_id=p.task.id,
+            command=f"devflow task run {p.task.id} --worker shell -- <command>",
+            reason="Task exists but no worker has run."
+        )
+
+    # 7. No goals and no tasks
+    if not goal_projections and not state.tasks:
+        return DashboardNextAction(
+            label="Create a task",
+            task_id=None,
+            command='devflow task create "<title>"',
+            reason="No tasks found."
+        )
+
+
+    # Fallback to single task focus next action if no global matches but we have focus task
+    if state.focus_task:
+        return choose_dashboard_next_action(state)
+
+    # Absolute fallback
+    return DashboardNextAction(
+        label="Create a task",
+        task_id=None,
+        command='devflow task create "<title>"',
+        reason="No safer automated action was inferred."
+    )
+
+
 def _collect_recent_activity(projections: list[TaskStatusProjection]) -> list[dict[str, str]]:
     all_events = []
     for proj in projections:
@@ -420,6 +587,25 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
 
     recent_activity = _collect_recent_activity(projections)
 
+    from devflow.control_room.goal_projection import list_goal_status_projections
+    goal_projections = list_goal_status_projections(root)
+
+    focus_goal_proj = choose_focus_goal_projection(goal_projections, projections)
+    focus_goal = None
+    if focus_goal_proj:
+        focus_goal = DashboardFocusGoal(
+            goal_id=focus_goal_proj.goal_id,
+            state=focus_goal_proj.state,
+            open_question_count=focus_goal_proj.open_question_count,
+            task_slice_count=focus_goal_proj.task_slice_count,
+            context_risk=focus_goal_proj.context_risk,
+        )
+
+    goals_state = DashboardGoals(
+        total=len(goal_projections),
+        focus_goal=focus_goal
+    )
+
     dummy_next = DashboardNextAction(label="", reason="")
     state = DashboardState(
         project=project,
@@ -431,11 +617,13 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
         ready_to_promote=ready_to_promote,
         recent_activity=recent_activity,
         next_action=dummy_next,
-        tasks=projections
+        tasks=projections,
+        goals=goals_state
     )
     
-    state.next_action = choose_dashboard_next_action(state)
+    state.next_action = choose_dashboard_next_action_v2(state, goal_projections)
     return state
+
 
 def render_dashboard(repo_root: Path | None = None) -> str:
     state = collect_dashboard_state(repo_root)
@@ -452,6 +640,23 @@ def render_dashboard(repo_root: Path | None = None) -> str:
     lines.append(f"  Context: {context_str}")
     lines.append("")
     
+    lines.append("Goals")
+    if state.goals:
+        lines.append(f"  Total: {state.goals.total}")
+        if state.goals.focus_goal:
+            fg = state.goals.focus_goal
+            lines.append(f"  Active: {fg.goal_id}")
+            lines.append(f"  State: {fg.state}")
+            lines.append(f"  Open questions: {fg.open_question_count}")
+            lines.append(f"  Task slices: {fg.task_slice_count}")
+            lines.append(f"  Context risk: {fg.context_risk or 'medium'}")
+        else:
+            lines.append("  Active: None")
+    else:
+        lines.append("  Total: 0")
+        lines.append("  Active: None")
+    lines.append("")
+
     lines.append("Task Health")
     lines.append(f"  Total: {state.health.total_tasks}")
     lines.append(f"  Active: {state.health.active_tasks}")
@@ -464,16 +669,19 @@ def render_dashboard(repo_root: Path | None = None) -> str:
     lines.append("")
     
     lines.append("Current Focus")
+    goal_str = state.goals.focus_goal.goal_id if (state.goals and state.goals.focus_goal) else "None"
+    lines.append(f"  Goal: {goal_str}")
     if state.focus_task:
-        lines.append(f"  {state.focus_task.id:<10} {state.focus_task.title}")
+        lines.append(f"  Task: {state.focus_task.id} — {state.focus_task.title}")
         lines.append(f"  Status: {state.focus_task.status}")
         lines.append(f"  Worker: {state.focus_task.worker}")
         lines.append(f"  Verify: {state.focus_task.verification_status}")
         lines.append(f"  Latest: {state.focus_task.latest}")
         lines.append(f"  Next: {state.next_action.command or 'None'}")
     else:
-        lines.append("  None")
+        lines.append("  Task: None")
     lines.append("")
+
     
     lines.append("Blockers")
     if state.blockers:
@@ -512,9 +720,10 @@ def render_dashboard(repo_root: Path | None = None) -> str:
         lines.append("  None")
     lines.append("")
     
-    lines.append("Recommended Next Command")
+    lines.append("Next Action")
     lines.append(f"  {state.next_action.command or 'None'}")
     lines.append("")
+
 
     # --- Render backward compatible Tasks List with 2-spaces indentation ---
     lines.append(f"{'Task':<10} {'Status':<20} {'Verify':<12} {'Worker':<8} Latest")

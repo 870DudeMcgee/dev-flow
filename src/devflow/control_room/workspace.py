@@ -132,7 +132,7 @@ def _copy_scratchpad(root: Path, workspace: Path) -> tuple[str, ...]:
     }
     skipped_symlinks: list[str] = []
     for child in root.iterdir():
-        if child.name in exclusions:
+        if child.name in exclusions or child.name.startswith(".venv"):
             continue
         if child.is_symlink():
             skipped_symlinks.append(child.name)
@@ -151,7 +151,7 @@ def _copy_ignore(root: Path, exclusions: set[str], skipped_symlinks: list[str]):
         directory_path = Path(directory)
         for name in names:
             candidate = directory_path / name
-            if name in exclusions:
+            if name in exclusions or name.startswith(".venv"):
                 ignored.add(name)
             elif candidate.is_symlink():
                 ignored.add(name)

@@ -534,13 +534,25 @@ def _file_listing(base: Path, *, root: Path, limit: int = 200) -> list[str]:
     if not base.exists():
         return ["- missing"]
     paths: list[str] = []
-    skipped_names = {".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    skipped_names = {
+        ".git",
+        ".devflow",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        ".venv",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
     for path in sorted(base.rglob("*")):
         try:
             relative_parts = path.relative_to(base).parts
         except ValueError:
             continue
-        if any(part in skipped_names for part in relative_parts):
+        if any(part in skipped_names or part.startswith(".venv") for part in relative_parts):
             continue
         if path.is_file():
             paths.append(f"- {relative_path(root, path)}")
