@@ -199,9 +199,10 @@ Minimum vertical slice:
 - run verification inside that worktree
 - bind verification to the worker branch HEAD commit
 - make `devflow task promote-preview` report base commit, current main HEAD, worker branch HEAD, merge-base, stale-baseline state, changed/deleted/renamed/untracked/binary files, conflict prediction, verification status, and promotion readiness
+- make post-finalize UX explicit: `finalize --commit` reports the worker-branch commit and unchanged main, `task show` points to `promote-preview`, and `promote-preview` states it is read-only
 - refuse promotion when worker HEAD differs from the verified commit
 - refuse promotion when main moved and stale baseline or conflicts are unresolved
-- promote with Git-aware mechanics instead of blind workspace copy-back
+- promote with Git-aware mechanics instead of blind workspace copy-back, completing the approved merge cleanly without staged leftovers
 
 Git evidence artifacts should live under `.devflow/tasks/<task_id>/workers/<worker_id>/` and include `git.json`, `diff.patch`, `diff-summary.json`, `verification.json`, and `promotion-preview.json`.
 

@@ -96,6 +96,7 @@ Current product contract:
 - design-only Agent Registry and Adapter Runtime architecture; not active runtime behavior yet
 - design-only task-fit/context routing architecture; not active runtime behavior yet
 - opt-in Git-native shell-worker isolation and promotion slice through `devflow task create --git-worktree`
+- explicit post-finalize Git-native UX: `task finalize --commit` reports that the commit landed on the task worker branch and main is unchanged; `task show` points finalized-but-unpromoted tasks to `devflow task promote-preview <task_id>`; `promote-preview` is read-only and points to `devflow task promote <task_id>`; Git-native promotion completes the approved merge without leaving staged leftovers
 - dry-run-first Git cleanup/repair commands: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, and `devflow task cleanup`
 - trusted-local safety model only: shell execution is path-isolated in a copied workspace, not OS-sandboxed
 
@@ -157,7 +158,7 @@ devflow task promote <task_id>
 
 ## Acceptance Check
 
-Create one default shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/` before promotion and the task artifacts exist. For the Git-native path, create a task with `--git-worktree`, commit worker changes on `devflow/<task_id>/shell`, verify, preview Git readiness, and promote only after explicit human approval.
+Create one default shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/` before promotion and the task artifacts exist. For the Git-native path, create a task with `--git-worktree`, commit worker changes on `devflow/<task_id>/shell`, verify, finalize preview, finalize with `--commit`, confirm `task show` directs the next action to `promote-preview`, preview Git readiness without changing main, and promote only after explicit human approval.
 
 Current verification covers the command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, symlink skipping, dashboard projection, and promotion safety in the focused tests. Focused task-packet projection coverage lives in `tests/test_task_packet.py`.
 

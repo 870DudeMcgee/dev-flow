@@ -52,7 +52,9 @@ from devflow.control_room.qwopus_evidence import qwopus_result_summary
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
+    branch_head,
     cleanup_task_git_resources,
+    current_head,
     list_devflow_branches,
     list_devflow_worktrees,
     prune_orphan_worktrees,
@@ -549,7 +551,17 @@ def task_show(task_id: str) -> None:
         typer.echo(f"verification_exit_code: {projection.verification_exit_code}")
     typer.echo(f"verification_log_path: {projection.verification_log_path or ''}")
     typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
-    typer.echo(f"suggested_next_action: {projection.suggested_next_action}")
+    finalization = _read_json_mapping(task_path / "finalization.json")
+    promoted_event = _get_latest_promoted_event(task_path)
+    suggested_next_action = projection.suggested_next_action
+    finalized_commit = finalization.get("commit_hash")
+    if isinstance(finalized_commit, str) and finalized_commit and not promoted_event:
+        typer.echo(f"finalized_commit: {finalized_commit}")
+        if task.branch_name:
+            typer.echo(f"worker_branch_commit: {branch_head(Path.cwd(), task.branch_name) or 'unavailable'}")
+        typer.echo("promotion_status: main not promoted yet")
+        suggested_next_action = f"devflow task promote-preview {task.id}"
+    typer.echo(f"suggested_next_action: {suggested_next_action}")
     if projection.manual_agent_state:
         typer.echo(f"manual_agent_state: {projection.manual_agent_state}")
         if projection.manual_agent_handoff_path:
@@ -561,7 +573,6 @@ def task_show(task_id: str) -> None:
             typer.echo(f"manual_agent_question: {projection.manual_agent_question}")
         if projection.manual_agent_failure:
             typer.echo(f"manual_agent_failure: {projection.manual_agent_failure}")
-    promoted_event = _get_latest_promoted_event(task_path)
     if promoted_event:
         typer.echo("promoted_changes:")
         added = promoted_event.get("added", [])
@@ -1341,6 +1352,10 @@ def task_finalize(
     commit_hash = evidence.get("commit_hash")
     if commit_hash:
         typer.echo(f"commit_hash: {commit_hash}")
+        typer.echo(f"commit_location: {evidence.get('commit_location', 'task worker branch')}")
+        if evidence.get("worker_branch"):
+            typer.echo(f"worker_branch: {evidence['worker_branch']}")
+        typer.echo("main_changed: no")
     else:
         typer.echo("commit_hash: dry-run")
 
@@ -1447,6 +1462,9 @@ def task_promote_preview(task_id: str) -> None:
     baseline = res["baseline"]
     git_preview = res.get("git")
 
+    typer.echo("preview_only: yes")
+    typer.echo("main_changed: no")
+    typer.echo(f"next_action: devflow task promote {task_id}")
     typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
     typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
     typer.echo(f"baseline_status: {baseline['baseline_status']}")
@@ -1631,6 +1649,7 @@ def task_promote(
         return
 
     try:
+        before_main_head = current_head(Path.cwd())
         promote_task(
             Path.cwd(),
             task_id,
@@ -1638,11 +1657,15 @@ def task_promote(
             apply_deletions=apply_deletions,
             force_stale_baseline=force_stale_baseline,
         )
+        after_main_head = current_head(Path.cwd())
     except Exception as exc:
         typer.echo(f"Error executing promotion: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     typer.echo("Promotion complete.")
+    if res.get("git"):
+        typer.echo(f"main_changed: {'yes' if before_main_head and after_main_head and before_main_head != after_main_head else 'no'}")
+        typer.echo("staged_changes_left: no")
     if deleted:
         if apply_deletions:
             typer.echo(f"Applied deletions: {len(deleted)} file(s) removed.")

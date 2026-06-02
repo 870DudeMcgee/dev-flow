@@ -153,6 +153,10 @@ def finalize_task(root: Path, task_id: str, commit: bool = False) -> dict[str, A
 
     # 5. Handle staging and focused commit creation
     commit_hash = None
+    main_head_at_finalize = None
+    main_head_proc = run_git_in_dir(root, ["rev-parse", "HEAD"])
+    if main_head_proc.returncode == 0:
+        main_head_at_finalize = main_head_proc.stdout.strip()
     if commit:
         # Stage only task-owned source/doc/test changes
         for f in staged_candidates:
@@ -197,6 +201,11 @@ def finalize_task(root: Path, task_id: str, commit: bool = False) -> dict[str, A
         "ignored_evidence_files": ignored_evidence,
         "verification_status": verification_status,
         "commit_hash": commit_hash,
+        "commit_location": "task worker branch" if commit_hash else "dry-run",
+        "worker_branch": task.branch_name,
+        "worker_branch_commit": commit_hash or current_head_commit,
+        "main_head_at_finalize": main_head_at_finalize,
+        "main_changed": False,
         "next_suggested_action": next_action,
     }
     

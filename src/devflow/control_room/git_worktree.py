@@ -288,7 +288,8 @@ def promote_git_worktree(root: Path, task: TaskRecord) -> dict[str, Any]:
             f"  devflow task create \"Resolve conflict for {task.id} worker {git_preview['worker_id']}\""
         )
     branch = git_preview["worker_branch"]
-    proc = _run_git(root, ["merge", "--no-ff", "--no-commit", branch], check=False)
+    message = f"chore(devflow): promote {task.id}\n\nDev-Flow-Task: {task.id}"
+    proc = _run_git(root, ["merge", "--no-ff", branch, "-m", message], check=False)
     if proc.returncode != 0:
         _run_git(root, ["merge", "--abort"], check=False)
         detail = (proc.stderr or proc.stdout or "git merge failed").strip()

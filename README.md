@@ -187,6 +187,7 @@ TASK_ID=$(.venv/bin/python -m devflow.cli task create --git-worktree "write hell
 ```
 
 Git-native promotion refuses if the worker branch HEAD differs from the verified commit, the worktree is dirty after verification, the baseline is stale without explicit review, or merge conflicts are predicted.
+After `task finalize --commit`, the commit is on the task worker branch and main is unchanged; `task show` points the operator to `devflow task promote-preview <task_id>`. `promote-preview` is read-only and reports that main will not change until `devflow task promote <task_id>`. Git-native `promote` completes the approved merge as a clean main-branch commit instead of leaving staged merge leftovers.
 
 `devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks. It does not repair artifacts automatically.
 

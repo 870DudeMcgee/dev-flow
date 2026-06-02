@@ -246,3 +246,75 @@ def test_finalize_preview_and_commit_behavior() -> None:
             assert Path("task_file.txt").exists()
         finally:
             os.chdir(old_cwd)
+
+
+def test_git_worktree_finalize_to_promote_workflow_is_explicit_and_clean() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            baseline = _init_git_repo()
+
+            created = runner.invoke(app, ["task", "create", "--git-worktree", "task-0019 dogfood"])
+            assert created.exit_code == 0
+
+            run = runner.invoke(
+                app,
+                [
+                    "task",
+                    "run",
+                    "task-0001",
+                    "--",
+                    "/bin/sh",
+                    "-c",
+                    "echo 'task-0019 result' > task_0019_result.txt && mkdir -p .devflow/dogfood && echo artifact > .devflow/dogfood/artifact.txt",
+                ],
+            )
+            assert run.exit_code == 0, run.output
+
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f task_0019_result.txt"])
+            assert verify.exit_code == 0, verify.output
+
+            finalize_preview = runner.invoke(app, ["task", "finalize", "task-0001"])
+            assert finalize_preview.exit_code == 0, finalize_preview.output
+            assert "next_action: devflow task finalize task-0001 --commit" in finalize_preview.output
+            assert _git(Path.cwd(), "rev-parse", "HEAD") == baseline
+
+            finalize_commit = runner.invoke(app, ["task", "finalize", "task-0001", "--commit"])
+            assert finalize_commit.exit_code == 0, finalize_commit.output
+            assert "commit_location: task worker branch" in finalize_commit.output
+            assert "worker_branch: devflow/task-0001/shell" in finalize_commit.output
+            assert "main_changed: no" in finalize_commit.output
+            assert "next_action: devflow task promote-preview task-0001" in finalize_commit.output
+            assert _git(Path.cwd(), "rev-parse", "HEAD") == baseline
+
+            worktree_dir = Path(".devflow/worktrees/task-0001/shell")
+            finalized_commit = _git(worktree_dir, "rev-parse", "HEAD")
+            assert finalized_commit != baseline
+
+            show = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show.exit_code == 0, show.output
+            assert f"finalized_commit: {finalized_commit}" in show.output
+            assert f"worker_branch_commit: {finalized_commit}" in show.output
+            assert "promotion_status: main not promoted yet" in show.output
+            assert "suggested_next_action: devflow task promote-preview task-0001" in show.output
+
+            promote_preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert promote_preview.exit_code == 0, promote_preview.output
+            assert "preview_only: yes" in promote_preview.output
+            assert "main_changed: no" in promote_preview.output
+            assert "next_action: devflow task promote task-0001" in promote_preview.output
+            assert "promotion_readiness: ready" in promote_preview.output
+            assert _git(Path.cwd(), "rev-parse", "HEAD") == baseline
+            assert _git(Path.cwd(), "status", "--porcelain") == ""
+
+            promote = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
+            assert promote.exit_code == 0, promote.output
+            assert "Promotion complete." in promote.output
+            assert "main_changed: yes" in promote.output
+            assert "staged_changes_left: no" in promote.output
+            assert Path("task_0019_result.txt").read_text(encoding="utf-8") == "task-0019 result\n"
+            assert _git(Path.cwd(), "rev-parse", "HEAD") != baseline
+            assert _git(Path.cwd(), "status", "--porcelain") == ""
+        finally:
+            os.chdir(old_cwd)
