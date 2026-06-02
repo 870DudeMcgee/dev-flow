@@ -2,7 +2,7 @@ import pytest
 import shutil
 import json
 from pathlib import Path
-from devflow.control_room.service import create_task, apply_task_patch
+from devflow.control_room.service import create_task, apply_task_patch, verify_task
 from devflow.control_room.patch_applier import PatchSelectionError, PatchApplicationError
 
 
@@ -200,3 +200,66 @@ def test_apply_patch_can_apply_reviewed_local_model_run(tmp_path: Path):
     assert evidence["run_id"] == "run-apply"
     assert evidence["patch_review_path"] == f".devflow/tasks/{task.id}/local-model-runs/run-apply/patch-review.json"
     assert evidence["patch_dry_run_path"] == f".devflow/tasks/{task.id}/local-model-runs/run-apply/patch-dry-run.json"
+
+
+def test_apply_patch_invalidates_prior_verification_and_readiness(tmp_path: Path):
+    shutil.copytree(Path.cwd() / "src", tmp_path / "src", symlinks=True)
+    task = create_task(tmp_path, "apply patch invalidates verification task")
+    task_path = tmp_path / ".devflow" / "tasks" / task.id
+    workspace_path = tmp_path / ".devflow" / "workspaces" / task.id
+    hello_file = workspace_path / "hello.txt"
+    hello_file.write_text("Hello World\n", encoding="utf-8")
+    verified = verify_task(tmp_path, task.id, ["/bin/sh", "-c", "test -f hello.txt"])
+    assert verified.verification_status == "passed"
+
+    diff = (
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1 +1 @@\n"
+        "-Hello World\n"
+        "+Hello needs fresh verification\n"
+    )
+    _write_reviewed_dry_run(task_path, task.id, diff, run_id="run-after-verify")
+
+    updated_task = apply_task_patch(tmp_path, task.id, run_id="run-after-verify")
+
+    assert updated_task.status == "complete"
+    assert updated_task.verification_status == "not_run"
+    assert updated_task.verification_exit_code is None
+    assert updated_task.verification_log_path is None
+    verification = json.loads((task_path / "verification.json").read_text(encoding="utf-8"))
+    patch_application = json.loads((task_path / "patch-application.json").read_text(encoding="utf-8"))
+    readiness = json.loads((task_path / "merge-readiness.json").read_text(encoding="utf-8"))
+    assert verification["status"] == "not_run"
+    assert verification["task_status"] == "complete"
+    assert verification["invalidated_by_patch_hash"] == patch_application["patch_hash"]
+    assert readiness["ready"] is False
+    assert "verification status is 'not_run', expected 'passed'" in readiness["reasons"]
+
+
+def test_verification_after_patch_binds_readiness_to_latest_patch_application(tmp_path: Path):
+    shutil.copytree(Path.cwd() / "src", tmp_path / "src", symlinks=True)
+    task = create_task(tmp_path, "verify applied patch task")
+    task_path = tmp_path / ".devflow" / "tasks" / task.id
+    workspace_path = tmp_path / ".devflow" / "workspaces" / task.id
+    hello_file = workspace_path / "hello.txt"
+    hello_file.write_text("Hello World\n", encoding="utf-8")
+    diff = (
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1 +1 @@\n"
+        "-Hello World\n"
+        "+Hello verified patch\n"
+    )
+    _write_reviewed_dry_run(task_path, task.id, diff, run_id="run-verified")
+    apply_task_patch(tmp_path, task.id, run_id="run-verified")
+    patch_application = json.loads((task_path / "patch-application.json").read_text(encoding="utf-8"))
+
+    verified = verify_task(tmp_path, task.id, ["/bin/sh", "-c", "grep -q 'verified patch' hello.txt"])
+
+    verification = json.loads((task_path / "verification.json").read_text(encoding="utf-8"))
+    readiness = json.loads((task_path / "merge-readiness.json").read_text(encoding="utf-8"))
+    assert verified.verification_status == "passed"
+    assert verification["verified_patch_hash"] == patch_application["patch_hash"]
+    assert verification["verified_patch_application_path"] == f".devflow/tasks/{task.id}/patch-application.json"
+    assert readiness["ready"] is True

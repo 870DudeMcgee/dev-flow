@@ -794,6 +794,15 @@ def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, resu
         "log_path": _relative(root, result.log_file),
         "finished_at": utc_now().isoformat(),
     }
+    latest_patch = _read_patch_application_evidence(task_path)
+    if latest_patch is not None and latest_patch.get("patch_hash"):
+        payload.update(
+            {
+                "verified_patch_hash": latest_patch.get("patch_hash"),
+                "verified_patch_application_path": _relative(root, task_path / "patch-application.json"),
+                "patch_applied_at": latest_patch.get("applied_at"),
+            }
+        )
     if is_git_worktree_task(task):
         state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
         payload.update(
@@ -808,6 +817,30 @@ def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, resu
         )
         worker_verification = task_worker_dir(root, task.id, state["worker_id"]) / "verification.json"
         atomic_write_text(worker_verification, json.dumps(payload, indent=2) + "\n")
+    atomic_write_text(task_path / "verification.json", json.dumps(payload, indent=2) + "\n")
+
+
+def _write_pending_verification_after_patch(
+    root: Path,
+    task_path: Path,
+    task: TaskRecord,
+    patch_application: dict[str, Any],
+) -> None:
+    payload = {
+        "schema_version": TASK_SCHEMA_VERSION,
+        "task_id": task.id,
+        "workspace": task.workspace,
+        "command": task.verification_command,
+        "status": "not_run",
+        "task_status": task.status,
+        "exit_code": None,
+        "latest_log_line": None,
+        "log_path": f".devflow/tasks/{task.id}/logs/verify.log",
+        "finished_at": None,
+        "invalidated_by_patch_hash": patch_application.get("patch_hash"),
+        "invalidated_by_patch_application_path": _relative(root, task_path / "patch-application.json"),
+        "invalidated_at": patch_application.get("applied_at"),
+    }
     atomic_write_text(task_path / "verification.json", json.dumps(payload, indent=2) + "\n")
 
 
@@ -1026,9 +1059,17 @@ def _apply_task_patch_locked(
         "changed_files": changed_files_payload,
     })
 
-    # Preserve status, update metadata & merge-readiness to false/pending verification
+    patch_application = _read_patch_application_evidence(task_path) or {}
+
+    # Patch application mutates the workspace, so any earlier verification is stale.
+    if task.status != "closed":
+        task.status = "complete"
+    task.verification_status = "not_run"
+    task.verification_exit_code = None
+    task.verification_log_path = None
     task.updated_at = utc_now()
     task.last_event = "patch_applied"
+    _write_pending_verification_after_patch(root, task_path, task, patch_application)
     _save_task(task_path, task)
     _write_merge_readiness(root, task_path, task)
     return task
@@ -1070,6 +1111,17 @@ def _write_patch_application_evidence(
     atomic_write_text(evidence_path, body)
     atomic_write_text(task_path / "patch-application.json", body)
     return evidence_path
+
+
+def _read_patch_application_evidence(task_path: Path) -> dict[str, Any] | None:
+    path = task_path / "patch-application.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _require_patch_review_and_dry_run_gate(

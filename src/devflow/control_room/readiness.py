@@ -19,6 +19,7 @@ def promotion_readiness_errors(task: TaskRecord, task_path: Path | None = None) 
             errors.append(f"verification exit code is {task.verification_exit_code}, expected 0")
     if task_path is not None:
         errors.extend(_verification_json_readiness_errors(task, task_path / "verification.json"))
+        errors.extend(_patch_application_readiness_errors(task, task_path))
         if task.workspace_kind == "git_worktree":
             from devflow.control_room.git_worktree import git_worktree_readiness_errors
 
@@ -60,4 +61,50 @@ def _verification_json_readiness_errors(task: TaskRecord, verification_path: Pat
             errors.append("verification.json exit code is missing")
         else:
             errors.append(f"verification.json exit code is {exit_code}, expected 0")
+    return errors
+
+
+def _patch_application_readiness_errors(task: TaskRecord, task_path: Path) -> list[str]:
+    patch_path = task_path / "patch-application.json"
+    if not patch_path.exists():
+        return []
+    try:
+        patch_application = json.loads(patch_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"patch-application.json is invalid JSON: {exc.msg}"]
+    if not isinstance(patch_application, dict):
+        return ["patch-application.json is malformed"]
+
+    patch_hash = patch_application.get("patch_hash")
+    errors: list[str] = []
+    if not patch_hash:
+        errors.append("patch-application.json patch_hash is missing")
+
+    verification_path = task_path / "verification.json"
+    try:
+        verification = json.loads(verification_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return errors
+    if not isinstance(verification, dict) or verification.get("status") != "passed":
+        return errors
+
+    verified_hash = verification.get("verified_patch_hash")
+    if patch_hash and verified_hash != patch_hash:
+        if verified_hash is None:
+            errors.append("verification.json verified_patch_hash is missing for latest patch application")
+        else:
+            errors.append(
+                f"verification.json verified_patch_hash is '{verified_hash}', expected latest patch hash '{patch_hash}'"
+            )
+
+    expected_application_path = f".devflow/tasks/{task.id}/patch-application.json"
+    verified_application_path = verification.get("verified_patch_application_path")
+    if verified_application_path != expected_application_path:
+        if verified_application_path is None:
+            errors.append("verification.json verified_patch_application_path is missing for latest patch application")
+        else:
+            errors.append(
+                "verification.json verified_patch_application_path is "
+                f"'{verified_application_path}', expected '{expected_application_path}'"
+            )
     return errors

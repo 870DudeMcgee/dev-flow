@@ -335,9 +335,11 @@ Boundary: patch application remains the explicit mutation boundary. It must not 
 
 ## Milestone 10: Verification/Readiness Hardening Around Applied Patches
 
-Status: planned.
+Status: in progress.
 
 Goal: tighten verification and readiness evidence around applied patches while keeping verification separate from apply-patch and promotion.
+
+Initial hardening slice: applying a reviewed patch invalidates prior verification evidence, resets promotion readiness to "not ready", and requires a fresh Dev-Flow verification run. Verification after an applied patch binds `verification.json` to the latest `patch-application.json` hash so stale pre-patch verification cannot satisfy readiness.
 
 ## Milestone 11: Project Code Map MVP
 

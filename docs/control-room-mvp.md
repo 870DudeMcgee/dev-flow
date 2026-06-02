@@ -300,7 +300,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 10, verification/readiness hardening around applied patches. Keep verification and promotion separate from patch application. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
+> **Current Priority**: Milestone 10, verification/readiness hardening around applied patches. Applying a patch must invalidate earlier verification and promotion readiness until Dev-Flow runs fresh verification. Keep verification and promotion separate from patch application. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

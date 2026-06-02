@@ -279,4 +279,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 10, verification/readiness hardening around applied patches. Keep verification and promotion separate from patch application, and keep provider-backed adapters, autonomous routing, and PR automation as later layers.
+> **Current Priority**: Milestone 10, verification/readiness hardening around applied patches. Applying a patch invalidates earlier verification/readiness evidence until Dev-Flow runs fresh verification, and provider-backed adapters, autonomous routing, and PR automation remain later layers.
