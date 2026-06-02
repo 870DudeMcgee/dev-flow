@@ -69,10 +69,16 @@ echo "✓ Basic CLI help commands succeed"
 STANDARD_HELP=$($RUN_CLI --help)
 STANDARD_TASK_HELP=$($RUN_CLI task --help)
 
+strip_ansi() {
+  sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g'
+}
+
 help_contains_command() {
   local help_text="$1"
   local cmd="$2"
-  grep -Eq "(^|[^[:alnum:]_-])${cmd}([^[:alnum:]_-]|$)" <<<"$help_text"
+  local clean_help
+  clean_help=$(printf '%s\n' "$help_text" | strip_ansi)
+  grep -Eq "(^|[^[:alnum:]_-])${cmd}([^[:alnum:]_-]|$)" <<<"$clean_help"
 }
 
 for cmd in "supervise" "context"; do
