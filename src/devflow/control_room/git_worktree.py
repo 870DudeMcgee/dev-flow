@@ -22,7 +22,7 @@ class GitWorktreeError(ValueError):
 
 def create_git_worktree(root: Path, task_id: str, worker_id: str = DEFAULT_WORKER_ID) -> Workspace:
     _require_git_repo(root)
-    base_commit = _git_stdout(root, ["rev-parse", "--verify", f"{DEFAULT_BASE_BRANCH}^{{commit}}"])
+    _base_branch, base_commit = _resolve_base_branch_and_commit(root)
     branch = worker_branch_name(task_id, worker_id)
     if branch_exists(root, branch):
         raise GitWorktreeError(f"Worker branch already exists: {branch}")
@@ -86,7 +86,7 @@ def git_worker_state(root: Path, task: TaskRecord, worker_id: str | None = None)
         "schema_version": TASK_SCHEMA_VERSION,
         "task_id": task.id,
         "worker_id": worker_id,
-        "base_branch": DEFAULT_BASE_BRANCH,
+        "base_branch": _base_branch_for_commit(root, task.workspace_commit),
         "base_commit": task.workspace_commit,
         "worker_branch": branch,
         "worktree_path": relative_path(root, workspace),
@@ -438,6 +438,40 @@ def archive_branch_name(branch: str) -> str:
 
 def branch_exists(root: Path, branch: str) -> bool:
     return _run_git(root, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], check=False).returncode == 0
+
+
+def _resolve_base_branch_and_commit(root: Path) -> tuple[str, str]:
+    default_head = branch_head(root, DEFAULT_BASE_BRANCH)
+    if default_head:
+        return DEFAULT_BASE_BRANCH, default_head
+
+    branch_proc = _run_git(root, ["branch", "--show-current"], check=False)
+    current_branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else ""
+    if current_branch:
+        current_head = branch_head(root, current_branch)
+        if current_head:
+            return current_branch, current_head
+
+    head = current_head(root)
+    if head:
+        return "HEAD", head
+
+    raise GitWorktreeError("Git worktree tasks require at least one commit on the current branch.")
+
+
+def _base_branch_for_commit(root: Path, commit: str | None) -> str:
+    if not commit:
+        return DEFAULT_BASE_BRANCH
+    default_head = branch_head(root, DEFAULT_BASE_BRANCH)
+    if default_head == commit:
+        return DEFAULT_BASE_BRANCH
+
+    branch_proc = _run_git(root, ["branch", "--show-current"], check=False)
+    current_branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else ""
+    if current_branch and branch_head(root, current_branch) == commit:
+        return current_branch
+
+    return "HEAD"
 
 
 def branch_head(root: Path, branch: str) -> str | None:
