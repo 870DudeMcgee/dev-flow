@@ -45,6 +45,7 @@ from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
 from devflow.control_room.task_packet import build_agent_packet
+from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
@@ -596,6 +597,25 @@ def task_show(task_id: str) -> None:
             typer.echo(f"  latest: {rel_response_md}")
             typer.echo("  hint: review this evidence, then decide whether to run/apply/verify explicitly")
 
+    normalized = latest_normalized_proposal(Path.cwd(), task.id)
+    if normalized:
+        proposal_path = normalized.get("proposal_path") or ""
+        validation_label = "not_performed"
+        validation_path = normalized.get("validation_path")
+        if validation_path:
+            validation_file = Path.cwd() / str(validation_path)
+            try:
+                validation_data = json.loads(validation_file.read_text(encoding="utf-8"))
+                validation_label = "valid" if validation_data.get("valid") else "invalid"
+            except Exception:
+                validation_label = "unknown"
+        typer.echo("Normalized Proposals:")
+        typer.echo(f"  latest: {proposal_path}")
+        typer.echo(f"  classification: {normalized.get('classification')}")
+        typer.echo(f"  patch_candidate: {'yes' if normalized.get('has_patch_candidate') else 'no'}")
+        typer.echo(f"  validation: {validation_label}")
+        typer.echo("  hint: review proposal evidence before applying or verifying anything")
+
     _echo_agent_patch_evidence_summary(Path.cwd(), task_path)
     if projection.merge_ready is not None:
         ready_str = "yes" if projection.merge_ready else "no"
@@ -862,6 +882,39 @@ def task_packet(
         else:
             packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2)
             typer.echo(packet_json)
+
+
+@task_app.command("normalize-proposal")
+def task_normalize_proposal(
+    task_id: str,
+    run_id: str | None = typer.Option(None, "--run-id", help="Normalize a specific local model run id."),
+    response_path: str | None = typer.Option(None, "--response-path", help="Normalize a specific response.md path."),
+) -> None:
+    """Normalize local model response evidence into proposal artifacts."""
+    root = Path.cwd()
+    try:
+        result = normalize_proposal(
+            root,
+            task_id,
+            run_id=run_id,
+            response_path=Path(response_path) if response_path else None,
+        )
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"classification: {result.classification}")
+    typer.echo(f"proposal: {result.proposal_path}")
+    typer.echo(f"proposal_json: {result.proposal_json_path}")
+    if result.patch_candidate_path:
+        typer.echo(f"proposal_patch: {result.patch_candidate_path}")
+    if result.validation_path:
+        typer.echo(f"validation: {result.validation_path}")
+    if result.warnings:
+        typer.echo("warnings:")
+        for warning in result.warnings:
+            typer.echo(f"  - {warning}")
+    typer.echo(f"next: {result.next_action_command or 'None'}")
 
 
 @task_app.command("log")
@@ -2548,4 +2601,3 @@ def qwopus_main() -> None:
 
 if __name__ == "__main__":
     main()
-
