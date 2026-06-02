@@ -69,15 +69,21 @@ echo "✓ Basic CLI help commands succeed"
 STANDARD_HELP=$($RUN_CLI --help)
 STANDARD_TASK_HELP=$($RUN_CLI task --help)
 
+help_contains_command() {
+  local help_text="$1"
+  local cmd="$2"
+  grep -Eq "(^|[^[:alnum:]_-])${cmd}([^[:alnum:]_-]|$)" <<<"$help_text"
+}
+
 for cmd in "supervise" "context"; do
-  if echo "$STANDARD_HELP" | grep -q "$cmd"; then
+  if help_contains_command "$STANDARD_HELP" "$cmd"; then
     echo "❌ Error: Experimental command '$cmd' is exposed in standard '--help'." >&2
     exit 1
   fi
 done
 
 for cmd in "fit" "pack" "scout" "route" "scorecard"; do
-  if echo "$STANDARD_TASK_HELP" | grep -q "$cmd"; then
+  if help_contains_command "$STANDARD_TASK_HELP" "$cmd"; then
     echo "❌ Error: Experimental task subcommand '$cmd' is exposed in standard 'task --help'." >&2
     exit 1
   fi
@@ -89,14 +95,14 @@ EXP_HELP=$(DEVFLOW_EXPERIMENTAL=1 $RUN_CLI --help)
 EXP_TASK_HELP=$(DEVFLOW_EXPERIMENTAL=1 $RUN_CLI task --help)
 
 for cmd in "supervise" "context"; do
-  if ! echo "$EXP_HELP" | grep -q "$cmd"; then
+  if ! help_contains_command "$EXP_HELP" "$cmd"; then
     echo "❌ Error: Experimental command '$cmd' is NOT shown under DEVFLOW_EXPERIMENTAL=1." >&2
     exit 1
   fi
 done
 
 for cmd in "fit" "pack" "scout" "route" "scorecard"; do
-  if ! echo "$EXP_TASK_HELP" | grep -q "$cmd"; then
+  if ! help_contains_command "$EXP_TASK_HELP" "$cmd"; then
     echo "❌ Error: Experimental task subcommand '$cmd' is NOT shown under DEVFLOW_EXPERIMENTAL=1." >&2
     exit 1
   fi
