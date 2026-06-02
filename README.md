@@ -12,10 +12,12 @@ Workers are replaceable. The stable code-changing runtime supports shell workers
 
 The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md).
 
+The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and human-controlled promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Future context intake layers such as Project Code Map and Idea Foundry are documented there as roadmap concepts, not current stable commands.
+
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
 - **Dashboard**: `devflow dashboard`
-- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
@@ -45,6 +47,13 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     agents/<agent-id>/result.md
     agents/<agent-id>/run.json
     agents/<agent-id>/logs/worker.log
+    local-model-runs/<run-id>/proposal.md
+    local-model-runs/<run-id>/proposal.json
+    local-model-runs/<run-id>/proposal.patch
+    local-model-runs/<run-id>/patch-review.md
+    local-model-runs/<run-id>/patch-review.json
+    local-model-runs/<run-id>/patch-dry-run.md
+    local-model-runs/<run-id>/patch-dry-run.json
     logs/
       worker.log
       verify.log
@@ -139,6 +148,8 @@ Run the preferred local Qwopus patch-proposal path:
 
 ```bash
 .venv/bin/python -m devflow.cli task run "$TASK_ID" --worker qwopus-implementer
+.venv/bin/python -m devflow.cli task review-patch "$TASK_ID"
+.venv/bin/python -m devflow.cli task patch-dry-run "$TASK_ID"
 .venv/bin/python -m devflow.cli task apply-patch "$TASK_ID" --agent qwopus-implementer
 .venv/bin/python -m devflow.cli task verify "$TASK_ID" --shell "<test-command>"
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
@@ -235,7 +246,7 @@ Focused control-room verification:
 .venv/bin/python -m pytest tests/test_architecture_boundaries.py tests/test_devflow_init_structure.py tests/test_control_room_shell.py tests/test_promote_preview.py tests/test_task_packet.py -q
 ```
 
-Current development should keep the shell-worker/manual proof-agent loop stable while hardening opt-in Git-native worker isolation, commit-bound verification evidence, human-controlled promotion, and merge readiness.
+Current development should keep the shell-worker/manual proof-agent loop stable while hardening explicit reviewed patch application to require fresh acceptable review and dry-run evidence before isolated workspace mutation.
 
 ## License
 

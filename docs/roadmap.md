@@ -294,11 +294,68 @@ Acceptance:
 Related design contracts:
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
 - [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
+- [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md)
 - [docs/adapter-contract.md](adapter-contract.md)
 - [docs/task-packet-contract.md](task-packet-contract.md)
 
+## Milestone 8A: Patch Evidence Ladder Documentation Alignment
+
+Status: current documentation milestone.
+
+Goal: align active documentation around the staged path from proposal evidence to patch review, patch dry-run preview, explicit isolated patch application, Dev-Flow-owned verification, promotion preview, and human-controlled promotion.
+
+Acceptance:
+
+- current patch dry-run behavior is documented as evidence only
+- current, planned, and deferred behavior are clearly separated
+- Project Code Map and Idea Foundry are documented as future context intake layers only
+- no source, test, runtime, provider, dashboard, database, routing, or automation behavior changes are included
+
+## Milestone 8B: Deterministic Patch Dry-run Preview
+
+Status: implemented in commit `1acc4ce` according to milestone handoff and confirmed by current source/tests.
+
+Command:
+
+```bash
+devflow task patch-dry-run <task-id>
+devflow task patch-dry-run <task-id> --run-id <run-id>
+```
+
+Boundary: no mutation. Patch dry-run writes `patch-dry-run.json` and `patch-dry-run.md` evidence only and does not apply patches, verify, promote, stage, commit, call models, or call provider APIs.
+
+## Milestone 9: Explicit Reviewed Patch Apply To Isolated Workspace
+
+Status: next recommended implementation milestone.
+
+Goal: harden explicit patch application so it requires fresh acceptable patch review and dry-run evidence before mutating the isolated task workspace.
+
+Boundary: patch application remains the explicit mutation boundary. It must not imply verification or promotion readiness.
+
+## Milestone 10: Verification/Readiness Hardening Around Applied Patches
+
+Status: planned.
+
+Goal: tighten verification and readiness evidence around applied patches while keeping verification separate from apply-patch and promotion.
+
+## Milestone 11: Project Code Map MVP
+
+Status: future.
+
+Goal: introduce a compact project orientation layer, likely `CODE_MAP.md` with an optional `.code-map.yaml` companion, so workers can orient before broad repo scans.
+
+Boundary: future map commands such as `devflow map init`, `devflow map show`, and `devflow map check` do not exist yet.
+
+## Milestone 12: Idea Foundry MVP
+
+Status: future.
+
+Goal: capture raw ideas, classify them later, link them to project/goal context, and explicitly promote mature ideas into goals or tasks only after human review.
+
+Boundary: future idea commands such as `devflow idea capture`, `devflow idea classify`, and `devflow idea promote` do not exist yet.
+
 > [!IMPORTANT]
-> **Next Priority**: Add richer conflict-resolution UX and branch-sharing cleanup around the Git-native shell-worker lane while keeping the shell-worker/manual proof-agent contract stable. Do not jump directly into provider-backed adapters, complex scheduling, web dashboards, autonomous routing, or legacy workflow machinery.
+> **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation, and keep verification, promotion, provider-backed adapters, complex scheduling, web dashboards, autonomous routing, and legacy workflow machinery out of that slice.
 
 ## Later, Not Now
 

@@ -22,6 +22,8 @@ devflow task create --git-worktree "example git task"
 devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task run <task-id> --worker qwopus-implementer
+devflow task review-patch <task-id>
+devflow task patch-dry-run <task-id>
 devflow task apply-patch <task-id> --agent qwopus-implementer
 devflow task verify <task-id> --shell "test -f result.txt"
 devflow task local <task-id> --agent qwen-planner
@@ -76,7 +78,9 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 
 `devflow task local <task-id> --agent qwen-planner`, `devflow task local <task-id> --agent qwopus-implementer`, and `devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as advisory evidence only; Dev-Flow does not parse it as truth, write `proposal.patch`, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
 
-`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, and writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`.
+`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, and writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch`. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is review evidence, dry-run preview evidence where available, `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`.
+
+`devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
 
 `devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Promotion is not automatic and does not stage, commit, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
@@ -115,6 +119,13 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/agents/qwopus-implementer/result.md
 .devflow/tasks/<task-id>/agents/qwopus-implementer/run.json
 .devflow/tasks/<task-id>/agents/qwopus-implementer/logs/worker.log
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/proposal.md
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/proposal.json
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/proposal.patch
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/patch-review.md
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/patch-review.json
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/patch-dry-run.md
+.devflow/tasks/<task-id>/local-model-runs/<run-id>/patch-dry-run.json
 .devflow/workspaces/<task-id>/
 .devflow/workspaces/<task-id>/local-workers/<worker-name>/prompt.md
 .devflow/workspaces/<task-id>/local-workers/<worker-name>/response.raw.md
@@ -209,4 +220,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Next Priority**: Harden the opt-in Git-native shell-worker isolation and promotion slice while keeping the current shell-worker/manual proof-agent loop stable. Provider-backed adapters, autonomous routing, and PR automation remain later layers.
+> **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation while keeping verification and promotion separate. Provider-backed adapters, autonomous routing, and PR automation remain later layers.

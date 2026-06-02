@@ -59,6 +59,8 @@ devflow task create "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task run <task_id> --worker qwopus-implementer
+devflow task review-patch <task_id>
+devflow task patch-dry-run <task_id>
 devflow task apply-patch <task_id> --agent qwopus-implementer
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task local <task_id> --agent qwen-planner
@@ -79,7 +81,7 @@ The preferred shell-worker form is `devflow task run <task_id> --worker shell --
 
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 
-The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for applying the patch to the isolated workspace, verification, merge readiness, and human-controlled promotion.
+The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for applying the patch to the isolated workspace, verification, merge readiness, and human-controlled promotion. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
 
 The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
@@ -246,7 +248,7 @@ Outside the current product contract:
 - multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
 
 > [!IMPORTANT]
-> **Next Priority**: Harden the opt-in Git-native worker isolation and promotion slice while keeping the shell-worker and manual proof-agent loop stable. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
+> **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation while keeping verification and promotion separate. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
