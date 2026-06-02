@@ -204,7 +204,7 @@ When these contracts disagree, prefer the frozen MVP for current runtime behavio
     ".devflow/layers/implementation/known-gaps.md": f"# Known Gaps\n\n{IMPLEMENTATION_KNOWN_GAPS_CONTEXT_MARKER}\n\nMerge readiness is still human-controlled. Provider-backed adapters, routing, and scheduling remain out of scope until the manual proof-agent and shell alignment stay stable.\n\nLegacy surfaces still exist outside the frozen MVP path and must not be treated as active product authority.\n",
     ".devflow/layers/implementation/active-constraints.md": "# Active Constraints\n\n- Do not add databases, provider-backed adapters, routing engines, or autonomous routing.\n",
     ".devflow/layers/verification/verification-strategy.md": "# Verification Strategy\n\nPrefer focused pytest coverage and shell-worker acceptance checks.\n",
-    ".devflow/layers/verification/commands.md": "# Verification Commands\n\n- .venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
+    ".devflow/layers/verification/commands.md": "# Verification Commands\n\nWhen running verification inside task worktrees (where .venv is not present locally), reference the virtualenv from the repository root, e.g.:\n- /absolute/path/to/repo/.venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
     ".devflow/layers/verification/known-failures.md": "# Known Failures\n\nRecord current known failures here when they are validated.\n",
     ".devflow/layers/operations/workflow.md": "# Workflow\n\nUse small, verifiable changes against the active control-room MVP.\n",
     ".devflow/layers/operations/agent-coordination.md": "# Agent Coordination\n\nWorkers should operate from bounded task context and isolated workspaces.\n",

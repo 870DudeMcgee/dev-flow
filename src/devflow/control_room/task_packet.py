@@ -652,6 +652,17 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
                 "Promotion remains human-controlled."
             ] + parsed_op_warnings
 
+    try:
+        from devflow.control_room.context_pack import build_context_pack
+        pack_data = build_context_pack(repo_root, task_id, "worker")
+        cp = pack_data.get("context_pack", {})
+        has_includes = any(m.get("mode") == "full" for m in cp.get("sources_metadata", []))
+    except Exception:
+        has_includes = False
+
+    if not has_includes:
+        operator_warnings.append("No relevant file excerpt is available. Do not invent file content.")
+
     return _redact_secrets_in_value(
         TaskPacket(
             task_id=task.id,
@@ -728,6 +739,32 @@ def build_agent_packet(
         packet = packet.model_copy(update={"recent_events": []})
     if "verification_summary" not in can_see and "verification_plan" not in can_see:
         packet = packet.model_copy(update={"verification": {}})
+
+    if agent.adapter == "ollama_chat":
+        packet = packet.model_copy(
+            update={
+                "required_outputs": [
+                    *packet.required_outputs,
+                    f"<task>/agents/{agent.id}/raw_output.md",
+                    f"<task>/agents/{agent.id}/proposal.patch",
+                    f"<task>/agents/{agent.id}/run.json",
+                    f"<task>/agents/{agent.id}/result.md",
+                ],
+                "completion_rules": [
+                    *packet.completion_rules,
+                    "Produce a unified diff only in the JSON diff field.",
+                    "Do not include prose outside the JSON response.",
+                    "Do not modify files outside the task boundary.",
+                    "Do not claim success unless proposal.patch can be written from a non-empty unified diff.",
+                    "Dev-Flow applies patches, runs verification, and controls promotion separately.",
+                    "Exclude stale patch dry-run artifacts, unrelated logs, prior raw outputs, archived context, caches, virtualenvs, binaries, .git, and _legacy unless explicitly in scope.",
+                ],
+                "next_action": {
+                    "label": "Run local patch proposal worker",
+                    "command": f"devflow task run {task_id} --worker {agent.id}",
+                },
+            }
+        )
 
     return packet
 

@@ -111,11 +111,21 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
         if auth in ("archive", "rejected"):
             _add_exclude(path, f"excluded due to {auth} authority level")
             return
-        tokens = _estimate_tokens(path)
-        sha = _get_sha256(path)
+
+        # Resolve path inside the task workspace if it exists
+        from devflow.control_room.paths import absolute_path
+        workspace = absolute_path(root, task.workspace).resolve()
+        target_path = path
+        if workspace.is_dir() and path_rel:
+            ws_path = workspace / path_rel
+            if ws_path.is_file():
+                target_path = ws_path
+
+        tokens = _estimate_tokens(target_path)
+        sha = _get_sha256(target_path)
         content = ""
         try:
-            content = path.read_text(encoding="utf-8")
+            content = target_path.read_text(encoding="utf-8")
         except Exception:
             pass
 
@@ -188,9 +198,17 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
         if task_yaml_path.exists():
             _add_include(task_yaml_path, "canonical task definition")
 
+        is_docs_polish = any(
+            term in (title + " " + description).lower()
+            for term in ["doc", "polish", "readme", "documentation"]
+        )
+
         for rf in relevant_files:
-            if rf.is_file() and rf.suffix == ".py":
-                _add_include(rf, "active source file to edit")
+            if rf.is_file():
+                if rf.suffix == ".py":
+                    _add_include(rf, "active source file to edit")
+                elif is_docs_polish and rf.suffix in {".md", ".txt", ".json", ".rst"}:
+                    _add_include(rf, "relevant docs/polish file to edit")
 
         for tf_path in test_files:
             if tf_path.is_file():

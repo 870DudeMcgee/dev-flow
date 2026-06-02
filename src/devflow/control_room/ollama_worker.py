@@ -49,6 +49,7 @@ class OllamaChatWorkerAdapter:
             "task_id": worker_input.task_id,
             "agent_id": evidence_agent_id,
             "adapter": self.name,
+            "worker_runtime_id": self.name,
             "started_at": started_at,
             "workspace": str(worker_input.workspace_path),
             "status": "running",
@@ -67,19 +68,36 @@ class OllamaChatWorkerAdapter:
                     "status": status,
                     "summary": summary,
                     "exit_code": exit_code,
+                    "error": summary if status in {"worker_failed", "blocked"} else None,
+                    "failure_reason": summary if status in {"worker_failed", "blocked"} else None,
                     "finished_at": finished_at,
                     "model": model,
                     "provider": provider_id,
                     "base_url": base_url,
                     "timeout_seconds": timeout,
+                    "raw_output_captured": raw_output_path.exists() and raw_output_path.stat().st_size > 0,
                     "raw_output_path": str(raw_output_path),
+                    "proposal_patch_found": patch_file.exists() and patch_file.stat().st_size > 0,
                     "proposal_patch_path": str(patch_file) if patch_file.exists() else None,
+                    "proposal_patch_byte_length": patch_file.stat().st_size if patch_file.exists() else 0,
+                    "proposed_file_count": len(_proposed_file_paths(patch_file.read_text(encoding="utf-8"))) if patch_file.exists() else 0,
+                    "proposed_file_paths": _proposed_file_paths(patch_file.read_text(encoding="utf-8")) if patch_file.exists() else [],
+                    "next_suggested_command": _next_suggested_command(worker_input.task_id, evidence_agent_id, status, patch_file),
                 }
             )
             if response is not None:
                 run_meta["response"] = response
             atomic_write_text(run_json_path, json.dumps(run_meta, indent=2, sort_keys=True) + "\n")
-            _write_result(result_file, worker_input.task_id, evidence_agent_id, status, summary, response)
+            _write_result(
+                result_file,
+                worker_input.task_id,
+                evidence_agent_id,
+                status,
+                summary,
+                response,
+                raw_output_path=raw_output_path,
+                patch_file=patch_file,
+            )
             if status == "worker_failed":
                 _write_worker_failed(agent_dir, worker_input.task_id, evidence_agent_id, summary)
             elif status == "blocked":
@@ -149,7 +167,10 @@ class OllamaChatWorkerAdapter:
             "2. Context lines must match the target files exactly.\n"
             "3. Header paths must be relative workspace paths, e.g. --- a/src/foo.py and +++ b/src/foo.py.\n"
             "4. Do not include binary diffs, renames, mode changes, or truncated chunks.\n"
-            "5. Set status to blocked with a clear reason if the task cannot be completed safely."
+            "5. Do not modify files outside the task boundary.\n"
+            "6. Do not claim success unless a real unified diff is present in the diff field.\n"
+            "7. Dev-Flow applies, verifies, and promotes separately; you only propose the patch.\n"
+            "8. Set status to blocked with a clear reason if the task cannot be completed safely."
         )
 
         prompt = _build_prompt(
@@ -348,16 +369,24 @@ def _build_prompt(
         "CONTEXT SOURCES:",
     ]
 
+    has_sources = False
     for item in context_pack.get("sources_metadata", []):
         if item.get("mode") == "full":
             prompt_lines.append(f"--- File: {item['path']} ---")
             prompt_lines.append(str(item.get("content", "")))
             prompt_lines.append("")
+            has_sources = True
+
+    if not has_sources:
+        prompt_lines.append("No relevant file excerpt is available. Do not invent file content or assume specific existing content unless you are absolutely sure or creating a new file.")
 
     prompt_lines.extend(
         [
             "",
-            "Return only the required JSON. The diff must target paths relative to the workspace.",
+            "REQUIRED OUTPUT FORMAT:",
+            "Return only the required JSON object. Do not include prose outside the JSON.",
+            "The diff field must contain a unified diff only and target paths relative to the workspace.",
+            "Do not read stale patch dry-run artifacts, unrelated logs, prior raw outputs, archive material, caches, virtualenvs, binaries, .git, or _legacy unless the task explicitly targets them.",
         ]
     )
     return "\n".join(prompt_lines)
@@ -382,6 +411,29 @@ def _response_summary(diff_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _proposed_file_paths(diff_text: str) -> list[str]:
+    paths: list[str] = []
+    for line in diff_text.splitlines():
+        if not line.startswith("diff --git "):
+            continue
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        for raw in parts[2:4]:
+            path = raw[2:] if raw.startswith(("a/", "b/")) else raw
+            if path != "/dev/null" and path not in paths:
+                paths.append(path)
+    return paths
+
+
+def _next_suggested_command(task_id: str, agent_id: str, status: str, patch_file: Path) -> str:
+    if status == "complete" and patch_file.exists() and patch_file.stat().st_size > 0:
+        return f"devflow task apply-patch {task_id} --agent {agent_id}"
+    if status in {"worker_failed", "blocked"}:
+        return f"devflow task escalation-packet {task_id} --agent {agent_id}"
+    return f"devflow task show {task_id}"
+
+
 def _write_result(
     result_file: Path,
     task_id: str,
@@ -389,15 +441,30 @@ def _write_result(
     status: str,
     summary: str,
     response: dict[str, Any] | None,
+    *,
+    raw_output_path: Path,
+    patch_file: Path,
 ) -> None:
+    proposed_paths = _proposed_file_paths(patch_file.read_text(encoding="utf-8")) if patch_file.exists() else []
+    patch_bytes = patch_file.stat().st_size if patch_file.exists() else 0
     response_lines = ""
     if response:
         response_lines = "\n## Response Summary\n\n```json\n" + json.dumps(response, indent=2, sort_keys=True) + "\n```\n"
+    next_action = _next_suggested_command(task_id, agent_id, status, patch_file)
     body = (
         f"# Ollama Worker Result: {task_id}\n\n"
         f"Agent: {agent_id}\n\n"
         f"Status: {status}\n\n"
-        f"Summary: {summary}\n"
+        f"Summary: {summary}\n\n"
+        "## Run Evidence\n\n"
+        f"- Qwopus/local Ollama ran: {'yes' if status else 'unknown'}\n"
+        f"- Raw output captured: {'yes' if raw_output_path.exists() and raw_output_path.stat().st_size > 0 else 'no'}\n"
+        f"- Raw output path: {raw_output_path.name}\n"
+        f"- Proposal patch detected: {'yes' if patch_bytes > 0 else 'no'}\n"
+        f"- Proposal patch path: {patch_file.name if patch_file.exists() else 'none'}\n"
+        f"- Proposal patch bytes: {patch_bytes}\n"
+        f"- Proposed files: {', '.join(proposed_paths) if proposed_paths else 'none'}\n"
+        f"- Next action: `{next_action}`\n"
         f"{response_lines}"
     )
     atomic_write_text(result_file, body)

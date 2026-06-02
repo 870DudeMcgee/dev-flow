@@ -684,3 +684,62 @@ def _write_events(path: Path, *, count: int, malformed: bool = False) -> None:
     if malformed:
         lines.insert(1, "{not json")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_qwopus_packet_workspace_resolution_and_mismatch_behavior() -> None:
+    import pytest
+    from devflow.control_room.context_pack import build_context_pack
+    from devflow.control_room.patch_applier import apply_patch_files, parse_unified_diff, PatchApplicationError
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        
+        # 1. Create a task with a docs/polish title
+        create_task(root, "Polish README.md and clean up docs")
+        task_id = "task-0001"
+        
+        task_path = root / ".devflow" / "tasks" / task_id
+        workspace_dir = root / ".devflow" / "workspaces" / task_id
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write main repository README.md (simulating what RepoScout might find in the root checkout)
+        main_readme = root / "README.md"
+        main_readme.write_text("# Dev-Flow\nSome legacy text here.\n", encoding="utf-8")
+        
+        # Write task workspace README.md (the actual target workspace file)
+        workspace_readme = workspace_dir / "README.md"
+        workspace_readme.write_text("# DevFlow Workspace\nSome actual task text here.\n", encoding="utf-8")
+        
+        # 2. Build context pack for worker
+        pack_data = build_context_pack(root, task_id, "worker")
+        cp = pack_data.get("context_pack", {})
+        
+        # Find README.md in sources_metadata
+        readme_entry = None
+        for item in cp.get("sources_metadata", []):
+            if item.get("path") == "README.md":
+                readme_entry = item
+                break
+                
+        # Assert that the README excerpt is successfully included and matches the workspace content, not the root content!
+        assert readme_entry is not None
+        assert readme_entry["mode"] == "full"
+        assert readme_entry["content"] == "# DevFlow Workspace\nSome actual task text here.\n"
+        
+        # 3. Verify that a Qwopus patch based on mismatched README content fails safely on apply-patch
+        mismatched_diff = (
+            "--- a/README.md\n"
+            "+++ b/README.md\n"
+            "@@ -1,2 +1,2 @@\n"
+            "-# Dev-Flow\n"
+            "+# Dev-Flow Modified\n"
+            " Some legacy text here.\n"
+        )
+        parsed_patches = parse_unified_diff(mismatched_diff)
+        
+        # Should raise PatchApplicationError due to mismatch
+        with pytest.raises(PatchApplicationError) as exc_info:
+            apply_patch_files(workspace_dir, parsed_patches)
+            
+        assert "mismatch" in str(exc_info.value)
+        assert "Found:    '# DevFlow Workspace'" in str(exc_info.value)

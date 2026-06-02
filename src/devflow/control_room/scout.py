@@ -269,7 +269,8 @@ def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
 
         suggested_verification = task.verification_command
         if not suggested_verification:
-            suggested_verification = f"PYTHONPATH=. .venv/bin/pytest {test_files[0]}"
+            venv_pytest_path = scout.root / ".venv" / "bin" / "pytest"
+            suggested_verification = f"PYTHONPATH=. {venv_pytest_path} {test_files[0]}"
 
         report = {
             "role": "test_scout",
