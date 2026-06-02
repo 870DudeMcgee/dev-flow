@@ -654,7 +654,7 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
 
     try:
         from devflow.control_room.context_pack import build_context_pack
-        pack_data = build_context_pack(repo_root, task_id, "worker")
+        pack_data = build_context_pack(repo_root, task_id, "worker", persist_task_fit=False)
         cp = pack_data.get("context_pack", {})
         has_includes = any(m.get("mode") == "full" for m in cp.get("sources_metadata", []))
     except Exception:

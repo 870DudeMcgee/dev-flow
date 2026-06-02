@@ -43,7 +43,7 @@ def _get_sha256(path: Path) -> str:
         return "null"
 
 
-def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
+def build_context_pack(root: Path, task_id: str, role: str, *, persist_task_fit: bool = True) -> dict[str, Any]:
     """Deterministic role-based context pack builder and physical packet generator."""
     from devflow.control_room.scout import RepoScout
 
@@ -55,7 +55,8 @@ def build_context_pack(root: Path, task_id: str, role: str) -> dict[str, Any]:
     task_fit_file = task_dir(root, task_id) / "task-fit.yaml"
     if not task_fit_file.exists():
         fit_data = estimate_task_fit(root, task_id)
-        save_task_fit(root, task_id, fit_data)
+        if persist_task_fit:
+            save_task_fit(root, task_id, fit_data)
     else:
         fit_data = estimate_task_fit(root, task_id)
 

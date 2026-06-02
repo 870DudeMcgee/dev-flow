@@ -70,6 +70,7 @@ devflow task list
 devflow task list --active
 devflow task list --closed
 devflow task show <task_id>
+devflow task capsule <task_id>
 devflow task packet <task_id>
 devflow task log <task_id>
 devflow task promote-preview <task_id>
@@ -138,6 +139,16 @@ Do not implement these in the first milestone:
 The filesystem is the source of truth. `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. New task event records include a monotonic `event_index`, `previous_event_hash`, and `event_hash` so `doctor` can detect malformed or edited task event streams. `verification.json` stores the latest verification result. Worker and verification logs are raw evidence. Worker and verification commands run only inside `.devflow/workspaces/<task_id>/`.
 
 Current task-state artifacts use schema version 1. New `task.yaml`, `verification.json`, `merge-readiness.json`, and `summary.json` files record that version; missing task schema versions are treated as version 1 for backward compatibility, while unknown task schema versions are refused.
+
+Review Capsules are read-only rendered views over that evidence. After worker output, verification, finalization, or promotion preview, Dev-Flow prints a compact capsule with task identity, status, worker/workspace, Git branch and latest commit when available, verification result, promotion readiness, changed files, and inline contents for small changed text files. The flow is:
+
+1. Worker completes task.
+2. Dev-Flow records canonical evidence.
+3. Dev-Flow renders a Review Capsule directly in command output.
+4. The human makes an explicit decision.
+5. The human promotes, rejects/closes, or requests changes.
+
+Capsules do not create review files by default, duplicate canonical evidence, mutate task status, promote, close, or weaken safety gates. `devflow task capsule <task_id>` re-renders the current view manually; `--export-md` writes one explicit markdown export under the task evidence folder only when requested.
 
 Task-local mutation commands (`run`, `local`, `verify`, `apply-patch`, and `promote`) create `.devflow/tasks/<task_id>/.lock/owner.json` while they own the task. Active locks refuse competing mutations with owner details. Stale locks are removed after the configured stale window.
 
@@ -300,6 +311,7 @@ To ensure strict engineering discipline, the data surface is stratified as follo
 - `summary.json`: Local cache of parsed data derived entirely from canonical state.
 - `packet.json`: Generated TaskPacket dump written instantly before worker executions.
 - *TaskPacket projections*: Any dynamic context structure derived from canonical properties.
+- *Review Capsule output*: A read-only rendered review view printed to the terminal; optional markdown export only with `task capsule --export-md`.
 
 ---
 

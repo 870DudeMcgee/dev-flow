@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 import json
 import os
 
@@ -67,6 +68,7 @@ from devflow.control_room.git_worktree import (
     prune_orphan_worktrees,
 )
 from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwopus_escalation_packet
+from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -739,6 +741,24 @@ def task_show(task_id: str) -> None:
     _echo_result_summary(task_path / "result.md", summary=qwopus_result_summary(Path.cwd(), task.id))
 
 
+@task_app.command("capsule")
+def task_capsule(
+    task_id: str,
+    export_md: bool = typer.Option(False, "--export-md", help="Write one explicit markdown export under the task evidence folder."),
+) -> None:
+    """Render a read-only Review Capsule from existing task evidence."""
+    root = Path.cwd()
+    try:
+        capsule = render_review_capsule(root, task_id)
+    except (KeyError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(capsule, nl=False)
+    if export_md:
+        export_path = export_review_capsule_markdown(root, task_id, capsule)
+        typer.echo(f"export_path: {_relative(root, export_path)}")
+
+
 @task_app.command(
     "fit",
     hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
@@ -1376,6 +1396,7 @@ def task_run(
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat" and task.status == "complete":
         typer.echo(f"suggested_next_action: devflow task apply-patch {task.id} --agent {worker}")
+    _echo_review_capsule(Path.cwd(), task.id)
     if task.status != "complete":
         exit_code = task.last_exit_code if task.last_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
@@ -1453,6 +1474,7 @@ def task_finalize(
         typer.echo("commit_hash: dry-run")
 
     typer.echo(f"next_action: {evidence['next_suggested_action']}")
+    _echo_review_capsule(root, task_id)
 
 
 @task_app.command("verify", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
@@ -1478,6 +1500,7 @@ def task_verify(
     typer.echo(f"verification_log_path: {task.verification_log_path}")
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
+    _echo_review_capsule(Path.cwd(), task.id)
     if task.verification_status != "passed":
         exit_code = task.verification_exit_code if task.verification_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
@@ -1576,6 +1599,7 @@ def task_promote_preview(task_id: str) -> None:
 
     if not added and not modified and not deleted and not renamed and not untracked and not binary:
         typer.echo("No changes to promote")
+        _echo_review_capsule(Path.cwd(), task_id, promotion_preview=res)
         return
 
     if added:
@@ -1619,6 +1643,7 @@ def task_promote_preview(task_id: str) -> None:
         diff_text = diffs[name]
         if diff_text:
             typer.echo(diff_text, nl=False)
+    _echo_review_capsule(Path.cwd(), task_id, promotion_preview=res)
 
 
 @task_app.command("promote")
@@ -2385,6 +2410,19 @@ def _relative(root: Path, path: Path) -> str:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
         return str(path)
+
+
+def _echo_review_capsule(
+    root: Path,
+    task_id: str,
+    *,
+    promotion_preview: dict[str, Any] | None = None,
+) -> None:
+    try:
+        typer.echo()
+        typer.echo(render_review_capsule(root, task_id, promotion_preview=promotion_preview), nl=False)
+    except Exception as exc:
+        typer.echo(f"review_capsule: unavailable ({exc})", err=True)
 
 
 def _format_scorecard_flag(value: object) -> str:
