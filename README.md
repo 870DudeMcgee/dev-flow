@@ -17,8 +17,8 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
 - **Dashboard**: `devflow dashboard`
-- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task list`, `devflow task show`, `devflow task log`
-- **Git-Native Task Lane**: `devflow task create --git-worktree`
+- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Git-Native Task Lane**: `devflow task create --git-worktree`, `devflow task finalize` (dry-run & `--commit`)
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
 
@@ -174,13 +174,16 @@ Promotion is explicit and human-controlled:
 Use promotion only after reviewing the preview and verification evidence.
 If the main checkout advanced after the task workspace was created, promotion refuses by default. Use `--force-stale-baseline` only after manually reviewing that stale-baseline risk.
 
-Create an opt-in Git-native shell task:
+Create an opt-in Git-native shell task and finalize it:
 
 ```bash
 TASK_ID=$(.venv/bin/python -m devflow.cli task create --git-worktree "write hello result" | sed -n 's/^Created \(task-[^:]*\):.*/\1/p')
-.venv/bin/python -m devflow.cli task run "$TASK_ID" --worker shell -- /bin/sh -c "echo hello > result.txt && git add result.txt && git commit -m devflow-result"
+.venv/bin/python -m devflow.cli task run "$TASK_ID" --worker shell -- /bin/sh -c "echo hello > result.txt"
 .venv/bin/python -m devflow.cli task verify "$TASK_ID" --shell "test -f result.txt"
+.venv/bin/python -m devflow.cli task finalize "$TASK_ID"
+.venv/bin/python -m devflow.cli task finalize "$TASK_ID" --commit
 .venv/bin/python -m devflow.cli task promote-preview "$TASK_ID"
+.venv/bin/python -m devflow.cli task promote "$TASK_ID"
 ```
 
 Git-native promotion refuses if the worker branch HEAD differs from the verified commit, the worktree is dirty after verification, the baseline is stale without explicit review, or merge conflicts are predicted.

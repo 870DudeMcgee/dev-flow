@@ -1197,7 +1197,7 @@ def task_local_review(
     """Run an advisory local model packet review for a task."""
     from devflow.control_room.local_packet_worker import run_local_packet_review
     from devflow.control_room.paths import relative_path
-    
+
     try:
         result = run_local_packet_review(
             task_id=task_id,
@@ -1303,6 +1303,48 @@ def _echo_registry_patch_worker_evidence_paths(root: Path, task_id: str, agent_i
     typer.echo(f"run_metadata_path: {_relative(root, agent_dir / 'run.json')}")
     typer.echo(f"agent_result_path: {_relative(root, agent_dir / 'result.md')}")
     typer.echo(f"agent_log_path: {_relative(root, agent_dir / 'logs' / 'worker.log')}")
+
+
+@task_app.command("finalize")
+def task_finalize(
+    task_id: str,
+    commit: bool = typer.Option(False, "--commit", help="Perform the actual commit instead of a dry-run preview."),
+) -> None:
+    """Preview or commit safe task-owned changes in its isolated Git worktree."""
+    root = Path.cwd()
+    from devflow.control_room.finalizer import finalize_task, FinalizationError
+    try:
+        evidence = finalize_task(root, task_id, commit=commit)
+    except FinalizationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Finalization summary for task: {task_id}")
+    typer.echo("-" * 50)
+    typer.echo("staged:")
+    for f in evidence.get("staged_files") or []:
+        typer.echo(f"  - {f}")
+    if not evidence.get("staged_files"):
+        typer.echo("  (none)")
+
+    typer.echo("ignored:")
+    for f in evidence.get("ignored_evidence_files") or []:
+        typer.echo(f"  - {f}")
+    if not evidence.get("ignored_evidence_files"):
+        typer.echo("  (none)")
+
+    typer.echo(f"verification_status: {evidence['verification_status']}")
+
+    commit_hash = evidence.get("commit_hash")
+    if commit_hash:
+        typer.echo(f"commit_hash: {commit_hash}")
+    else:
+        typer.echo("commit_hash: dry-run")
+
+    typer.echo(f"next_action: {evidence['next_suggested_action']}")
 
 
 @task_app.command("verify", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
