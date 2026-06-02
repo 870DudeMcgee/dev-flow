@@ -12,6 +12,7 @@ from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path
 from devflow.control_room.status_projection import TaskStatusProjection, build_task_status_projection
 from devflow.control_room.agent_registry import AgentDefinition
+from devflow.control_room.devmode_bridge import devmode_discipline_lines
 
 _relative = relative_path
 
@@ -77,6 +78,7 @@ class TaskPacket(BaseModel):
     bounded_sources: dict[str, Any] | None = None
     operator_warnings: list[str] = Field(default_factory=list)
     next_action: dict[str, Any] | None = None
+    devmode_discipline: list[str] = Field(default_factory=list)
 
 
 def load_slice_from_goal(goal_dir: Path, slice_id: str, warnings: list[str]) -> dict[str, Any] | None:
@@ -478,6 +480,12 @@ def render_task_packet_text(packet: TaskPacket) -> str:
                 lines.append(f"  > {line}")
             lines.append("")
             
+    if packet.devmode_discipline:
+        lines.append("## DevMode Discipline")
+        for line in packet.devmode_discipline:
+            lines.append(f"- {line}")
+        lines.append("")
+
     if packet.operator_warnings:
         lines.append("## Operator Warnings")
         for ow in packet.operator_warnings:
@@ -700,6 +708,7 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
             bounded_sources=bounded_sources,
             operator_warnings=operator_warnings,
             next_action=next_action,
+            devmode_discipline=devmode_discipline_lines(repo_root),
         )
     )
 
@@ -727,7 +736,7 @@ def build_agent_packet(
             "forbidden_writes": agent.forbidden_writes,
             "required_outputs": agent.required_outputs,
             "completion_rules": completion_rules,
-            "manual_instructions": _manual_instructions(agent),
+            "manual_instructions": _manual_instructions(agent, root or Path.cwd()),
         }
     )
 
@@ -788,9 +797,10 @@ def _is_docs_polish_task(packet: TaskPacket) -> bool:
     return "docs/polish" in combined or (("docs" in combined or "documentation" in combined) and "polish" in combined)
 
 
-def _manual_instructions(agent: AgentDefinition) -> str | None:
+def _manual_instructions(agent: AgentDefinition, root: Path) -> str | None:
     if agent.adapter != "manual" or agent.execution_mode != "human_launched_agent":
         return None
+    devmode_lines = devmode_discipline_lines(root)
     return "\n".join(
         [
             f"You are {agent.id}.",
@@ -800,6 +810,9 @@ def _manual_instructions(agent: AgentDefinition) -> str | None:
             "",
             "Purpose:",
             agent.purpose or "",
+            "",
+            "DevMode discipline:",
+            *devmode_lines[1:],
             "",
             "Workspace boundary:",
             "Edit only files under <workspace>.",
@@ -982,6 +995,7 @@ def _constraints(virtual_workspace_path: str) -> list[str]:
         "summary.json is derived/cache only and cannot override canonical state.",
         f"Worker execution must stay inside {virtual_workspace_path}.",
         "Dev-Flow owns verification, merge readiness, and human approval gates.",
+        "DevMode is the agent-facing discipline layer; load `using-devmode` before modifying files.",
     ]
 
 

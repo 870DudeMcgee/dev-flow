@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from devflow.control_room.git_state import origin_main_sha
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.paths import absolute_path, relative_path, task_worker_dir, worktree_path, worktrees_dir
 from devflow.control_room.persistence import append_event, atomic_write_text, get_task, list_tasks, utc_now
@@ -22,7 +23,7 @@ class GitWorktreeError(ValueError):
 
 def create_git_worktree(root: Path, task_id: str, worker_id: str = DEFAULT_WORKER_ID) -> Workspace:
     _require_git_repo(root)
-    _base_branch, base_commit = _resolve_base_branch_and_commit(root)
+    base_ref, base_commit = _resolve_base_branch_and_commit(root)
     branch = worker_branch_name(task_id, worker_id)
     if branch_exists(root, branch):
         raise GitWorktreeError(f"Worker branch already exists: {branch}")
@@ -34,6 +35,7 @@ def create_git_worktree(root: Path, task_id: str, worker_id: str = DEFAULT_WORKE
     return Workspace(
         path=path,
         kind="git_worktree",
+        base_ref=base_ref,
         branch_name=branch,
         commit_sha=base_commit,
         dirty=False,
@@ -102,6 +104,7 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
     branch = state["worker_branch"]
     base_commit = state["base_commit"]
     main_head = current_head(root)
+    origin_main_head = origin_main_sha(root)
     worker_head = branch_head(root, branch)
     merge_base = merge_base_commit(root, branch)
     conflict_prediction, conflict_files = predict_conflicts(root, branch)
@@ -112,16 +115,19 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
     verification_status = task.verification_status
     readiness = _git_preview_readiness(root, task, state, worker_head, conflict_prediction)
     baseline_stale = bool(base_commit and main_head and base_commit != main_head)
+    origin_baseline_stale = bool(base_commit and origin_main_head and base_commit != origin_main_head)
     preview = {
         "schema_version": TASK_SCHEMA_VERSION,
         "task_id": task.id,
         "worker_id": worker_id,
         "base_commit": base_commit,
         "main_current_head": main_head,
+        "origin_main_head": origin_main_head,
         "worker_branch": branch,
         "worker_branch_head": worker_head,
         "merge_base": merge_base,
         "baseline_stale": baseline_stale,
+        "origin_baseline_stale": origin_baseline_stale,
         "changed_files": summary["changed_files"],
         "added": summary["added_files"],
         "modified": summary["modified_files"],
@@ -142,7 +148,11 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
         "baseline": {
             "task_baseline_commit": base_commit,
             "current_main_head": main_head,
+            "origin_main_head": origin_main_head,
             "baseline_status": "changed" if baseline_stale else "unchanged" if base_commit and main_head else "unavailable",
+            "origin_baseline_status": (
+                "changed" if origin_baseline_stale else "unchanged" if base_commit and origin_main_head else "unavailable"
+            ),
         },
         "added": preview["added"],
         "modified": preview["modified"],
@@ -175,6 +185,9 @@ def git_worktree_readiness_errors(root: Path, task: TaskRecord) -> list[str]:
     if task.workspace_commit and commit_exists(root, task.workspace_commit):
         if not _merge_base_is_ancestor(root, task.workspace_commit, branch):
             errors.append(f"worker branch does not descend from base commit: {task.workspace_commit}")
+    origin_head = origin_main_sha(root)
+    if task.workspace_commit and origin_head and task.workspace_commit != origin_head:
+        errors.append(f"origin/main differs from task base commit: {origin_head}")
     verification_path = root / ".devflow" / "tasks" / task.id / "verification.json"
     verification = _read_json_object(verification_path)
     verified_commit = verification.get("verified_commit") if verification else None
@@ -280,10 +293,12 @@ def promote_git_worktree(root: Path, task: TaskRecord) -> dict[str, Any]:
     if git_preview["conflict_prediction"] != "clean":
         files = git_preview.get("conflict_files") or []
         file_lines = "\n".join(f"  {name}" for name in files) if files else "  unknown"
+        report_path = _write_conflict_report(root, task, git_preview, "merge conflict predicted")
         raise GitWorktreeError(
             "promotion refused: merge conflict predicted\n"
             "conflict files:\n"
             f"{file_lines}\n"
+            f"conflict_report: {relative_path(root, report_path)}\n"
             "suggested next action:\n"
             f"  devflow task create \"Resolve conflict for {task.id} worker {git_preview['worker_id']}\""
         )
@@ -293,7 +308,8 @@ def promote_git_worktree(root: Path, task: TaskRecord) -> dict[str, Any]:
     if proc.returncode != 0:
         _run_git(root, ["merge", "--abort"], check=False)
         detail = (proc.stderr or proc.stdout or "git merge failed").strip()
-        raise GitWorktreeError(f"Git-native promotion failed: {detail}")
+        report_path = _write_conflict_report(root, task, git_preview, detail)
+        raise GitWorktreeError(f"Git-native promotion failed: {detail}\nconflict_report: {relative_path(root, report_path)}")
     return preview
 
 
@@ -442,6 +458,10 @@ def branch_exists(root: Path, branch: str) -> bool:
 
 
 def _resolve_base_branch_and_commit(root: Path) -> tuple[str, str]:
+    origin_head = branch_head(root, "origin/main")
+    if origin_head:
+        return "origin/main", origin_head
+
     default_head = branch_head(root, DEFAULT_BASE_BRANCH)
     if default_head:
         return DEFAULT_BASE_BRANCH, default_head
@@ -463,6 +483,9 @@ def _resolve_base_branch_and_commit(root: Path) -> tuple[str, str]:
 def _base_branch_for_commit(root: Path, commit: str | None) -> str:
     if not commit:
         return DEFAULT_BASE_BRANCH
+    origin_head = branch_head(root, "origin/main")
+    if origin_head == commit:
+        return "origin/main"
     default_head = branch_head(root, DEFAULT_BASE_BRANCH)
     if default_head == commit:
         return DEFAULT_BASE_BRANCH
@@ -705,7 +728,33 @@ def _git_preview_readiness(
         return "not_ready"
     if conflict_prediction != "clean":
         return "not_ready"
+    origin_head = origin_main_sha(root)
+    if state.get("base_commit") and origin_head and state["base_commit"] != origin_head:
+        return "not_ready"
     return "ready"
+
+
+def _write_conflict_report(root: Path, task: TaskRecord, git_preview: dict[str, Any], reason: str) -> Path:
+    worker_id = str(git_preview.get("worker_id") or worker_id_for_task(task))
+    report_path = task_worker_dir(root, task.id, worker_id) / "conflict-report.md"
+    files = git_preview.get("conflict_files") or []
+    file_lines = "\n".join(f"- {name}" for name in files) if files else "- unknown"
+    text = (
+        f"# Promotion Conflict Report\n\n"
+        f"task_id: {task.id}\n"
+        f"worker_id: {worker_id}\n"
+        f"worker_branch: {git_preview.get('worker_branch') or 'unknown'}\n"
+        f"base_commit: {git_preview.get('base_commit') or 'unknown'}\n"
+        f"main_current_head: {git_preview.get('main_current_head') or 'unknown'}\n"
+        f"origin_main_head: {git_preview.get('origin_main_head') or 'unknown'}\n"
+        f"reason: {reason}\n\n"
+        f"## Conflict Files\n\n"
+        f"{file_lines}\n\n"
+        f"## Next Safe Action\n\n"
+        f"Create a new task to resolve the conflict manually; Dev-Flow did not auto-resolve source conflicts.\n"
+    )
+    atomic_write_text(report_path, text)
+    return report_path
 
 
 def _merge_base_is_ancestor(root: Path, base_commit: str, branch: str) -> bool:

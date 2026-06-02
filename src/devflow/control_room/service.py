@@ -176,6 +176,12 @@ def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: s
         branch_name=workspace.branch_name,
         workspace_commit=workspace.commit_sha,
         workspace_dirty=workspace.dirty,
+        git={
+            "base_ref": workspace.base_ref,
+            "base_commit": workspace.commit_sha,
+            "branch": workspace.branch_name,
+            "workspace": _relative(root, workspace.path),
+        },
     )
     _write_initial_artifacts(task_path, task_id, record.workspace)
     if git_worktree:
@@ -187,6 +193,7 @@ def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: s
         "workspace_commit": workspace.commit_sha,
         "workspace_dirty": workspace.dirty,
         "workspace_kind": workspace.kind,
+        "git": record.git,
     }
     if workspace.skipped_symlinks:
         event_payload["skipped_symlinks"] = list(workspace.skipped_symlinks)

@@ -11,6 +11,8 @@ DevMode tells agents how to behave.
 Dev-Flow gives agents safe places to work and records what happened.
 ```
 
+For Git-specific policy and runtime enforcement, see [docs/devmode-git-policy-bridge.md](devmode-git-policy-bridge.md).
+
 ---
 
 ## DevMode Owns

@@ -19,11 +19,15 @@ from devflow.control_room.persistence import (
     save_task,
     utc_now,
 )
+from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
 from devflow.control_room.git_worktree import build_git_promotion_preview, is_git_worktree_task, promote_git_worktree
 
 
 def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
+    git_state = inspect_git_state(root)
+    if git_state.operation_in_progress:
+        raise ValueError(f"Refusing promotion preview: Git {git_state.operation_in_progress} is in progress.")
     task = get_task(root, task_id)
     if is_git_worktree_task(task):
         return build_git_promotion_preview(root, task)
@@ -183,6 +187,9 @@ def promote_task(
     apply_deletions: bool = False,
     force_stale_baseline: bool = False,
 ) -> TaskRecord:
+    git_state = inspect_git_state(root)
+    if git_state.operation_in_progress:
+        raise ValueError(f"Refusing promotion: Git {git_state.operation_in_progress} is in progress.")
     task = get_task(root, task_id)
     task_path = task_dir(root, task_id)
     if promotion_readiness_errors(task, task_path):

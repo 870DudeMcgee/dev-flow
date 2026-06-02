@@ -67,6 +67,8 @@ from devflow.control_room.git_worktree import (
     list_devflow_worktrees,
     prune_orphan_worktrees,
 )
+from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
+from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwopus_escalation_packet
 from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
 
@@ -76,11 +78,13 @@ task_app = typer.Typer(help="Manage control-room tasks")
 agent_app = typer.Typer(help="Manage and inspect agents")
 worktree_app = typer.Typer(help="Inspect and clean Dev-Flow Git worktrees")
 branch_app = typer.Typer(help="Inspect and archive Dev-Flow Git branches")
+git_app = typer.Typer(help="Inspect guarded Git state")
 goal_app = typer.Typer(help="Manage goals and planning scaffolds")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
 app.add_typer(branch_app, name="branch")
+app.add_typer(git_app, name="git")
 app.add_typer(goal_app, name="goal")
 
 
@@ -269,6 +273,34 @@ def status_command(
     else:
         from devflow.control_room.dashboard import render_dashboard
         typer.echo(render_dashboard(Path.cwd()), nl=False)
+
+
+@git_app.command("status")
+def git_status_command() -> None:
+    """Show read-only Git and DevMode guardrail state."""
+    devmode = detect_devmode(Path.cwd())
+    typer.echo(render_git_status(Path.cwd(), devmode_detected=devmode.detected), nl=False)
+    typer.echo(render_devmode_status(Path.cwd()), nl=False)
+
+
+@app.command("sync-main")
+def sync_main_command() -> None:
+    """Fetch origin and fast-forward local main only when safe."""
+    try:
+        typer.echo(sync_main(Path.cwd()), nl=False)
+    except GitStateError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command("push-main")
+def push_main_command() -> None:
+    """Push main only when local and origin state are safe."""
+    try:
+        typer.echo(push_main(Path.cwd()), nl=False)
+    except GitStateError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @app.command("next")
@@ -1583,16 +1615,22 @@ def task_promote_preview(task_id: str) -> None:
     typer.echo(f"next_action: devflow task promote {task_id}")
     typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
     typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
+    if "origin_main_head" in baseline:
+        typer.echo(f"origin_main_head: {baseline['origin_main_head'] or 'unavailable'}")
     typer.echo(f"baseline_status: {baseline['baseline_status']}")
+    if "origin_baseline_status" in baseline:
+        typer.echo(f"origin_baseline_status: {baseline['origin_baseline_status']}")
     if git_preview:
         typer.echo(f"task_id: {git_preview['task_id']}")
         typer.echo(f"worker_id: {git_preview['worker_id']}")
         typer.echo(f"base_commit: {git_preview['base_commit'] or 'unavailable'}")
         typer.echo(f"main_current_head: {git_preview['main_current_head'] or 'unavailable'}")
+        typer.echo(f"origin_main_head: {git_preview['origin_main_head'] or 'unavailable'}")
         typer.echo(f"worker_branch: {git_preview['worker_branch']}")
         typer.echo(f"worker_branch_head: {git_preview['worker_branch_head'] or 'unavailable'}")
         typer.echo(f"merge_base: {git_preview['merge_base'] or 'unavailable'}")
         typer.echo(f"baseline_stale: {'yes' if git_preview['baseline_stale'] else 'no'}")
+        typer.echo(f"origin_baseline_stale: {'yes' if git_preview['origin_baseline_stale'] else 'no'}")
         typer.echo(f"conflict_prediction: {git_preview['conflict_prediction']}")
         typer.echo(f"verification_status: {git_preview['verification_status']}")
         typer.echo(f"promotion_readiness: {git_preview['promotion_readiness']}")

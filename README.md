@@ -234,7 +234,9 @@ DevMode is the portable discipline layer for agent behavior: mode gating, search
 
 Dev-Flow is the product in this repository: the local-first control room that owns task state, worker isolation, logs, verification evidence, and promotion readiness.
 
-The canonical DevMode contract is [docs/devmode-contract.md](docs/devmode-contract.md). The boundary is documented in [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md). DevMode guides humans and agents working in this repo; it is not the Dev-Flow runtime.
+The canonical DevMode contract is [docs/devmode-contract.md](docs/devmode-contract.md). The boundary is documented in [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md), and the Git policy bridge is documented in [docs/devmode-git-policy-bridge.md](docs/devmode-git-policy-bridge.md). DevMode guides humans and agents working in this repo; it is not the Dev-Flow runtime.
+
+Git-changing actions should use Dev-Flow guardrail commands where available: `devflow git status`, `devflow sync-main`, `devflow task promote-preview`, `devflow task promote`, and `devflow push-main`.
 
 DevMode harness compatibility is tracked in [docs/harness-compatibility.md](docs/harness-compatibility.md) for Claude Code, Gemini CLI, Cursor, Codex, OpenCode, and VS Code / GitHub Copilot.
 

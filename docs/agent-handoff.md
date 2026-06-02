@@ -122,6 +122,8 @@ Implemented from [docs/architecture/git-native-worker-isolation-and-promotion.md
 devflow --help
 devflow init
 devflow doctor
+devflow git status
+devflow sync-main
 devflow reconcile
 devflow dashboard
 devflow task --help
@@ -134,6 +136,7 @@ devflow task packet <task_id>
 devflow task log <task_id>
 devflow task promote-preview <task_id>
 devflow task promote <task_id>
+devflow push-main
 ```
 
 ## Implementation Posture

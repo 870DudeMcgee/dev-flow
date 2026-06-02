@@ -52,6 +52,8 @@ Stable commands:
 devflow --help
 devflow init
 devflow doctor
+devflow git status
+devflow sync-main
 devflow reconcile
 devflow dashboard
 devflow task --help
@@ -75,6 +77,7 @@ devflow task packet <task_id>
 devflow task log <task_id>
 devflow task promote-preview <task_id>
 devflow task promote <task_id>
+devflow push-main
 devflow task close <task_id> --outcome rejected --reason "superseded by manual repair"
 devflow task cleanup <task_id> --preview
 devflow task cleanup <task_id> --apply

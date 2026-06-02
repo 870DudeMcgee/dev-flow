@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,7 @@ class TaskRecord(BaseModel):
     branch_name: str | None = None
     workspace_commit: str | None = None
     workspace_dirty: bool | None = None
+    git: dict[str, Any] | None = None
     latest_log_line: str | None = None
     log_path: str | None = None
     result_path: str | None = None

@@ -12,6 +12,7 @@ from devflow.control_room.paths import workspace_path, workspaces_dir
 class Workspace:
     path: Path
     kind: str
+    base_ref: str | None = None
     branch_name: str | None = None
     commit_sha: str | None = None
     dirty: bool = False
@@ -99,6 +100,7 @@ def create_workspace(root: Path, task_id: str) -> Workspace:
         return Workspace(
             path=workspace,
             kind="directory",
+            base_ref=branch_name,
             branch_name=branch_name,
             commit_sha=commit_sha,
             dirty=dirty,
@@ -109,6 +111,7 @@ def create_workspace(root: Path, task_id: str) -> Workspace:
     return Workspace(
         path=workspace,
         kind="directory",
+        base_ref=branch_name,
         branch_name=branch_name,
         commit_sha=commit_sha,
         dirty=dirty,

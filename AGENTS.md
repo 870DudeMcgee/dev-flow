@@ -58,6 +58,10 @@ Before making any code changes, perform these checks:
 
 Only one developer agent may edit files in the repository at a time. Other agents may review, inspect, or plan in a read-only capacity. The worktree must be clean and verified before switching active writers.
 
+## DevMode Git Bridge
+
+Dev-Flow projects use DevMode as the agent discipline layer. When `.devflow/` exists, agents must apply DevMode `using-devmode` and `workspace-isolation`. Git-changing actions must go through Dev-Flow commands where available: `devflow git status`, `devflow sync-main`, `devflow task promote-preview`, `devflow task promote`, and `devflow push-main`. Do not run raw `git push origin main`, raw promotion merges, or conflict-resolution rebases unless the human explicitly authorizes it.
+
 ---
 
 ## ✅ Milestone Closure Discipline
