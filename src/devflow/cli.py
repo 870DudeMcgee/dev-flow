@@ -48,6 +48,7 @@ from devflow.control_room.task_packet import build_agent_packet
 from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
 from devflow.control_room.patch_dry_run import latest_patch_dry_run, preview_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review, review_patch_candidate
+from devflow.control_room.qwopus_evidence import qwopus_result_summary
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
@@ -649,7 +650,7 @@ def task_show(task_id: str) -> None:
                 typer.echo(f"  - {reason}")
     _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
     _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
-    _echo_result_summary(task_path / "result.md")
+    _echo_result_summary(task_path / "result.md", summary=qwopus_result_summary(Path.cwd(), task.id))
 
 
 @task_app.command(
@@ -2248,8 +2249,11 @@ def _format_scorecard_cost(value: object) -> str:
     return "unknown" if value is None or value == "unknown" else str(value)
 
 
-def _echo_result_summary(path: Path) -> None:
+def _echo_result_summary(path: Path, summary: str | None = None) -> None:
     typer.echo("result_summary:")
+    if summary:
+        typer.echo(f"  {summary}")
+        return
     if not path.exists():
         typer.echo("  none")
         return

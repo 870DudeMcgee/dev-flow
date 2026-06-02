@@ -10,6 +10,7 @@ from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import task_dir
 from devflow.control_room.persistence import get_task, list_tasks
+from devflow.control_room.qwopus_evidence import qwopus_suggested_next_action
 from devflow.control_room.readiness import promotion_readiness_errors
 
 
@@ -82,6 +83,12 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
     verification_log_path = _string_or_default(verification.get("log_path"), record.verification_log_path)
     verification_command = _string_or_default(verification.get("command"), record.verification_command)
     manual_evidence = _manual_evidence(root, record)
+    qwopus_next_action = qwopus_suggested_next_action(
+        root,
+        record.id,
+        task_status=record.status,
+        verification_status=verification_status,
+    )
 
     return TaskStatusProjection(
         task=record,
@@ -92,7 +99,7 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
         verification_command=verification_command,
         merge_ready=merge_ready,
         readiness_reasons=readiness_reasons,
-        suggested_next_action=_suggest_next_action(
+        suggested_next_action=qwopus_next_action or _suggest_next_action(
             record.status,
             verification_status,
             record.id,

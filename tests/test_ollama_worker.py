@@ -16,10 +16,67 @@ from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_wo
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.ollama_worker import OllamaChatWorkerAdapter
 from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
+from devflow.control_room.persistence import save_task
 from devflow.control_room.service import apply_task_patch, create_task, run_shell_task
 
 
 runner = CliRunner()
+
+
+def _write_qwopus_task_0015_shape(root: Path):
+    task = create_task(root, "Dogfood Qwopus task show UX")
+    task_path = root / ".devflow" / "tasks" / task.id
+    workspace_path = root / ".devflow" / "workspaces" / task.id
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    (workspace_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+
+    agent_dir = task_path / "agents" / "qwopus-implementer"
+    (agent_dir / "logs").mkdir(parents=True, exist_ok=True)
+    (agent_dir / "packet.json").write_text("{}\n", encoding="utf-8")
+    (agent_dir / "raw_output.md").write_text("raw Qwopus output\n", encoding="utf-8")
+    (agent_dir / "proposal.patch").write_text(
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1 +1 @@\n"
+        "-Hello World\n"
+        "+Hello from task-0015 Qwopus\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "result.md").write_text(
+        "# Result: task-0015\n\n"
+        "## Summary\n\n"
+        "Worker completed successfully and wrote proposal.patch\n\n"
+        "## Status\n\n"
+        "complete\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "run.json").write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "agent_id": "qwopus-implementer",
+                "status": "complete",
+                "summary": "Worker completed successfully and wrote proposal.patch",
+                "exit_code": 0,
+                "proposal_patch_path": str(agent_dir / "proposal.patch"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "logs" / "worker.log").write_text("Worker completed successfully.\n", encoding="utf-8")
+
+    task.status = "complete"
+    task.worker = "qwopus-implementer"
+    task.last_event = "worker_finished"
+    task.last_exit_code = 0
+    task.latest_log_line = "Worker completed successfully."
+    task.log_path = f".devflow/tasks/{task.id}/agents/qwopus-implementer/logs/worker.log"
+    task.result_path = f".devflow/tasks/{task.id}/agents/qwopus-implementer/result.md"
+    save_task(task_path, task)
+    return task
 
 
 def test_get_ollama_chat_worker_adapter_rejects_direct_runtime() -> None:
@@ -55,6 +112,73 @@ def test_get_ollama_chat_worker_adapter_allows_safe_local_patch_agent() -> None:
     adapter = get_worker_adapter("ollama_chat", agent=agent, provider=provider)
 
     assert isinstance(adapter, OllamaChatWorkerAdapter)
+
+
+def test_task_show_qwopus_proposal_without_patch_application_suggests_apply_patch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = _write_qwopus_task_0015_shape(tmp_path)
+
+    result = runner.invoke(app, ["task", "show", task.id])
+
+    assert result.exit_code == 0, result.output
+    assert f"suggested_next_action: devflow task apply-patch {task.id} --agent qwopus-implementer" in result.output
+
+
+def test_task_show_qwopus_result_summary_uses_agent_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = _write_qwopus_task_0015_shape(tmp_path)
+
+    result = runner.invoke(app, ["task", "show", task.id])
+
+    assert result.exit_code == 0, result.output
+    assert "result_summary:\n  Worker completed successfully and wrote proposal.patch" in result.output
+    assert "result_summary:\n  Not run yet." not in result.output
+
+
+def test_task_show_qwopus_patch_applied_without_verification_suggests_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = _write_qwopus_task_0015_shape(tmp_path)
+    apply_task_patch(tmp_path, task.id, agent_id="qwopus-implementer")
+
+    result = runner.invoke(app, ["task", "show", task.id])
+
+    assert result.exit_code == 0, result.output
+    assert f"suggested_next_action: Verify the task using 'devflow task verify {task.id} -- <command>'" in result.output
+    assert "suggested_next_action: devflow task apply-patch" not in result.output
+
+
+def test_task_show_qwopus_verified_patch_suggests_promote_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = _write_qwopus_task_0015_shape(tmp_path)
+    apply_task_patch(tmp_path, task.id, agent_id="qwopus-implementer")
+    verified = runner.invoke(app, ["task", "verify", task.id, "--shell", "test -f hello.txt"])
+    assert verified.exit_code == 0, verified.output
+
+    result = runner.invoke(app, ["task", "show", task.id])
+
+    assert result.exit_code == 0, result.output
+    assert f"suggested_next_action: devflow task promote-preview {task.id}" in result.output
+
+
+def test_task_show_shell_worker_next_action_is_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    created = runner.invoke(app, ["task", "create", "shell behavior remains unchanged"])
+    assert created.exit_code == 0, created.output
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo completed"])
+    assert run.exit_code == 0, run.output
+
+    result = runner.invoke(app, ["task", "show", "task-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert "suggested_next_action: Verify the task using 'devflow task verify task-0001 -- <command>'" in result.output
 
 
 def test_ollama_worker_success(tmp_path: Path) -> None:
