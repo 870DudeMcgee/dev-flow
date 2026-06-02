@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from devflow.cli import app
 from devflow.control_room.goals import goal_dir
 from devflow.control_room.local_model_client import LocalModelClient
-from tests.test_goal_task_creation import setup_temp_git_repo
+from tests.helpers import setup_temp_git_repo
 
 class MockResponse:
     def __init__(self, body: bytes, status: int = 200, reason: str = "OK"):
@@ -592,4 +592,3 @@ def test_regression_6_prompt_size_cap(tmp_path: Path, monkeypatch: pytest.Monkey
     assert len(prompt_text) < 20000
     assert prompt_text.count("A") <= 4100
     assert prompt_text.count("B") <= 2100
-

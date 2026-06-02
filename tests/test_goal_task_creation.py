@@ -1,45 +1,13 @@
 from __future__ import annotations
 
-import os
 import yaml
-import subprocess
 from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.goals import goal_dir
-from tests.test_goal_projection import setup_temp_repo
-
-
-def setup_temp_git_repo(tmp_path: Path) -> Path:
-    """Initialize standard .devflow control room scaffolding and Git repo in temp path."""
-    setup_temp_repo(tmp_path)
-
-    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "devflow-test@example.com"],
-        cwd=tmp_path,
-        capture_output=True,
-        check=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "DevFlow Test"],
-        cwd=tmp_path,
-        capture_output=True,
-        check=True,
-    )
-    (tmp_path / "README.md").write_text("# Test Repo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "test baseline"],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    
-    return tmp_path
+from tests.helpers import setup_temp_git_repo
 
 
 def test_slices_command_lists_slices(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

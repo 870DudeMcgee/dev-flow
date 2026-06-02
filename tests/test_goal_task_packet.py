@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.goals import goal_dir
-from tests.test_goal_task_creation import setup_temp_git_repo
+from tests.helpers import setup_temp_git_repo
 
 
 def test_1_packet_for_non_goal_task_still_works(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
