@@ -15,12 +15,29 @@ from tests.test_goal_projection import setup_temp_repo
 def setup_temp_git_repo(tmp_path: Path) -> Path:
     """Initialize standard .devflow control room scaffolding and Git repo in temp path."""
     setup_temp_repo(tmp_path)
-    
-    # Initialize Git
+
     subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.name", "Devflow Tests"], cwd=tmp_path, capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=tmp_path, capture_output=True, check=True)
-    subprocess.run(["git", "commit", "--allow-empty", "-m", "Initial commit"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "devflow-test@example.com"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "DevFlow Test"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=True,
+    )
+    (tmp_path / "README.md").write_text("# Test Repo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "test baseline"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     
     return tmp_path
 
