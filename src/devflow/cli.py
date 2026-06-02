@@ -46,6 +46,7 @@ from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_wo
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
 from devflow.control_room.task_packet import build_agent_packet
 from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
+from devflow.control_room.patch_review import latest_patch_review, review_patch_candidate
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
@@ -616,6 +617,15 @@ def task_show(task_id: str) -> None:
         typer.echo(f"  validation: {validation_label}")
         typer.echo("  hint: review proposal evidence before applying or verifying anything")
 
+    patch_review = latest_patch_review(Path.cwd(), task.id)
+    if patch_review:
+        typer.echo("Patch Reviews:")
+        typer.echo(f"  latest: {patch_review.get('_review_path')}")
+        typer.echo(f"  status: {patch_review.get('review_status')}")
+        typer.echo(f"  risk: {patch_review.get('risk')}")
+        typer.echo(f"  files_touched: {len(patch_review.get('files_touched') or [])}")
+        typer.echo("  hint: review patch candidate before applying anything")
+
     _echo_agent_patch_evidence_summary(Path.cwd(), task_path)
     if projection.merge_ready is not None:
         ready_str = "yes" if projection.merge_ready else "no"
@@ -915,6 +925,48 @@ def task_normalize_proposal(
         for warning in result.warnings:
             typer.echo(f"  - {warning}")
     typer.echo(f"next: {result.next_action_command or 'None'}")
+
+
+@task_app.command("review-patch")
+def task_review_patch(
+    task_id: str,
+    run_id: str | None = typer.Option(None, "--run-id", help="Review a specific normalized local model run id."),
+) -> None:
+    """Review normalized proposal.patch evidence without applying it."""
+    root = Path.cwd()
+    try:
+        review = review_patch_candidate(root, task_id, run_id=run_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    run_dir = root / ".devflow" / "tasks" / task_id / "local-model-runs" / review.run_id
+    typer.echo(f"Patch Review for {task_id}")
+    typer.echo("")
+    typer.echo(f"Run: {review.run_id}")
+    typer.echo(f"Proposal classification: {review.proposal_classification}")
+    typer.echo(f"Patch candidate: {'yes' if review.has_patch_candidate else 'no'}")
+    typer.echo(f"Review status: {review.review_status}")
+    typer.echo(f"Risk: {review.risk}")
+    typer.echo("")
+    typer.echo("Files touched:")
+    if review.files_touched:
+        for file_path in review.files_touched:
+            typer.echo(f"- {file_path}")
+    else:
+        typer.echo("- None")
+    if review.generated_or_forbidden_paths:
+        typer.echo("")
+        typer.echo("Artifact paths:")
+        for file_path in review.generated_or_forbidden_paths:
+            typer.echo(f"- {file_path}")
+    typer.echo("")
+    typer.echo("Artifacts:")
+    typer.echo(f"patch_review: {_relative(root, run_dir / 'patch-review.md')}")
+    typer.echo(f"patch_review_json: {_relative(root, run_dir / 'patch-review.json')}")
+    typer.echo("")
+    typer.echo("Next:")
+    typer.echo(review.next_action.get("command") or "None")
 
 
 @task_app.command("log")

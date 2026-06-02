@@ -153,8 +153,17 @@ def is_path_excluded(path_str: str) -> bool:
     if "/logs/" in normalized or normalized.startswith("logs/"):
         return True
         
-    # Exclude raw_output.md, run.json
-    if "raw_output.md" in normalized or "run.json" in normalized:
+    # Exclude generated proposal/review artifacts.
+    generated_names = {
+        "raw_output.md",
+        "run.json",
+        "proposal.patch",
+        "proposal.md",
+        "proposal.json",
+        "patch-review.md",
+        "patch-review.json",
+    }
+    if any(name in normalized for name in generated_names):
         return True
         
     # Exclude prompt.md, response.md, request.json, response.json, run.json
