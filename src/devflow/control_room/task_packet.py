@@ -162,6 +162,8 @@ def is_path_excluded(path_str: str) -> bool:
         "proposal.json",
         "patch-review.md",
         "patch-review.json",
+        "patch-dry-run.md",
+        "patch-dry-run.json",
     }
     if any(name in normalized for name in generated_names):
         return True

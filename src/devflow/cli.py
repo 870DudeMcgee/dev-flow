@@ -46,6 +46,7 @@ from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_wo
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
 from devflow.control_room.task_packet import build_agent_packet
 from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
+from devflow.control_room.patch_dry_run import latest_patch_dry_run, preview_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review, review_patch_candidate
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
@@ -626,6 +627,18 @@ def task_show(task_id: str) -> None:
         typer.echo(f"  files_touched: {len(patch_review.get('files_touched') or [])}")
         typer.echo("  hint: review patch candidate before applying anything")
 
+    patch_dry_run = latest_patch_dry_run(Path.cwd(), task.id)
+    if patch_dry_run:
+        typer.echo("Patch Dry-runs:")
+        typer.echo(f"  latest: {patch_dry_run.get('_dry_run_path')}")
+        typer.echo(f"  status: {patch_dry_run.get('dry_run_status')}")
+        typer.echo(f"  risk: {patch_dry_run.get('risk')}")
+        typer.echo(
+            f"  hunks: {patch_dry_run.get('hunks_matched', 0)} matched / "
+            f"{patch_dry_run.get('hunks_failed', 0)} failed"
+        )
+        typer.echo("  hint: dry-run only; review before applying anything")
+
     _echo_agent_patch_evidence_summary(Path.cwd(), task_path)
     if projection.merge_ready is not None:
         ready_str = "yes" if projection.merge_ready else "no"
@@ -967,6 +980,68 @@ def task_review_patch(
     typer.echo("")
     typer.echo("Next:")
     typer.echo(review.next_action.get("command") or "None")
+
+
+@task_app.command("patch-dry-run")
+def task_patch_dry_run(
+    task_id: str,
+    run_id: str | None = typer.Option(None, "--run-id", help="Dry-run a specific reviewed local model run id."),
+) -> None:
+    """Preview whether reviewed proposal.patch evidence would apply without mutating files."""
+    root = Path.cwd()
+    try:
+        result = preview_patch_dry_run(root, task_id, run_id=run_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    run_dir = root / ".devflow" / "tasks" / task_id / "local-model-runs" / result.run_id
+    typer.echo(f"Patch Dry-run Preview for {task_id}")
+    typer.echo("")
+    typer.echo(f"Run: {result.run_id}")
+    typer.echo(f"Patch review status: {_patch_review_status(root, task_id, result.run_id)}")
+    typer.echo(f"Dry-run status: {result.dry_run_status}")
+    typer.echo(f"Risk: {result.risk}")
+    typer.echo("")
+    typer.echo("Files checked:")
+    if result.files_checked:
+        for file_path in result.files_checked:
+            typer.echo(f"- {file_path}")
+    else:
+        typer.echo("- None")
+    typer.echo("")
+    typer.echo("Hunks:")
+    typer.echo(f"checked: {result.hunks_checked}")
+    typer.echo(f"matched: {result.hunks_matched}")
+    typer.echo(f"failed: {result.hunks_failed}")
+    if result.findings:
+        typer.echo("")
+        typer.echo("Findings:")
+        for finding in result.findings:
+            typer.echo(f"- {finding}")
+    if result.warnings:
+        typer.echo("")
+        typer.echo("Warnings:")
+        for warning in result.warnings:
+            typer.echo(f"- {warning}")
+    typer.echo("")
+    typer.echo("Artifacts:")
+    typer.echo(f"dry_run: {_relative(root, run_dir / 'patch-dry-run.md')}")
+    typer.echo(f"dry_run_json: {_relative(root, run_dir / 'patch-dry-run.json')}")
+    typer.echo("")
+    typer.echo("Next:")
+    typer.echo("Review dry-run evidence manually. Do not apply anything automatically.")
+
+
+def _patch_review_status(root: Path, task_id: str, run_id: str) -> str:
+    review_path = root / ".devflow" / "tasks" / task_id / "local-model-runs" / run_id / "patch-review.json"
+    try:
+        data = json.loads(review_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "unknown"
+    if not isinstance(data, dict):
+        return "unknown"
+    return str(data.get("review_status") or "unknown")
 
 
 @task_app.command("log")
