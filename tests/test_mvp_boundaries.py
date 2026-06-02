@@ -20,7 +20,9 @@ class TestMVPBoundaries(unittest.TestCase):
         """Contract test: remote provider adapters remain non-executable."""
         from devflow.control_room.agent_registry import (
             ADAPTER_MATURITY,
+            EXPERIMENTAL_READONLY_ADAPTERS,
             LOCAL_PATCH_RUNTIME_ADAPTERS,
+            PLANNED_NOT_EXECUTABLE_ADAPTERS,
             STABLE_RUNTIME_ADAPTERS,
             adapter_maturity,
         )
@@ -48,6 +50,11 @@ class TestMVPBoundaries(unittest.TestCase):
             "adapters have tests, threat models, and explicit enable flags.",
         )
         self.assertEqual(set(LOCAL_PATCH_RUNTIME_ADAPTERS), {"ollama_chat"})
+        self.assertEqual(
+            set(EXPERIMENTAL_READONLY_ADAPTERS),
+            {"manual_packet", "openai_compatible", "anthropic_messages", "gemini", "openai_chat"},
+        )
+        self.assertEqual(set(PLANNED_NOT_EXECUTABLE_ADAPTERS), {"openai_responses"})
 
         provider_adapters = {
             "ollama_chat", "openai_compatible", "anthropic_messages", "gemini", "openai_chat"

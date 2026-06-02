@@ -33,6 +33,12 @@ STABLE_RUNTIME_ADAPTERS = tuple(sorted(adapter for adapter, maturity in ADAPTER_
 LOCAL_PATCH_RUNTIME_ADAPTERS = tuple(
     sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "local_patch_runtime")
 )
+EXPERIMENTAL_READONLY_ADAPTERS = tuple(
+    sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "experimental_readonly")
+)
+PLANNED_NOT_EXECUTABLE_ADAPTERS = tuple(
+    sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "planned_not_executable")
+)
 
 
 def adapter_maturity(adapter: str) -> AdapterMaturity:
@@ -45,6 +51,14 @@ def is_stable_runtime_adapter(adapter: str) -> bool:
 
 def is_local_patch_runtime_adapter(adapter: str) -> bool:
     return adapter_maturity(adapter) == "local_patch_runtime"
+
+
+def is_experimental_readonly_adapter(adapter: str) -> bool:
+    return adapter_maturity(adapter) == "experimental_readonly"
+
+
+def is_planned_not_executable_adapter(adapter: str) -> bool:
+    return adapter_maturity(adapter) == "planned_not_executable"
 
 
 def stable_runtime_adapters_label() -> str:
