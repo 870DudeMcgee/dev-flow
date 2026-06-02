@@ -148,14 +148,7 @@ def classify_response(text: str) -> tuple[str, str]:
         return "patch_candidate", "high"
 
     lowered = stripped.lower()
-    blocker_markers = [
-        "questions",
-        "blocked",
-        "need clarification",
-        "i need",
-        "cannot proceed",
-    ]
-    if any(marker in lowered for marker in blocker_markers):
+    if _has_blocker_question(lowered):
         return "blocker_question", "medium"
 
     plan_markers = [
@@ -169,6 +162,31 @@ def classify_response(text: str) -> tuple[str, str]:
         return "implementation_plan", "medium"
 
     return "advisory_only", "medium"
+
+
+def _has_blocker_question(lowered: str) -> bool:
+    resolved_question_markers = [
+        "no blocker questions",
+        "no open questions",
+        "no questions",
+        "no blockers",
+        "no risks or questions",
+        "no clarification needed",
+    ]
+    unresolved_markers = [
+        r"\bblocked\s*:",
+        r"\bquestions?\s*:",
+        r"\bopen questions?\s*:",
+        r"\bhuman answer required\b",
+        r"\bi cannot proceed until\b",
+        r"\bcannot proceed\b",
+        r"\bneed clarification on\b",
+        r"\bneed clarification before\b",
+        r"\bi need clarification\b",
+    ]
+    if not any(re.search(marker, lowered) for marker in unresolved_markers):
+        return False
+    return not any(marker in lowered for marker in resolved_question_markers)
 
 
 def extract_patch_candidate(text: str) -> str | None:

@@ -95,6 +95,52 @@ def test_implementation_plan_classification(tmp_path: Path, monkeypatch: pytest.
     assert _proposal_json(tmp_path, "run-1")["classification"] == "implementation_plan"
 
 
+def test_resolved_risks_questions_heading_keeps_plan_classification(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _create_task(monkeypatch, tmp_path)
+    _write_response(
+        tmp_path,
+        "run-1",
+        "## Proposed Approach\nUse the normalizer.\n\n## Risks / Questions\nNo blocker questions.\n\n## Verification Plan\nRun focused tests.",
+    )
+
+    result = runner.invoke(app, ["task", "normalize-proposal", "task-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert _proposal_json(tmp_path, "run-1")["classification"] == "implementation_plan"
+
+
+def test_questions_with_requested_information_classifies_as_blocker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _create_task(monkeypatch, tmp_path)
+    _write_response(tmp_path, "run-1", "Questions: Which file should I edit?")
+
+    result = runner.invoke(app, ["task", "normalize-proposal", "task-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert _proposal_json(tmp_path, "run-1")["classification"] == "blocker_question"
+
+
+def test_blocked_clarification_classifies_as_blocker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _create_task(monkeypatch, tmp_path)
+    _write_response(tmp_path, "run-1", "Blocked: I need clarification before proceeding.")
+
+    result = runner.invoke(app, ["task", "normalize-proposal", "task-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert _proposal_json(tmp_path, "run-1")["classification"] == "blocker_question"
+
+
+def test_resolved_open_questions_without_plan_is_advisory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _create_task(monkeypatch, tmp_path)
+    _write_response(tmp_path, "run-1", "No open questions. This advisory note is ready for review.")
+
+    result = runner.invoke(app, ["task", "normalize-proposal", "task-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert _proposal_json(tmp_path, "run-1")["classification"] == "advisory_only"
+
+
 def test_fenced_diff_patch_candidate_extraction_and_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _create_task(monkeypatch, tmp_path)
     patch = """diff --git a/src/example.py b/src/example.py
