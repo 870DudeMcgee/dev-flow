@@ -482,7 +482,11 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                     checks.append((f"{path.name} task.yaml valid", False, str(exc)))
                     continue
                 strict_tasks.append(task)
-                checks.append((f"{path.name} workspace", _absolute(root, task.workspace).is_dir(), task.workspace))
+                workspace_exists = _absolute(root, task.workspace).is_dir()
+                if task.status == "closed" and not workspace_exists:
+                    checks.append((f"{path.name} workspace", True, f"closed task workspace not required: {task.workspace}"))
+                else:
+                    checks.append((f"{path.name} workspace", workspace_exists, task.workspace))
                 for name in ("events.jsonl", "questions.jsonl", "result.md", "verification.json"):
                     checks.append((f"{path.name} {name}", (path / name).exists(), str(path / name)))
                 events_ok, events_detail = validate_event_log(path / "events.jsonl")

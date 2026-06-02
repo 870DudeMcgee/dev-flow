@@ -208,6 +208,23 @@ def test_cleanup_apply_removes_safe_workspace_and_writes_evidence() -> None:
     _with_temp_cwd(scenario)
 
 
+def test_doctor_allows_closed_task_after_workspace_cleanup() -> None:
+    def scenario(_: Path) -> None:
+        assert runner.invoke(app, ["task", "create", "closed doctor cleanup"]).exit_code == 0
+        assert runner.invoke(
+            app,
+            ["task", "close", "task-0001", "--outcome", "evidence-only", "--reason", "runtime no longer needed"],
+        ).exit_code == 0
+        assert runner.invoke(app, ["task", "cleanup", "task-0001", "--apply"]).exit_code == 0
+
+        doctor = runner.invoke(app, ["doctor"])
+
+        assert doctor.exit_code == 0, doctor.output
+        assert "ok: task-0001 workspace (closed task workspace not required: .devflow/workspaces/task-0001)" in doctor.output
+
+    _with_temp_cwd(scenario)
+
+
 def test_closed_outcomes_are_visible_in_task_list() -> None:
     def scenario(_: Path) -> None:
         assert runner.invoke(app, ["task", "create", "duplicate task"]).exit_code == 0
