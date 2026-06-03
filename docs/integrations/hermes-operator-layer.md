@@ -36,6 +36,9 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor packet --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli hermes imessage-check --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli task next-action <task-id> --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli task review <task-id> --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
 ```
 
 ## Operating Rules

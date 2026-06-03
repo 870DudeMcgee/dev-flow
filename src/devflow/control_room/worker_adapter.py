@@ -16,6 +16,7 @@ from devflow.control_room.agent_registry import (
     adapter_execution_refusal,
     is_executable_agent_runtime,
     is_experimental_readonly_adapter,
+    is_local_model_worker_pool_agent,
     is_local_patch_runtime_adapter,
     is_stable_runtime_adapter,
 )
@@ -87,6 +88,11 @@ def get_worker_adapter(
     if agent is None:
         if not is_stable_runtime_adapter(name):
             raise UnsupportedWorkerAdapter(adapter_execution_refusal(name))
+    elif is_local_model_worker_pool_agent(agent, provider=provider):
+        raise UnsupportedWorkerAdapter(
+            f"Agent '{agent.id}' is a read-only local model worker-pool profile. "
+            "Run it with 'devflow agent run --task <task-id> --profile <profile-id>', not task worker adapter execution."
+        )
     elif not is_executable_agent_runtime(agent, provider=provider):
         raise UnsupportedWorkerAdapter(adapter_execution_refusal(name, agent_id=agent.id))
     adapter_cls = _REGISTRY.get(name)

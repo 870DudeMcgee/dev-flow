@@ -44,7 +44,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, and the registry-backed Qwopus patch-proposal path. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, and canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, the registry-backed Qwopus patch-proposal path, and a practical registry-backed local model worker-pool evidence slice. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`, and generalized WorkerEvidence from read-only local model profiles.
 
 Stable commands:
 
@@ -103,6 +103,10 @@ devflow dogfood run --suite production-readiness
 devflow dogfood score <run_id>
 devflow dogfood report <run_id>
 devflow agent show devflow-manual-codex-worker
+devflow agent list --json
+devflow agent show local-qwopus-inspector --json
+devflow agent policy --json
+devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-manual-codex-worker
 ```
@@ -122,6 +126,8 @@ Knowledge Foundry commands write proposed/promoted/rejected reusable notes under
 The dogfood production-readiness form is `devflow dogfood run --suite production-readiness`. It runs deterministic local cases against existing Dev-Flow control-room surfaces and writes scorecards under `.devflow/dogfood/`. It measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. It is not autonomous model execution: it does not call providers, route workers, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models.
 
 The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
+
+The registry-backed local model worker-pool form is `devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json` for preview and `devflow agent run --task <task_id> --profile local-qwopus-inspector --json` for the first real vertical slice. It treats Josh's local fleet as heterogeneous: Mac mini runs small utility/helper workers, Mac Studio runs heavy reasoning/implementation/review workers, and `qwen2.5-coder:14b` is configurable as `either`. Profiles include machine class, weight class, model role name, caution notes, manifest verification command, and alias metadata. The real slice builds a bounded TaskPacket, calls `local_model_client.py`, writes WorkerEvidence under `.devflow/tasks/<task_id>/local-model-runs/<run-id>/`, caps raw output, captures failure, and stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state. See [docs/architecture/local-model-worker-pool.md](architecture/local-model-worker-pool.md).
 
 Do not implement these in the first milestone:
 
@@ -159,6 +165,12 @@ Do not implement these in the first milestone:
       result.md
       questions.jsonl
       worker_failed.json
+    local-model-runs/<run-id>/
+      run.json
+      packet.md
+      response.md
+      raw_output.txt
+      error.txt
   workspaces/<task_id>/
     local-workers/<worker-name>/
       prompt.md

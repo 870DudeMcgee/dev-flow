@@ -2965,7 +2965,9 @@ def knowledge_search(query: str) -> None:
 
 
 @agent_app.command("list")
-def agent_list() -> None:
+def agent_list(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
     """List loaded agents from the registry."""
     try:
         registry = load_agent_registry(Path.cwd())
@@ -2973,23 +2975,33 @@ def agent_list() -> None:
         typer.echo(f"Error loading agent registry: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
+    if json_output:
+        from devflow.control_room.local_model_worker_pool import registry_json_payload
+
+        typer.echo(json.dumps(registry_json_payload(Path.cwd()), indent=2, sort_keys=True))
+        return
+
     agents = registry.agents
     if not agents:
         typer.echo("No agents defined in registry.")
         return
 
-    typer.echo(f"{'Agent':<25} {'Provider':<15} {'Model':<20} {'Role':<30} {'Enabled':<8}")
-    typer.echo("-" * 102)
+    typer.echo(f"{'Agent':<42} {'Provider':<10} {'Model':<34} {'Role':<30} {'Mode':<14} {'Hermes':<8} {'Enabled':<8}")
+    typer.echo("-" * 155)
     for agent_id in sorted(agents.keys()):
         agent = agents[agent_id]
         enabled_str = "yes" if agent.enabled else "no"
+        hermes_str = "yes" if agent.hermes_delegable else "no"
         typer.echo(
-            f"{agent.id:<25} {agent.provider:<15} {agent.model:<20} {agent.role:<30} {enabled_str:<8}"
+            f"{agent.id:<42} {agent.provider:<10} {agent.model:<34} {agent.role:<30} {agent.default_mode:<14} {hermes_str:<8} {enabled_str:<8}"
         )
 
 
 @agent_app.command("show")
-def agent_show(agent_id: str) -> None:
+def agent_show(
+    agent_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
     """Show details for a specific agent."""
     try:
         registry = load_agent_registry(Path.cwd())
@@ -3002,6 +3014,12 @@ def agent_show(agent_id: str) -> None:
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+
+    if json_output:
+        from devflow.control_room.local_model_worker_pool import agent_json_payload
+
+        typer.echo(json.dumps(agent_json_payload(Path.cwd(), agent_id), indent=2, sort_keys=True))
+        return
 
     typer.echo(f"agent: {agent.id}")
     typer.echo(f"provider: {agent.provider}")
@@ -3024,7 +3042,27 @@ def agent_show(agent_id: str) -> None:
     typer.echo(f"can_run_shell: {str(agent.can_run_shell).lower()}")
     typer.echo(f"can_use_network: {str(agent.can_use_network).lower()}")
     typer.echo(f"can_promote: {str(agent.can_promote).lower()}")
+    typer.echo(f"hermes_delegable: {str(agent.hermes_delegable).lower()}")
     typer.echo(f"enabled: {str(agent.enabled).lower()}")
+
+
+@agent_app.command("policy")
+def agent_policy(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Show local worker-pool enforcement policy."""
+    from devflow.control_room.local_model_worker_pool import agent_policy_payload
+
+    payload = agent_policy_payload()
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    typer.echo(f"policy_id: {payload['policy_id']}")
+    typer.echo(f"source_of_truth: {payload['source_of_truth']}")
+    typer.echo(f"worker_outputs_are: {payload['worker_outputs_are']}")
+    _echo_list("execution_gates", payload["execution_gates"])
+    _echo_list("forbidden", payload["forbidden"])
+    _echo_list("allowed_evidence_outputs", payload["allowed_evidence_outputs"])
 
 
 @agent_app.command("packet")
@@ -3100,7 +3138,15 @@ def agent_chat(
 
 @agent_app.command("run")
 def agent_run(
-    agent_id: str = typer.Argument(..., help="The local agent name."),
+    agent_id: str | None = typer.Argument(None, help="The local agent name for legacy runs, or profile id when --task is set."),
+    task_id: str | None = typer.Option(None, "--task", help="Dev-Flow task id for registry-backed local worker-pool runs."),
+    profile_id: str | None = typer.Option(None, "--profile", help="Agent registry profile id for local worker-pool runs."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview worker-pool run without calling the model or writing evidence."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON for worker-pool runs."),
+    base_url: str | None = typer.Option(None, "--base-url", help="Override local OpenAI-compatible base URL for worker-pool runs."),
+    timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1, help="Override local model timeout seconds."),
+    temperature: float | None = typer.Option(None, "--temperature", min=0.0, max=2.0, help="Local model temperature."),
+    max_packet_chars: int = typer.Option(16000, "--max-packet-chars", help="Capping size of rendered task packet text."),
     prompt: str | None = typer.Option(None, "--prompt"),
     prompt_file: str | None = typer.Option(None, "--prompt-file"),
     stdin: bool = typer.Option(False, "--stdin"),
@@ -3110,6 +3156,66 @@ def agent_run(
     allow_disabled: bool = typer.Option(False, "--allow-disabled"),
 ) -> None:
     """[LEGACY] Run a task-less one-shot prompt with a local agent."""
+    if task_id is not None or profile_id is not None:
+        from devflow.control_room.local_model_worker_pool import (
+            LocalModelWorkerPoolError,
+            dry_run_local_model_profile,
+            run_local_model_profile,
+        )
+
+        resolved_profile = profile_id or agent_id
+        if task_id is None or resolved_profile is None:
+            typer.echo("Error: --task and --profile are required for local worker-pool runs.", err=True)
+            raise typer.Exit(code=1)
+        try:
+            if dry_run:
+                payload = dry_run_local_model_profile(
+                    root=Path.cwd(),
+                    task_id=task_id,
+                    profile_id=resolved_profile,
+                    max_packet_chars=max_packet_chars,
+                )
+            else:
+                payload = run_local_model_profile(
+                    root=Path.cwd(),
+                    task_id=task_id,
+                    profile_id=resolved_profile,
+                    base_url=base_url,
+                    timeout_seconds=timeout_seconds,
+                    temperature=temperature,
+                    max_packet_chars=max_packet_chars,
+                )
+        except LocalModelWorkerPoolError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        if json_output:
+            typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            typer.echo(f"task_id: {payload['task_id']}")
+            typer.echo(f"profile_id: {payload['profile_id']}")
+            typer.echo(f"model: {payload['model']}")
+            typer.echo(f"adapter: {payload['adapter']}")
+            typer.echo(f"adapter_maturity: {payload['adapter_maturity']}")
+            typer.echo(f"permission_mode: {payload['permission_mode']}")
+            typer.echo(f"hermes_delegable: {str(payload['hermes_delegable']).lower()}")
+            typer.echo(f"dry_run: {str(payload['dry_run']).lower()}")
+            if payload["dry_run"]:
+                typer.echo("will_call_model: false")
+                _echo_list("safety_warnings", payload["safety_warnings"])
+                _echo_list("expected_evidence_outputs", list(payload["expected_evidence_outputs"].values()))
+            else:
+                typer.echo(f"status: {payload['status']}")
+                typer.echo(f"run_id: {payload['run_id']}")
+                typer.echo(f"evidence_dir: {payload['evidence_dir']}")
+                typer.echo(f"response_path: {payload['response_path']}")
+                typer.echo(f"raw_output_path: {payload['raw_output_path']}")
+                if payload.get("error_message"):
+                    typer.echo(f"error: {payload['error_message']}")
+        if not dry_run and payload.get("status") != "success":
+            raise typer.Exit(code=1)
+        return
+
     import sys
     prompt_text = ""
     if stdin:

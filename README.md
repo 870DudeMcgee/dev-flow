@@ -6,7 +6,7 @@ Local checkout note: Josh's current canonical checkout is `/Users/jewelbait/Desk
 
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
-Workers are replaceable. The stable code-changing runtime supports shell workers, while the manual proof-agent handoff and legacy local Ollama advisory ladder produce evidence only. The registry-backed `devflow task run <task-id> --worker qwopus-implementer` path is the narrow first local Ollama patch-proposal runtime: it writes `proposal.patch` evidence for Dev-Flow to apply and verify. Remote provider adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
+Workers are replaceable. The stable code-changing runtime supports shell workers, while the manual proof-agent handoff and legacy local Ollama advisory ladder produce evidence only. The registry-backed `devflow task run <task-id> --worker qwopus-implementer` path is the narrow first local Ollama patch-proposal runtime: it writes `proposal.patch` evidence for Dev-Flow to apply and verify. The local model worker pool adds registry-visible read-only profiles for Josh's heterogeneous Mac mini/Mac Studio Ollama fleet and writes generalized WorkerEvidence under task-local `local-model-runs/`. Remote provider adapters, autonomous routing, and broader orchestration remain non-stable until explicitly promoted through the registry and adapter-runtime sequence.
 
 ## Current Product Contract
 
@@ -25,13 +25,13 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
 
 ### Planning And Manual Transition Commands
-- **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent packet`
+- **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent policy`, `devflow agent packet`, `devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json`
 - **Task Estimation**: `devflow task fit`, `devflow task pack`
 - **Scouting & Routing**: `devflow task scout`, `devflow task route`, `devflow task scorecard`
 
 These transition commands are allowed only as read-only or manual planning aids until promoted into the stable contract. Experimental ones remain gated outside the default help surface, and none of them execute provider APIs or make autonomous routing decisions in the stable runtime.
 
-The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, autonomous scheduling/routing, and provider-backed worktree orchestration. Hermes integration is documented as an external operator/chat gateway over existing supervisor-safe commands, not as a Dev-Flow runtime, in [docs/integrations/hermes-operator-layer.md](docs/integrations/hermes-operator-layer.md), [docs/integrations/hermes-command-allowlist.md](docs/integrations/hermes-command-allowlist.md), [docs/integrations/hermes-imessage-exploration.md](docs/integrations/hermes-imessage-exploration.md), and [docs/integrations/hermes-local-parallelism.md](docs/integrations/hermes-local-parallelism.md). An opt-in Git-native shell-worker isolation and promotion slice is available through `devflow task create --git-worktree`, documented in [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md). The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
+The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, autonomous scheduling/routing, and provider-backed worktree orchestration. The practical local model pool is documented in [docs/architecture/local-model-worker-pool.md](docs/architecture/local-model-worker-pool.md). Hermes integration is documented as an external operator/chat gateway over existing supervisor-safe commands, not as a Dev-Flow runtime, in [docs/integrations/hermes-operator-layer.md](docs/integrations/hermes-operator-layer.md), [docs/integrations/hermes-command-allowlist.md](docs/integrations/hermes-command-allowlist.md), [docs/integrations/hermes-imessage-exploration.md](docs/integrations/hermes-imessage-exploration.md), [docs/integrations/hermes-local-parallelism.md](docs/integrations/hermes-local-parallelism.md), and [docs/integrations/hermes-worker-evidence-synthesis.md](docs/integrations/hermes-worker-evidence-synthesis.md). An opt-in Git-native shell-worker isolation and promotion slice is available through `devflow task create --git-worktree`, documented in [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md). The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
 
 ## Runtime Shape
 
@@ -56,6 +56,11 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     local-model-runs/<run-id>/proposal.md
     local-model-runs/<run-id>/proposal.json
     local-model-runs/<run-id>/proposal.patch
+    local-model-runs/<run-id>/run.json
+    local-model-runs/<run-id>/packet.md
+    local-model-runs/<run-id>/response.md
+    local-model-runs/<run-id>/raw_output.txt
+    local-model-runs/<run-id>/error.txt
     local-model-runs/<run-id>/patch-review.md
     local-model-runs/<run-id>/patch-review.json
     local-model-runs/<run-id>/patch-dry-run.md

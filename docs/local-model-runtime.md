@@ -87,6 +87,37 @@ To generate visible local-model proposal evidence without executing workers, loa
 
 ---
 
+## Registry-Backed Local Worker Pool
+
+The practical worker-pool path uses registry profiles rather than environment-only model selection:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
+```
+
+Worker-pool profiles include model allocation metadata for Josh's heterogeneous local fleet:
+
+- `mac_mini`: small utility/control-loop workers such as `gemma4:latest`, `qwen2.5-coder:7b-instruct`, and `qwen2.5-coder:1.5b`.
+- `either`: configurable medium workers such as `qwen2.5-coder:14b`.
+- `mac_studio`: heavy local reasoning, implementation, and review workers such as `qwopus:latest`, `qwen3.6:latest`, `qwen2.5-coder:32b-instruct`, and `gemma4:31b`.
+
+Model names are starter assumptions, not proof. Prefer actual manifests:
+
+```bash
+mkdir -p .devflow/local-models/manifests
+ollama show <model> > .devflow/local-models/manifests/<safe-model-name>.txt
+```
+
+If two tags report the same Ollama ID, Dev-Flow should treat them as aliases or duplicate tags until `ollama show` proves meaningful differences.
+
+Worker-pool runs write generalized WorkerEvidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/` and do not write `proposal.patch`, edit source files, apply patches, verify, commit, merge, push, or promote.
+
+---
+
 ## Future Design & Extension Roadmap
 
 The following architectural concepts are designed for future milestones and should not be implemented in the core runtime yet:

@@ -28,6 +28,10 @@ Hermes may run these for inspection, summarization, and non-promoting preview wo
 - `devflow git status`
 - `devflow worktree list`
 - `devflow branch list`
+- `devflow agent list --json`
+- `devflow agent show <profile-id> --json`
+- `devflow agent policy --json`
+- `devflow agent run --task <task-id> --profile <profile-id> --dry-run --json`
 - `devflow knowledge list`
 - `devflow knowledge show <knowledge-id>`
 - `devflow knowledge search <query>`
@@ -46,6 +50,7 @@ Hermes may recommend these commands only after explicit human approval. They can
 - `devflow task patch-dry-run <task-id>`
 - `devflow task apply-patch <task-id>`
 - `devflow task verify <task-id>`
+- `devflow agent run --task <task-id> --profile <profile-id> --json`
 
 ## High-Risk Explicit Approval
 

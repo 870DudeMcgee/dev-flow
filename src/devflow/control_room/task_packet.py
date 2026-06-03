@@ -749,7 +749,7 @@ def build_agent_packet(
     if "verification_summary" not in can_see and "verification_plan" not in can_see:
         packet = packet.model_copy(update={"verification": {}})
 
-    if agent.adapter == "ollama_chat":
+    if agent.adapter == "ollama_chat" and agent.default_mode == "workspace_write":
         packet = packet.model_copy(
             update={
                 "required_outputs": [

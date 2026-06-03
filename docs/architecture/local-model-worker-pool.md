@@ -1,0 +1,178 @@
+# Local Model Worker Pool
+
+Status: active MVP wiring for registry-backed local worker-pool evidence. This is not a profiler, benchmark harness, model-discovery subsystem, second registry, Docker runtime, remote provider runtime, autonomous router, or promotion system.
+
+## Purpose
+
+Dev-Flow already has the important control-room pieces: `agent_registry.py`, `task_packet.py`, `local_packet_worker.py`, `local_model_client.py`, `qwopus_evidence.py`, supervisor surfaces, and Hermes operator docs. This milestone wires those pieces into practical use:
+
+```text
+agent_registry.py
+-> starter local model profiles
+-> bounded TaskPacket
+-> local_model_client.py
+-> WorkerEvidence
+-> Hermes-readable CLI/status output
+-> real task evidence improves future routing
+```
+
+Dev-Flow owns state, verification, evidence, worker isolation, and promotion. Local workers produce evidence, not truth. Hermes may request eligible workers through the operator layer, but Hermes must not own worker state, bypass Dev-Flow, or mutate the repo directly.
+
+## Existing Boundaries
+
+- `agent_registry.py` is the source of truth for worker definitions, permissions, model allocation metadata, and Hermes delegation eligibility.
+- `task_packet.py` is the bounded input mechanism. Worker prompts use rendered task packets rather than unbounded repo context.
+- `local_packet_worker.py` remains the older advisory packet-review helper.
+- `local_model_client.py` is the local model HTTP boundary. Dev-Flow must not load model weights or import heavy ML runtimes.
+- `WorkerEvidence` is the generic bounded output/evidence mechanism for worker-pool runs.
+- `QwopusEvidence` stays intact for the existing `qwopus-implementer` patch proposal path.
+- Human approval controls patch application, verification, promotion, merges, and pushes.
+
+Worker outputs are evidence. They can suggest next actions, risks, quality notes, or routing hints, but they do not prove correctness or readiness.
+
+## Heterogeneous Local Fleet
+
+Dev-Flow should model Josh's local models as a heterogeneous fleet, not one interchangeable machine.
+
+### Mac Mini Small-Worker Class
+
+| Model | Role name | Machine class | Weight | Primary role | Secondary roles | Use caution | Verify |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gemma4:latest` | `gemma-fast-reviewer` | `mac_mini` | `small` | fast reviewer/summarizer | mini multimodal reviewer, evidence brief writer, docs reviewer | Josh's manifest identifies this as 8.0B Q4_K_M; do not confuse it with `gemma4:31b` | `ollama show gemma4:latest` |
+| `qwen2.5-coder:7b-instruct` | `qwen-coder-fast` | `mac_mini` | `small` | small code helper | syntax fixes, small tests, simple implementation loops | keep to small isolated work and low-risk help until evidence proves more | `ollama show qwen2.5-coder:7b-instruct` |
+| `qwen2.5-coder:1.5b` | `qwen-coder-tiny` | `mac_mini` | `tiny` | classifier/router utility | short summaries, labels, extraction, filenames/titles | do not ask it to judge complex code correctness | `ollama show qwen2.5-coder:1.5b` |
+
+`gemma4:latest` manifest facts from Josh's latest local evidence: architecture `gemma4`, 8.0B parameters, context length 131072, embedding length 2560, Q4_K_M quantization, Apache 2.0 license, and capabilities including completion, vision, audio, tools, and thinking.
+
+### Either Or Configurable
+
+| Model | Role name | Machine class | Weight | Primary role | Secondary roles | Use caution | Verify |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `qwen2.5-coder:14b` | `qwen-coder-medium` | `either` | `medium` | medium implementation/test planning | code review, smaller debugging, test planning | may run on Mac mini only if observed performance is acceptable; do not assume it is a Mac mini default | `ollama show qwen2.5-coder:14b` |
+
+### Mac Studio Heavy-Worker Class
+
+| Model | Role name | Machine class | Weight | Primary role | Secondary roles | Use caution | Verify |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `qwopus:latest` | `qwopus-supervisor` | `mac_studio` | `heavy` | local supervisor/planner/repo reasoner | architecture review, risk review, task decomposition, deep debugging | likely alias of `qwen3.6:latest` until manifests prove otherwise | `ollama show qwopus:latest` |
+| `qwen3.6:latest` | `qwen-local-supervisor` | `mac_studio` | `heavy` | local supervisor/planner/repo reasoner | architecture review, risk review, task decomposition, deep debugging | currently shows same Ollama ID as `qwopus:latest` in Josh's list | `ollama show qwen3.6:latest` |
+| `qwen2.5-coder:32b-instruct` | `qwen-coder-heavy` | `mac_studio` | `heavy` | heavy local coding specialist | larger refactors, multi-file code generation, debugging, tests | any patch path must still go through existing proposal/review/dry-run/apply gates | `ollama show qwen2.5-coder:32b-instruct` |
+| `gemma4:31b` | `gemma-dense-judge` | `mac_studio` | `heavy` | strict local reviewer/final judge | instruction-following audit, UX/spec verification, multimodal artifact review if manifest supports it | use as judge/reviewer, not a default implementation worker; verify manifest after download | `ollama show gemma4:31b` |
+
+Public model context can inform starter assumptions, but it is not authority. Google/Ollama list Gemma 4 tags including `gemma4:26b` and `gemma4:31b`; `gemma4:31b` is the dense 31B model and `gemma4:26b` is the 26B A4B MoE variant. Model names are never enough: Dev-Flow should prefer actual `ollama show` manifests whenever available.
+
+Identical Ollama IDs must be flagged as aliases or duplicate tags until `ollama show` proves different templates, parameters, or manifests.
+
+## Starter Profiles
+
+Current starter profiles are registry entries, not a second config file:
+
+- `local-qwopus-inspector`
+- `local-qwen36-inspector`
+- `local-qwen25-coder-32b-code-reviewer`
+- `local-qwen25-coder-32b-patch-proposer`
+- `local-qwen25-coder-14b-test-planner`
+- `local-qwen25-coder-7b-code-reviewer`
+- `local-qwen25-coder-15b-classifier`
+- `local-gemma4-summarizer`
+- `local-gemma4-doc-reviewer`
+- `local-gemma4-31b-dense-judge`
+
+The registry records model name, machine class, weight class, role name, secondary roles, caution notes, required verification command, and alias group when relevant. The editable operator surface remains the agent registry; do not add `config/local_workers.yaml` or a second registry.
+
+Conservative defaults:
+
+- no promotion
+- no commit, merge, or push
+- no direct source edits
+- no workspace writes for read-only worker-pool profiles
+- no `proposal.patch` writes for read-only worker-pool profiles
+- no arbitrary external network access
+- local endpoint access only through `local_model_client.py`
+- WorkerEvidence writes only under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`
+- the quarantined `/Users/jewelbait/Desktop/DevFlow` path is forbidden
+
+## CLI Slice
+
+JSON surfaces for Hermes/supervisor use:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
+```
+
+Dry-run does not call the model and does not write evidence. It reports task id, profile id, model, adapter, runtime, maturity, permission mode, Hermes delegation, machine class, weight class, packet sizing, expected evidence paths, safety warnings, and mutation refusals.
+
+The real MVP vertical slice runs one safe local profile such as `local-qwopus-inspector`: it builds a bounded task packet, calls `LocalModelClient`, writes WorkerEvidence, caps raw output, captures failure, and stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
+
+## WorkerEvidence
+
+WorkerEvidence stores:
+
+- `worker_type`
+- `profile_id` / `worker_id`
+- `task_id`
+- `task_path`
+- `run_id`
+- `evidence_dir`
+- `run_metadata_path`
+- `raw_output_path`
+- `response_path`
+- `packet_path`
+- `error_path`
+- `run_metadata`
+- `model`
+- `adapter` / `runtime`
+- `adapter_maturity`
+- `permission_mode`
+- `hermes_delegable`
+- machine and weight allocation metadata
+- optional `quality_notes`
+- optional `quality_score`
+- capped raw output
+- failure capture
+
+Quality notes and scores are routing hints only. They are not truth, verification, or promotion readiness.
+
+## Dogfood Refinement
+
+No separate benchmark harness is required for this milestone. Refinement should come from real Dev-Flow work:
+
+1. Run workers on actual tasks.
+2. Inspect WorkerEvidence, task outcome, verification, and human review.
+3. Adjust profile roles, prompts, machine assignments, and permissions.
+4. Record good/bad output as future routing evidence.
+5. Keep human approval in front of patch application and promotion.
+
+## Manifest Capture Workflow
+
+Capture manifests as operator evidence when model facts matter:
+
+```bash
+mkdir -p .devflow/local-models/manifests
+ollama show <model> > .devflow/local-models/manifests/<safe-model-name>.txt
+```
+
+Use safe filenames such as `qwopus-latest.txt`, `qwen3-6-latest.txt`, `qwen2-5-coder-32b-instruct.txt`, or `gemma4-31b.txt`.
+
+This is a documented workflow, not a required runtime dependency. A future structured command may parse and store manifest fields, but the MVP should not block practical use behind model discovery or benchmarking.
+
+## Future Docker-Isolated Worker Runtime
+
+Docker is a wise future isolation layer for tool-using agents, but it is not active runtime in this milestone and must not become a required dependency.
+
+A future Docker worker design should use:
+
+- ephemeral containers
+- read-only source mounts by default
+- no secret mounts by default
+- no network by default
+- `cap-drop=ALL`
+- bounded runtime and logs
+- explicit output directories controlled by Dev-Flow
+- WorkerEvidence as the only accepted result path
+
+Do not add active Docker execution until the current registry, packet, evidence, verification, and promotion contracts are proven.

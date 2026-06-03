@@ -74,6 +74,10 @@ devflow worktree prune --dry-run
 devflow branch list
 devflow branch archive <branch> --dry-run
 devflow agent show devflow-manual-codex-worker
+devflow agent list --json
+devflow agent show local-qwopus-inspector --json
+devflow agent policy --json
+devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
 devflow agent packet <task-id> devflow-manual-codex-worker
 devflow task run <task-id> --worker devflow-manual-codex-worker
 ```
@@ -84,6 +88,8 @@ The following CLI commands represent the transition layer. They are fully implem
 ```bash
 devflow agent list
 devflow agent show <non-proof-agent-id>
+devflow agent policy
+devflow agent run --task <task-id> --profile local-qwopus-inspector --json
 devflow agent packet <task-id> <non-proof-agent-id>
 devflow task fit <task-id>
 devflow task pack <task-id> <role>
@@ -96,12 +102,12 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
-Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable only as a safe `local_patch_runtime` agent such as `qwopus-implementer`: provider `ollama`, loopback base URL, `workspace_write`, no shell, no network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
+Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable as a safe `local_patch_runtime` patch agent such as `qwopus-implementer` or as a read-only local worker-pool evidence profile such as `local-qwopus-inspector`: provider `ollama`, loopback base URL, no shell, no arbitrary network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
 
 Experimental task-fit, scout, route, scorecard, context, and the legacy `supervise` loop are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The read-only `supervisor policy` and `supervisor packet` surfaces are visible because they are part of this stable milestone. The proof-agent registry commands are visible for the same reason.
 
@@ -112,6 +118,8 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 `devflow task local <task-id> --agent qwen-planner`, `devflow task local <task-id> --agent qwopus-implementer`, and `devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as advisory evidence only; Dev-Flow does not parse it as truth, write `proposal.patch`, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
 
 `devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch` when a unified diff is present, and records inspectable `run.json` plus `result.md` summaries. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is `devflow task show <task-id>`, `devflow task review-patch <task-id> --agent qwopus-implementer`, `devflow task patch-dry-run <task-id> --agent qwopus-implementer`, `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`. If Qwopus fails or produces no usable patch, `devflow task escalation-packet <task-id> --agent qwopus-implementer` writes a compact copy-paste packet from local evidence only; it does not call remote providers.
+
+`devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json` previews the read-only local model worker-pool path without calling a model or writing evidence. `devflow agent run --task <task-id> --profile local-qwopus-inspector --json` is the first real WorkerEvidence slice: it builds a bounded task packet, calls the configured local OpenAI-compatible/Ollama endpoint through `local_model_client.py`, writes `.devflow/tasks/<task-id>/local-model-runs/<run-id>/run.json`, `packet.md`, `response.md`, `raw_output.txt`, and optional `error.txt`, then stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state.
 
 `devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. The `--agent <agent-id>` form first normalizes that agent's `proposal.patch` into a matching local-model run evidence folder. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. `devflow task apply-patch` refuses mutation unless the selected patch has matching fresh acceptable patch review and dry-run evidence. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
 

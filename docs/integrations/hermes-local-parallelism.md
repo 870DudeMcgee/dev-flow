@@ -37,6 +37,7 @@ A future supervisor can propose and launch bounded workers only after Dev-Flow p
 CPU is not the only bottleneck. The practical limits are usually:
 
 - memory and unified memory pressure
+- machine class: Mac mini small utility workers vs Mac Studio heavy local workers
 - Ollama/model memory use
 - disk I/O
 - log readability
@@ -121,6 +122,7 @@ Specification:
 - read-only reviewers preferred
 - Dev-Flow owns verification and readiness evidence
 - no provider-backed execution unless explicitly promoted into the stable contract
+- machine assignment must respect registry `machine_class` metadata and actual `ollama show` manifests
 - no auto-promotion
 - no `git push`, merge, promotion, cleanup apply, or destructive command
 

@@ -61,6 +61,8 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
         
         # 1. Filter enabled agents by role capabilities or description keywords
         for agent in enabled_agents:
+            if role_name == "worker" and agent.default_mode == "read_only":
+                continue
             agent_role = agent.role.lower()
             agent_id = agent.id.lower()
             

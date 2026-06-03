@@ -1,0 +1,376 @@
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from devflow.control_room.agent_registry import (
+    AgentDefinition,
+    AgentRegistryError,
+    adapter_execution_refusal,
+    adapter_maturity,
+    is_local_model_worker_pool_agent,
+    load_agent_registry,
+    load_provider_registry,
+)
+from devflow.control_room.local_model_client import LocalModelClient, LocalModelClientError
+from devflow.control_room.paths import relative_path
+from devflow.control_room.persistence import get_task, utc_now
+from devflow.control_room.task_packet import build_agent_packet, render_task_packet_text
+from devflow.control_room.worker_evidence import expected_worker_evidence_outputs, write_worker_evidence
+
+
+PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
+LOCAL_MODEL_WORKER_TYPE = "local_model_worker_pool"
+
+
+class LocalModelWorkerPoolError(ValueError):
+    pass
+
+
+def registry_json_payload(root: Path) -> dict[str, Any]:
+    registry = load_agent_registry(root)
+    return {
+        "schema_version": registry.version,
+        "default_agent_id": registry.default_agent_id,
+        "source_path": str(registry.source_path) if registry.source_path else None,
+        "agents": [
+            _agent_payload(registry.agents[agent_id], root=root)
+            for agent_id in sorted(registry.agents)
+        ],
+    }
+
+
+def agent_json_payload(root: Path, profile_id: str) -> dict[str, Any]:
+    registry = load_agent_registry(root)
+    return _agent_payload(registry.require_agent(profile_id), root=root)
+
+
+def agent_policy_payload() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "policy_id": "devflow-local-model-worker-pool-policy",
+        "source_of_truth": "agent_registry.py",
+        "worker_outputs_are": "evidence_not_truth",
+        "human_approval_controls": ["patch application", "verification command selection", "promotion", "merge", "push"],
+        "execution_gates": [
+            "profile must exist in the agent registry",
+            "profile must be enabled",
+            "planned_not_executable adapters cannot run",
+            "machine_class must be treated as allocation metadata, not proof that a model is installed on that machine",
+            "actual ollama show manifests should override public/model-name assumptions when available",
+            "identical Ollama IDs should be flagged as aliases or duplicate tags until proven otherwise",
+            "local worker-pool profiles must be read-only evidence writers",
+            "workspace_write local patch profiles remain on existing proposal.patch gates",
+            "can_promote, can_run_shell, and arbitrary network access must be false for local worker-pool profiles",
+            "local model access is allowed only through LocalModelClient against a local Ollama/OpenAI-compatible endpoint",
+        ],
+        "forbidden": [
+            "source edits",
+            "workspace edits",
+            "proposal.patch writes by read-only profiles",
+            "patch application",
+            "verification",
+            "commit",
+            "merge",
+            "push",
+            "promotion",
+            "direct .devflow canonical state mutation",
+            f"using quarantined checkout path {PROHIBITED_CHECKOUT_PATHS[0]}",
+        ],
+        "allowed_evidence_outputs": [
+            ".devflow/tasks/<task-id>/local-model-runs/<run-id>/run.json",
+            ".devflow/tasks/<task-id>/local-model-runs/<run-id>/packet.md",
+            ".devflow/tasks/<task-id>/local-model-runs/<run-id>/response.md",
+            ".devflow/tasks/<task-id>/local-model-runs/<run-id>/raw_output.txt",
+            ".devflow/tasks/<task-id>/local-model-runs/<run-id>/error.txt",
+        ],
+        "hermes": {
+            "may_request_only_when_profile_hermes_delegable": True,
+            "may_read_and_summarize_evidence": True,
+            "must_not_own_worker_state": True,
+            "must_not_mutate_repo_directly": True,
+        },
+    }
+
+
+def dry_run_local_model_profile(
+    *,
+    root: Path,
+    task_id: str,
+    profile_id: str,
+    max_packet_chars: int = 16_000,
+) -> dict[str, Any]:
+    root = root.resolve()
+    profile, provider_base_url, timeout_seconds = _load_runnable_profile(root, profile_id)
+    packet_text, packet_was_truncated = _build_packet_text(root, task_id, profile, max_packet_chars)
+    run_id = _new_run_id(profile.id, dry_run=True)
+    expected_outputs = {
+        key: relative_path(root, Path(path))
+        for key, path in expected_worker_evidence_outputs(root, task_id, run_id).items()
+    }
+    task = get_task(root, task_id)
+    return {
+        "schema_version": 1,
+        "dry_run": True,
+        "task_id": task_id,
+        "task_title": task.title,
+        "profile_id": profile.id,
+        "worker_id": profile.id,
+        "worker_type": LOCAL_MODEL_WORKER_TYPE,
+        "model": profile.model,
+        "adapter": profile.adapter,
+        "runtime": "local_model_client",
+        "adapter_maturity": profile.adapter_maturity or adapter_maturity(profile.adapter),
+        "permission_mode": profile.default_mode,
+        "hermes_delegable": profile.hermes_delegable,
+        "model_role_name": profile.model_role_name,
+        "machine_class": profile.machine_class,
+        "weight_class": profile.weight_class,
+        "required_verification_command": profile.required_verification_command,
+        "model_alias_group": profile.model_alias_group,
+        "provider_base_url": provider_base_url,
+        "timeout_seconds": timeout_seconds,
+        "packet_inputs": {
+            "task_packet": True,
+            "rendered_packet_chars": len(packet_text),
+            "max_packet_chars": max_packet_chars,
+            "truncated": packet_was_truncated,
+        },
+        "expected_evidence_outputs": expected_outputs,
+        "safety_warnings": _safety_warnings(profile),
+        "will_call_model": False,
+        "will_write_source": False,
+        "will_write_proposal_patch": False,
+        "will_apply_patch": False,
+        "will_commit_merge_push_or_promote": False,
+    }
+
+
+def run_local_model_profile(
+    *,
+    root: Path,
+    task_id: str,
+    profile_id: str,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
+    temperature: float | None = None,
+    max_packet_chars: int = 16_000,
+    max_raw_output_chars: int = 200_000,
+) -> dict[str, Any]:
+    root = root.resolve()
+    profile, provider_base_url, provider_timeout = _load_runnable_profile(root, profile_id)
+    selected_base_url = base_url or provider_base_url
+    selected_timeout = timeout_seconds if timeout_seconds is not None else provider_timeout
+    packet_text, packet_was_truncated = _build_packet_text(root, task_id, profile, max_packet_chars)
+    run_id = _new_run_id(profile.id)
+    started_at = utc_now().isoformat()
+
+    client = LocalModelClient(
+        base_url=_local_model_base_url(selected_base_url),
+        model_id=profile.model,
+        timeout_seconds=selected_timeout,
+        temperature=temperature,
+    )
+    system_prompt = _system_prompt(profile)
+    user_prompt = _user_prompt(packet_text, profile)
+
+    try:
+        result = client.chat_completion(system_prompt=system_prompt, user_prompt=user_prompt)
+        raw_output = json.dumps(result.get("response", result), indent=2, sort_keys=True)
+        response_text = _assistant_text(result.get("response", {}))
+        if not response_text:
+            raise LocalModelWorkerPoolError("Local model returned an empty assistant response.")
+        status = "success"
+        error_message = None
+    except (LocalModelClientError, LocalModelWorkerPoolError, ValueError) as exc:
+        raw_output = getattr(exc, "response_body", None) or str(exc)
+        response_text = ""
+        status = "failed"
+        error_message = str(exc)
+
+    evidence = write_worker_evidence(
+        root=root,
+        worker_type=LOCAL_MODEL_WORKER_TYPE,
+        profile_id=profile.id,
+        worker_id=profile.id,
+        task_id=task_id,
+        run_id=run_id,
+        packet_text=packet_text,
+        raw_output=raw_output,
+        response_text=response_text,
+        model=profile.model,
+        adapter=profile.adapter,
+        adapter_maturity=profile.adapter_maturity or adapter_maturity(profile.adapter),
+        permission_mode=profile.default_mode,
+        hermes_delegable=profile.hermes_delegable,
+        machine_class=profile.machine_class,
+        weight_class=profile.weight_class,
+        model_role_name=profile.model_role_name,
+        required_verification_command=profile.required_verification_command,
+        model_alias_group=profile.model_alias_group,
+        runtime="local_model_client",
+        status=status,
+        started_at=started_at,
+        base_url=client.base_url,
+        error_message=error_message,
+        max_raw_output_chars=max_raw_output_chars,
+    )
+
+    payload = {
+        "schema_version": 1,
+        "dry_run": False,
+        "task_id": task_id,
+        "profile_id": profile.id,
+        "worker_id": profile.id,
+        "worker_type": LOCAL_MODEL_WORKER_TYPE,
+        "status": status,
+        "run_id": run_id,
+        "model": profile.model,
+        "adapter": profile.adapter,
+        "runtime": "local_model_client",
+        "adapter_maturity": profile.adapter_maturity or adapter_maturity(profile.adapter),
+        "permission_mode": profile.default_mode,
+        "hermes_delegable": profile.hermes_delegable,
+        "model_role_name": profile.model_role_name,
+        "machine_class": profile.machine_class,
+        "weight_class": profile.weight_class,
+        "required_verification_command": profile.required_verification_command,
+        "model_alias_group": profile.model_alias_group,
+        "packet_truncated": packet_was_truncated,
+        "evidence_dir": relative_path(root, evidence.evidence_dir),
+        "run_metadata_path": relative_path(root, evidence.run_metadata_path),
+        "packet_path": relative_path(root, evidence.packet_path),
+        "response_path": relative_path(root, evidence.response_path),
+        "raw_output_path": relative_path(root, evidence.raw_output_path),
+        "error_path": relative_path(root, evidence.error_path) if error_message else None,
+        "will_write_source": False,
+        "will_write_proposal_patch": False,
+        "will_apply_patch": False,
+        "will_commit_merge_push_or_promote": False,
+    }
+    if error_message:
+        payload["error_message"] = error_message
+    return payload
+
+
+def _load_runnable_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, str | None, int | None]:
+    try:
+        registry = load_agent_registry(root)
+        profile = registry.require_agent(profile_id)
+        providers = load_provider_registry(root)
+        provider = providers.providers.get(profile.provider)
+    except (AgentRegistryError, KeyError) as exc:
+        raise LocalModelWorkerPoolError(str(exc)) from exc
+
+    if profile.adapter_maturity is None:
+        profile.adapter_maturity = adapter_maturity(profile.adapter)
+    if not is_local_model_worker_pool_agent(profile, provider=provider):
+        refusal = adapter_execution_refusal(profile.adapter, agent_id=profile.id)
+        raise LocalModelWorkerPoolError(
+            f"Profile '{profile.id}' is not approved for the local model worker pool. {refusal}"
+        )
+    return profile, provider.base_url if provider else None, provider.default_timeout_seconds if provider else None
+
+
+def _build_packet_text(
+    root: Path,
+    task_id: str,
+    profile: AgentDefinition,
+    max_packet_chars: int,
+) -> tuple[str, bool]:
+    try:
+        packet = build_agent_packet(task_id, profile, root=root)
+    except KeyError as exc:
+        raise LocalModelWorkerPoolError(str(exc)) from exc
+    packet_text = render_task_packet_text(packet)
+    if max_packet_chars < 1:
+        max_packet_chars = 16_000
+    if len(packet_text) <= max_packet_chars:
+        return packet_text, False
+    suffix = f"\n\n[packet capped at {max_packet_chars} characters]\n"
+    keep = max(0, max_packet_chars - len(suffix))
+    return packet_text[:keep] + suffix, True
+
+
+def _system_prompt(profile: AgentDefinition) -> str:
+    return (
+        "You are a replaceable local model worker inside Dev-Flow.\n"
+        "Dev-Flow owns task state, evidence, verification, and promotion.\n"
+        "Use only the bounded task packet provided.\n"
+        "Do not claim you edited files, ran verification, applied patches, committed, merged, pushed, or promoted.\n"
+        "Do not write or request proposal.patch for this read-only worker-pool profile.\n"
+        f"Profile: {profile.id}\n"
+        f"Role: {profile.role}\n"
+        f"Purpose: {profile.purpose or 'local evidence worker'}\n"
+    )
+
+
+def _user_prompt(packet_text: str, profile: AgentDefinition) -> str:
+    return (
+        "# Bounded Dev-Flow Task Packet\n\n"
+        f"```markdown\n{packet_text}\n```\n\n"
+        "# Requested Output\n\n"
+        "Return concise structured evidence with these sections:\n"
+        "## Summary\n"
+        "## Findings\n"
+        "## Risks Or Questions\n"
+        "## Suggested Next Dev-Flow Action\n\n"
+        f"Keep the response aligned to profile `{profile.id}` and treat all recommendations as advisory evidence only."
+    )
+
+
+def _assistant_text(response: dict[str, Any]) -> str:
+    choices = response.get("choices")
+    if isinstance(choices, list) and choices:
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str):
+                return content.strip()
+        text = choices[0].get("text") if isinstance(choices[0], dict) else None
+        if isinstance(text, str):
+            return text.strip()
+    direct_response = response.get("response")
+    if isinstance(direct_response, str):
+        return direct_response.strip()
+    content = response.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    raise LocalModelWorkerPoolError("Local model response did not include assistant content.")
+
+
+def _new_run_id(profile_id: str, *, dry_run: bool = False) -> str:
+    if dry_run:
+        return f"dry-run-{profile_id}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{timestamp}-{os.urandom(4).hex()}-{profile_id}"
+
+
+def _local_model_base_url(base_url: str | None) -> str | None:
+    if not base_url:
+        return None
+    cleaned = base_url.rstrip("/")
+    return cleaned if cleaned.endswith("/v1") else f"{cleaned}/v1"
+
+
+def _safety_warnings(profile: AgentDefinition) -> list[str]:
+    warnings = [
+        "Dry-run only; no model call is made.",
+        "Worker output is evidence, not truth.",
+        "No source, workspace, proposal.patch, Git, verification, or promotion mutation is permitted.",
+        f"Quarantined checkout path is forbidden: {PROHIBITED_CHECKOUT_PATHS[0]}",
+    ]
+    if not profile.hermes_delegable:
+        warnings.append("Profile is not Hermes-delegable.")
+    return warnings
+
+
+def _agent_payload(agent: AgentDefinition, *, root: Path) -> dict[str, Any]:
+    payload = agent.model_dump(mode="json")
+    payload["adapter_maturity"] = payload.get("adapter_maturity") or adapter_maturity(agent.adapter)
+    payload["local_model_worker_pool_runnable"] = is_local_model_worker_pool_agent(agent)
+    payload["registry_source"] = "builtin" if not (root / ".devflow/agents/registry.yaml").exists() else ".devflow/agents/registry.yaml"
+    return payload

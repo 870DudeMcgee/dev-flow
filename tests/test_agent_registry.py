@@ -17,6 +17,20 @@ from devflow.control_room.service import create_task
 from devflow.control_room.task_packet import build_agent_packet
 
 
+STARTER_LOCAL_PROFILES = [
+    "local-qwopus-inspector",
+    "local-qwen36-inspector",
+    "local-qwen25-coder-32b-code-reviewer",
+    "local-qwen25-coder-32b-patch-proposer",
+    "local-qwen25-coder-14b-test-planner",
+    "local-qwen25-coder-7b-code-reviewer",
+    "local-qwen25-coder-15b-classifier",
+    "local-gemma4-summarizer",
+    "local-gemma4-doc-reviewer",
+    "local-gemma4-31b-dense-judge",
+]
+
+
 def test_valid_agent_registry_loads_enabled_default_agent(tmp_path: Path) -> None:
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
     registry_path.parent.mkdir(parents=True)
@@ -57,6 +71,7 @@ agents:
         "local-shell",
         "qwopus-implementer",
         "devflow-manual-codex-worker",
+        *STARTER_LOCAL_PROFILES,
     ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
@@ -107,6 +122,7 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
     assert sorted(seeded_registry.enabled_agent_ids()) == sorted([
         "qwopus-implementer",
         "devflow-manual-codex-worker",
+        *STARTER_LOCAL_PROFILES,
     ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -169,12 +185,14 @@ agents:
         "devflow-openai-reviewer",
         "disabled-local",
         "local-shell",
+        *STARTER_LOCAL_PROFILES,
     ]
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "qwopus-implementer",
         "local-shell",
         "devflow-manual-codex-worker",
+        *STARTER_LOCAL_PROFILES,
     ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
@@ -599,12 +617,13 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
         "devflow-openai-compatible-worker",
         "devflow-openai-planner",
         "devflow-openai-reviewer",
+        *STARTER_LOCAL_PROFILES,
     ]
     
     for agent_id in expected_agents:
         assert agent_id in registry.agents
         agent = registry.require_agent(agent_id)
-        assert agent.enabled is (agent_id in {"devflow-manual-codex-worker", "qwopus-implementer"})
+        assert agent.enabled is (agent_id in {"devflow-manual-codex-worker", "qwopus-implementer", *STARTER_LOCAL_PROFILES})
         assert agent.workspace == "isolated_task_workspace"
         
         # Verify specific fields
@@ -622,6 +641,20 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.adapter_maturity == "local_patch_runtime"
             assert agent.can_use_network is False
             assert "<task>/agents/qwopus-implementer/proposal.patch" in agent.allowed_writes
+        elif agent_id in STARTER_LOCAL_PROFILES:
+            assert agent.provider == "ollama"
+            assert agent.adapter == "ollama_chat"
+            assert agent.adapter_maturity == "local_patch_runtime"
+            assert agent.default_mode == "read_only"
+            assert agent.can_use_network is False
+            assert agent.can_promote is False
+            assert agent.can_run_shell is False
+            assert "<task>/local-model-runs/**" in agent.allowed_writes
+            assert not any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes)
+            assert agent.machine_class in {"mac_mini", "mac_studio", "either"}
+            assert agent.weight_class in {"tiny", "small", "medium", "heavy"}
+            assert agent.model_role_name
+            assert agent.required_verification_command.startswith("ollama show ")
         elif agent_id in ("devflow-openai-planner", "devflow-openai-reviewer"):
             assert agent.tier == "frontier"
             assert agent.execution_mode == "automated"
@@ -679,6 +712,100 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
             assert prov.base_url == "https://api.x.ai/v1"
             assert prov.api_key_env == "GROK_API_KEY"
             assert prov.default_timeout_seconds == 300
+
+
+def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+
+    registry = load_agent_registry(tmp_path)
+    manual = registry.require_agent("devflow-manual-codex-worker")
+    qwopus_patch_worker = registry.require_agent("qwopus-implementer")
+    inspector = registry.require_agent("local-qwopus-inspector")
+    patch_proposer = registry.require_agent("local-qwen25-coder-32b-patch-proposer")
+    qwen_fast = registry.require_agent("local-qwen25-coder-7b-code-reviewer")
+    qwen_medium = registry.require_agent("local-qwen25-coder-14b-test-planner")
+    gemma_fast = registry.require_agent("local-gemma4-summarizer")
+    gemma_dense = registry.require_agent("local-gemma4-31b-dense-judge")
+
+    assert manual.hermes_delegable is False
+    assert qwopus_patch_worker.hermes_delegable is False
+    assert inspector.hermes_delegable is True
+    assert inspector.machine_class == "mac_studio"
+    assert inspector.weight_class == "heavy"
+    assert inspector.model_alias_group == "qwopus-qwen36-07d35212591f"
+    assert inspector.default_mode == "read_only"
+    assert not any("<workspace>" in path or "proposal.patch" in path for path in inspector.allowed_writes)
+    assert patch_proposer.hermes_delegable is False
+    assert qwen_fast.machine_class == "mac_mini"
+    assert qwen_fast.model_role_name == "qwen-coder-fast"
+    assert qwen_medium.machine_class == "either"
+    assert gemma_fast.model == "gemma4:latest"
+    assert gemma_fast.weight_class == "small"
+    assert "8.0B" in " ".join(gemma_fast.manifest_notes)
+    assert gemma_dense.model == "gemma4:31b"
+    assert gemma_dense.machine_class == "mac_studio"
+    assert gemma_dense.model_role_name == "gemma-dense-judge"
+
+
+def test_agent_registry_rejects_unsafe_hermes_delegation(tmp_path: Path) -> None:
+    registry_path = tmp_path / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        """version: 1
+agents:
+  future-worker:
+    provider: openai
+    model: future
+    adapter: openai_responses
+    role: frontier_code_reviewer
+    tier: frontier
+    default_mode: read_only
+    workspace: isolated_task_workspace
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    hermes_delegable: true
+    enabled: true
+  risky-writer:
+    provider: ollama
+    model: qwen2.5-coder:32b-instruct
+    adapter: ollama_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    workspace: isolated_task_workspace
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/risky-writer/proposal.patch"
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    hermes_delegable: true
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentRegistryError) as exc_info:
+        load_agent_registry(tmp_path)
+
+    message = str(exc_info.value)
+    assert "future-worker.hermes_delegable must be false for planned_not_executable adapters" in message
+    assert "risky-writer.hermes_delegable requires a read-only or proposal-only permission mode" in message
+    assert "risky-writer.hermes_delegable cannot write workspace files or proposal.patch" in message
+
+
+def test_registry_json_includes_hermes_delegable_and_no_profile_points_to_quarantined_checkout(tmp_path: Path) -> None:
+    from devflow.control_room.local_model_worker_pool import registry_json_payload
+
+    initialize_seed(tmp_path)
+    payload = registry_json_payload(tmp_path)
+
+    assert any(agent["id"] == "local-qwopus-inspector" for agent in payload["agents"])
+    for agent in payload["agents"]:
+        assert "hermes_delegable" in agent
+        encoded = json.dumps(agent, sort_keys=True)
+        assert "/Users/jewelbait/Desktop/DevFlow" not in encoded
 
 
 def test_provider_registry_rejects_literal_secrets_as_api_key_env(tmp_path: Path) -> None:
