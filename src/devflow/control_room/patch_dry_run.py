@@ -3,11 +3,17 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
-import re
 from typing import Any
 
 import yaml
 
+from devflow.control_room.patch_proposal import (
+    PatchProposalFile as PatchFile,
+    PatchProposalHunk as PatchHunk,
+    PatchProposalParseError,
+    parse_patch_proposal,
+    resolve_workspace_patch_target,
+)
 from devflow.control_room.patch_review import is_dangerous_path
 from devflow.control_room.paths import absolute_path, relative_path, task_dir
 
@@ -25,35 +31,6 @@ RISK_ORDER = {
     "critical": 3,
     "unknown": -1,
 }
-
-
-@dataclass
-class PatchHunk:
-    old_start: int
-    old_count: int
-    new_start: int
-    new_count: int
-    original_lines: list[str] = field(default_factory=list)
-    new_lines: list[str] = field(default_factory=list)
-
-
-@dataclass
-class PatchFile:
-    old_path: str | None
-    new_path: str | None
-    hunks: list[PatchHunk] = field(default_factory=list)
-
-    @property
-    def is_new_file(self) -> bool:
-        return self.old_path is None and self.new_path is not None
-
-    @property
-    def is_deletion(self) -> bool:
-        return self.new_path is None and self.old_path is not None
-
-    @property
-    def target_path(self) -> str | None:
-        return self.old_path if self.is_deletion else self.new_path
 
 
 @dataclass
@@ -220,74 +197,10 @@ def preview_patch_dry_run(root: Path, task_id: str, *, run_id: str | None = None
 
 
 def parse_unified_diff(patch_text: str) -> list[PatchFile]:
-    files: list[PatchFile] = []
-    current: PatchFile | None = None
-    current_hunk: PatchHunk | None = None
-    saw_hunk = False
-
-    for line in patch_text.splitlines():
-        if line.startswith("diff --git "):
-            if current and current.hunks:
-                files.append(current)
-            current = _file_from_diff_git(line)
-            current_hunk = None
-            continue
-
-        if line.startswith("--- "):
-            if current is None:
-                current = PatchFile(old_path=None, new_path=None)
-            current.old_path = _header_path(line[4:])
-            current_hunk = None
-            continue
-
-        if line.startswith("+++ "):
-            if current is None:
-                current = PatchFile(old_path=None, new_path=None)
-            current.new_path = _header_path(line[4:])
-            current_hunk = None
-            continue
-
-        if line.startswith("@@ "):
-            if current is None:
-                raise ValueError("Hunk appeared before file headers.")
-            match = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
-            if not match:
-                raise ValueError("Hunk header is malformed.")
-            current_hunk = PatchHunk(
-                old_start=int(match.group(1)),
-                old_count=int(match.group(2) or "1"),
-                new_start=int(match.group(3)),
-                new_count=int(match.group(4) or "1"),
-            )
-            current.hunks.append(current_hunk)
-            saw_hunk = True
-            continue
-
-        if current_hunk is not None:
-            if line.startswith("\\ No newline at end of file"):
-                continue
-            if not line:
-                prefix = " "
-                content = ""
-            else:
-                prefix = line[0]
-                content = line[1:]
-            if prefix == " ":
-                current_hunk.original_lines.append(content)
-                current_hunk.new_lines.append(content)
-            elif prefix == "-":
-                current_hunk.original_lines.append(content)
-            elif prefix == "+":
-                current_hunk.new_lines.append(content)
-
-    if current and current.hunks:
-        files.append(current)
-    if not saw_hunk:
-        raise ValueError("Patch has no hunks.")
-    for file_patch in files:
-        if file_patch.target_path is None:
-            raise ValueError("Patch file has no target path.")
-    return files
+    try:
+        return parse_patch_proposal(patch_text).files
+    except PatchProposalParseError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def render_patch_dry_run_markdown(result: PatchDryRun) -> str:
@@ -364,8 +277,9 @@ def _inspect_patch_files(
             dangerous_paths.append(target)
             continue
 
-        target_file = workspace / target
-        if not _is_relative_to(target_file.resolve(), workspace.resolve()):
+        try:
+            target_file = resolve_workspace_patch_target(workspace, target)
+        except ValueError:
             dangerous_paths.append(target)
             continue
 
@@ -497,26 +411,6 @@ def _task_workspace_display(root: Path, task_id: str) -> str:
     return relative_path(root, workspace) if workspace else ""
 
 
-def _file_from_diff_git(line: str) -> PatchFile:
-    parts = line.split()
-    old_path = _strip_patch_prefix(parts[2]) if len(parts) > 2 else None
-    new_path = _strip_patch_prefix(parts[3]) if len(parts) > 3 else None
-    return PatchFile(old_path=old_path, new_path=new_path)
-
-
-def _header_path(value: str) -> str | None:
-    path = value.split("\t", 1)[0].strip()
-    if path == "/dev/null":
-        return None
-    return _strip_patch_prefix(path)
-
-
-def _strip_patch_prefix(path: str) -> str:
-    if path.startswith("a/") or path.startswith("b/"):
-        return path[2:]
-    return path
-
-
 def _hunk_matches(file_lines: list[str], hunk: PatchHunk) -> bool:
     original = hunk.original_lines
     if not original:
@@ -596,11 +490,3 @@ def _render_bullets(values: list[str]) -> str:
     if not values:
         return "* None"
     return "\n".join(f"* {value}" for value in values)
-
-
-def _is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.relative_to(base)
-        return True
-    except ValueError:
-        return False
