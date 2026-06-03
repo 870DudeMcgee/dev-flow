@@ -42,6 +42,8 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow supervisor policy --json",
     "devflow supervisor packet",
     "devflow supervisor packet --json",
+    "devflow supervisor route-message",
+    "devflow supervisor route-message --json",
     "devflow hermes imessage-check",
     "devflow hermes imessage-check --json",
     "devflow git status",
@@ -226,6 +228,19 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "broad mutation",
             ],
         },
+        "telegram_routing": {
+            "provider": "local",
+            "default_model": "gemma4:latest",
+            "route_message_command": 'devflow supervisor route-message "<raw Telegram text>" --json',
+            "footer_required": True,
+            "routes": {
+                "simple_chat": {"model": "gemma4:latest", "action": "answer"},
+                "devflow_read": {"model": "gemma4:latest", "action": "run_safe_command"},
+                "plan": {"model": "qwen3.6:latest", "action": "answer"},
+                "deep_review": {"model": "qwopus:latest", "action": "answer"},
+                "implementation": {"model": None, "action": "create_task_or_create_codex_goal"},
+            },
+        },
         "path_authority": {
             "josh_canonical_checkout": JOSH_CANONICAL_CHECKOUT,
             "prohibited_checkout_paths": PROHIBITED_CHECKOUT_PATHS,
@@ -275,7 +290,7 @@ def _classify_supervisor_command(command: str) -> str:
     if command_group == "supervise":
         return APPROVAL_REQUIRED_WORKER_RUNTIME
     if command_group == "supervisor":
-        return PURE_READ_ONLY if subcommand in {"policy", "packet"} else FORBIDDEN_FOR_SUPERVISOR
+        return PURE_READ_ONLY if subcommand in {"policy", "packet", "route-message"} else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "hermes":
         return PURE_READ_ONLY if subcommand == "imessage-check" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "git":

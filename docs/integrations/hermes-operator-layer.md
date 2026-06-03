@@ -33,6 +33,7 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli status --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli dashboard --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor policy --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor packet --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor route-message "raw Telegram text" --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli hermes imessage-check --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli task next-action <task-id> --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli task review <task-id> --json
@@ -44,6 +45,14 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --prof
 ## Operating Rules
 
 Hermes defaults to read-only. It may inspect, summarize, recommend next safe actions, prepare Codex prompts, notify a human operator, run scheduled read-only briefs, and capture approved ideas through Dev-Flow commands.
+
+Telegram is a lightweight command surface, not a second brain. Hermes may receive Telegram text and ask Dev-Flow to classify it with `devflow supervisor route-message`. Dev-Flow owns the routing policy and exposes the Telegram default as local `gemma4:latest` through `devflow supervisor policy --json`. Dev-Flow returns the route, selected local model when applicable, action, reason, safety metadata, and a tiny footer. Hermes should append or preserve that footer in responses so real use can tune the policy:
+
+```text
+route: devflow_read
+model: gemma4:latest
+action: run_safe_command
+```
 
 Hermes must not directly edit:
 

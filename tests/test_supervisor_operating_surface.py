@@ -218,6 +218,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow dashboard --json" in payload["allowed_commands"]
     assert "devflow supervisor policy --json" in payload["allowed_commands"]
     assert "devflow supervisor packet --json" in payload["allowed_commands"]
+    assert "devflow supervisor route-message --json" in payload["allowed_commands"]
     assert "devflow hermes imessage-check --json" in payload["allowed_commands"]
     assert "devflow task promote-preview" in payload["allowed_commands"]
     assert payload["allowed_commands"] == payload["pure_read_only"]
@@ -246,6 +247,10 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "directly edit .devflow" in payload["operator_layer"]["must_not"]
     assert "spawn unbounded parallel workers" in payload["operator_layer"]["must_not"]
     assert "promotion" in payload["operator_layer"]["human_approval_required_for"]
+    assert payload["telegram_routing"]["provider"] == "local"
+    assert payload["telegram_routing"]["default_model"] == "gemma4:latest"
+    assert payload["telegram_routing"]["footer_required"] is True
+    assert payload["telegram_routing"]["routes"]["implementation"]["model"] is None
     assert payload["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
     assert "/Users/jewelbait/Desktop/DevFlow" in payload["path_authority"]["prohibited_checkout_paths"]
 
@@ -481,6 +486,14 @@ def test_supervisor_safe_json_commands_parse_and_do_not_mutate(tmp_path: Path, m
 
 def test_hermes_imessage_check_is_read_only_supervisor_command() -> None:
     classification = classify_supervisor_command("devflow hermes imessage-check --json")
+
+    assert classification["safety_class"] == PURE_READ_ONLY
+    assert classification["requires_human_approval"] is False
+    assert classification["supervisor_may_auto_run"] is True
+
+
+def test_telegram_route_message_is_read_only_supervisor_command() -> None:
+    classification = classify_supervisor_command('devflow supervisor route-message "status" --json')
 
     assert classification["safety_class"] == PURE_READ_ONLY
     assert classification["requires_human_approval"] is False

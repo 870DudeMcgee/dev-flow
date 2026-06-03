@@ -18,6 +18,7 @@ Hermes may run these for inspection, summarization, and non-promoting preview wo
 - `devflow dashboard --json`
 - `devflow supervisor policy --json`
 - `devflow supervisor packet --json`
+- `devflow supervisor route-message "<raw Telegram text>" --json`
 - `devflow hermes imessage-check --json`
 - `devflow task list`
 - `devflow task show <task-id>`

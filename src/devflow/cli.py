@@ -81,6 +81,7 @@ from devflow.control_room.supervisor_surface import (
     render_task_next_action,
     render_task_review,
 )
+from devflow.control_room.telegram_routing import render_telegram_route
 from devflow.control_room.hermes_readiness import render_hermes_imessage_check
 from devflow.control_room.project_create import create_project as create_managed_project
 from devflow.control_room.project_create import import_project as import_managed_project
@@ -486,6 +487,15 @@ def supervisor_packet_command(
 ) -> None:
     """Show a compact supervisor packet derived from Dev-Flow artifacts."""
     typer.echo(render_supervisor_packet(Path.cwd(), json_output=json_output), nl=False)
+
+
+@supervisor_app.command("route-message")
+def supervisor_route_message_command(
+    message: str = typer.Argument(..., help="Raw Telegram/Hermes message to route."),
+    json_output: bool = typer.Option(False, "--json", help="Print routing decision as JSON."),
+) -> None:
+    """Route a Telegram/Hermes message through Dev-Flow policy without mutating state."""
+    typer.echo(render_telegram_route(Path.cwd(), message, json_output=json_output), nl=False)
 
 
 @supervisor_app.command("classify")

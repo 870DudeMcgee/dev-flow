@@ -60,6 +60,7 @@ devflow dashboard
 devflow status --json
 devflow supervisor policy --json
 devflow supervisor packet --json
+devflow supervisor route-message "raw Telegram text" --json
 devflow hermes imessage-check --json
 devflow project create "Factory Scheduler"
 devflow project create "Local Experiment" --source-control none
