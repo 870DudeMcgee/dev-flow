@@ -4,7 +4,7 @@
 
 Dev-Flow is a local-first control room for parallel AI coding workers.
 
-Local checkout folder: `DevFlow`. Documentation and handoffs should use this name when referring to the repository folder.
+Local checkout: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Documentation and handoffs should not assume every user's checkout folder is named `DevFlow`.
 
 The rebuild starts from a smaller foundation than the previous software-factory design:
 
@@ -363,7 +363,7 @@ Boundary: future idea commands such as `devflow idea capture`, `devflow idea cla
 ## Later, Not Now
 
 - Aider adapter
-- Hermes supervisor
+- Hermes external operator/chat gateway over supervisor-safe commands; no Hermes runtime adapter or source-of-truth role
 - OpenCode adapter
 - dependency scheduler
 - question resume flow

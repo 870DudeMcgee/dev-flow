@@ -27,25 +27,33 @@ APPROVAL_REQUIRED_TASK_STATE = "approval_required_task_state"
 APPROVAL_REQUIRED_WORKER_RUNTIME = "approval_required_worker_runtime"
 APPROVAL_REQUIRED_GIT = "approval_required_git"
 FORBIDDEN_FOR_SUPERVISOR = "forbidden_for_supervisor"
+JOSH_CANONICAL_CHECKOUT = "/Users/jewelbait/Desktop/Local AI Dev Team"
+PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
 
 PURE_READ_ONLY_COMMANDS = [
     "devflow doctor",
     "devflow doctor --strict",
     "devflow reconcile",
     "devflow dashboard",
+    "devflow dashboard --json",
     "devflow status --json",
     "devflow next",
     "devflow supervisor policy",
+    "devflow supervisor policy --json",
     "devflow supervisor packet",
+    "devflow supervisor packet --json",
     "devflow git status",
     "devflow task list",
     "devflow task show",
     "devflow task review",
+    "devflow task review --json",
     "devflow task next-action",
+    "devflow task next-action --json",
     "devflow task log",
     "devflow task history",
     "devflow task capsule",
     "devflow task packet",
+    "devflow task promote-preview",
     "devflow task cleanup --dry-run",
     "devflow worktree list",
     "devflow worktree prune",
@@ -66,7 +74,6 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow task normalize-proposal",
     "devflow task orchestrate --plan-only",
     "devflow task escalation-packet",
-    "devflow task promote-preview",
     "devflow task capsule --export-md",
     "devflow worker validate-outcome",
     "devflow knowledge capture",
@@ -104,7 +111,9 @@ APPROVAL_REQUIRED_GIT_COMMANDS = [
 ]
 
 FORBIDDEN_SUPERVISOR_ACTIONS = [
+    "using /Users/jewelbait/Desktop/DevFlow for current work",
     "direct source edits outside a Dev-Flow task workspace/worktree",
+    "direct source edits by Hermes",
     "direct edits to .devflow state files",
     "direct edits to the main checkout",
     "direct mutation of task.yaml/events.jsonl/verification.json by hand",
@@ -116,13 +125,14 @@ FORBIDDEN_SUPERVISOR_ACTIONS = [
     "running hidden background schedulers against Dev-Flow",
     "creating a second source of truth",
     "storing canonical state outside .devflow",
+    "treating Hermes memory as canonical Dev-Flow state",
     "autonomous provider routing",
     "remote provider execution unless explicitly promoted into the stable contract",
     "any command not recognized by the supervisor policy",
 ]
 
 SAFETY_CLASS_REASONS = {
-    PURE_READ_ONLY: "command renders existing state only and must not write artifacts, logs, Git state, or source files",
+    PURE_READ_ONLY: "command inspects or previews Dev-Flow state and must not mutate source files, task state, Git index, branches, remotes, or promotion state",
     APPROVAL_REQUIRED_EVIDENCE_WRITING: "command writes derived evidence, packets, reviews, dry-runs, knowledge, or logs",
     APPROVAL_REQUIRED_TASK_STATE: "command creates, closes, finalizes, cleans up, applies patches, or changes Dev-Flow state",
     APPROVAL_REQUIRED_WORKER_RUNTIME: "command runs workers, local agents, verification, tests, model calls, or supervisor loops",
@@ -158,6 +168,47 @@ def build_supervisor_policy() -> dict[str, Any]:
         "forbidden_actions": FORBIDDEN_SUPERVISOR_ACTIONS,
         "unrecognized_command_default": FORBIDDEN_FOR_SUPERVISOR,
         "safety_class_reasons": SAFETY_CLASS_REASONS,
+        "operator_layer": {
+            "hermes_role": "external operator/chat/scheduling layer",
+            "read_only_default": True,
+            "devflow_source_of_truth_for": [
+                "task state",
+                "evidence",
+                "worker isolation",
+                "verification",
+                "git readiness",
+                "cleanup",
+                "promotion",
+            ],
+            "may": [
+                "summarize Dev-Flow artifacts",
+                "recommend next safe actions",
+                "packetize supervisor-safe evidence",
+                "notify a human operator",
+                "capture approved ideas through Dev-Flow commands",
+            ],
+            "must_not": [
+                "directly edit .devflow",
+                "directly edit source files",
+                "directly mutate git index, branches, remotes, or promotion state",
+                "create a hidden state layer",
+                "treat Hermes memory as canonical Dev-Flow state",
+            ],
+            "human_approval_required_for": [
+                "promotion",
+                "merge",
+                "push",
+                "cleanup apply",
+                "worker execution",
+                "verification runs",
+                "broad mutation",
+            ],
+        },
+        "path_authority": {
+            "josh_canonical_checkout": JOSH_CANONICAL_CHECKOUT,
+            "prohibited_checkout_paths": PROHIBITED_CHECKOUT_PATHS,
+            "portable_guidance": "Use the actual repo root in context; do not assume every checkout is named DevFlow.",
+        },
     }
 
 
@@ -248,7 +299,9 @@ def _classify_supervisor_command(command: str) -> str:
         return APPROVAL_REQUIRED_EVIDENCE_WRITING if "--save" in tokens else PURE_READ_ONLY
     if subcommand == "cleanup":
         return PURE_READ_ONLY if "--dry-run" in tokens and "--apply" not in tokens else APPROVAL_REQUIRED_TASK_STATE
-    if subcommand in {"review-patch", "patch-dry-run", "normalize-proposal", "orchestrate", "escalation-packet", "promote-preview"}:
+    if subcommand == "promote-preview":
+        return PURE_READ_ONLY
+    if subcommand in {"review-patch", "patch-dry-run", "normalize-proposal", "orchestrate", "escalation-packet"}:
         return APPROVAL_REQUIRED_EVIDENCE_WRITING
     if subcommand in {"create", "close", "finalize", "apply-patch"}:
         if subcommand == "finalize" and "--commit" in tokens:
@@ -506,6 +559,13 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         if task["blocked_reason"] or task["verification_status"] == "failed" or task["status"] == "verification_failed"
     ]
     promotion_ready = [task for task in tasks if task["active"] and task["promotion_readiness"] == "ready"]
+    ready_for_preview = [
+        task
+        for task in tasks
+        if task["active"] and str(task["recommended_command"] or "").startswith("devflow task promote-preview")
+    ]
+    stale_or_conflicted = [task for task in tasks if task["active"] and task["stale_or_conflicted"]]
+    next_actions = _packet_next_actions(tasks)
     return {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
         "project": {
@@ -514,17 +574,46 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
             "current_branch": status["git_status_summary"].get("branch"),
             "git_cleanliness": status["git_status_summary"].get("dirty_state"),
         },
+        "repo": {
+            "root": status["repo_root"],
+            "current_branch": status["git_status_summary"].get("branch"),
+            "git_cleanliness": status["git_status_summary"].get("dirty_state"),
+            "head_sha": status["git_status_summary"].get("head_sha"),
+            "origin_main_sha": status["git_status_summary"].get("origin_main_sha"),
+        },
+        "counts": {
+            "active_tasks": status["active_task_count"],
+            "closed_tasks": status["closed_task_count"],
+            "review_ready_tasks": status["review_ready_task_count"],
+            "blocked_tasks": status["blocked_task_count"],
+            "verification_failed_tasks": status["verification_failed_task_count"],
+            "promotion_ready_tasks": status["promotion_ready_task_count"],
+            "stale_or_conflicted_tasks": status["stale_or_conflicted_task_count"],
+        },
         "active_tasks": [task for task in tasks if task["active"]],
+        "active_task_count": status["active_task_count"],
+        "review_queue": needing_review,
         "tasks_needing_review": needing_review,
         "tasks_blocked": blocked,
+        "tasks_stale_or_conflicted": stale_or_conflicted,
+        "tasks_ready_for_preview": ready_for_preview,
         "tasks_promotion_ready": promotion_ready,
-        "next_recommended_actions": _packet_next_actions(tasks),
+        "next_safe_action": next_actions[0]["next_safe_action"] if next_actions else "no active task action inferred",
+        "next_recommended_actions": next_actions,
         "policy": {
             "schema_version": policy["schema_version"],
             "policy_id": policy["policy_id"],
             "pure_read_only": policy["pure_read_only"],
             "allowed_commands": policy["allowed_commands"],
         },
+        "policy_summary": {
+            "policy_id": policy["policy_id"],
+            "hermes_role": policy["operator_layer"]["hermes_role"],
+            "read_only_default": policy["operator_layer"]["read_only_default"],
+            "devflow_is_source_of_truth_for": policy["operator_layer"]["devflow_source_of_truth_for"],
+            "unrecognized_command_default": policy["unrecognized_command_default"],
+        },
+        "path_authority": policy["path_authority"],
         "commands_requiring_human_approval": policy["commands_requiring_human_approval"],
         "forbidden_actions": policy["forbidden_actions"],
         "evidence_paths": sorted({path for task in tasks for path in task["evidence_paths"]}),
@@ -1165,6 +1254,9 @@ def _packet_next_actions(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _packet_warnings(status: dict[str, Any], tasks: list[dict[str, Any]]) -> list[str]:
     warnings: list[str] = []
     git = status["git_status_summary"]
+    repo_root = str(status.get("repo_root") or "")
+    if repo_root in PROHIBITED_CHECKOUT_PATHS:
+        warnings.append(f"current repo root is prohibited/quarantined for active work: {repo_root}")
     if git.get("dirty_state") == "dirty":
         warnings.append("main checkout has uncommitted changes")
     if status["stale_or_conflicted_task_count"]:

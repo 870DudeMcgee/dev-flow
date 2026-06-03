@@ -2,7 +2,7 @@
 
 Dev-Flow is a local-first control room for parallel AI coding workers.
 
-Local checkout note: this workspace uses `DevFlow` as the repository folder name. Handoffs, setup notes, and local command examples should refer to the checkout as `DevFlow`.
+Local checkout note: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; docs, handoffs, and command examples should either use the actual local path in context or a neutral placeholder such as `<repo-root>`.
 
 It is not the coding intelligence itself. It is the operational layer around coding intelligence: task state, isolated workspaces, locks and ownership, status, logs, verification evidence, and human-controlled promotion.
 
@@ -31,7 +31,7 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 
 These transition commands are allowed only as read-only or manual planning aids until promoted into the stable contract. Experimental ones remain gated outside the default help surface, and none of them execute provider APIs or make autonomous routing decisions in the stable runtime.
 
-The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, autonomous scheduling/routing, and provider-backed worktree orchestration. An opt-in Git-native shell-worker isolation and promotion slice is available through `devflow task create --git-worktree`, documented in [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md). The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
+The current control-room MVP intentionally excludes enabled remote provider adapters, browser or web dashboards, database state, autonomous scheduling/routing, and provider-backed worktree orchestration. Hermes integration is documented as an external operator/chat gateway over existing supervisor-safe commands, not as a Dev-Flow runtime, in [docs/integrations/hermes-operator-layer.md](docs/integrations/hermes-operator-layer.md) and [docs/integrations/hermes-command-allowlist.md](docs/integrations/hermes-command-allowlist.md). An opt-in Git-native shell-worker isolation and promotion slice is available through `devflow task create --git-worktree`, documented in [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md). The future registries and adapter-runtime designs are documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md).
 
 ## Runtime Shape
 
@@ -300,6 +300,7 @@ src/devflow/_legacy/
 ```
 
 Do not add new product features under top-level compatibility shims or `_legacy/`.
+Do not restore quarantined local checkout material from `/Users/jewelbait/Desktop/DevFlow` into active authority unless it is intentionally rewritten as current source.
 
 ## Verification
 

@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-Local checkout: this repository is currently opened from the `DevFlow` folder. Future handoffs and local command examples should use `DevFlow` as the checkout folder name.
+Local checkout: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; future handoffs and command examples should use the actual path in context or a neutral placeholder such as `<repo-root>`.
 
 ## Current Direction
 
@@ -26,6 +26,7 @@ Active source of truth:
 
 
 Archive note: legacy software-factory archives are quarantined outside the active repository tree. Do not recreate or consult in-repo archive copies as process authority.
+Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop/DevFlow` into active authority unless the useful part is intentionally rewritten as current, non-archived source.
 
 ## Product Boundary
 

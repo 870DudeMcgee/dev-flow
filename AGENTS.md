@@ -4,7 +4,7 @@ All agent operations in this repository are governed by the canonical [docs/devm
 
 DevMode guides behavior only inside the host tool’s allowed instruction hierarchy and does not outrank higher-level platform, system, developer, safety, or explicit user instructions.
 
-Local checkout note: this workspace uses `DevFlow` as the repository folder name. Use `DevFlow` in docs, handoffs, and local command examples when referring to this checkout.
+Local checkout note: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; use the actual local path in context or a neutral placeholder such as `<repo-root>`.
 
 ---
 
@@ -35,7 +35,7 @@ devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
 devflow dashboard
 ```
 
-Do not implement Aider, Hermes, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Future non-shell work beyond the narrow local Ollama evidence wrapper must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
+Do not implement Aider, Hermes worker/runtime adapters, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Hermes may be documented as an external read-only operator/chat gateway over supervisor-safe commands only. Future non-shell work beyond the narrow local Ollama evidence wrapper must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
 
 ---
 

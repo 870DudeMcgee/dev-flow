@@ -447,7 +447,7 @@ Do not build these until the control room works:
 - complex autonomous planning
 - memory/vector database
 - direct Aider integration before registry/manual/shell alignment
-- direct Hermes integration before registry/manual/shell alignment
+- direct Hermes worker/runtime integration before registry/manual/shell alignment; external read-only operator guidance may consume supervisor-safe commands
 - direct OpenCode integration before registry/manual/shell alignment
 - direct Codex integration before registry/manual/shell alignment
 - multi-agent reasoning

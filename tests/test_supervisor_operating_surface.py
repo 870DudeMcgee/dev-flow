@@ -168,11 +168,15 @@ def test_task_state_commands_are_approval_required() -> None:
         assert classification["supervisor_may_auto_run"] is False
 
 
-def test_git_cleanup_dry_run_remains_pure_read_only() -> None:
-    classification = classify_supervisor_command("devflow task cleanup task-0001 --dry-run")
-    assert classification["safety_class"] == PURE_READ_ONLY
-    assert classification["requires_human_approval"] is False
-    assert classification["supervisor_may_auto_run"] is True
+def test_preview_and_dry_run_commands_remain_non_promoting_read_only() -> None:
+    for command in (
+        "devflow task cleanup task-0001 --dry-run",
+        "devflow task promote-preview task-0001",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == PURE_READ_ONLY
+        assert classification["requires_human_approval"] is False
+        assert classification["supervisor_may_auto_run"] is True
 
 
 def test_git_and_promotion_commands_are_approval_required_or_forbidden() -> None:
@@ -211,6 +215,10 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert payload["schema_version"] == 1
     assert payload["policy_id"] == "devflow-supervisor-policy"
     assert "devflow status --json" in payload["allowed_commands"]
+    assert "devflow dashboard --json" in payload["allowed_commands"]
+    assert "devflow supervisor policy --json" in payload["allowed_commands"]
+    assert "devflow supervisor packet --json" in payload["allowed_commands"]
+    assert "devflow task promote-preview" in payload["allowed_commands"]
     assert payload["allowed_commands"] == payload["pure_read_only"]
     for command in (
         "devflow task review-patch",
@@ -230,6 +238,13 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow task cleanup --dry-run" in payload["allowed_commands"]
     assert "devflow knowledge capture" in payload["approval_required_evidence_writing"]
     assert "any command not recognized by the supervisor policy" in payload["forbidden_for_supervisor"]
+    assert payload["operator_layer"]["hermes_role"] == "external operator/chat/scheduling layer"
+    assert payload["operator_layer"]["read_only_default"] is True
+    assert "task state" in payload["operator_layer"]["devflow_source_of_truth_for"]
+    assert "directly edit .devflow" in payload["operator_layer"]["must_not"]
+    assert "promotion" in payload["operator_layer"]["human_approval_required_for"]
+    assert payload["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
+    assert "/Users/jewelbait/Desktop/DevFlow" in payload["path_authority"]["prohibited_checkout_paths"]
 
 
 def test_task_next_action_json_covers_patch_gate_and_closed_states(tmp_path: Path, monkeypatch) -> None:
@@ -360,9 +375,16 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
     assert packet["schema_version"] == 1
     assert packet["project"]["repo_root"] == str(tmp_path)
+    assert packet["repo"]["root"] == str(tmp_path)
+    assert packet["counts"]["active_tasks"] == 3
+    assert packet["active_task_count"] == 3
+    assert packet["review_queue"] == packet["tasks_needing_review"]
     assert review_ready.id in [task["id"] for task in packet["tasks_needing_review"]]
     assert failed.id in [task["id"] for task in packet["tasks_blocked"]]
     assert packet["policy"]["policy_id"] == "devflow-supervisor-policy"
+    assert packet["policy_summary"]["hermes_role"] == "external operator/chat/scheduling layer"
+    assert packet["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
+    assert packet["next_safe_action"]
     assert "next_recommended_safe_actions" not in packet
     assert packet["next_recommended_actions"]
     review_action = next(
@@ -425,3 +447,38 @@ def test_git_native_promotion_ready_task_is_reported_without_mutating_refs(tmp_p
     packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
     assert packet["tasks_promotion_ready"][0]["id"] == "task-0001"
     assert ".devflow/tasks/task-0001/workers/shell/promotion-preview.json" in packet["evidence_paths"]
+
+
+def test_supervisor_safe_json_commands_parse_and_do_not_mutate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    create_task(tmp_path, "operator json")
+
+    for args in (
+        ["status", "--json"],
+        ["dashboard", "--json"],
+        ["supervisor", "policy", "--json"],
+        ["supervisor", "packet", "--json"],
+    ):
+        payload = _read_json(_invoke_read_only(tmp_path, list(args)))
+        if args[0] == "dashboard":
+            assert payload["project"]["root"] == str(tmp_path)
+            assert "tasks" in payload
+        else:
+            assert payload["schema_version"] == 1
+
+
+def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:
+    root = Path(__file__).resolve().parents[1]
+    docs = [
+        root / "README.md",
+        root / "AGENTS.md",
+        root / "docs" / "agent-handoff.md",
+        root / "docs" / "integrations" / "hermes-operator-layer.md",
+        root / "docs" / "integrations" / "hermes-command-allowlist.md",
+        root / "skills" / "hermes" / "devflow" / "SKILL.md",
+    ]
+    for path in docs:
+        body = path.read_text(encoding="utf-8")
+        assert "/Users/jewelbait/Desktop/Local AI Dev Team" in body
+        assert "/Users/jewelbait/Desktop/DevFlow" in body
+        assert "quarantined" in body or "Prohibited old checkout" in body or "Forbidden" in body

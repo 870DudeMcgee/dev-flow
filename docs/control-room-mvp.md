@@ -122,7 +122,7 @@ The legacy local Ollama advisory form is `devflow task local <task_id> --agent q
 Do not implement these in the first milestone:
 
 - Aider
-- Hermes
+- Hermes worker/runtime adapter (external operator gateway docs are allowed)
 - OpenCode
 - memory
 - complex scheduling
