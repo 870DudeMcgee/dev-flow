@@ -10,7 +10,7 @@ from devflow.control_room.openai_compatible_worker import OpenAICompatibleWorker
 from devflow.control_room.anthropic_worker import AnthropicMessagesWorkerAdapter
 from devflow.control_room.gemini_worker import GeminiWorkerAdapter
 from devflow.control_room.openai_chat_worker import OpenAIChatWorkerAdapter
-from devflow.control_room.agent_registry import load_agent_registry, load_provider_registry, is_local_patch_runtime_agent
+from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
 
 
 def test_remote_adapters_cannot_execute_by_default() -> None:
@@ -18,6 +18,48 @@ def test_remote_adapters_cannot_execute_by_default() -> None:
     for name in ["openai_compatible", "anthropic_messages", "gemini", "openai_chat"]:
         with pytest.raises(UnsupportedWorkerAdapter, match="planned_not_executable|experimental_readonly"):
             get_worker_adapter(name)
+
+
+def test_remote_adapter_agent_cannot_execute_through_worker_lookup() -> None:
+    agent = AgentDefinition(
+        id="remote-worker",
+        provider="openai",
+        model="gpt-4o",
+        adapter="openai_chat",
+        role="implementation_worker",
+        tier="frontier",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        can_run_shell=False,
+        can_use_network=True,
+        can_promote=False,
+        enabled=True,
+    )
+    provider = ProviderDefinition(
+        id="openai",
+        provider="openai",
+        adapter="openai_chat",
+        api_key_env="OPENAI_API_KEY",
+        enabled=True,
+    )
+
+    with pytest.raises(UnsupportedWorkerAdapter, match="agent 'remote-worker'.*experimental_readonly"):
+        get_worker_adapter("openai_chat", agent=agent, provider=provider)
+
+
+def test_provider_patch_evidence_behavior_is_centralized() -> None:
+    provider_modules = [
+        Path("src/devflow/control_room/openai_compatible_worker.py"),
+        Path("src/devflow/control_room/openai_chat_worker.py"),
+        Path("src/devflow/control_room/anthropic_worker.py"),
+        Path("src/devflow/control_room/gemini_worker.py"),
+    ]
+    for module_path in provider_modules:
+        source = module_path.read_text(encoding="utf-8")
+        assert "run_provider_patch_worker" in source
+        assert "proposal.patch" not in source
+        assert "raw_output.md" not in source
 
 
 def test_openai_compatible_fails_closed_when_key_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
