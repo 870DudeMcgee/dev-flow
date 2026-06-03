@@ -1786,8 +1786,16 @@ def task_promote(
 
         task = get_task(Path.cwd(), task_id)
         task_path = Path.cwd() / ".devflow" / "tasks" / task.id
-        if promotion_readiness_errors(task, task_path):
-            typer.echo(format_promotion_refusal(task, task_path), err=True)
+        readiness_errors = promotion_readiness_errors(
+            task,
+            task_path,
+            allow_stale_baseline=force_stale_baseline,
+        )
+        if readiness_errors:
+            typer.echo(
+                format_promotion_refusal(task, task_path, allow_stale_baseline=force_stale_baseline),
+                err=True,
+            )
             raise typer.Exit(code=1)
 
         baseline = promotion_baseline(Path.cwd(), task)

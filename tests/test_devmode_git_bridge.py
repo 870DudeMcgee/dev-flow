@@ -185,6 +185,43 @@ def test_promote_preview_detects_origin_main_stale_task_base() -> None:
             os.chdir(old_cwd)
 
 
+def test_force_stale_baseline_allows_clean_git_task_after_origin_main_advanced() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            base = Path(tmp)
+            work, origin = _init_repo_with_origin(base)
+            os.chdir(work)
+            created = runner.invoke(app, ["task", "create", "--git-worktree", "clean stale origin"])
+            assert created.exit_code == 0, created.output
+            _advance_origin(base, origin)
+            _run_git(work, "fetch", "origin")
+            _run_git(work, "merge", "--ff-only", "origin/main")
+
+            worktree = work / ".devflow/worktrees/task-0001/shell"
+            (worktree / "worker.txt").write_text("worker result\n", encoding="utf-8")
+            _run_git(worktree, "add", "worker.txt")
+            _run_git(worktree, "commit", "-m", "worker result")
+            _run_git(worktree, "merge", "--no-edit", "main")
+
+            verified = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f worker.txt"])
+            assert verified.exit_code == 0, verified.output
+
+            preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert preview.exit_code == 0, preview.output
+            assert "origin_baseline_stale: yes" in preview.output
+            assert "conflict_prediction: clean" in preview.output
+            assert "promotion_readiness: not_ready" in preview.output
+
+            promoted = runner.invoke(app, ["task", "promote", "task-0001", "--force-stale-baseline"], input="y\n")
+            assert promoted.exit_code == 0, promoted.output
+            assert "Warning: Forcing promotion with stale task baseline." in promoted.output
+            assert "Promotion complete." in promoted.output
+            assert (work / "worker.txt").read_text(encoding="utf-8") == "worker result\n"
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_promote_stops_on_conflict_and_writes_report() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:

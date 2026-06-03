@@ -194,8 +194,13 @@ def promote_task(
         raise ValueError(f"Refusing promotion: Git {git_state.operation_in_progress} is in progress.")
     task = get_task(root, task_id)
     task_path = task_dir(root, task_id)
-    if promotion_readiness_errors(task, task_path):
-        raise ValueError(format_promotion_refusal(task, task_path))
+    readiness_errors = promotion_readiness_errors(
+        task,
+        task_path,
+        allow_stale_baseline=force_stale_baseline,
+    )
+    if readiness_errors:
+        raise ValueError(format_promotion_refusal(task, task_path, allow_stale_baseline=force_stale_baseline))
 
     baseline = promotion_baseline(root, task)
     if baseline["baseline_status"] == "unavailable":
