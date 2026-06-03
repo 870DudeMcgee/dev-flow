@@ -8,6 +8,15 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.service import create_task
+from devflow.control_room.supervisor_surface import (
+    APPROVAL_REQUIRED_EVIDENCE_WRITING,
+    APPROVAL_REQUIRED_GIT,
+    APPROVAL_REQUIRED_TASK_STATE,
+    APPROVAL_REQUIRED_WORKER_RUNTIME,
+    FORBIDDEN_FOR_SUPERVISOR,
+    PURE_READ_ONLY,
+    classify_supervisor_command,
+)
 
 
 runner = CliRunner()
@@ -115,6 +124,75 @@ def _write_local_run(root: Path, task_id: str, *, review: bool = False, dry_run:
     return run_dir
 
 
+def test_evidence_writing_commands_are_not_pure_read_only() -> None:
+    for command in (
+        "devflow task review-patch task-0001",
+        "devflow task patch-dry-run task-0001",
+        "devflow task packet task-0001 --save",
+        "devflow knowledge capture --from-task task-0001",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+        assert classification["requires_human_approval"] is True
+        assert classification["supervisor_may_auto_run"] is False
+        assert classification["why_not_auto_runnable"]
+
+
+def test_worker_runtime_commands_are_approval_required() -> None:
+    for command in (
+        "devflow task run task-0001 --worker shell -- pytest",
+        "devflow task local task-0001 --agent qwen-planner",
+        "devflow task local-review task-0001",
+        "devflow task verify task-0001 --shell pytest",
+        "devflow supervise --once",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+        assert classification["requires_human_approval"] is True
+        assert classification["supervisor_may_auto_run"] is False
+
+
+def test_task_state_commands_are_approval_required() -> None:
+    for command in (
+        "devflow task create example",
+        "devflow task close task-0001 --outcome duplicate --reason covered",
+        "devflow task finalize task-0001",
+        "devflow task cleanup task-0001 --apply",
+        "devflow task apply-patch task-0001",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+        assert classification["requires_human_approval"] is True
+        assert classification["supervisor_may_auto_run"] is False
+
+
+def test_git_and_promotion_commands_are_approval_required_or_forbidden() -> None:
+    for command in (
+        "devflow task promote task-0001",
+        "devflow push-main",
+        "devflow sync-main",
+        "devflow branch archive devflow/task-0001",
+        "devflow worktree prune --apply",
+        "devflow task finalize task-0001 --commit",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == APPROVAL_REQUIRED_GIT
+        assert classification["requires_human_approval"] is True
+        assert classification["supervisor_may_auto_run"] is False
+
+    direct_git = classify_supervisor_command("git commit -am unsafe")
+    assert direct_git["safety_class"] == FORBIDDEN_FOR_SUPERVISOR
+    assert direct_git["supervisor_may_auto_run"] is False
+
+
+def test_unknown_commands_default_to_forbidden_for_supervisor() -> None:
+    classification = classify_supervisor_command("devflow task teleport task-0001")
+    assert classification["safety_class"] == FORBIDDEN_FOR_SUPERVISOR
+    assert classification["requires_human_approval"] is True
+    assert classification["supervisor_may_auto_run"] is False
+    assert classification["why_not_auto_runnable"]
+
+
 def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     create_task(tmp_path, "policy context")
@@ -124,8 +202,22 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert payload["schema_version"] == 1
     assert payload["policy_id"] == "devflow-supervisor-policy"
     assert "devflow status --json" in payload["allowed_commands"]
+    assert payload["allowed_commands"] == payload["pure_read_only"]
+    for command in (
+        "devflow task review-patch",
+        "devflow task patch-dry-run",
+        "devflow task verify",
+        "devflow task create",
+        "devflow knowledge capture",
+    ):
+        assert command not in payload["allowed_commands"]
     assert "devflow task apply-patch" in payload["commands_requiring_human_approval"]
-    assert "promoting without human approval" in payload["forbidden_actions"]
+    assert "devflow task review-patch" in payload["approval_required_evidence_writing"]
+    assert "devflow task patch-dry-run" in payload["approval_required_evidence_writing"]
+    assert "devflow task verify" in payload["approval_required_worker_runtime"]
+    assert "devflow task create" in payload["approval_required_task_state"]
+    assert "devflow knowledge capture" in payload["approval_required_evidence_writing"]
+    assert "any command not recognized by the supervisor policy" in payload["forbidden_for_supervisor"]
 
 
 def test_task_next_action_json_covers_patch_gate_and_closed_states(tmp_path: Path, monkeypatch) -> None:
@@ -133,25 +225,44 @@ def test_task_next_action_json_covers_patch_gate_and_closed_states(tmp_path: Pat
 
     no_evidence = create_task(tmp_path, "empty active task")
     payload = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", no_evidence.id, "--json"]))
-    assert payload["next_safe_action"] == "run worker or provide patch evidence"
+    assert payload["next_safe_action"] == (
+        f"request human approval before running devflow task run {no_evidence.id} --worker shell -- <command>"
+    )
+    assert payload["recommended_action"] == "run worker or provide patch evidence"
+    assert payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+    assert payload["requires_human_approval"] is True
+    assert payload["why_not_auto_runnable"]
     assert payload["confidence"] == "high"
 
     proposal_task = create_task(tmp_path, "proposal without review")
     _write_qwopus_patch(tmp_path, proposal_task.id)
     payload = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", proposal_task.id, "--json"]))
-    assert payload["next_safe_action"] == f"run devflow task review-patch {proposal_task.id} --agent qwopus-implementer"
-    assert payload["requires_human_approval"] is False
+    review_command = f"devflow task review-patch {proposal_task.id} --agent qwopus-implementer"
+    assert payload["next_safe_action"] == f"request human approval before running {review_command}"
+    assert payload["recommended_action"] == f"run {review_command}"
+    assert payload["recommended_command"] == review_command
+    assert payload["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+    assert payload["requires_human_approval"] is True
+    assert review_command not in payload["allowed_commands"]
+    assert review_command in payload["commands_requiring_human_approval"]
+    assert payload["why_not_auto_runnable"]
     assert "proposal.patch" in " ".join(payload["evidence_considered"])
 
     reviewed_task = create_task(tmp_path, "reviewed without dry-run")
     _write_local_run(tmp_path, reviewed_task.id, review=True)
     payload = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", reviewed_task.id, "--json"]))
-    assert payload["next_safe_action"] == f"run devflow task patch-dry-run {reviewed_task.id}"
+    dry_run_command = f"devflow task patch-dry-run {reviewed_task.id}"
+    assert payload["next_safe_action"] == f"request human approval before running {dry_run_command}"
+    assert payload["recommended_command"] == dry_run_command
+    assert payload["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+    assert payload["requires_human_approval"] is True
 
     dry_run_task = create_task(tmp_path, "dry-run ready")
     _write_local_run(tmp_path, dry_run_task.id, review=True, dry_run=True)
     payload = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", dry_run_task.id, "--json"]))
-    assert payload["next_safe_action"] == f"human approval required before devflow task apply-patch {dry_run_task.id}"
+    assert payload["next_safe_action"] == f"request human approval before running devflow task apply-patch {dry_run_task.id}"
+    assert payload["recommended_action"] == f"human approval required before devflow task apply-patch {dry_run_task.id}"
+    assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
     assert payload["requires_human_approval"] is True
 
     failed = create_task(tmp_path, "verification failed")
@@ -161,6 +272,9 @@ def test_task_next_action_json_covers_patch_gate_and_closed_states(tmp_path: Pat
     assert verify_failed.exit_code == 3, verify_failed.output
     payload = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", failed.id, "--json"]))
     assert payload["next_safe_action"] == "inspect verification evidence and fix task branch/workspace"
+    assert payload["safety_class"] == PURE_READ_ONLY
+    assert payload["requires_human_approval"] is False
+    assert f"devflow task review {failed.id}" in payload["allowed_commands"]
     assert payload["confidence"] == "high"
 
     closed = create_task(tmp_path, "closed rejected")
@@ -168,6 +282,7 @@ def test_task_next_action_json_covers_patch_gate_and_closed_states(tmp_path: Pat
     assert close_result.exit_code == 0, close_result.output
     payload = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", closed.id, "--json"]))
     assert payload["next_safe_action"] == "no action; task is closed or non-promotable"
+    assert payload["safety_class"] == PURE_READ_ONLY
     assert payload["allowed_commands"] == []
 
 
@@ -189,11 +304,18 @@ def test_task_review_json_cites_evidence_paths_and_tolerates_missing_artifacts(t
     assert payload["promotion_preview"]["status"] == "unknown"
     assert f".devflow/tasks/{task.id}/task.yaml" in payload["evidence_paths"]
     assert f".devflow/tasks/{task.id}/agents/qwopus-implementer/proposal.patch" in payload["evidence_paths"]
-    assert payload["next_action"]["next_safe_action"] == f"run devflow task patch-dry-run {task.id}"
+    assert payload["next_action"]["next_safe_action"] == (
+        f"request human approval before running devflow task patch-dry-run {task.id}"
+    )
+    assert payload["next_action"]["recommended_command"] == f"devflow task patch-dry-run {task.id}"
+    assert payload["next_action"]["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+    assert payload["commands_safe_to_run"] == []
+    assert f"devflow task patch-dry-run {task.id}" in payload["commands_requiring_human_approval"]
 
     human = _invoke_read_only(tmp_path, ["task", "review", task.id])
     assert "Forbidden/bypass actions" in human.output
     assert "Evidence paths" in human.output
+    assert "Commands safe to run" in human.output
 
 
 def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: Path, monkeypatch) -> None:
@@ -217,7 +339,9 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     assert status["review_ready_task_count"] == 1
     assert status["verification_failed_task_count"] == 1
     by_id = {task["id"]: task for task in status["tasks"]}
-    assert by_id[active.id]["next_safe_action"] == "run worker or provide patch evidence"
+    assert by_id[active.id]["recommended_action"] == "run worker or provide patch evidence"
+    assert by_id[active.id]["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+    assert by_id[active.id]["requires_human_approval"] is True
     assert by_id[review_ready.id]["has_proposal_patch"] is True
     assert by_id[failed.id]["verification_status"] == "failed"
 
@@ -227,7 +351,17 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     assert review_ready.id in [task["id"] for task in packet["tasks_needing_review"]]
     assert failed.id in [task["id"] for task in packet["tasks_blocked"]]
     assert packet["policy"]["policy_id"] == "devflow-supervisor-policy"
-    assert packet["next_recommended_safe_actions"]
+    assert "next_recommended_safe_actions" not in packet
+    assert packet["next_recommended_actions"]
+    review_action = next(
+        action
+        for action in packet["next_recommended_actions"]
+        if action["recommended_command"] == f"devflow task review-patch {review_ready.id} --agent qwopus-implementer"
+    )
+    assert review_action["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+    assert review_action["requires_human_approval"] is True
+    assert review_action["why_not_auto_runnable"]
+    assert review_action["allowed_commands"] == []
 
 
 def test_git_native_promotion_ready_task_is_reported_without_mutating_refs(tmp_path: Path, monkeypatch) -> None:
@@ -262,13 +396,18 @@ def test_git_native_promotion_ready_task_is_reported_without_mutating_refs(tmp_p
     assert preview.exit_code == 0, preview.output
 
     next_action = _read_json(_invoke_read_only(tmp_path, ["task", "next-action", "task-0001", "--json"]))
-    assert next_action["next_safe_action"] == "human approval required before devflow task promote task-0001"
+    assert next_action["next_safe_action"] == "request human approval before running devflow task promote task-0001"
+    assert next_action["recommended_action"] == "human approval required before devflow task promote task-0001"
+    assert next_action["recommended_command"] == "devflow task promote task-0001"
+    assert next_action["safety_class"] == APPROVAL_REQUIRED_GIT
     assert next_action["requires_human_approval"] is True
 
     status = _read_json(_invoke_read_only(tmp_path, ["status", "--json"]))
     task_record = status["tasks"][0]
     assert task_record["mode"] == "git-worktree"
     assert task_record["promotion_readiness"] == "ready"
+    assert task_record["safety_class"] == APPROVAL_REQUIRED_GIT
+    assert task_record["requires_human_approval"] is True
     assert task_record["commands_requiring_human_approval"] == ["devflow task promote task-0001"]
 
     packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))

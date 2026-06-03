@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -20,59 +21,250 @@ SUPERVISOR_SCHEMA_VERSION = 1
 ACCEPTABLE_PATCH_REVIEW_STATUSES = {"low_risk_candidate", "review_required"}
 ACCEPTABLE_PATCH_DRY_RUN_STATUSES = {"would_apply_cleanly", "would_create_files", "would_modify_with_warnings"}
 NON_PROMOTABLE_CLOSE_OUTCOMES = {"rejected", "duplicate", "evidence-only", "evidence_only"}
+PURE_READ_ONLY = "pure_read_only"
+APPROVAL_REQUIRED_EVIDENCE_WRITING = "approval_required_evidence_writing"
+APPROVAL_REQUIRED_TASK_STATE = "approval_required_task_state"
+APPROVAL_REQUIRED_WORKER_RUNTIME = "approval_required_worker_runtime"
+APPROVAL_REQUIRED_GIT = "approval_required_git"
+FORBIDDEN_FOR_SUPERVISOR = "forbidden_for_supervisor"
+
+PURE_READ_ONLY_COMMANDS = [
+    "devflow doctor",
+    "devflow doctor --strict",
+    "devflow reconcile",
+    "devflow dashboard",
+    "devflow status --json",
+    "devflow next",
+    "devflow supervisor policy",
+    "devflow supervisor packet",
+    "devflow git status",
+    "devflow task list",
+    "devflow task show",
+    "devflow task review",
+    "devflow task next-action",
+    "devflow task log",
+    "devflow task history",
+    "devflow task capsule",
+    "devflow task packet",
+    "devflow task cleanup --preview",
+    "devflow task cleanup --dry-run",
+    "devflow worktree list",
+    "devflow worktree prune",
+    "devflow branch list",
+    "devflow agent show",
+    "devflow agent packet",
+    "devflow knowledge list",
+    "devflow knowledge show",
+    "devflow knowledge search",
+    "devflow dogfood list",
+    "devflow dogfood show",
+]
+
+APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
+    "devflow task review-patch",
+    "devflow task patch-dry-run",
+    "devflow task packet --save",
+    "devflow task normalize-proposal",
+    "devflow task orchestrate --plan-only",
+    "devflow task escalation-packet",
+    "devflow task promote-preview",
+    "devflow task capsule --export-md",
+    "devflow worker validate-outcome",
+    "devflow knowledge capture",
+]
+
+APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
+    "devflow init",
+    "devflow task create",
+    "devflow task close",
+    "devflow task finalize",
+    "devflow task cleanup --apply",
+    "devflow task apply-patch",
+    "devflow knowledge promote",
+    "devflow knowledge reject",
+]
+
+APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS = [
+    "devflow supervise",
+    "devflow task run",
+    "devflow task local",
+    "devflow task local-review",
+    "devflow task verify",
+    "devflow dogfood run",
+]
+
+APPROVAL_REQUIRED_GIT_COMMANDS = [
+    "devflow sync-main",
+    "devflow push-main",
+    "devflow task promote",
+    "devflow task finalize --commit",
+    "devflow worktree prune --apply",
+    "devflow branch archive",
+]
+
+FORBIDDEN_SUPERVISOR_ACTIONS = [
+    "direct source edits outside a Dev-Flow task workspace/worktree",
+    "direct edits to .devflow state files",
+    "direct edits to the main checkout",
+    "direct mutation of task.yaml/events.jsonl/verification.json by hand",
+    "direct git mutation outside Dev-Flow commands",
+    "bypassing patch review or dry-run",
+    "bypassing verification",
+    "bypassing approval gates",
+    "promoting without human approval",
+    "running hidden background schedulers against Dev-Flow",
+    "creating a second source of truth",
+    "storing canonical state outside .devflow",
+    "autonomous provider routing",
+    "remote provider execution unless explicitly promoted into the stable contract",
+    "any command not recognized by the supervisor policy",
+]
+
+SAFETY_CLASS_REASONS = {
+    PURE_READ_ONLY: "command renders existing state only and must not write artifacts, logs, Git state, or source files",
+    APPROVAL_REQUIRED_EVIDENCE_WRITING: "command writes derived evidence, packets, reviews, dry-runs, knowledge, or logs",
+    APPROVAL_REQUIRED_TASK_STATE: "command creates, closes, finalizes, cleans up, applies patches, or changes Dev-Flow state",
+    APPROVAL_REQUIRED_WORKER_RUNTIME: "command runs workers, local agents, verification, tests, model calls, or supervisor loops",
+    APPROVAL_REQUIRED_GIT: "command can affect branches, commits, pushes, promotion, archives, worktrees, merge state, or main",
+    FORBIDDEN_FOR_SUPERVISOR: "command is not recognized by the supervisor policy or bypasses Dev-Flow approval/safety gates",
+}
 
 
 def build_supervisor_policy() -> dict[str, Any]:
+    commands_requiring_human_approval = (
+        APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS
+        + APPROVAL_REQUIRED_TASK_STATE_COMMANDS
+        + APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS
+        + APPROVAL_REQUIRED_GIT_COMMANDS
+    )
     return {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
         "policy_id": "devflow-supervisor-policy",
-        "allowed_commands": [
-            "devflow doctor",
-            "devflow reconcile",
-            "devflow dashboard",
-            "devflow status --json",
-            "devflow task list",
-            "devflow task show",
-            "devflow task review",
-            "devflow task next-action",
-            "devflow task log",
-            "devflow task review-patch",
-            "devflow task patch-dry-run",
-            "devflow task verify",
-            "devflow task promote-preview",
-            "devflow worktree list",
-            "devflow branch list",
-            "devflow knowledge list",
-            "devflow knowledge show",
-            "devflow knowledge search",
-            "devflow task create",
-            "devflow knowledge capture",
-        ],
-        "commands_requiring_human_approval": [
-            "devflow task apply-patch",
-            "devflow task promote",
-            "devflow task finalize --commit",
-            "devflow task cleanup --apply",
-            "devflow worktree prune without dry-run",
-            "devflow branch archive without dry-run",
-            "git push",
-            "any command that mutates main",
-            "any command that deletes runtime artifacts",
-        ],
-        "forbidden_actions": [
-            "direct source edits outside a Dev-Flow task workspace/worktree",
-            "direct mutation of task.yaml/events.jsonl/verification.json by hand",
-            "bypassing patch review or dry-run",
-            "bypassing verification",
-            "promoting without human approval",
-            "running hidden background schedulers against Dev-Flow",
-            "creating a second source of truth",
-            "storing canonical state outside .devflow",
-            "autonomous provider routing",
-            "remote provider execution unless explicitly promoted into the stable contract",
-            "direct git merge/push outside Dev-Flow promotion commands unless the human explicitly overrides",
-        ],
+        "pure_read_only": PURE_READ_ONLY_COMMANDS,
+        "allowed_commands": PURE_READ_ONLY_COMMANDS,
+        "approval_required_evidence_writing": APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS,
+        "approval_required_task_state": APPROVAL_REQUIRED_TASK_STATE_COMMANDS,
+        "approval_required_worker_runtime": APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS,
+        "approval_required_git": APPROVAL_REQUIRED_GIT_COMMANDS,
+        "approval_required_commands_by_class": {
+            APPROVAL_REQUIRED_EVIDENCE_WRITING: APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS,
+            APPROVAL_REQUIRED_TASK_STATE: APPROVAL_REQUIRED_TASK_STATE_COMMANDS,
+            APPROVAL_REQUIRED_WORKER_RUNTIME: APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS,
+            APPROVAL_REQUIRED_GIT: APPROVAL_REQUIRED_GIT_COMMANDS,
+        },
+        "commands_requiring_human_approval": commands_requiring_human_approval,
+        "forbidden_for_supervisor": FORBIDDEN_SUPERVISOR_ACTIONS,
+        "forbidden_actions": FORBIDDEN_SUPERVISOR_ACTIONS,
+        "unrecognized_command_default": FORBIDDEN_FOR_SUPERVISOR,
+        "safety_class_reasons": SAFETY_CLASS_REASONS,
     }
+
+
+def classify_supervisor_command(command: str) -> dict[str, Any]:
+    safety_class = _classify_supervisor_command(command)
+    why_not_auto_runnable = None if safety_class == PURE_READ_ONLY else SAFETY_CLASS_REASONS[safety_class]
+    return {
+        "command": command,
+        "safety_class": safety_class,
+        "requires_human_approval": safety_class != PURE_READ_ONLY,
+        "supervisor_may_auto_run": safety_class == PURE_READ_ONLY,
+        "why_not_auto_runnable": why_not_auto_runnable,
+    }
+
+
+def _classify_supervisor_command(command: str) -> str:
+    tokens = _command_tokens(command)
+    if not tokens:
+        return FORBIDDEN_FOR_SUPERVISOR
+    if tokens[0] == "run":
+        tokens = tokens[1:]
+    if not tokens:
+        return FORBIDDEN_FOR_SUPERVISOR
+    if "--help" in tokens or "-h" in tokens:
+        return PURE_READ_ONLY
+    if len(tokens) >= 4 and tokens[1:3] == ["-m", "devflow.cli"]:
+        tokens = ["devflow", *tokens[3:]]
+    if tokens[0] != "devflow":
+        return FORBIDDEN_FOR_SUPERVISOR
+    if len(tokens) == 1:
+        return PURE_READ_ONLY
+
+    command_group = tokens[1]
+    subcommand = tokens[2] if len(tokens) > 2 else ""
+
+    if command_group in {"doctor", "reconcile", "dashboard", "status", "next"}:
+        return PURE_READ_ONLY
+    if command_group in {"sync-main", "push-main"}:
+        return APPROVAL_REQUIRED_GIT
+    if command_group == "init":
+        return APPROVAL_REQUIRED_TASK_STATE
+    if command_group == "supervise":
+        return APPROVAL_REQUIRED_WORKER_RUNTIME
+    if command_group == "supervisor":
+        return PURE_READ_ONLY if subcommand in {"policy", "packet"} else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "git":
+        return PURE_READ_ONLY if subcommand == "status" else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "agent":
+        return PURE_READ_ONLY if subcommand in {"show", "packet"} else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "worker":
+        return APPROVAL_REQUIRED_EVIDENCE_WRITING if subcommand == "validate-outcome" else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "knowledge":
+        if subcommand in {"list", "show", "search"}:
+            return PURE_READ_ONLY
+        if subcommand == "capture":
+            return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        if subcommand in {"promote", "reject"}:
+            return APPROVAL_REQUIRED_TASK_STATE
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "dogfood":
+        if subcommand in {"list", "show"}:
+            return PURE_READ_ONLY
+        if subcommand == "run":
+            return APPROVAL_REQUIRED_WORKER_RUNTIME
+        if subcommand in {"score", "report"}:
+            return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "worktree":
+        if subcommand == "list":
+            return PURE_READ_ONLY
+        if subcommand == "prune":
+            return APPROVAL_REQUIRED_GIT if "--apply" in tokens else PURE_READ_ONLY
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "branch":
+        if subcommand == "list":
+            return PURE_READ_ONLY
+        if subcommand == "archive":
+            return APPROVAL_REQUIRED_GIT
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group != "task":
+        return FORBIDDEN_FOR_SUPERVISOR
+
+    if subcommand in {"list", "show", "review", "next-action", "log", "history", "evidence", "open"}:
+        return PURE_READ_ONLY
+    if subcommand == "capsule":
+        return APPROVAL_REQUIRED_EVIDENCE_WRITING if "--export-md" in tokens else PURE_READ_ONLY
+    if subcommand == "packet":
+        return APPROVAL_REQUIRED_EVIDENCE_WRITING if "--save" in tokens else PURE_READ_ONLY
+    if subcommand == "cleanup":
+        return APPROVAL_REQUIRED_TASK_STATE if "--apply" in tokens else PURE_READ_ONLY
+    if subcommand in {"review-patch", "patch-dry-run", "normalize-proposal", "orchestrate", "escalation-packet", "promote-preview"}:
+        return APPROVAL_REQUIRED_EVIDENCE_WRITING
+    if subcommand in {"create", "close", "finalize", "apply-patch"}:
+        if subcommand == "finalize" and "--commit" in tokens:
+            return APPROVAL_REQUIRED_GIT
+        return APPROVAL_REQUIRED_TASK_STATE
+    if subcommand in {"run", "local", "local-review", "verify"}:
+        return APPROVAL_REQUIRED_WORKER_RUNTIME
+    if subcommand == "promote":
+        return APPROVAL_REQUIRED_GIT
+    return FORBIDDEN_FOR_SUPERVISOR
+
+
+def _command_tokens(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return []
 
 
 def render_supervisor_policy(*, json_output: bool) -> str:
@@ -110,9 +302,14 @@ def render_task_next_action(root: Path, task_id: str, *, json_output: bool) -> s
         f"task: {task_id}",
         f"status: {action['status']}",
         f"next_safe_action: {action['next_safe_action']}",
+        f"recommended_action: {action['recommended_action']}",
+        f"recommended_command: {action['recommended_command'] or 'none'}",
+        f"safety_class: {action['safety_class']}",
         f"reason: {action['reason']}",
         f"requires_human_approval: {'yes' if action['requires_human_approval'] else 'no'}",
     ]
+    if action["why_not_auto_runnable"]:
+        lines.append(f"why_not_auto_runnable: {action['why_not_auto_runnable']}")
     if action["allowed_commands"]:
         lines.append("allowed_commands:")
         lines.extend(f"  - {command}" for command in action["allowed_commands"])
@@ -254,7 +451,11 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
     task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
     active_tasks = [record for record in task_records if record["active"]]
     closed_tasks = [record for record in task_records if record["status"] == "closed"]
-    review_ready = [record for record in task_records if record["next_safe_action"].startswith("run devflow task review-patch")]
+    review_ready = [
+        record
+        for record in task_records
+        if str(record["recommended_command"] or "").startswith("devflow task review-patch")
+    ]
     failed_verification = [
         record
         for record in task_records
@@ -293,7 +494,11 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         _compact_task_record(root, projection.task, projection, include_evidence_paths=True)
         for projection in list_task_status_projections(root)
     ]
-    needing_review = [task for task in tasks if task["next_safe_action"].startswith("run devflow task review-patch")]
+    needing_review = [
+        task
+        for task in tasks
+        if str(task["recommended_command"] or "").startswith("devflow task review-patch")
+    ]
     blocked = [
         task
         for task in tasks
@@ -312,10 +517,11 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         "tasks_needing_review": needing_review,
         "tasks_blocked": blocked,
         "tasks_promotion_ready": promotion_ready,
-        "next_recommended_safe_actions": _packet_next_actions(tasks),
+        "next_recommended_actions": _packet_next_actions(tasks),
         "policy": {
             "schema_version": policy["schema_version"],
             "policy_id": policy["policy_id"],
+            "pure_read_only": policy["pure_read_only"],
             "allowed_commands": policy["allowed_commands"],
         },
         "commands_requiring_human_approval": policy["commands_requiring_human_approval"],
@@ -336,11 +542,14 @@ def render_supervisor_packet(root: Path, *, json_output: bool) -> str:
         f"current_branch: {packet['project']['current_branch'] or 'unknown'}",
         f"git_cleanliness: {packet['project']['git_cleanliness'] or 'unknown'}",
         "",
-        "Next recommended safe actions",
+        "Next recommended actions",
     ]
-    if packet["next_recommended_safe_actions"]:
-        for action in packet["next_recommended_safe_actions"]:
-            lines.append(f"- {action['task_id']}: {action['next_safe_action']}")
+    if packet["next_recommended_actions"]:
+        for action in packet["next_recommended_actions"]:
+            suffix = ""
+            if action["requires_human_approval"]:
+                suffix = f" ({action['safety_class']}; human approval required)"
+            lines.append(f"- {action['task_id']}: {action['next_safe_action']}{suffix}")
     else:
         lines.append("- None")
     lines.append("")
@@ -380,7 +589,14 @@ def _compact_task_record(
         "blocked_reason": blocked_reason,
         "stale_or_conflicted": evidence["stale_or_conflicted"],
         "next_safe_action": next_action["next_safe_action"],
+        "recommended_action": next_action["recommended_action"],
+        "recommended_command": next_action["recommended_command"],
+        "safety_class": next_action["safety_class"],
+        "requires_human_approval": next_action["requires_human_approval"],
+        "why_not_auto_runnable": next_action["why_not_auto_runnable"],
+        "allowed_commands": next_action["allowed_commands"],
         "commands_requiring_human_approval": next_action["commands_requiring_human_approval"],
+        "approval_required_commands": next_action["approval_required_commands"],
     }
     if include_evidence_paths:
         record["evidence_paths"] = evidence["evidence_paths"]
@@ -423,16 +639,18 @@ def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence:
             False,
             "high",
             unknowns,
+            recommended_command=f"devflow task review {task_id}",
         )
     if evidence["stale_or_conflicted"]:
         return _action(
             "refresh/rebase/resolve according to existing Git-native promotion mechanics",
             "promotion evidence reports a stale baseline or possible conflict",
-            [f"devflow task review {task_id}", f"devflow task promote-preview {task_id}"],
-            [],
+            [f"devflow task review {task_id}"],
+            [f"devflow task promote-preview {task_id}"],
             False,
             "medium",
             unknowns,
+            recommended_command=f"devflow task promote-preview {task_id}",
         )
     if _promotion_preview_ready(evidence):
         return _action(
@@ -443,26 +661,29 @@ def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence:
             True,
             "high",
             unknowns,
+            recommended_command=f"devflow task promote {task_id}",
         )
     if (task.status == "verified" or projection.verification_status == "passed") and evidence["promotion_preview_status"] == "unknown":
         return _action(
             f"run devflow task promote-preview {task_id}",
             "verification passed and no promotion preview evidence is available",
-            [f"devflow task promote-preview {task_id}"],
             [],
+            [f"devflow task promote-preview {task_id}"],
             False,
             "high",
             unknowns,
+            recommended_command=f"devflow task promote-preview {task_id}",
         )
     if evidence["patch_application"] and projection.verification_status != "passed":
         return _action(
             f"run devflow task verify {task_id}",
             "patch has been applied to the isolated workspace but verification has not passed",
-            [f"devflow task verify {task_id} --shell \"<command>\""],
             [],
+            [f"devflow task verify {task_id} --shell \"<command>\""],
             False,
             "high",
             unknowns,
+            recommended_command=f"devflow task verify {task_id} --shell \"<command>\"",
         )
     if evidence["has_proposal_patch"] and not evidence["patch_application"]:
         review_status = _patch_review_status(evidence)
@@ -471,22 +692,25 @@ def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence:
             return _action(
                 f"run {command}",
                 "proposal.patch exists but acceptable patch-review evidence is missing",
-                [command],
                 [],
+                [command],
                 False,
                 "high",
                 unknowns,
+                recommended_command=command,
             )
         dry_run_status = _patch_dry_run_status(evidence)
         if dry_run_status not in ACCEPTABLE_PATCH_DRY_RUN_STATUSES:
+            command = f"devflow task patch-dry-run {task_id}"
             return _action(
-                f"run devflow task patch-dry-run {task_id}",
+                f"run {command}",
                 "patch review is acceptable but dry-run evidence is missing or not acceptable",
-                [f"devflow task patch-dry-run {task_id}"],
                 [],
+                [command],
                 False,
                 "high",
                 unknowns,
+                recommended_command=command,
             )
         return _action(
             f"human approval required before devflow task apply-patch {task_id}",
@@ -496,26 +720,29 @@ def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence:
             True,
             "high",
             unknowns,
+            recommended_command=f"devflow task apply-patch {task_id}",
         )
     if task.status == "complete" or projection.manual_agent_state == "result_present":
         return _action(
             f"run devflow task verify {task_id}",
             "worker output exists but verification has not passed",
-            [f"devflow task verify {task_id} --shell \"<command>\""],
             [],
+            [f"devflow task verify {task_id} --shell \"<command>\""],
             False,
             "high",
             unknowns,
+            recommended_command=f"devflow task verify {task_id} --shell \"<command>\"",
         )
     if task.status == "created":
         return _action(
             "run worker or provide patch evidence",
             "task exists but no worker or proposal evidence is available",
-            [f"devflow task run {task_id} --worker shell -- <command>"],
             [],
+            [f"devflow task run {task_id} --worker shell -- <command>"],
             False,
             "high",
             unknowns,
+            recommended_command=f"devflow task run {task_id} --worker shell -- <command>",
         )
     if task.status == "running":
         return _action(
@@ -526,6 +753,7 @@ def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence:
             False,
             "medium",
             unknowns,
+            recommended_command=f"devflow task show {task_id}",
         )
     return _action(
         f"inspect task {task_id}",
@@ -535,6 +763,7 @@ def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence:
         False,
         "low",
         unknowns,
+        recommended_command=f"devflow task review {task_id}",
     )
 
 
@@ -546,16 +775,74 @@ def _action(
     requires_human_approval: bool,
     confidence: str,
     unknowns: list[str],
+    *,
+    recommended_command: str | None = None,
 ) -> dict[str, Any]:
+    recommended_action = next_safe_action
+    pure_read_only_commands: list[str] = []
+    approval_commands = commands_requiring_human_approval[:]
+    for command in allowed_commands:
+        classification = classify_supervisor_command(command)
+        if classification["safety_class"] == PURE_READ_ONLY:
+            pure_read_only_commands.append(command)
+        else:
+            approval_commands.append(command)
+
+    recommended_classification = (
+        classify_supervisor_command(recommended_command) if recommended_command else None
+    )
+    safety_class = recommended_classification["safety_class"] if recommended_classification else PURE_READ_ONLY
+    why_not_auto_runnable = (
+        recommended_classification["why_not_auto_runnable"] if recommended_classification else None
+    )
+    if recommended_classification and safety_class != PURE_READ_ONLY:
+        requires_human_approval = True
+        approval_commands.append(recommended_command)
+        next_safe_action = _human_approval_next_action(recommended_command, safety_class)
+
+    approval_commands = _dedupe_preserve_order(approval_commands)
     return {
         "next_safe_action": next_safe_action,
+        "recommended_action": recommended_action,
+        "recommended_command": recommended_command,
+        "safety_class": safety_class,
         "reason": reason,
-        "allowed_commands": allowed_commands,
+        "allowed_commands": pure_read_only_commands,
+        "pure_read_only_commands": pure_read_only_commands,
         "requires_human_approval": requires_human_approval,
-        "commands_requiring_human_approval": commands_requiring_human_approval,
+        "why_not_auto_runnable": why_not_auto_runnable,
+        "commands_requiring_human_approval": approval_commands,
+        "approval_required_commands": [_approval_required_command(command) for command in approval_commands],
         "confidence": confidence,
         "unknowns": sorted(set(unknowns)),
     }
+
+
+def _human_approval_next_action(command: str, safety_class: str) -> str:
+    if safety_class == FORBIDDEN_FOR_SUPERVISOR:
+        return f"do not run {command}; inspect policy or ask a human for an approved Dev-Flow command"
+    return f"request human approval before running {command}"
+
+
+def _approval_required_command(command: str) -> dict[str, Any]:
+    classification = classify_supervisor_command(command)
+    return {
+        "command": command,
+        "safety_class": classification["safety_class"],
+        "requires_human_approval": True,
+        "why_not_auto_runnable": classification["why_not_auto_runnable"],
+    }
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _task_evidence(root: Path, task: TaskRecord) -> dict[str, Any]:
@@ -859,7 +1146,14 @@ def _packet_next_actions(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "task_id": task["id"],
                 "title": task["title"],
                 "next_safe_action": task["next_safe_action"],
+                "recommended_action": task["recommended_action"],
+                "recommended_command": task["recommended_command"],
+                "safety_class": task["safety_class"],
+                "requires_human_approval": task["requires_human_approval"],
+                "why_not_auto_runnable": task["why_not_auto_runnable"],
+                "allowed_commands": task["allowed_commands"],
                 "commands_requiring_human_approval": task["commands_requiring_human_approval"],
+                "approval_required_commands": task["approval_required_commands"],
             }
             for task in active
         ],
@@ -884,15 +1178,21 @@ def _render_policy(policy: dict[str, Any]) -> str:
         f"policy_id: {policy['policy_id']}",
         f"schema_version: {policy['schema_version']}",
         "",
-        "Allowed commands",
+        "Pure read-only commands",
     ]
-    lines.extend(f"- {command}" for command in policy["allowed_commands"])
+    lines.extend(f"- {command}" for command in policy["pure_read_only"])
+    for label, field in (
+        ("Approval required: evidence writing", "approval_required_evidence_writing"),
+        ("Approval required: task state", "approval_required_task_state"),
+        ("Approval required: worker/runtime", "approval_required_worker_runtime"),
+        ("Approval required: git/promotion", "approval_required_git"),
+    ):
+        lines.append("")
+        lines.append(label)
+        lines.extend(f"- {command}" for command in policy[field])
     lines.append("")
-    lines.append("Commands requiring human approval")
-    lines.extend(f"- {command}" for command in policy["commands_requiring_human_approval"])
-    lines.append("")
-    lines.append("Forbidden actions")
-    lines.extend(f"- {action}" for action in policy["forbidden_actions"])
+    lines.append("Forbidden for supervisor")
+    lines.extend(f"- {action}" for action in policy["forbidden_for_supervisor"])
     return "\n".join(lines) + "\n"
 
 
