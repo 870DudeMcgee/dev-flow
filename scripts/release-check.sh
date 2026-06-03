@@ -54,20 +54,26 @@ echo "✓ Pytest suite completed successfully"
 echo -e "\n------------------------------------------------------------------------------"
 echo "🖥 Running CLI Help Smoke & Experimental Command Hiding Checks"
 echo "------------------------------------------------------------------------------"
-# Setup standard command runner
-RUN_CLI="python3 -m devflow.cli"
-if [[ -f ".venv/bin/python" ]]; then
-  RUN_CLI=".venv/bin/python -m devflow.cli"
-fi
+# Run CLI smoke checks from a fresh install so this gate proves packaging/import
+# behavior without PYTHONPATH or the developer's editable environment.
+CLI_SMOKE_VENV=$(mktemp -d -t devflow-cli-smoke-XXXXXX)
+cleanup_cli_smoke() {
+  rm -rf "$CLI_SMOKE_VENV"
+}
+trap cleanup_cli_smoke EXIT
+
+python3 -m venv "$CLI_SMOKE_VENV"
+"$CLI_SMOKE_VENV/bin/python" -m pip install -q .
+RUN_CLI=("$CLI_SMOKE_VENV/bin/devflow")
 
 # Assert basic help command works
-$RUN_CLI --help >/dev/null
-$RUN_CLI task --help >/dev/null
+"${RUN_CLI[@]}" --help >/dev/null
+"${RUN_CLI[@]}" task --help >/dev/null
 echo "✓ Basic CLI help commands succeed"
 
 # Assert experimental commands are hidden from standard help
-STANDARD_HELP=$($RUN_CLI --help)
-STANDARD_TASK_HELP=$($RUN_CLI task --help)
+STANDARD_HELP=$("${RUN_CLI[@]}" --help)
+STANDARD_TASK_HELP=$("${RUN_CLI[@]}" task --help)
 
 strip_ansi() {
   sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g'
@@ -97,8 +103,8 @@ done
 echo "✓ Experimental commands are hidden in standard help"
 
 # Assert experimental commands are shown when DEVFLOW_EXPERIMENTAL=1
-EXP_HELP=$(DEVFLOW_EXPERIMENTAL=1 $RUN_CLI --help)
-EXP_TASK_HELP=$(DEVFLOW_EXPERIMENTAL=1 $RUN_CLI task --help)
+EXP_HELP=$(DEVFLOW_EXPERIMENTAL=1 "${RUN_CLI[@]}" --help)
+EXP_TASK_HELP=$(DEVFLOW_EXPERIMENTAL=1 "${RUN_CLI[@]}" task --help)
 
 for cmd in "supervise" "context"; do
   if ! help_contains_command "$EXP_HELP" "$cmd"; then
