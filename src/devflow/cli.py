@@ -73,6 +73,7 @@ from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwo
 from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
 from devflow.control_room.supervisor_surface import (
     render_control_room_status,
+    render_supervisor_command_classification,
     render_supervisor_packet,
     render_supervisor_policy,
     render_task_next_action,
@@ -307,6 +308,15 @@ def supervisor_packet_command(
 ) -> None:
     """Show a compact supervisor packet derived from Dev-Flow artifacts."""
     typer.echo(render_supervisor_packet(Path.cwd(), json_output=json_output), nl=False)
+
+
+@supervisor_app.command("classify")
+def supervisor_classify_command(
+    command: str = typer.Argument(..., help="The exact command to classify."),
+    json_output: bool = typer.Option(False, "--json", help="Print classification result as JSON."),
+) -> None:
+    """Classify a command against the supervisor policy for safety."""
+    typer.echo(render_supervisor_command_classification(command, json_output=json_output), nl=False)
 
 
 @hermes_app.command("imessage-check")

@@ -524,6 +524,24 @@ def render_task_review(root: Path, task_id: str, *, json_output: bool) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_supervisor_command_classification(command: str, *, json_output: bool) -> str:
+    """Return the full classification result as a JSON string.
+
+    The supervisor classifier is the only authoritative guardrail for
+    deciding whether Hermes may auto-run a command.
+    """
+    result = classify_supervisor_command(command)
+    if json_output:
+        return _json(result)
+    return (
+        f"command: {command}\n"
+        f"safety_class: {result['safety_class']}\n"
+        f"requires_human_approval: {'yes' if result['requires_human_approval'] else 'no'}\n"
+        f"supervisor_may_auto_run: {'yes' if result['supervisor_may_auto_run'] else 'no'}\n"
+        f"why_not_auto_runnable: {result['why_not_auto_runnable'] or 'none'}\n"
+    )
+
+
 def build_control_room_status(root: Path) -> dict[str, Any]:
     projections = list_task_status_projections(root)
     task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
