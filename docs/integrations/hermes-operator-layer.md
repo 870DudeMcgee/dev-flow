@@ -58,7 +58,9 @@ Hermes should follow `operator_plan.next_step`:
 
 - `run_recommended_command`: run `recommended_command` only when `operator_plan.may_auto_run_command` is true, summarize the command output briefly, then append `operator_plan.routing_footer`.
 - `answer_with_model`: answer with `operator_plan.model`, keeping the response short for Telegram, then append the footer.
-- `request_human_approval`: do not run the command or create work. Ask for explicit approval using `operator_plan.approval_prompt_hint`.
+- `request_human_approval`: do not run the command or create work yet. If Dev-Flow returns `operator_plan.pending_action`, store that exact action for the Telegram session, ask for explicit approval using `operator_plan.approval_prompt_hint`, then execute the stored action exactly once after `/approve`.
+
+Hermes must not invent a mutation command from the chat text. Only Dev-Flow may produce `operator_plan.pending_action`, and Hermes may execute only that exact pending action after approval.
 
 Hermes must not directly edit:
 
@@ -69,7 +71,7 @@ Hermes must not directly edit:
 - remotes
 - promotion state
 
-Human approval remains required for task creation, knowledge capture, worker execution, verification runs, cleanup apply, patch application, promotion, merge, push, and broad mutation. Hermes may recommend those actions only after citing Dev-Flow readiness evidence and the exact command for the human to approve.
+Human approval remains required for project creation/import/archive/remove, task creation, knowledge capture, worker execution, verification runs, cleanup apply, patch application, promotion, merge, push, and broad mutation. Hermes may recommend those actions only after citing Dev-Flow readiness evidence and the exact command for the human to approve.
 
 ## Gateway And Mobile Use Cases
 

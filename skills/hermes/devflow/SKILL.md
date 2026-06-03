@@ -43,14 +43,18 @@ Use these first:
 - `PYTHONPATH=src .venv/bin/python -m devflow.cli dashboard --json`
 - `PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor policy --json`
 - `PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor packet --json`
+- `PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor route-message "<raw Telegram text>" --json`
 - `PYTHONPATH=src .venv/bin/python -m devflow.cli hermes imessage-check --json`
+- `PYTHONPATH=src .venv/bin/python -m devflow.cli project list`
 - `PYTHONPATH=src .venv/bin/python -m devflow.cli task next-action <task-id> --json`
 - `PYTHONPATH=src .venv/bin/python -m devflow.cli task review <task-id> --json`
 
 ## Allowed Read-Only Commands
 
 - status, dashboard, supervisor policy, supervisor packet
+- supervisor route-message
 - hermes imessage-check
+- project list, show, status, doctor
 - task list, show, log, next-action, review
 - task promote-preview as non-promoting preview
 - git status
@@ -62,6 +66,7 @@ Use these first:
 
 Ask for explicit human approval before recommending or running:
 
+- project create/import/archive/remove
 - knowledge capture
 - task create
 - task close
@@ -72,11 +77,14 @@ Ask for explicit human approval before recommending or running:
 - task apply-patch
 - task verify
 
+If `supervisor route-message` returns `operator_plan.pending_action`, store that exact action for the chat session and execute only that action once after explicit approval.
+
 ## High-Risk Commands
 
 Require explicit human approval plus current Dev-Flow readiness evidence:
 
 - task promote
+- project connect-github
 - git commit
 - git merge
 - git push

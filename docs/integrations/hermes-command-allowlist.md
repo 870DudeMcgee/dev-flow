@@ -20,6 +20,10 @@ Hermes may run these for inspection, summarization, and non-promoting preview wo
 - `devflow supervisor packet --json`
 - `devflow supervisor route-message "<raw Telegram text>" --json`
 - `devflow hermes imessage-check --json`
+- `devflow project list`
+- `devflow project show <project-id>`
+- `devflow project status <project-id>`
+- `devflow project doctor <project-id>`
 - `devflow task list`
 - `devflow task show <task-id>`
 - `devflow task log <task-id>`
@@ -39,8 +43,12 @@ Hermes may run these for inspection, summarization, and non-promoting preview wo
 
 ## Explicit Approval Mutation
 
-Hermes may recommend these commands only after explicit human approval. They can create tasks, write evidence, run workers, run verification, apply patches, or change task-local state.
+Hermes may recommend these commands only after explicit human approval. They can create projects/tasks, write evidence, run workers, run verification, apply patches, or change task-local state.
 
+- `devflow project create <name>`
+- `devflow project import <path>`
+- `devflow project archive <project-id>`
+- `devflow project remove <project-id> --registry-only`
 - `devflow knowledge capture`
 - `devflow task create`
 - `devflow task close`
@@ -61,6 +69,7 @@ These commands require direct human approval plus current Dev-Flow readiness evi
 - `git commit`
 - `git merge`
 - `git push`
+- `devflow project connect-github <project-id> --remote-url <url>`
 - `devflow sync-main`
 - `devflow push-main`
 

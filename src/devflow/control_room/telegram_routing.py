@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ ANSWER = "answer"
 RUN_SAFE_COMMAND = "run_safe_command"
 CREATE_TASK = "create_task"
 CREATE_CODEX_GOAL = "create_codex_goal"
+CREATE_PROJECT = "create_project"
 
 PURE_READ_ONLY = "pure_read_only"
 
@@ -73,6 +75,25 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
         )
         return _apply_repo_aware_overrides(decision)
 
+    if _looks_like_project_create(lower, tokens):
+        recommended_command = _recommended_project_create_command(message, lower, tokens)
+        command_classification = (
+            _classify_supervisor_command(recommended_command) if recommended_command else None
+        )
+        decision = _decision(
+            route=IMPLEMENTATION,
+            model=None,
+            action=CREATE_PROJECT,
+            reason="Project creation request; DevFlow should create a registered project only after explicit approval.",
+            requested_action=CREATE_PROJECT,
+            risk_level="high",
+            repo_state=repo_state,
+            task_state=task_state,
+            recommended_command=recommended_command,
+            command_classification=command_classification,
+        )
+        return _apply_repo_aware_overrides(decision)
+
     if _looks_like_deep_review(lower, tokens):
         decision = _decision(
             route=DEEP_REVIEW,
@@ -101,6 +122,10 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
 
     if _looks_like_implementation(lower, tokens):
         action = CREATE_CODEX_GOAL if "codex" in tokens or "goal" in tokens else CREATE_TASK
+        recommended_command = None if action == CREATE_CODEX_GOAL else _recommended_task_create_command(message)
+        command_classification = (
+            _classify_supervisor_command(recommended_command) if recommended_command else None
+        )
         decision = _decision(
             route=IMPLEMENTATION,
             model=None,
@@ -110,6 +135,8 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             risk_level="high",
             repo_state=repo_state,
             task_state=task_state,
+            recommended_command=recommended_command,
+            command_classification=command_classification,
         )
         return _apply_repo_aware_overrides(decision)
 
@@ -185,7 +212,11 @@ def _apply_repo_aware_overrides(decision: dict[str, Any]) -> dict[str, Any]:
         return _with_footer(decision)
 
     repo_state = decision["repo_state"]
-    if repo_state.get("git_repo") and repo_state.get("dirty_state") == "dirty":
+    if (
+        decision["action"] != CREATE_PROJECT
+        and repo_state.get("git_repo")
+        and repo_state.get("dirty_state") == "dirty"
+    ):
         return _with_footer(
             {
                 **decision,
@@ -267,10 +298,14 @@ def _operator_plan(decision: dict[str, Any]) -> dict[str, Any]:
     recommended_command = decision.get("recommended_command")
     may_auto_run_command = bool(classification.get("supervisor_may_auto_run"))
     approval_required = bool(classification.get("requires_human_approval"))
+    pending_action = _pending_action(decision)
 
-    if decision["action"] == RUN_SAFE_COMMAND and may_auto_run_command:
+    if pending_action:
+        next_step = "request_human_approval"
+        approval_required = True
+    elif decision["action"] == RUN_SAFE_COMMAND and may_auto_run_command:
         next_step = "run_recommended_command"
-    elif decision["action"] in {CREATE_TASK, CREATE_CODEX_GOAL}:
+    elif decision["action"] in {CREATE_TASK, CREATE_CODEX_GOAL, CREATE_PROJECT}:
         next_step = "request_human_approval"
         approval_required = True
     elif recommended_command and not may_auto_run_command:
@@ -289,6 +324,7 @@ def _operator_plan(decision: dict[str, Any]) -> dict[str, Any]:
         "routing_footer": decision["routing_footer"],
         "model": decision["model"],
         "recommended_command": recommended_command,
+        "pending_action": pending_action,
         "may_auto_run_command": may_auto_run_command,
         "approval_required": approval_required,
         "approval_prompt_hint": _approval_prompt_hint(decision),
@@ -305,9 +341,29 @@ def _approval_prompt_hint(decision: dict[str, Any]) -> str | None:
         )
     if decision["action"] == CREATE_CODEX_GOAL:
         return "Ask for explicit approval before creating a Codex goal from this Telegram request."
+    if decision["action"] == CREATE_PROJECT:
+        return "Ask for explicit approval before creating a DevFlow project."
     if decision["action"] == CREATE_TASK:
-        return "Ask for explicit approval before creating a DevFlow task, then use devflow task create."
+        return "Ask for explicit approval before creating a DevFlow task."
     return None
+
+
+def _pending_action(decision: dict[str, Any]) -> dict[str, Any] | None:
+    command = decision.get("recommended_command")
+    if not command or decision["action"] not in {CREATE_TASK, CREATE_PROJECT}:
+        return None
+    classification = decision.get("command_classification") or _classify_supervisor_command(command)
+    if classification.get("safety_class") == "forbidden_for_supervisor":
+        return None
+    return {
+        "schema_version": 1,
+        "kind": "devflow_command",
+        "command": command,
+        "execute_once": True,
+        "approval_required": True,
+        "safety_class": classification.get("safety_class"),
+        "source": "operator_plan",
+    }
 
 
 def _classify_supervisor_command(command: str) -> dict[str, Any]:
@@ -421,8 +477,79 @@ def _recommended_read_command(message: str, lower: str, tokens: set[str]) -> str
         return f"devflow task review {task_id} --json"
     if task_id:
         return f"devflow task show {task_id}"
+    if "project" in tokens or "projects" in tokens:
+        if "status" in tokens:
+            project_id = _extract_project_name(message)
+            if project_id:
+                return f"devflow project status {_quote(project_id)}"
+        if "show" in tokens:
+            project_id = _extract_project_name(message)
+            if project_id:
+                return f"devflow project show {_quote(project_id)}"
+        if "doctor" in tokens:
+            project_id = _extract_project_name(message)
+            if project_id:
+                return f"devflow project doctor {_quote(project_id)}"
+        return "devflow project list"
     if "dashboard" in tokens:
         return "devflow dashboard --json"
     if "list" in tokens or "tasks" in tokens or "queue" in tokens:
         return "devflow task list"
     return "devflow status --json"
+
+
+def _looks_like_project_create(lower: str, tokens: set[str]) -> bool:
+    if not ("project" in tokens or "projects" in tokens):
+        return False
+    if "list" in tokens or "show" in tokens or "status" in tokens or "doctor" in tokens:
+        return False
+    if "create" in tokens or "build" in tokens or "new" in tokens:
+        return True
+    return "make" in tokens and ("folder" in tokens or "directory" in tokens)
+
+
+def _recommended_project_create_command(message: str, lower: str, tokens: set[str]) -> str | None:
+    name = _extract_project_name(message)
+    if not name:
+        return None
+    command = f"devflow project create {_quote(name)}"
+    if _wants_plain_folder_project(lower, tokens):
+        command += " --source-control none"
+    return command
+
+
+def _recommended_task_create_command(message: str) -> str:
+    title = re.sub(r"\s+", " ", message.strip())
+    return f"devflow task create {_quote(title)}"
+
+
+def _wants_plain_folder_project(lower: str, tokens: set[str]) -> bool:
+    return (
+        "folder" in tokens
+        or "directory" in tokens
+        or "no git" in lower
+        or "without git" in lower
+        or "source control none" in lower
+    )
+
+
+def _extract_project_name(message: str) -> str | None:
+    quoted = re.search(r"['\"]([^'\"]{1,120})['\"]", message)
+    if quoted:
+        return _clean_project_name(quoted.group(1))
+    match = re.search(r"\b(?:named|called)\s+(.+)$", message, re.IGNORECASE)
+    if match:
+        return _clean_project_name(match.group(1))
+    match = re.search(r"\bproject\s+([A-Za-z0-9][A-Za-z0-9_. -]{0,80})$", message, re.IGNORECASE)
+    if match:
+        return _clean_project_name(match.group(1))
+    return None
+
+
+def _clean_project_name(value: str) -> str | None:
+    cleaned = re.sub(r"\b(?:please|thanks?)\b\.?$", "", value.strip(), flags=re.IGNORECASE).strip(" .,!;:")
+    return cleaned or None
+
+
+def _quote(value: str) -> str:
+    return shlex.quote(value)

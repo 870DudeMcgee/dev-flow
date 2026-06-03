@@ -8,7 +8,11 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.service import create_task
-from devflow.control_room.supervisor_surface import APPROVAL_REQUIRED_WORKER_RUNTIME, PURE_READ_ONLY
+from devflow.control_room.supervisor_surface import (
+    APPROVAL_REQUIRED_TASK_STATE,
+    APPROVAL_REQUIRED_WORKER_RUNTIME,
+    PURE_READ_ONLY,
+)
 from devflow.control_room.telegram_routing import route_telegram_message
 
 
@@ -76,9 +80,52 @@ def test_implementation_routes_to_task_or_codex_goal_without_model(tmp_path: Pat
     assert task_decision["routing_footer"] == "route: implementation\nmodel: none\naction: create_task"
     assert task_decision["operator_plan"]["next_step"] == "request_human_approval"
     assert task_decision["operator_plan"]["approval_required"] is True
+    assert task_decision["operator_plan"]["pending_action"]["kind"] == "devflow_command"
+    assert task_decision["operator_plan"]["pending_action"]["command"].startswith("devflow task create ")
     assert "devflow task create" in task_decision["operator_plan"]["approval_prompt_hint"]
     assert codex_decision["route"] == "implementation"
     assert codex_decision["action"] == "create_codex_goal"
+    assert codex_decision["operator_plan"]["pending_action"] is None
+
+
+def test_project_read_routes_to_project_list(tmp_path: Path) -> None:
+    decision = route_telegram_message(tmp_path, "list projects")
+
+    assert decision["route"] == "devflow_read"
+    assert decision["action"] == "run_safe_command"
+    assert decision["recommended_command"] == "devflow project list"
+    assert decision["command_classification"]["safety_class"] == PURE_READ_ONLY
+    assert decision["operator_plan"]["next_step"] == "run_recommended_command"
+
+
+def test_simple_folder_project_create_routes_to_pending_action(tmp_path: Path) -> None:
+    decision = route_telegram_message(tmp_path, "create a simple folder project named telegram-smoke-test")
+
+    assert decision["route"] == "implementation"
+    assert decision["model"] is None
+    assert decision["action"] == "create_project"
+    assert decision["recommended_command"] == "devflow project create telegram-smoke-test --source-control none"
+    assert decision["command_classification"]["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+    assert decision["operator_plan"]["next_step"] == "request_human_approval"
+    assert decision["operator_plan"]["pending_action"] == {
+        "schema_version": 1,
+        "kind": "devflow_command",
+        "command": "devflow project create telegram-smoke-test --source-control none",
+        "execute_once": True,
+        "approval_required": True,
+        "safety_class": APPROVAL_REQUIRED_TASK_STATE,
+        "source": "operator_plan",
+    }
+
+
+def test_build_project_phrase_routes_to_pending_action(tmp_path: Path) -> None:
+    decision = route_telegram_message(tmp_path, "build a simple folder project named telegram-smoke-test")
+
+    assert decision["route"] == "implementation"
+    assert decision["action"] == "create_project"
+    assert decision["operator_plan"]["pending_action"]["command"] == (
+        "devflow project create telegram-smoke-test --source-control none"
+    )
 
 
 def test_embedded_safe_command_may_auto_run(tmp_path: Path) -> None:
@@ -115,6 +162,19 @@ def test_dirty_git_tree_blocks_implementation_routing(tmp_path: Path) -> None:
     assert decision["model"] == "gemma4:latest"
     assert decision["action"] == "answer"
     assert "dirty_git_tree_no_implementation" in decision["overrides"]
+
+
+def test_dirty_git_tree_does_not_block_project_create_routing(tmp_path: Path) -> None:
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True, text=True)
+    (tmp_path / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+    decision = route_telegram_message(tmp_path, "create a simple folder project named telegram-smoke-test")
+
+    assert decision["route"] == "implementation"
+    assert decision["action"] == "create_project"
+    assert decision["operator_plan"]["pending_action"]["command"] == (
+        "devflow project create telegram-smoke-test --source-control none"
+    )
 
 
 def test_unverified_task_blocks_implementation_routing(tmp_path: Path) -> None:

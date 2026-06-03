@@ -47,6 +47,10 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow hermes imessage-check",
     "devflow hermes imessage-check --json",
     "devflow git status",
+    "devflow project list",
+    "devflow project show",
+    "devflow project status",
+    "devflow project doctor",
     "devflow task list",
     "devflow task show",
     "devflow task review",
@@ -92,6 +96,10 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
 
 APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow init",
+    "devflow project create",
+    "devflow project import",
+    "devflow project archive",
+    "devflow project remove",
     "devflow task create",
     "devflow task close",
     "devflow task finalize",
@@ -116,6 +124,7 @@ APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS = [
 APPROVAL_REQUIRED_GIT_COMMANDS = [
     "devflow sync-main",
     "devflow push-main",
+    "devflow project connect-github",
     "devflow task promote",
     "devflow task finalize --commit",
     "devflow worktree prune --apply",
@@ -295,6 +304,14 @@ def _classify_supervisor_command(command: str) -> str:
         return PURE_READ_ONLY if subcommand == "imessage-check" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "git":
         return PURE_READ_ONLY if subcommand == "status" else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "project":
+        if subcommand in {"list", "show", "status", "doctor"}:
+            return PURE_READ_ONLY
+        if subcommand in {"create", "import", "archive", "remove"}:
+            return APPROVAL_REQUIRED_TASK_STATE
+        if subcommand == "connect-github":
+            return APPROVAL_REQUIRED_GIT
+        return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "agent":
         return PURE_READ_ONLY if subcommand in {"show", "packet"} else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "worker":

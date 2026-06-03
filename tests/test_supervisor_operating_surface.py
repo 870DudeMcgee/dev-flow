@@ -216,6 +216,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert payload["policy_id"] == "devflow-supervisor-policy"
     assert "devflow status --json" in payload["allowed_commands"]
     assert "devflow dashboard --json" in payload["allowed_commands"]
+    assert "devflow project list" in payload["allowed_commands"]
     assert "devflow supervisor policy --json" in payload["allowed_commands"]
     assert "devflow supervisor packet --json" in payload["allowed_commands"]
     assert "devflow supervisor route-message --json" in payload["allowed_commands"]
@@ -232,10 +233,14 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     ):
         assert command not in payload["allowed_commands"]
     assert "devflow task apply-patch" in payload["commands_requiring_human_approval"]
+    assert "devflow project create" in payload["commands_requiring_human_approval"]
+    assert "devflow project connect-github" in payload["commands_requiring_human_approval"]
     assert "devflow task review-patch" in payload["approval_required_evidence_writing"]
     assert "devflow task patch-dry-run" in payload["approval_required_evidence_writing"]
     assert "devflow task verify" in payload["approval_required_worker_runtime"]
     assert "devflow task create" in payload["approval_required_task_state"]
+    assert "devflow project create" in payload["approval_required_task_state"]
+    assert "devflow project connect-github" in payload["approval_required_git"]
     assert "devflow task cleanup --preview" in payload["approval_required_task_state"]
     assert "devflow task cleanup --dry-run" in payload["allowed_commands"]
     assert "devflow knowledge capture" in payload["approval_required_evidence_writing"]
@@ -498,6 +503,21 @@ def test_telegram_route_message_is_read_only_supervisor_command() -> None:
     assert classification["safety_class"] == PURE_READ_ONLY
     assert classification["requires_human_approval"] is False
     assert classification["supervisor_may_auto_run"] is True
+
+
+def test_project_commands_are_classified_for_operator_approval() -> None:
+    project_list = classify_supervisor_command("devflow project list")
+    project_create = classify_supervisor_command("devflow project create telegram-smoke-test --source-control none")
+    project_connect = classify_supervisor_command(
+        "devflow project connect-github telegram-smoke-test --remote-url https://github.com/example/repo"
+    )
+
+    assert project_list["safety_class"] == PURE_READ_ONLY
+    assert project_list["supervisor_may_auto_run"] is True
+    assert project_create["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+    assert project_create["requires_human_approval"] is True
+    assert project_connect["safety_class"] == APPROVAL_REQUIRED_GIT
+    assert project_connect["requires_human_approval"] is True
 
 
 def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:

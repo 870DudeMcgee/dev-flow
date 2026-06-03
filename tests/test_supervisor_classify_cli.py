@@ -82,6 +82,11 @@ class TestClassifyReadOnly:
         payload = _json_output(result)
         assert payload["safety_class"] == PURE_READ_ONLY
 
+    def test_devflow_project_list(self):
+        result = runner.invoke(app, ["supervisor", "classify", "devflow project list", "--json"])
+        payload = _json_output(result)
+        assert payload["safety_class"] == PURE_READ_ONLY
+
 
 # ---------------------------------------------------------------------------
 # Approval-required: evidence writing
@@ -145,6 +150,14 @@ class TestClassifyTaskState:
         payload = _json_output(result)
         assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
 
+    def test_project_create(self):
+        result = runner.invoke(
+            app,
+            ["supervisor", "classify", "devflow project create telegram-smoke-test --source-control none", "--json"],
+        )
+        payload = _json_output(result)
+        assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+
 
 # ---------------------------------------------------------------------------
 # Approval-required: worker runtime
@@ -199,6 +212,19 @@ class TestClassifyGitPromotion:
 
     def test_branch_archive(self):
         result = runner.invoke(app, ["supervisor", "classify", "devflow branch archive feat/x", "--json"])
+        payload = _json_output(result)
+        assert payload["safety_class"] == APPROVAL_REQUIRED_GIT
+
+    def test_project_connect_github(self):
+        result = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow project connect-github telegram-smoke-test --remote-url https://github.com/example/repo",
+                "--json",
+            ],
+        )
         payload = _json_output(result)
         assert payload["safety_class"] == APPROVAL_REQUIRED_GIT
 
