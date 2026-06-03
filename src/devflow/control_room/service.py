@@ -34,11 +34,9 @@ from devflow.control_room.git_worktree import (
     worker_id_for_task,
 )
 from devflow.control_room.persistence import (
-    append_event,
     get_task,
     list_tasks,
     load_task,
-    save_task,
     timestamp,
     utc_now,
     validate_event_log,
@@ -51,8 +49,15 @@ from devflow.control_room.promotion import (
     main_checkout_has_uncommitted_changes,
     promotion_baseline,
 )
-from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors, readiness_state
+from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
 from devflow.control_room.seed import initialize_seed, validate_seed_contract
+from devflow.control_room.task_lifecycle import (
+    append_task_event,
+    apply_lifecycle_metadata,
+    invalidate_verification_after_workspace_mutation,
+    record_task_update,
+    write_task_state,
+)
 from devflow.control_room.verification import VerificationResult, run_verification_command
 from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
@@ -74,9 +79,8 @@ from devflow.control_room.patch_applier import (
 
 
 # Dynamic compatibility shims and mappings
-_save_task = save_task
 _load_task = load_task
-_append_event = append_event
+_append_event = append_task_event
 _relative = relative_path
 _absolute = absolute_path
 
@@ -197,9 +201,13 @@ def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: s
     }
     if workspace.skipped_symlinks:
         event_payload["skipped_symlinks"] = list(workspace.skipped_symlinks)
-    _append_event(root, task_id, "task_created", event_payload)
-    _save_task(task_path, record)
-    _write_merge_readiness(root, task_path, record)
+    record_task_update(
+        root,
+        record,
+        event_type="task_created",
+        event_payload=event_payload,
+        event_position="before_save",
+    )
     return record
 
 
@@ -243,11 +251,15 @@ def run_shell_task(
     if _looks_destructive(command):
         with task_mutation_lock(root, task_id, "run"):
             task = get_task(root, task_id)
-            task.status = "blocked"
-            task.updated_at = utc_now()
-            task.last_event = "command_refused"
-            _save_task(task_dir(root, task_id), task)
-            _append_event(root, task_id, "command_refused", {"command": command})
+            record_task_update(
+                root,
+                task,
+                event_type="command_refused",
+                event_payload={"command": command},
+                status="blocked",
+                updated_at=utc_now(),
+                write_readiness=False,
+            )
         raise ValueError("Refusing obviously destructive command for MVP shell worker.")
 
     with task_mutation_lock(root, task_id, "run"):
@@ -280,15 +292,19 @@ def run_shell_task(
             timeout_seconds=timeout_seconds,
         )
 
-        task.status = "running"
         task.worker = worker_adapter
         task.timeout_seconds = timeout_seconds
         task.worker_command = shlex.join(command)
         task.started_at = utc_now()
-        task.updated_at = task.started_at
-        task.last_event = "worker_started"
-        _save_task(task_path, task)
-        _append_event(root, task_id, "worker_started", {"command": command, "cwd": task.workspace})
+        record_task_update(
+            root,
+            task,
+            event_type="worker_started",
+            event_payload={"command": command, "cwd": task.workspace},
+            status="running",
+            updated_at=task.started_at,
+            write_readiness=False,
+        )
 
         if agent is not None:
             from devflow.control_room.task_packet import build_agent_packet
@@ -311,7 +327,6 @@ def run_shell_task(
             if resolved_adapter_name not in {"manual", "ollama_chat"}:
                 _write_result(task_path, task_id, command, result)
 
-        task.status = result.status
         task.last_exit_code = result.exit_code
         task.latest_log_line = result.latest_log_line
         task.log_path = _relative(root, log_file)
@@ -320,15 +335,13 @@ def run_shell_task(
         if is_git_worktree_task(task):
             state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
             task.workspace_dirty = bool(state["dirty"])
-        task.updated_at = task.finished_at
-        task.last_event = "worker_finished"
-        _save_task(task_path, task)
-        _write_merge_readiness(root, task_path, task)
-        _append_event(
+        record_task_update(
             root,
-            task_id,
-            "worker_finished",
-            {"status": result.status, "exit_code": result.exit_code, "log_path": task.log_path},
+            task,
+            event_type="worker_finished",
+            event_payload={"status": result.status, "exit_code": result.exit_code, "log_path": task.log_path},
+            status=result.status,
+            updated_at=task.finished_at,
         )
         return task
 
@@ -366,7 +379,6 @@ def run_local_model_task(
     # Acquire the task lock briefly post-run to synchronize canonical task updates and event appends
     with task_mutation_lock(root, task_id, "local-worker"):
         task = get_task(root, task_id)
-        task.status = result.task_status
         task.last_exit_code = result.exit_code
         task.latest_log_line = _local_worker_latest_line(result)
         task.log_path = _relative(root, result.stderr_path)
@@ -375,11 +387,15 @@ def run_local_model_task(
         if is_git_worktree_task(task):
             state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
             task.workspace_dirty = bool(state["dirty"])
-        task.updated_at = task.finished_at
-        task.last_event = "local_worker_finished"
+        apply_lifecycle_metadata(
+            task,
+            event_type="local_worker_finished",
+            status=result.task_status,
+            updated_at=task.finished_at,
+        )
 
         # Chronologically append start and finish events to task history under synchronized lock
-        _append_event(
+        append_task_event(
             root,
             task_id,
             "local_worker_started",
@@ -391,7 +407,7 @@ def run_local_model_task(
                 "run_id": result.run_id,
             },
         )
-        _append_event(
+        append_task_event(
             root,
             task_id,
             "local_worker_finished",
@@ -407,8 +423,7 @@ def run_local_model_task(
             },
         )
 
-        _save_task(task_path, task)
-        _write_merge_readiness(root, task_path, task)
+        write_task_state(root, task)
 
     return result
 
@@ -418,7 +433,7 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
         raise ValueError("Verification requires a command after '--'.")
     if _looks_destructive(command):
         with task_mutation_lock(root, task_id, "verify"):
-            _append_event(root, task_id, "verification_refused", {"command": command})
+            append_task_event(root, task_id, "verification_refused", {"command": command})
         raise ValueError("Refusing obviously destructive verification command.")
 
     with task_mutation_lock(root, task_id, "verify"):
@@ -427,10 +442,9 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
         workspace = _resolve_task_workspace(root, task)
         verify_log = task_path / "logs" / "verify.log"
 
-        _append_event(root, task_id, "verification_started", {"command": command, "cwd": task.workspace})
+        append_task_event(root, task_id, "verification_started", {"command": command, "cwd": task.workspace})
         result = run_verification_command(workspace, command, verify_log, timeout_seconds=timeout_seconds)
 
-        task.status = "verified" if result.status == "passed" else "verification_failed"
         task.verification_status = result.status
         task.verification_command = shlex.join(command)
         task.verification_exit_code = result.exit_code
@@ -439,17 +453,19 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
         if is_git_worktree_task(task):
             state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
             task.workspace_dirty = bool(state["dirty"])
-        task.updated_at = utc_now()
-        task.last_event = "verification_finished"
+        apply_lifecycle_metadata(
+            task,
+            event_type="verification_finished",
+            status="verified" if result.status == "passed" else "verification_failed",
+            updated_at=utc_now(),
+        )
         _write_verification_json(root, task_path, task, result)
         _write_verification_report(task_path, task, result)
-        _save_task(task_path, task)
-        _write_merge_readiness(root, task_path, task)
-        _append_event(
+        record_task_update(
             root,
-            task_id,
-            "verification_finished",
-            {"status": result.status, "exit_code": result.exit_code, "log_path": task.verification_log_path},
+            task,
+            event_type="verification_finished",
+            event_payload={"status": result.status, "exit_code": result.exit_code, "log_path": task.verification_log_path},
         )
         return task
 
@@ -824,59 +840,6 @@ def _write_verification_json(root: Path, task_path: Path, task: TaskRecord, resu
     atomic_write_text(task_path / "verification.json", json.dumps(payload, indent=2) + "\n")
 
 
-def _write_pending_verification_after_patch(
-    root: Path,
-    task_path: Path,
-    task: TaskRecord,
-    patch_application: dict[str, Any],
-) -> None:
-    payload = {
-        "schema_version": TASK_SCHEMA_VERSION,
-        "task_id": task.id,
-        "workspace": task.workspace,
-        "command": task.verification_command,
-        "status": "not_run",
-        "task_status": task.status,
-        "exit_code": None,
-        "latest_log_line": None,
-        "log_path": f".devflow/tasks/{task.id}/logs/verify.log",
-        "finished_at": None,
-        "invalidated_by_patch_hash": patch_application.get("patch_hash"),
-        "invalidated_by_patch_application_path": _relative(root, task_path / "patch-application.json"),
-        "invalidated_at": patch_application.get("applied_at"),
-    }
-    atomic_write_text(task_path / "verification.json", json.dumps(payload, indent=2) + "\n")
-
-
-def _write_merge_readiness(root: Path, task_path: Path, task: TaskRecord) -> None:
-    finished_at = None
-    verification_json_path = task_path / "verification.json"
-    if verification_json_path.exists():
-        try:
-            v_data = json.loads(verification_json_path.read_text(encoding="utf-8"))
-            finished_at = v_data.get("finished_at")
-        except Exception:
-            pass
-
-    ready, reasons = readiness_state(task, task_path)
-
-    payload = {
-        "schema_version": TASK_SCHEMA_VERSION,
-        "task_id": task.id,
-        "ready": ready,
-        "reasons": reasons,
-        "verification_status": task.verification_status,
-        "verification_exit_code": task.verification_exit_code,
-        "verification_finished_at": finished_at,
-        "verification_log_path": task.verification_log_path,
-        "workspace_dirty": task.workspace_dirty,
-        "workspace_branch": task.branch_name,
-        "workspace_commit": task.workspace_commit,
-        "generated_at": utc_now().isoformat(),
-    }
-    atomic_write_text(task_path / "merge-readiness.json", json.dumps(payload, indent=2) + "\n")
-
-
 def _write_verification_report(task_path: Path, task: TaskRecord, result: VerificationResult) -> None:
     existing = (task_path / "result.md").read_text(encoding="utf-8") if (task_path / "result.md").exists() else ""
     if "\n## Verification\n" in existing:
@@ -921,15 +884,14 @@ def _resolve_task_workspace(root: Path, task: TaskRecord) -> Path:
 
 
 def _refuse_workspace(root: Path, task: TaskRecord, workspace: Path, expected: Path) -> None:
-    task.status = "blocked"
-    task.updated_at = utc_now()
-    task.last_event = "workspace_refused"
-    _save_task(task_dir(root, task.id), task)
-    _append_event(
+    record_task_update(
         root,
-        task.id,
-        "workspace_refused",
-        {"workspace": str(workspace), "expected_workspace": str(expected)},
+        task,
+        event_type="workspace_refused",
+        event_payload={"workspace": str(workspace), "expected_workspace": str(expected)},
+        status="blocked",
+        updated_at=utc_now(),
+        write_readiness=False,
     )
     raise ValueError(f"Refusing unsafe task workspace: {workspace} (expected {expected})")
 
@@ -1052,7 +1014,7 @@ def _apply_task_patch_locked(
         review_gate["patch_dry_run_path"],
     )
 
-    _append_event(root, task_id, "patch_applied", {
+    append_task_event(root, task_id, "patch_applied", {
         "agent_id": selected_agent,
         "run_id": selected_run_id,
         "patch_path": _relative(root, target_patch),
@@ -1064,19 +1026,7 @@ def _apply_task_patch_locked(
     })
 
     patch_application = _read_patch_application_evidence(task_path) or {}
-
-    # Patch application mutates the workspace, so any earlier verification is stale.
-    if task.status != "closed":
-        task.status = "complete"
-    task.verification_status = "not_run"
-    task.verification_exit_code = None
-    task.verification_log_path = None
-    task.updated_at = utc_now()
-    task.last_event = "patch_applied"
-    _write_pending_verification_after_patch(root, task_path, task, patch_application)
-    _save_task(task_path, task)
-    _write_merge_readiness(root, task_path, task)
-    return task
+    return invalidate_verification_after_workspace_mutation(root, task, patch_application=patch_application)
 
 
 def _write_patch_application_evidence(
