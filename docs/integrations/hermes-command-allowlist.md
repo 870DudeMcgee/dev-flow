@@ -1,21 +1,24 @@
 # Hermes Command Allowlist
 
-Hermes may use this allowlist when acting as a Dev-Flow operator gateway. Prefer the command prefix shown in the Hermes skill:
+Hermes may use this allowlist when acting as a Dev-Flow operator gateway. Prefer this command prefix from Josh's active checkout:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m devflow.cli
 ```
 
-Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old path `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Other operators should use their actual repo root.
+Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old path `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Other operators should use their actual repo root or `<repo-root>`.
+
+Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
 
 ## Read-Only Allowed
 
-These commands may be used for inspection, summarization, and non-promoting preview work. They must not be treated as approval to mutate source files, git state, or promotion state.
+Hermes may run these for inspection, summarization, and non-promoting preview work. They must not be treated as approval to mutate source files, task state, git state, or promotion state.
 
 - `devflow status --json`
 - `devflow dashboard --json`
 - `devflow supervisor policy --json`
 - `devflow supervisor packet --json`
+- `devflow hermes imessage-check --json`
 - `devflow task list`
 - `devflow task show <task-id>`
 - `devflow task log <task-id>`
@@ -65,3 +68,19 @@ Hermes must never do these:
 - use `/Users/jewelbait/Desktop/DevFlow` for current work
 - treat Hermes memory as canonical Dev-Flow state
 - create a hidden state layer or competing orchestration brain
+- bypass `devflow task promote-preview`
+- spawn unbounded parallel workers
+- let multiple writer agents edit one task/worktree
+- mix personal/factory/iMessage automation authority with Dev-Flow repo authority
+- expose secrets or message contents unnecessarily in logs
+
+## Approval Language
+
+For risky actions, Hermes should ask for approval with the exact command and evidence:
+
+```text
+I approve this exact Dev-Flow command after reviewing the cited readiness evidence:
+<command>
+```
+
+Short approvals such as "push it", "merge everything", or "let agents fix whatever they want" are insufficient.

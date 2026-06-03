@@ -42,6 +42,8 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow supervisor policy --json",
     "devflow supervisor packet",
     "devflow supervisor packet --json",
+    "devflow hermes imessage-check",
+    "devflow hermes imessage-check --json",
     "devflow git status",
     "devflow task list",
     "devflow task show",
@@ -126,6 +128,10 @@ FORBIDDEN_SUPERVISOR_ACTIONS = [
     "creating a second source of truth",
     "storing canonical state outside .devflow",
     "treating Hermes memory as canonical Dev-Flow state",
+    "spawning unbounded parallel workers",
+    "letting multiple writer agents edit one task/worktree",
+    "mixing personal/factory/iMessage automation authority with Dev-Flow repo authority",
+    "exposing secrets or message contents unnecessarily in logs",
     "autonomous provider routing",
     "remote provider execution unless explicitly promoted into the stable contract",
     "any command not recognized by the supervisor policy",
@@ -185,6 +191,8 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "recommend next safe actions",
                 "packetize supervisor-safe evidence",
                 "notify a human operator",
+                "scheduled read-only briefs",
+                "prepare Codex prompts",
                 "capture approved ideas through Dev-Flow commands",
             ],
             "must_not": [
@@ -193,8 +201,14 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "directly mutate git index, branches, remotes, or promotion state",
                 "create a hidden state layer",
                 "treat Hermes memory as canonical Dev-Flow state",
+                "spawn unbounded parallel workers",
+                "allow multiple writer agents on one task/worktree",
+                "log secrets or message contents unnecessarily",
             ],
             "human_approval_required_for": [
+                "task creation",
+                "knowledge capture",
+                "bounded worker proposal/review flows",
                 "promotion",
                 "merge",
                 "push",
@@ -254,6 +268,8 @@ def _classify_supervisor_command(command: str) -> str:
         return APPROVAL_REQUIRED_WORKER_RUNTIME
     if command_group == "supervisor":
         return PURE_READ_ONLY if subcommand in {"policy", "packet"} else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "hermes":
+        return PURE_READ_ONLY if subcommand == "imessage-check" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "git":
         return PURE_READ_ONLY if subcommand == "status" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "agent":
@@ -615,6 +631,8 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         },
         "path_authority": policy["path_authority"],
         "commands_requiring_human_approval": policy["commands_requiring_human_approval"],
+        "suggested_read_only_commands": policy["pure_read_only"],
+        "suggested_approval_required_commands": policy["commands_requiring_human_approval"],
         "forbidden_actions": policy["forbidden_actions"],
         "evidence_paths": sorted({path for task in tasks for path in task["evidence_paths"]}),
         "warnings": _packet_warnings(status, tasks),

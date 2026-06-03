@@ -56,6 +56,10 @@ devflow git status
 devflow sync-main
 devflow reconcile
 devflow dashboard
+devflow status --json
+devflow supervisor policy --json
+devflow supervisor packet --json
+devflow hermes imessage-check --json
 devflow task --help
 devflow task create "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"

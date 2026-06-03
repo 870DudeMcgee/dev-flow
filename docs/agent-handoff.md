@@ -23,6 +23,7 @@ Active source of truth:
 - [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees and Git-native promotion slice.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter runtime direction.
 - [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the future task-fit, context-estimation, model-capability, context-pack, scout, and routing-quality design.
+- [docs/integrations/hermes-operator-layer.md](integrations/hermes-operator-layer.md), [docs/integrations/hermes-command-allowlist.md](integrations/hermes-command-allowlist.md), [docs/integrations/hermes-imessage-exploration.md](integrations/hermes-imessage-exploration.md), and [docs/integrations/hermes-local-parallelism.md](integrations/hermes-local-parallelism.md) define Hermes as an external operator layer over supervisor-safe commands, including iMessage exploration, scheduled briefs, and bounded local parallelism.
 
 
 Archive note: legacy software-factory archives are quarantined outside the active repository tree. Do not recreate or consult in-repo archive copies as process authority.
@@ -32,7 +33,7 @@ Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, and the registry-backed `task run --worker qwopus-implementer` patch-proposal path. It includes task creation, isolated execution/handoff, local prompt-response capture, verification, visibility, and human-controlled promotion.
+The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, and human-controlled promotion.
 
 The initial Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, and humans promote through Git-aware mechanics rather than blind copy-back.
 

@@ -218,6 +218,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow dashboard --json" in payload["allowed_commands"]
     assert "devflow supervisor policy --json" in payload["allowed_commands"]
     assert "devflow supervisor packet --json" in payload["allowed_commands"]
+    assert "devflow hermes imessage-check --json" in payload["allowed_commands"]
     assert "devflow task promote-preview" in payload["allowed_commands"]
     assert payload["allowed_commands"] == payload["pure_read_only"]
     for command in (
@@ -240,8 +241,10 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "any command not recognized by the supervisor policy" in payload["forbidden_for_supervisor"]
     assert payload["operator_layer"]["hermes_role"] == "external operator/chat/scheduling layer"
     assert payload["operator_layer"]["read_only_default"] is True
+    assert "scheduled read-only briefs" in payload["operator_layer"]["may"]
     assert "task state" in payload["operator_layer"]["devflow_source_of_truth_for"]
     assert "directly edit .devflow" in payload["operator_layer"]["must_not"]
+    assert "spawn unbounded parallel workers" in payload["operator_layer"]["must_not"]
     assert "promotion" in payload["operator_layer"]["human_approval_required_for"]
     assert payload["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
     assert "/Users/jewelbait/Desktop/DevFlow" in payload["path_authority"]["prohibited_checkout_paths"]
@@ -383,6 +386,8 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     assert failed.id in [task["id"] for task in packet["tasks_blocked"]]
     assert packet["policy"]["policy_id"] == "devflow-supervisor-policy"
     assert packet["policy_summary"]["hermes_role"] == "external operator/chat/scheduling layer"
+    assert "devflow hermes imessage-check --json" in packet["suggested_read_only_commands"]
+    assert "devflow task verify" in packet["suggested_approval_required_commands"]
     assert packet["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
     assert packet["next_safe_action"]
     assert "next_recommended_safe_actions" not in packet
@@ -458,13 +463,28 @@ def test_supervisor_safe_json_commands_parse_and_do_not_mutate(tmp_path: Path, m
         ["dashboard", "--json"],
         ["supervisor", "policy", "--json"],
         ["supervisor", "packet", "--json"],
+        ["hermes", "imessage-check", "--json"],
     ):
         payload = _read_json(_invoke_read_only(tmp_path, list(args)))
         if args[0] == "dashboard":
             assert payload["project"]["root"] == str(tmp_path)
             assert "tasks" in payload
+        elif args[0] == "hermes":
+            assert payload["schema_version"] == 1
+            assert payload["integration"] == "hermes-imessage"
+            assert payload["privacy_boundary"]["reads_message_contents"] is False
+            assert payload["privacy_boundary"]["sends_messages"] is False
+            assert "chat.db" in payload["privacy_boundary"]["never_reads"]
         else:
             assert payload["schema_version"] == 1
+
+
+def test_hermes_imessage_check_is_read_only_supervisor_command() -> None:
+    classification = classify_supervisor_command("devflow hermes imessage-check --json")
+
+    assert classification["safety_class"] == PURE_READ_ONLY
+    assert classification["requires_human_approval"] is False
+    assert classification["supervisor_may_auto_run"] is True
 
 
 def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:
@@ -475,6 +495,8 @@ def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:
         root / "docs" / "agent-handoff.md",
         root / "docs" / "integrations" / "hermes-operator-layer.md",
         root / "docs" / "integrations" / "hermes-command-allowlist.md",
+        root / "docs" / "integrations" / "hermes-imessage-exploration.md",
+        root / "docs" / "integrations" / "hermes-local-parallelism.md",
         root / "skills" / "hermes" / "devflow" / "SKILL.md",
     ]
     for path in docs:
@@ -482,3 +504,31 @@ def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:
         assert "/Users/jewelbait/Desktop/Local AI Dev Team" in body
         assert "/Users/jewelbait/Desktop/DevFlow" in body
         assert "quarantined" in body or "Prohibited old checkout" in body or "Forbidden" in body
+
+
+def test_hermes_imessage_and_parallelism_docs_define_safe_boundaries() -> None:
+    root = Path(__file__).resolve().parents[1]
+    imessage = (root / "docs" / "integrations" / "hermes-imessage-exploration.md").read_text(encoding="utf-8")
+    parallel = (root / "docs" / "integrations" / "hermes-local-parallelism.md").read_text(encoding="utf-8")
+    skill = (root / "skills" / "hermes" / "devflow" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "BlueBubbles" in imessage
+    assert "imsg" in imessage
+    assert "read-only/status" in imessage
+    assert "Do not read chat.db" in imessage
+    assert "Do not send a test message" in imessage
+    assert "Dev-Flow status" in imessage
+    assert "Push it" in imessage
+    assert "I approve this exact Dev-Flow command" in imessage
+
+    for level in ("Level 0", "Level 1", "Level 2", "Level 3", "Level 4", "Level 5"):
+        assert level in parallel
+    assert "one task per worker" in parallel
+    assert "one worktree/branch per writer" in parallel
+    assert "no shared write target" in parallel
+    assert "no auto-promotion" in parallel
+    assert "devflow dogfood local-parallel --workers 2 --profile qwopus --dry-run" in parallel
+
+    assert "iMessage-specific response discipline" in skill
+    assert "Morning Dev-Flow Brief" in skill
+    assert "never promote, push, merge, delete, or directly edit" in skill

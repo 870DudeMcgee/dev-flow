@@ -78,6 +78,7 @@ from devflow.control_room.supervisor_surface import (
     render_task_next_action,
     render_task_review,
 )
+from devflow.control_room.hermes_readiness import render_hermes_imessage_check
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -91,6 +92,7 @@ worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
 dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
 supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
+hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -101,6 +103,7 @@ app.add_typer(worker_app, name="worker")
 app.add_typer(knowledge_app, name="knowledge")
 app.add_typer(dogfood_app, name="dogfood")
 app.add_typer(supervisor_app, name="supervisor")
+app.add_typer(hermes_app, name="hermes")
 
 
 @goal_app.command("init")
@@ -304,6 +307,14 @@ def supervisor_packet_command(
 ) -> None:
     """Show a compact supervisor packet derived from Dev-Flow artifacts."""
     typer.echo(render_supervisor_packet(Path.cwd(), json_output=json_output), nl=False)
+
+
+@hermes_app.command("imessage-check")
+def hermes_imessage_check_command(
+    json_output: bool = typer.Option(False, "--json", help="Print readiness check as JSON."),
+) -> None:
+    """Inspect read-only Hermes iMessage integration readiness."""
+    typer.echo(render_hermes_imessage_check(Path.cwd(), json_output=json_output), nl=False)
 
 
 @git_app.command("status")
