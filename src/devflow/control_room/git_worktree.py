@@ -171,7 +171,12 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
     }
 
 
-def git_worktree_readiness_errors(root: Path, task: TaskRecord) -> list[str]:
+def git_worktree_readiness_errors(
+    root: Path,
+    task: TaskRecord,
+    *,
+    allow_stale_baseline: bool = False,
+) -> list[str]:
     if not is_git_worktree_task(task):
         return []
     errors: list[str] = []
@@ -192,7 +197,7 @@ def git_worktree_readiness_errors(root: Path, task: TaskRecord) -> list[str]:
         if not _merge_base_is_ancestor(root, task.workspace_commit, branch):
             errors.append(f"worker branch does not descend from base commit: {task.workspace_commit}")
     origin_head = origin_main_sha(root)
-    if task.workspace_commit and origin_head and task.workspace_commit != origin_head:
+    if task.workspace_commit and origin_head and task.workspace_commit != origin_head and not allow_stale_baseline:
         errors.append(f"origin/main differs from task base commit: {origin_head}")
     verification_path = root / ".devflow" / "tasks" / task.id / "verification.json"
     verification = _read_json_object(verification_path)

@@ -9,7 +9,12 @@ import yaml
 from devflow.control_room.models import TaskRecord
 
 
-def promotion_readiness_errors(task: TaskRecord, task_path: Path | None = None) -> list[str]:
+def promotion_readiness_errors(
+    task: TaskRecord,
+    task_path: Path | None = None,
+    *,
+    allow_stale_baseline: bool = False,
+) -> list[str]:
     errors = []
     if task.status != "verified":
         errors.append(f"status is '{task.status}', expected 'verified'")
@@ -26,12 +31,24 @@ def promotion_readiness_errors(task: TaskRecord, task_path: Path | None = None) 
         if task.workspace_kind == "git_worktree":
             from devflow.control_room.git_worktree import git_worktree_readiness_errors
 
-            errors.extend(git_worktree_readiness_errors(task_path.parents[2], task))
+            errors.extend(
+                git_worktree_readiness_errors(
+                    task_path.parents[2],
+                    task,
+                    allow_stale_baseline=allow_stale_baseline,
+                )
+            )
     return errors
 
 
-def format_promotion_refusal(task: TaskRecord, task_path: Path | None = None) -> str:
-    return f"Refusing to promote task '{task.id}': {'; '.join(promotion_readiness_errors(task, task_path))}."
+def format_promotion_refusal(
+    task: TaskRecord,
+    task_path: Path | None = None,
+    *,
+    allow_stale_baseline: bool = False,
+) -> str:
+    errors = promotion_readiness_errors(task, task_path, allow_stale_baseline=allow_stale_baseline)
+    return f"Refusing to promote task '{task.id}': {'; '.join(errors)}."
 
 
 def human_promotion_gate(task_path: Path) -> dict[str, Any]:
