@@ -46,6 +46,7 @@ def list_tasks(root: Path) -> list[TaskRecord]:
 
 
 def save_task(task_path: Path, task: TaskRecord) -> None:
+    """Write task artifacts only; lifecycle transitions belong in task_lifecycle."""
     values = {
         "schema_version": task.schema_version,
         "id": task.id,
