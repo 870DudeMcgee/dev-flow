@@ -14,6 +14,7 @@ if [[ ! -f "pyproject.toml" || ! -d "src/devflow" ]]; then
   echo "❌ Error: This script must be run from the repository root." >&2
   exit 1
 fi
+REPO_ROOT=$(pwd -P)
 echo "✓ Confirmed repository root"
 
 # 2. Git Status Check
@@ -63,7 +64,7 @@ cleanup_cli_smoke() {
 trap cleanup_cli_smoke EXIT
 
 python3 -m venv "$CLI_SMOKE_VENV"
-"$CLI_SMOKE_VENV/bin/python" -m pip install -q .
+"$CLI_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"
 RUN_CLI=("$CLI_SMOKE_VENV/bin/devflow")
 
 # Assert basic help command works
@@ -126,19 +127,24 @@ echo -e "\n---------------------------------------------------------------------
 echo "📦 Packaging & Smoke Install Gating"
 echo "------------------------------------------------------------------------------"
 
-if ! python3 -c "import build" >/dev/null 2>&1; then
+BUILD_PROBE_DIR=$(mktemp -d -t devflow-build-probe-XXXXXX)
+if ! (cd "$BUILD_PROBE_DIR" && python3 -m build --version >/dev/null 2>&1); then
+  rm -rf "$BUILD_PROBE_DIR"
   echo "[info] python-build is not installed. Skipping distribution compilation check."
   echo "       To test packaging, run: pip install build twine"
 else
+  rm -rf "$BUILD_PROBE_DIR"
   echo "Building distributions..."
-  python3 -m build >/dev/null
+  BUILD_RUN_DIR=$(mktemp -d -t devflow-build-run-XXXXXX)
+  (cd "$BUILD_RUN_DIR" && python3 -m build --outdir "$REPO_ROOT/dist" "$REPO_ROOT" >/dev/null)
+  rm -rf "$BUILD_RUN_DIR"
   echo "✓ Distribution build succeeded"
 
   if ! python3 -c "import twine" >/dev/null 2>&1; then
     echo "[info] twine is not installed. Skipping package metadata verification."
   else
     echo "Checking distributions with twine..."
-    python3 -m twine check dist/*
+    python3 -m twine check "$REPO_ROOT"/dist/*
     echo "✓ Package twine check passed"
   fi
 
@@ -146,7 +152,7 @@ else
   echo "Smoke installing wheel in temporary virtualenv..."
   TEMP_SMOKE_VENV=$(mktemp -d -t devflow-release-smoke-XXXXXX)
   python3 -m venv "$TEMP_SMOKE_VENV"
-  "$TEMP_SMOKE_VENV/bin/python" -m pip install -q dist/*.whl
+  "$TEMP_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"/dist/*.whl
   "$TEMP_SMOKE_VENV/bin/devflow" --help >/dev/null
   "$TEMP_SMOKE_VENV/bin/devflow" task --help >/dev/null
   rm -rf "$TEMP_SMOKE_VENV"
