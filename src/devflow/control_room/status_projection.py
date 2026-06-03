@@ -77,6 +77,8 @@ class TaskStatusProjection(BaseModel):
 
     @property
     def is_blocked(self) -> bool:
+        if self.task.status == "closed":
+            return False
         if self.manual_agent_state == "result_present":
             return False
         return (
@@ -88,10 +90,14 @@ class TaskStatusProjection(BaseModel):
 
     @property
     def failed_verification(self) -> bool:
+        if self.task.status == "closed":
+            return False
         return self.task.status == "verification_failed" or self.verification_status == "failed"
 
     @property
     def needs_verification(self) -> bool:
+        if not self.is_active:
+            return False
         if self.failed_verification:
             return False
         if self.task.status == "complete":
@@ -111,22 +117,30 @@ class TaskStatusProjection(BaseModel):
 
     @property
     def ready_to_promote(self) -> bool:
+        if not self.is_active:
+            return False
         return self.is_verified and self.promotion_ready
 
     @property
     def is_active(self) -> bool:
-        return self.task.status not in ("promoted", "verified")
+        return self.task.status not in ("closed", "promoted")
 
     @property
     def is_worker_failed(self) -> bool:
+        if not self.is_active:
+            return False
         return self.task.status == "worker_failed" or self.display_status == "worker_failed"
 
     @property
     def is_timeout(self) -> bool:
+        if not self.is_active:
+            return False
         return self.task.status == "timeout"
 
     @property
     def dashboard_action_priority(self) -> int:
+        if not self.is_active:
+            return 100
         if self.is_blocked:
             return 10
         if self.failed_verification:

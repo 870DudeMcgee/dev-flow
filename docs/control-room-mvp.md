@@ -76,28 +76,42 @@ devflow dashboard --all-projects
 devflow status --all-projects --json
 devflow task --help
 devflow task create "example task"
+devflow task create --project factory-scheduler "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
+devflow task run <task_id> --project factory-scheduler --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task run <task_id> --worker qwopus-implementer
 devflow task review-patch <task_id>
+devflow task review-patch <task_id> --project factory-scheduler
 devflow task review-patch <task_id> --agent qwopus-implementer
 devflow task patch-dry-run <task_id>
+devflow task patch-dry-run <task_id> --project factory-scheduler
 devflow task patch-dry-run <task_id> --agent qwopus-implementer
 devflow task apply-patch <task_id> --agent qwopus-implementer
+devflow task apply-patch <task_id> --project factory-scheduler --agent qwopus-implementer
 devflow task apply-patch <task_id> --run-id <run_id>
 devflow task verify <task_id> --shell "test -f result.txt"
+devflow task verify <task_id> --project factory-scheduler --shell "test -f result.txt"
 devflow task local <task_id> --agent qwen-planner
 devflow task local <task_id> --agent qwopus-implementer
 devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer
 devflow task list
+devflow task list --project factory-scheduler
 devflow task list --active
 devflow task list --closed
 devflow task show <task_id>
+devflow task show <task_id> --project factory-scheduler
+devflow task review <task_id> --project factory-scheduler
+devflow task next-action <task_id> --project factory-scheduler
 devflow task capsule <task_id>
 devflow task packet <task_id>
+devflow task packet <task_id> --project factory-scheduler
 devflow task log <task_id>
+devflow task log <task_id> --project factory-scheduler
 devflow task promote-preview <task_id>
+devflow task promote-preview <task_id> --project factory-scheduler
 devflow task promote <task_id>
+devflow task promote <task_id> --project factory-scheduler
 devflow push-main
 devflow task close <task_id> --outcome rejected --reason "superseded by manual repair"
 devflow task cleanup <task_id> --preview
@@ -129,9 +143,11 @@ The preferred shell-worker form is `devflow task run <task_id> --worker shell --
 
 The project-management form is `devflow project create "Name"`. It creates a separate local project root under the configured projects root, initializes local Git by default, creates that project's own `.devflow/` scaffold, and registers the project in `~/.devflow/registry/projects.json`. It does not create a GitHub repository, add a remote, push, or publish by default. Existing project roots can be registered with `devflow project import /path/to/project`. `devflow dashboard --all-projects` renders the registry as a multi-project control-room view while preserving the existing single-project dashboard behavior.
 
+Project task state is project-local. Without `--project`, task commands use the current working directory. With `--project <project_id>`, task create/list/show/run/verify/packet/review/next-action/log/review-patch/patch-dry-run/apply-patch/promote-preview/promote resolve the project root from `~/.devflow/registry/projects.json` and read or write that project's `.devflow/tasks/` and `.devflow/workspaces/` as appropriate. Task IDs remain unique within each project, not globally; cross-project output displays task refs as `<project_id>:<task_id>`. Project-scoped `promote-preview` is read-only. Project-scoped `promote` preserves the existing human confirmation and promotion safety gates while applying changes to the registered project root, not the caller's current directory.
+
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 
-The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for explicit patch review, dry-run preview, application to the isolated workspace, verification, merge readiness, and human-controlled promotion. The `review-patch --agent` and `patch-dry-run --agent` forms normalize agent patch evidence into `.devflow/tasks/<task_id>/local-model-runs/<run_id>/`; apply-patch refuses mutation unless matching fresh acceptable review and dry-run evidence exists. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
+The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for explicit patch review, dry-run preview, application to the isolated workspace, verification, merge readiness, and human-controlled promotion. The `review-patch --agent` and `patch-dry-run --agent` forms normalize agent patch evidence into `.devflow/tasks/<task_id>/local-model-runs/<run_id>/`; apply-patch refuses mutation unless matching fresh acceptable review and dry-run evidence exists in the resolved project root. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
 
 The orchestration policy form is `devflow task orchestrate <task_id> --plan-only`. It writes task-local policy evidence with Git/DevMode baseline, allowed roles, context layers, write boundaries, stop conditions, and human promotion requirements. It does not execute workers, call provider APIs, route autonomously, apply patches, verify, promote, or mutate main.
 
@@ -139,7 +155,7 @@ The guardrail outcome metadata form is `devflow worker validate-outcome <path-to
 
 Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
 
-The dogfood production-readiness form is `devflow dogfood run --suite production-readiness`. It runs deterministic local cases against existing Dev-Flow control-room surfaces and writes scorecards under `.devflow/dogfood/`. It measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. It is not autonomous model execution: it does not call providers, route workers, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models.
+The dogfood production-readiness form is `devflow dogfood run --suite production-readiness`. It runs deterministic local cases against existing Dev-Flow control-room surfaces and writes scorecards under `.devflow/dogfood/`. It measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. Dogfood closes any task records it creates with the `evidence-only` outcome after each case so test evidence does not remain in the active project queue. It is not autonomous model execution: it does not call providers, route workers, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models.
 
 The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 

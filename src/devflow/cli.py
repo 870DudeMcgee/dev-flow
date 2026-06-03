@@ -86,13 +86,16 @@ from devflow.control_room.hermes_readiness import render_hermes_imessage_check
 from devflow.control_room.project_create import create_project as create_managed_project
 from devflow.control_room.project_create import import_project as import_managed_project
 from devflow.control_room.project_registry import (
+    ProjectRootResolution,
     ProjectRegistryError,
     archive_project,
     doctor_project,
+    project_task_ref,
     remove_project,
     render_project_list,
     render_project_show,
     render_project_status,
+    resolve_project_root,
     update_project_remote_policy,
 )
 
@@ -237,6 +240,18 @@ def goal_create_task(
 
 
 TRUSTED_LOCAL_WARNING = "Security: shell execution is path-isolated, not sandboxed; run only trusted local commands."
+
+
+def _resolve_task_project_root(project: str | None) -> ProjectRootResolution:
+    try:
+        return resolve_project_root(Path.cwd(), project)
+    except ProjectRegistryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _task_ref(task_id: str, project_id: str | None) -> str:
+    return project_task_ref(task_id, project_id)
 
 
 @app.command("init")
@@ -658,14 +673,18 @@ def context_command(
 def task_create(
     title: str,
     git_worktree: bool = typer.Option(False, "--git-worktree", help="Create a Git branch/worktree-backed worker lane."),
+    project: str | None = typer.Option(None, "--project", help="Create the task in a registered project root."),
 ) -> None:
     """Create a task and its artifact directory."""
+    scope = _resolve_task_project_root(project)
     try:
-        task = create_task(Path.cwd(), title, git_worktree=git_worktree)
+        task = create_task(scope.root, title, git_worktree=git_worktree)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(f"Created {task.id}: {task.title}")
+    typer.echo(f"Created {_task_ref(task.id, scope.project_id)}: {task.title}")
+    if scope.project_id:
+        typer.echo(f"project_root: {scope.root}")
     typer.echo(f"status: {task.status}")
     typer.echo(f"workspace: {task.workspace_path}")
     if task.workspace_kind:
@@ -813,41 +832,52 @@ def branch_archive(
 def task_list(
     active: bool = typer.Option(False, "--active", help="Show only active tasks."),
     closed: bool = typer.Option(False, "--closed", help="Show only closed tasks."),
+    project: str | None = typer.Option(None, "--project", help="List tasks from a registered project root."),
 ) -> None:
     """List tasks from the control-room task files."""
     if active and closed:
         typer.echo("Choose either --active or --closed, not both.", err=True)
         raise typer.Exit(code=1)
-    projections = list_task_status_projections(Path.cwd())
+    scope = _resolve_task_project_root(project)
+    projections = list_task_status_projections(scope.root)
     if active:
-        projections = [projection for projection in projections if projection.task.status != "closed"]
+        projections = [projection for projection in projections if projection.is_active]
     if closed:
         projections = [projection for projection in projections if projection.task.status == "closed"]
     if not projections:
         typer.echo("No tasks found.")
         return
-    typer.echo(f"{'Task':<10} {'Status':<20} {'Verify':<16} {'Updated':<25} Title")
-    typer.echo("-" * 97)
-    for projection in projections:
+    rows = [(_task_ref(projection.task.id, scope.project_id), projection) for projection in projections]
+    task_width = max(10, *(len(ref) for ref, _ in rows))
+    typer.echo(f"{'Task':<{task_width}} {'Status':<20} {'Verify':<16} {'Updated':<25} Title")
+    typer.echo("-" * (task_width + 87))
+    for task_ref, projection in rows:
         task = projection.task
         typer.echo(
-            f"{task.id:<10} {projection.display_status:<20} {projection.verify_token:<16} "
+            f"{task_ref:<{task_width}} {projection.display_status:<20} {projection.verify_token:<16} "
             f"{task.updated_at.isoformat():<25} {task.title}"
         )
 
 
 @task_app.command("show")
-def task_show(task_id: str) -> None:
+def task_show(
+    task_id: str,
+    project: str | None = typer.Option(None, "--project", help="Show a task from a registered project root."),
+) -> None:
     """Show one task's status, logs, and artifacts."""
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
-        task = get_task(Path.cwd(), task_id)
+        task = get_task(root, task_id)
     except KeyError as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    projection = build_task_status_projection(Path.cwd(), task_id, task=task)
+    projection = build_task_status_projection(root, task_id, task=task)
     task_path = projection.task_path
-    typer.echo(f"task: {task.id}")
+    typer.echo(f"task: {_task_ref(task.id, scope.project_id)}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
     typer.echo(f"title: {task.title}")
     typer.echo(f"status: {task.status}")
     typer.echo(f"worker: {task.worker}")
@@ -865,9 +895,9 @@ def task_show(task_id: str) -> None:
     typer.echo(f"log_path: {task.log_path or ''}")
     typer.echo(f"result_path: {task.result_path or ''}")
     typer.echo(f"worker_command: {task.worker_command or ''}")
-    closure = read_closure(Path.cwd(), task.id)
+    closure = read_closure(root, task.id)
     if closure:
-        closed_next_action = closure_next_action(Path.cwd(), task)
+        closed_next_action = closure_next_action(root, task)
         typer.echo("closed: yes")
         typer.echo(f"outcome: {closure.get('outcome') or ''}")
         typer.echo(f"reason: {closure.get('reason') or ''}")
@@ -907,7 +937,7 @@ def task_show(task_id: str) -> None:
     if isinstance(finalized_commit, str) and finalized_commit and not promoted_event and not closure:
         typer.echo(f"finalized_commit: {finalized_commit}")
         if task.branch_name:
-            typer.echo(f"worker_branch_commit: {branch_head(Path.cwd(), task.branch_name) or 'unavailable'}")
+            typer.echo(f"worker_branch_commit: {branch_head(root, task.branch_name) or 'unavailable'}")
         typer.echo("promotion_status: main not promoted yet")
         suggested_next_action = f"devflow task promote-preview {task.id}"
     typer.echo(f"suggested_next_action: {suggested_next_action}")
@@ -935,7 +965,7 @@ def task_show(task_id: str) -> None:
             typer.echo(f"  deleted_applied: {', '.join(deleted_applied)}")
     packet_json = task_path / "packet.json"
     if packet_json.exists():
-        rel_path = _relative(Path.cwd(), packet_json)
+        rel_path = _relative(root, packet_json)
         typer.echo("packet_artifact: exists")
         typer.echo(f"packet_path: {rel_path}")
         typer.echo(f"packet_hint: run 'devflow task packet {task.id}' for the latest generated preview")
@@ -955,18 +985,18 @@ def task_show(task_id: str) -> None:
         if runs:
             runs.sort()
             latest_run_name, latest_response_md = runs[-1]
-            rel_response_md = _relative(Path.cwd(), latest_response_md)
+            rel_response_md = _relative(root, latest_response_md)
             typer.echo("Local Model Runs:")
             typer.echo(f"  latest: {rel_response_md}")
             typer.echo("  hint: review this evidence, then decide whether to run/apply/verify explicitly")
 
-    normalized = latest_normalized_proposal(Path.cwd(), task.id)
+    normalized = latest_normalized_proposal(root, task.id)
     if normalized:
         proposal_path = normalized.get("proposal_path") or ""
         validation_label = "not_performed"
         validation_path = normalized.get("validation_path")
         if validation_path:
-            validation_file = Path.cwd() / str(validation_path)
+            validation_file = root / str(validation_path)
             try:
                 validation_data = json.loads(validation_file.read_text(encoding="utf-8"))
                 validation_label = "valid" if validation_data.get("valid") else "invalid"
@@ -979,7 +1009,7 @@ def task_show(task_id: str) -> None:
         typer.echo(f"  validation: {validation_label}")
         typer.echo("  hint: review proposal evidence before applying or verifying anything")
 
-    patch_review = latest_patch_review(Path.cwd(), task.id)
+    patch_review = latest_patch_review(root, task.id)
     if patch_review:
         typer.echo("Patch Reviews:")
         typer.echo(f"  latest: {patch_review.get('_review_path')}")
@@ -988,7 +1018,7 @@ def task_show(task_id: str) -> None:
         typer.echo(f"  files_touched: {len(patch_review.get('files_touched') or [])}")
         typer.echo("  hint: review patch candidate before applying anything")
 
-    patch_dry_run = latest_patch_dry_run(Path.cwd(), task.id)
+    patch_dry_run = latest_patch_dry_run(root, task.id)
     if patch_dry_run:
         typer.echo("Patch Dry-runs:")
         typer.echo(f"  latest: {patch_dry_run.get('_dry_run_path')}")
@@ -1000,7 +1030,7 @@ def task_show(task_id: str) -> None:
         )
         typer.echo("  hint: dry-run only; review before applying anything")
 
-    _echo_agent_patch_evidence_summary(Path.cwd(), task_path)
+    _echo_agent_patch_evidence_summary(root, task_path)
     if projection.merge_ready is not None:
         ready_str = "yes" if projection.merge_ready else "no"
         typer.echo(f"merge_ready: {ready_str}")
@@ -1010,17 +1040,22 @@ def task_show(task_id: str) -> None:
                 typer.echo(f"  - {reason}")
     _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
     _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
-    _echo_result_summary(task_path / "result.md", summary=qwopus_result_summary(Path.cwd(), task.id))
+    _echo_result_summary(task_path / "result.md", summary=qwopus_result_summary(root, task.id))
 
 
 @task_app.command("next-action")
 def task_next_action_command(
     task_id: str,
     json_output: bool = typer.Option(False, "--json", help="Print next action as JSON."),
+    project: str | None = typer.Option(None, "--project", help="Inspect a task from a registered project root."),
 ) -> None:
     """Recommend one read-only next safe action for a task."""
+    scope = _resolve_task_project_root(project)
     try:
-        typer.echo(render_task_next_action(Path.cwd(), task_id, json_output=json_output), nl=False)
+        typer.echo(
+            render_task_next_action(scope.root, task_id, json_output=json_output, project_id=scope.project_id),
+            nl=False,
+        )
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -1030,10 +1065,15 @@ def task_next_action_command(
 def task_review_command(
     task_id: str,
     json_output: bool = typer.Option(False, "--json", help="Print review capsule as JSON."),
+    project: str | None = typer.Option(None, "--project", help="Review a task from a registered project root."),
 ) -> None:
     """Render a compact supervisor-safe task review capsule."""
+    scope = _resolve_task_project_root(project)
     try:
-        typer.echo(render_task_review(Path.cwd(), task_id, json_output=json_output), nl=False)
+        typer.echo(
+            render_task_review(scope.root, task_id, json_output=json_output, project_id=scope.project_id),
+            nl=False,
+        )
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -1307,15 +1347,18 @@ def task_packet(
     task_id: str,
     save: bool = typer.Option(False, "--save", help="Save the task packet under the task folder."),
     text: bool = typer.Option(False, "--text", help="Output human-readable text preview instead of JSON."),
+    project: str | None = typer.Option(None, "--project", help="Build a packet from a registered project root."),
 ) -> None:
     """Build and print a task's TaskPacket as deterministic JSON."""
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.task_packet import (
             build_task_packet,
             render_task_packet_text,
             save_task_packet,
         )
-        packet = build_task_packet(task_id, root=Path.cwd())
+        packet = build_task_packet(task_id, root=root)
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -1323,9 +1366,9 @@ def task_packet(
     text_md = render_task_packet_text(packet)
 
     if save:
-        written = save_task_packet(Path.cwd(), task_id, packet, text_md=text_md)
+        written = save_task_packet(root, task_id, packet, text_md=text_md)
         for p in written:
-            rel_p = _relative(Path.cwd(), p)
+            rel_p = _relative(root, p)
             typer.echo(f"Wrote {rel_p}")
     else:
         if text:
@@ -1373,19 +1416,23 @@ def task_review_patch(
     task_id: str,
     run_id: str | None = typer.Option(None, "--run-id", help="Review a specific normalized local model run id."),
     agent: str | None = typer.Option(None, "--agent", help="Normalize and review proposal.patch from a task agent."),
+    project: str | None = typer.Option(None, "--project", help="Review patch evidence from a registered project root."),
 ) -> None:
     """Review normalized proposal.patch evidence without applying it."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         if agent:
-            run_id = normalize_agent_patch_candidate(root, task_id, agent)
-        review = review_patch_candidate(root, task_id, run_id=run_id)
+            run_id = normalize_agent_patch_candidate(root, task_id, agent, project_id=scope.project_id)
+        review = review_patch_candidate(root, task_id, run_id=run_id, project_id=scope.project_id)
     except (KeyError, FileNotFoundError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     run_dir = root / ".devflow" / "tasks" / task_id / "local-model-runs" / review.run_id
-    typer.echo(f"Patch Review for {task_id}")
+    typer.echo(f"Patch Review for {_task_ref(task_id, scope.project_id)}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
     typer.echo("")
     typer.echo(f"Run: {review.run_id}")
     typer.echo(f"Proposal classification: {review.proposal_classification}")
@@ -1418,19 +1465,23 @@ def task_patch_dry_run(
     task_id: str,
     run_id: str | None = typer.Option(None, "--run-id", help="Dry-run a specific reviewed local model run id."),
     agent: str | None = typer.Option(None, "--agent", help="Dry-run a reviewed proposal.patch from a task agent."),
+    project: str | None = typer.Option(None, "--project", help="Dry-run patch evidence from a registered project root."),
 ) -> None:
     """Preview whether reviewed proposal.patch evidence would apply without mutating files."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         if agent:
-            run_id = normalize_agent_patch_candidate(root, task_id, agent)
-        result = preview_patch_dry_run(root, task_id, run_id=run_id)
+            run_id = normalize_agent_patch_candidate(root, task_id, agent, project_id=scope.project_id)
+        result = preview_patch_dry_run(root, task_id, run_id=run_id, project_id=scope.project_id)
     except (KeyError, FileNotFoundError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     run_dir = root / ".devflow" / "tasks" / task_id / "local-model-runs" / result.run_id
-    typer.echo(f"Patch Dry-run Preview for {task_id}")
+    typer.echo(f"Patch Dry-run Preview for {_task_ref(task_id, scope.project_id)}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
     typer.echo("")
     typer.echo(f"Run: {result.run_id}")
     typer.echo(f"Patch review status: {_patch_review_status(root, task_id, result.run_id)}")
@@ -1483,9 +1534,11 @@ def task_log(
     task_id: str,
     verify: bool = typer.Option(False, "--verify", help="Print the verification log instead."),
     tail: int | None = typer.Option(None, "--tail", min=1, help="Number of lines to tail."),
+    project: str | None = typer.Option(None, "--project", help="Print logs from a registered project root."),
 ) -> None:
     """Print the logs for a task."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         task = get_task(root, task_id)
     except KeyError as exc:
@@ -1677,8 +1730,11 @@ def task_run(
     worker: str = typer.Option("shell", "--worker"),
     shell_command: str | None = typer.Option(None, "--shell"),
     timeout_seconds: int = typer.Option(60, "--timeout-seconds"),
+    project: str | None = typer.Option(None, "--project", help="Run a task from a registered project root."),
 ) -> None:
     """Run a task with a worker command after '--'."""
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     if worker == "manual":
         typer.echo("Warning: 'manual' worker is experimental and does not execute work.")
     elif worker == "shell":
@@ -1686,7 +1742,7 @@ def task_run(
     from devflow.control_room.agent_registry import load_agent_registry
     from devflow.control_room.worker_adapter import list_worker_adapters, UnsupportedWorkerAdapter
 
-    registry = load_agent_registry(Path.cwd())
+    registry = load_agent_registry(root)
     valid_agents = list(registry.agents.keys())
     valid_adapters = list_worker_adapters()
     selected_agent = registry.agents.get(worker)
@@ -1708,24 +1764,26 @@ def task_run(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     try:
-        task = run_shell_task(Path.cwd(), task_id, command, timeout_seconds=timeout_seconds, worker_adapter=worker)
+        task = run_shell_task(root, task_id, command, timeout_seconds=timeout_seconds, worker_adapter=worker)
     except (KeyError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"{task.id}: {task.status}")
+    typer.echo(f"{_task_ref(task.id, scope.project_id)}: {task.status}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
     typer.echo(f"log_path: {task.log_path}")
     typer.echo(f"result_path: {task.result_path}")
     if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
-        _echo_registry_patch_worker_evidence_paths(Path.cwd(), task.id, worker)
-    handoff_path = Path.cwd() / ".devflow" / "tasks" / task.id / "agents" / worker / "handoff.md"
+        _echo_registry_patch_worker_evidence_paths(root, task.id, worker)
+    handoff_path = root / ".devflow" / "tasks" / task.id / "agents" / worker / "handoff.md"
     if handoff_path.exists():
-        typer.echo(f"manual_handoff_path: {_relative(Path.cwd(), handoff_path)}")
+        typer.echo(f"manual_handoff_path: {_relative(root, handoff_path)}")
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
     if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat" and task.status == "complete":
         typer.echo(f"suggested_next_action: devflow task review-patch {task.id} --agent {worker}")
-    _echo_review_capsule(Path.cwd(), task.id)
+    _echo_review_capsule(root, task.id)
     if task.status != "complete":
         exit_code = task.last_exit_code if task.last_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
@@ -1812,24 +1870,29 @@ def task_verify(
     task_id: str,
     shell_command: str | None = typer.Option(None, "--shell"),
     timeout_seconds: int = typer.Option(120, "--timeout-seconds"),
+    project: str | None = typer.Option(None, "--project", help="Verify a task from a registered project root."),
 ) -> None:
     """Run a verification command inside the task workspace."""
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         command = _shell_command_or_args(shell_command, list(ctx.args), "Verification")
     except ValueError as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
     try:
-        task = verify_task(Path.cwd(), task_id, command, timeout_seconds=timeout_seconds)
+        task = verify_task(root, task_id, command, timeout_seconds=timeout_seconds)
     except (KeyError, ValueError) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"{task.id}: verification {task.verification_status}")
+    typer.echo(f"{_task_ref(task.id, scope.project_id)}: verification {task.verification_status}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
     typer.echo(f"verification_log_path: {task.verification_log_path}")
     if task.latest_log_line:
         typer.echo(f"latest_log_line: {task.latest_log_line}")
-    _echo_review_capsule(Path.cwd(), task.id)
+    _echo_review_capsule(root, task.id)
     if task.verification_status != "passed":
         exit_code = task.verification_exit_code if task.verification_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
@@ -1840,9 +1903,11 @@ def task_apply_patch(
     task_id: str,
     agent: str | None = typer.Option(None, "--agent", help="The specific agent's patch to apply."),
     run_id: str | None = typer.Option(None, "--run-id", help="Apply a specific reviewed local model run proposal.patch."),
+    project: str | None = typer.Option(None, "--project", help="Apply patch evidence from a registered project root."),
 ) -> None:
     """Apply a proposed patch from a worker agent to the isolated task workspace."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         task = apply_task_patch(root, task_id, agent_id=agent, run_id=run_id)
 
@@ -1873,7 +1938,12 @@ def task_apply_patch(
                 except Exception:
                     pass
 
-        typer.echo(f"Successfully applied patch from agent '{agent_id}' to task workspace '{task.id}'.")
+        typer.echo(
+            f"Successfully applied patch from agent '{agent_id}' "
+            f"to task workspace '{_task_ref(task.id, scope.project_id)}'."
+        )
+        if scope.project_id:
+            typer.echo(f"project_root: {root}")
         typer.echo(f"Workspace: .devflow/workspaces/{task.id}")
         if applied_run_id:
             typer.echo(f"Run ID: {applied_run_id}")
@@ -1890,7 +1960,12 @@ def task_apply_patch(
             typer.echo(f"  - {cf['path']} ({cf['operation']})")
         typer.echo("")
         typer.echo("Next:")
-        typer.echo(f"  devflow task verify {task.id} --shell \"<command>\"")
+        if scope.project_id:
+            typer.echo(
+                f"  devflow task verify {task.id} --project {scope.project_id} --shell \"<command>\""
+            )
+        else:
+            typer.echo(f"  devflow task verify {task.id} --shell \"<command>\"")
 
     except (PatchError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -1898,11 +1973,16 @@ def task_apply_patch(
 
 
 @task_app.command("promote-preview")
-def task_promote_preview(task_id: str) -> None:
+def task_promote_preview(
+    task_id: str,
+    project: str | None = typer.Option(None, "--project", help="Preview promotion from a registered project root."),
+) -> None:
     """Preview changes that would be promoted from the isolated task workspace."""
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.service import preview_task_promotion
-        res = preview_task_promotion(Path.cwd(), task_id)
+        res = preview_task_promotion(root, task_id)
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -1921,7 +2001,12 @@ def task_promote_preview(task_id: str) -> None:
     git_preview = res.get("git")
     human_approval = res.get("human_approval") or {}
     human_approval_required = bool(human_approval.get("required"))
-    if human_approval_required:
+    if scope.project_id:
+        next_action = (
+            f"Review this preview, then run 'devflow task promote {task_id}' "
+            f"from the project_root above and confirm the prompt."
+        )
+    elif human_approval_required:
         next_action = (
             f"Human approval required; review this preview, then run "
             f"'devflow task promote {task_id}' and confirm the prompt."
@@ -1931,6 +2016,9 @@ def task_promote_preview(task_id: str) -> None:
 
     typer.echo("preview_only: yes")
     typer.echo("main_changed: no")
+    typer.echo(f"task: {_task_ref(task_id, scope.project_id)}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
     typer.echo(f"next_action: {next_action}")
     typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
     typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
@@ -1962,7 +2050,7 @@ def task_promote_preview(task_id: str) -> None:
 
     if not added and not modified and not deleted and not renamed and not untracked and not binary:
         typer.echo("No changes to promote")
-        _echo_review_capsule(Path.cwd(), task_id, promotion_preview=res)
+        _echo_review_capsule(root, task_id, promotion_preview=res)
         return
 
     if added:
@@ -2006,7 +2094,7 @@ def task_promote_preview(task_id: str) -> None:
         diff_text = diffs[name]
         if diff_text:
             typer.echo(diff_text, nl=False)
-    _echo_review_capsule(Path.cwd(), task_id, promotion_preview=res)
+    _echo_review_capsule(root, task_id, promotion_preview=res)
 
 
 @task_app.command("promote")
@@ -2019,8 +2107,11 @@ def task_promote(
         help="Bypass the stale task-baseline guard after manual conflict review.",
     ),
     apply_deletions: bool = typer.Option(False, "--apply-deletions", help="Apply file deletions to the main checkout."),
+    project: str | None = typer.Option(None, "--project", help="Promote a task from a registered project root."),
 ) -> None:
     """Promote verified changes from the isolated workspace to the main checkout."""
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.service import (
             format_promotion_refusal,
@@ -2033,7 +2124,7 @@ def task_promote(
             promotion_readiness_errors,
         )
         # 1. Safety check for dirty main checkout
-        dirty = main_checkout_has_uncommitted_changes(Path.cwd())
+        dirty = main_checkout_has_uncommitted_changes(root)
         if dirty:
             if not force:
                 typer.echo(
@@ -2044,8 +2135,8 @@ def task_promote(
             else:
                 typer.echo("Warning: Bypassing safety check for uncommitted changes in main checkout.")
 
-        task = get_task(Path.cwd(), task_id)
-        task_path = Path.cwd() / ".devflow" / "tasks" / task.id
+        task = get_task(root, task_id)
+        task_path = root / ".devflow" / "tasks" / task.id
         readiness_errors = promotion_readiness_errors(
             task,
             task_path,
@@ -2058,19 +2149,19 @@ def task_promote(
             )
             raise typer.Exit(code=1)
 
-        baseline = promotion_baseline(Path.cwd(), task)
+        baseline = promotion_baseline(root, task)
         if baseline["baseline_status"] == "unavailable":
-            typer.echo(format_stale_baseline_refusal(Path.cwd(), task), err=True)
+            typer.echo(format_stale_baseline_refusal(root, task), err=True)
             raise typer.Exit(code=1)
         if baseline["baseline_status"] == "changed":
             if not force_stale_baseline:
-                typer.echo(format_stale_baseline_refusal(Path.cwd(), task), err=True)
+                typer.echo(format_stale_baseline_refusal(root, task), err=True)
                 raise typer.Exit(code=1)
             typer.echo("Warning: Forcing promotion with stale task baseline.")
             typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
             typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
 
-        res = preview_task_promotion(Path.cwd(), task_id)
+        res = preview_task_promotion(root, task_id)
     except KeyError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -2085,6 +2176,10 @@ def task_promote(
     untracked = res.get("untracked", [])
     binary = res.get("binary", [])
     diffs = res["diffs"]
+
+    typer.echo(f"task: {_task_ref(task_id, scope.project_id)}")
+    if scope.project_id:
+        typer.echo(f"project_root: {root}")
 
     if not added and not modified and not deleted and not renamed and not untracked and not binary:
         typer.echo("No changes to promote")
@@ -2138,15 +2233,15 @@ def task_promote(
         return
 
     try:
-        before_main_head = current_head(Path.cwd())
+        before_main_head = current_head(root)
         promote_task(
-            Path.cwd(),
+            root,
             task_id,
             force=force,
             apply_deletions=apply_deletions,
             force_stale_baseline=force_stale_baseline,
         )
-        after_main_head = current_head(Path.cwd())
+        after_main_head = current_head(root)
     except Exception as exc:
         typer.echo(f"Error executing promotion: {exc}", err=True)
         raise typer.Exit(code=1) from exc

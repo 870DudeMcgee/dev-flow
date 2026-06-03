@@ -371,11 +371,19 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     closed = create_task(tmp_path, "closed duplicate")
     close_result = runner.invoke(app, ["task", "close", closed.id, "--outcome", "duplicate", "--reason", "covered elsewhere"])
     assert close_result.exit_code == 0, close_result.output
+    closed_failed = create_task(tmp_path, "closed failed dogfood evidence")
+    assert runner.invoke(app, ["task", "run", closed_failed.id, "--shell", "echo done"]).exit_code == 0
+    assert runner.invoke(app, ["task", "verify", closed_failed.id, "--shell", "exit 5"]).exit_code == 5
+    close_failed = runner.invoke(
+        app,
+        ["task", "close", closed_failed.id, "--outcome", "evidence-only", "--reason", "dogfood evidence captured"],
+    )
+    assert close_failed.exit_code == 0, close_failed.output
 
     status = _read_json(_invoke_read_only(tmp_path, ["status", "--json"]))
     assert status["schema_version"] == 1
     assert status["active_task_count"] == 3
-    assert status["closed_task_count"] == 1
+    assert status["closed_task_count"] == 2
     assert status["review_ready_task_count"] == 1
     assert status["verification_failed_task_count"] == 1
     by_id = {task["id"]: task for task in status["tasks"]}
@@ -384,6 +392,7 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     assert by_id[active.id]["requires_human_approval"] is True
     assert by_id[review_ready.id]["has_proposal_patch"] is True
     assert by_id[failed.id]["verification_status"] == "failed"
+    assert by_id[closed_failed.id]["active"] is False
 
     packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
     assert packet["schema_version"] == 1

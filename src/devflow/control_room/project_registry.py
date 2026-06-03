@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+from dataclasses import dataclass
 from datetime import timezone
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,12 @@ from devflow.control_room.project_models import (
 
 class ProjectRegistryError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ProjectRootResolution:
+    root: Path
+    project_id: str | None
 
 
 def devflow_home(home: Path | None = None) -> Path:
@@ -157,6 +164,22 @@ def get_project_record(project_id: str, *, home: Path | None = None) -> ProjectR
         if record.project_id == lookup:
             return record
     raise ProjectRegistryError(f"Project not found: {lookup}")
+
+
+def resolve_project_root(current_root: Path, project_id: str | None, *, home: Path | None = None) -> ProjectRootResolution:
+    if project_id is None:
+        return ProjectRootResolution(root=current_root.resolve(), project_id=None)
+    record = get_project_record(project_id, home=home)
+    root = Path(record.path).expanduser().resolve()
+    if record.status == "archived":
+        raise ProjectRegistryError(f"Project is archived: {record.project_id}")
+    if not root.is_dir():
+        raise ProjectRegistryError(f"Project path is missing: {root}")
+    return ProjectRootResolution(root=root, project_id=record.project_id)
+
+
+def project_task_ref(task_id: str, project_id: str | None) -> str:
+    return f"{project_id}:{task_id}" if project_id else task_id
 
 
 def archive_project(project_id: str, *, home: Path | None = None) -> ProjectRecord:

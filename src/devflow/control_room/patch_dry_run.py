@@ -78,7 +78,13 @@ def latest_patch_dry_run(root: Path, task_id: str) -> dict[str, Any] | None:
     return data
 
 
-def preview_patch_dry_run(root: Path, task_id: str, *, run_id: str | None = None) -> PatchDryRun:
+def preview_patch_dry_run(
+    root: Path,
+    task_id: str,
+    *,
+    run_id: str | None = None,
+    project_id: str | None = None,
+) -> PatchDryRun:
     repo_root = root.resolve()
     selected_run_id, run_path = _resolve_run(repo_root, task_id, run_id)
     patch_path = run_path / "proposal.patch"
@@ -115,7 +121,7 @@ def preview_patch_dry_run(root: Path, task_id: str, *, run_id: str | None = None
             hunk_results=[],
             findings=["Patch review gate did not approve this as a reviewable candidate."],
             warnings=[],
-            next_action=_next_action(task_id),
+            next_action=_next_action(task_id, project_id=project_id),
         )
         _write_dry_run(repo_root, run_path, result)
         return result
@@ -139,7 +145,7 @@ def preview_patch_dry_run(root: Path, task_id: str, *, run_id: str | None = None
             hunk_results=[],
             findings=["Cannot dry-run without isolated task workspace."],
             warnings=[],
-            next_action=_next_action(task_id),
+            next_action=_next_action(task_id, project_id=project_id),
         )
         _write_dry_run(repo_root, run_path, result)
         return result
@@ -164,7 +170,7 @@ def preview_patch_dry_run(root: Path, task_id: str, *, run_id: str | None = None
             hunk_results=[],
             findings=["Patch candidate cannot be parsed."],
             warnings=[str(exc)],
-            next_action=_next_action(task_id),
+            next_action=_next_action(task_id, project_id=project_id),
         )
         _write_dry_run(repo_root, run_path, result)
         return result
@@ -186,12 +192,22 @@ def preview_patch_dry_run(root: Path, task_id: str, *, run_id: str | None = None
             hunk_results=[],
             findings=["Patch candidate cannot be parsed."],
             warnings=[],
-            next_action=_next_action(task_id),
+            next_action=_next_action(task_id, project_id=project_id),
         )
         _write_dry_run(repo_root, run_path, result)
         return result
 
-    result = _inspect_patch_files(repo_root, workspace, task_id, selected_run_id, patch_path, review_path, patch_files, review)
+    result = _inspect_patch_files(
+        repo_root,
+        workspace,
+        task_id,
+        selected_run_id,
+        patch_path,
+        review_path,
+        patch_files,
+        review,
+        project_id=project_id,
+    )
     _write_dry_run(repo_root, run_path, result)
     return result
 
@@ -257,6 +273,8 @@ def _inspect_patch_files(
     review_path: Path,
     patch_files: list[PatchFile],
     review: dict[str, Any],
+    *,
+    project_id: str | None = None,
 ) -> PatchDryRun:
     files_checked: list[str] = []
     files_missing: list[str] = []
@@ -367,7 +385,7 @@ def _inspect_patch_files(
         hunk_results=hunk_results,
         findings=findings,
         warnings=warnings,
-        next_action=_next_action(task_id),
+        next_action=_next_action(task_id, project_id=project_id),
     )
 
 
@@ -479,11 +497,20 @@ def _higher_risk(left: str, right: str) -> str:
     return left if _risk_rank(left) >= _risk_rank(right) else right
 
 
-def _next_action(task_id: str) -> dict[str, str]:
+def _next_action(task_id: str, *, project_id: str | None = None) -> dict[str, str]:
     return {
         "label": "Review dry-run evidence manually",
-        "command": f"devflow task show {task_id}",
+        "command": _scope_project_command(f"devflow task show {task_id}", project_id),
     }
+
+
+def _scope_project_command(command: str, project_id: str | None) -> str:
+    if not project_id or "--project" in command:
+        return command
+    parts = command.split()
+    if len(parts) < 4 or parts[0] != "devflow" or parts[1] != "task":
+        return command
+    return " ".join([*parts[:4], "--project", project_id, *parts[4:]])
 
 
 def _render_bullets(values: list[str]) -> str:

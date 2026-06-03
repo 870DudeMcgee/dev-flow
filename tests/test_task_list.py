@@ -183,6 +183,29 @@ def test_list_graceful_when_no_tasks_exist() -> None:
             os.chdir(old_cwd)
 
 
+def test_active_list_excludes_promoted_tasks() -> None:
+    """--active should hide tasks that no longer need project-queue attention."""
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            runner.invoke(app, ["task", "create", "active task"])
+            runner.invoke(app, ["task", "create", "already promoted"])
+
+            task_yaml = Path(".devflow/tasks/task-0002/task.yaml")
+            task_yaml.write_text(
+                task_yaml.read_text(encoding="utf-8").replace('status: "created"', 'status: "promoted"'),
+                encoding="utf-8",
+            )
+
+            listing = runner.invoke(app, ["task", "list", "--active"])
+            assert listing.exit_code == 0, listing.output
+            assert "task-0001" in listing.output
+            assert "task-0002" not in listing.output
+        finally:
+            os.chdir(old_cwd)
+
+
 # ---------------------------------------------------------------------------
 # list is read-only — does not mutate any task files
 # ---------------------------------------------------------------------------

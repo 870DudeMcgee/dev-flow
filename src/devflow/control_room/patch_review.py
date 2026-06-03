@@ -52,7 +52,13 @@ class PatchReview:
         return asdict(self)
 
 
-def review_patch_candidate(root: Path, task_id: str, *, run_id: str | None = None) -> PatchReview:
+def review_patch_candidate(
+    root: Path,
+    task_id: str,
+    *,
+    run_id: str | None = None,
+    project_id: str | None = None,
+) -> PatchReview:
     repo_root = root.resolve()
     selected_run_id, run_path = _resolve_run(repo_root, task_id, run_id)
     proposal_path = run_path / "proposal.json"
@@ -86,7 +92,7 @@ def review_patch_candidate(root: Path, task_id: str, *, run_id: str | None = Non
             warnings=optional_warnings,
             next_action={
                 "label": "Review proposal manually",
-                "command": f"devflow task show {task_id}",
+                "command": _scope_project_command(f"devflow task show {task_id}", project_id),
             },
         )
         _write_review(repo_root, run_path, review)
@@ -116,7 +122,7 @@ def review_patch_candidate(root: Path, task_id: str, *, run_id: str | None = Non
             warnings=warnings,
             next_action={
                 "label": "Review proposal manually",
-                "command": f"devflow task show {task_id}",
+                "command": _scope_project_command(f"devflow task show {task_id}", project_id),
             },
         )
         _write_review(repo_root, run_path, review)
@@ -168,14 +174,20 @@ def review_patch_candidate(root: Path, task_id: str, *, run_id: str | None = Non
         warnings=warnings,
         next_action={
             "label": next_label,
-            "command": f"devflow task show {task_id}",
+            "command": _scope_project_command(f"devflow task show {task_id}", project_id),
         },
     )
     _write_review(repo_root, run_path, review)
     return review
 
 
-def normalize_agent_patch_candidate(root: Path, task_id: str, agent_id: str) -> str:
+def normalize_agent_patch_candidate(
+    root: Path,
+    task_id: str,
+    agent_id: str,
+    *,
+    project_id: str | None = None,
+) -> str:
     repo_root = root.resolve()
     task_path = task_dir(repo_root, task_id)
     if not task_path.exists():
@@ -211,7 +223,7 @@ def normalize_agent_patch_candidate(root: Path, task_id: str, agent_id: str) -> 
         "warnings": [f"Normalized from agent proposal evidence: {agent_id}"],
         "next_action": {
             "label": "Review patch candidate",
-            "command": f"devflow task review-patch {task_id} --run-id {run_id}",
+            "command": _scope_project_command(f"devflow task review-patch {task_id} --run-id {run_id}", project_id),
         },
     }
     (run_path / "proposal.json").write_text(json.dumps(proposal, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -223,6 +235,15 @@ def normalize_agent_patch_candidate(root: Path, task_id: str, agent_id: str) -> 
         encoding="utf-8",
     )
     return run_id
+
+
+def _scope_project_command(command: str, project_id: str | None) -> str:
+    if not project_id or "--project" in command:
+        return command
+    parts = command.split()
+    if len(parts) < 4 or parts[0] != "devflow" or parts[1] != "task":
+        return command
+    return " ".join([*parts[:4], "--project", project_id, *parts[4:]])
 
 
 def latest_patch_review(root: Path, task_id: str) -> dict[str, Any] | None:

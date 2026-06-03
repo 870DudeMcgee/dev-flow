@@ -24,31 +24,43 @@ devflow supervisor packet --json
 devflow hermes imessage-check --json
 devflow task --help
 devflow task create "example task"
+devflow task create --project factory-scheduler "example task"
 devflow task create --git-worktree "example git task"
 devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt"
+devflow task run <task-id> --project factory-scheduler --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task run <task-id> --worker qwopus-implementer
 devflow task review-patch <task-id>
+devflow task review-patch <task-id> --project factory-scheduler
 devflow task review-patch <task-id> --agent qwopus-implementer
 devflow task patch-dry-run <task-id>
+devflow task patch-dry-run <task-id> --project factory-scheduler
 devflow task patch-dry-run <task-id> --agent qwopus-implementer
 devflow task apply-patch <task-id> --agent qwopus-implementer
+devflow task apply-patch <task-id> --project factory-scheduler --agent qwopus-implementer
 devflow task apply-patch <task-id> --run-id <run-id>
 devflow task verify <task-id> --shell "test -f result.txt"
+devflow task verify <task-id> --project factory-scheduler --shell "test -f result.txt"
 devflow task local <task-id> --agent qwen-planner
 devflow task local <task-id> --agent qwopus-implementer
 devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer
 devflow task list
+devflow task list --project factory-scheduler
 devflow task list --active
 devflow task list --closed
 devflow task show <task-id>
+devflow task show <task-id> --project factory-scheduler
 devflow task review <task-id>
 devflow task review <task-id> --json
+devflow task review <task-id> --project factory-scheduler
 devflow task next-action <task-id>
 devflow task next-action <task-id> --json
+devflow task next-action <task-id> --project factory-scheduler
 devflow task capsule <task-id>
 devflow task packet <task-id>
+devflow task packet <task-id> --project factory-scheduler
 devflow task log <task-id>
+devflow task log <task-id> --project factory-scheduler
 devflow task orchestrate <task-id> --plan-only
 devflow worker validate-outcome <path-to-outcome-json>
 devflow knowledge capture --from-task <task-id>
@@ -64,7 +76,9 @@ devflow dogfood run --suite production-readiness
 devflow dogfood score <run-id>
 devflow dogfood report <run-id>
 devflow task promote-preview <task-id>
+devflow task promote-preview <task-id> --project factory-scheduler
 devflow task promote <task-id>
+devflow task promote <task-id> --project factory-scheduler
 devflow task close <task-id> --outcome rejected --reason "superseded by manual repair"
 devflow task cleanup <task-id> --preview
 devflow task cleanup <task-id> --apply
@@ -113,7 +127,7 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 
 `devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow reconcile` reports crash/interruption evidence without mutating files, including partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts. `devflow status --json` emits a read-only, machine-readable control-room summary for humans and supervisor agents.
 
-`devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
+`devflow task create` creates the task artifacts and task workspace needed by the later commands. By default, task files live under the current working directory's `.devflow/tasks/`. `devflow task create --project <project-id>`, `devflow task list --project <project-id>`, `devflow task show <task-id> --project <project-id>`, `devflow task run <task-id> --project <project-id>`, `devflow task verify <task-id> --project <project-id>`, `devflow task packet <task-id> --project <project-id>`, `devflow task review <task-id> --project <project-id>`, `devflow task next-action <task-id> --project <project-id>`, `devflow task log <task-id> --project <project-id>`, `devflow task review-patch <task-id> --project <project-id>`, `devflow task patch-dry-run <task-id> --project <project-id>`, `devflow task apply-patch <task-id> --project <project-id>`, `devflow task promote-preview <task-id> --project <project-id>`, and `devflow task promote <task-id> --project <project-id>` resolve the registered project root and use that project's `.devflow/tasks/` and `.devflow/workspaces/` instead. Task IDs are project-local; cross-project refs are displayed as `<project_id>:<task_id>`. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
 
 `devflow task local <task-id> --agent qwen-planner`, `devflow task local <task-id> --agent qwopus-implementer`, and `devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as advisory evidence only; Dev-Flow does not parse it as truth, write `proposal.patch`, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
 
@@ -121,7 +135,7 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 
 `devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json` previews the read-only local model worker-pool path without calling a model or writing evidence. `devflow agent run --task <task-id> --profile local-qwopus-inspector --json` is the first real WorkerEvidence slice: it builds a bounded task packet, calls the configured local OpenAI-compatible/Ollama endpoint through `local_model_client.py`, writes `.devflow/tasks/<task-id>/local-model-runs/<run-id>/run.json`, `packet.md`, `response.md`, `raw_output.txt`, and optional `error.txt`, then stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state.
 
-`devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. The `--agent <agent-id>` form first normalizes that agent's `proposal.patch` into a matching local-model run evidence folder. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. `devflow task apply-patch` refuses mutation unless the selected patch has matching fresh acceptable patch review and dry-run evidence. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
+`devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. With `--project <project-id>`, they resolve the registered project root before reading agent proposal evidence or writing patch-review/dry-run evidence, and stored next-action commands remain project-scoped. The `--agent <agent-id>` form first normalizes that agent's `proposal.patch` into a matching local-model run evidence folder. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. `devflow task apply-patch` refuses mutation unless the selected patch has matching fresh acceptable patch review and dry-run evidence in the resolved project root. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
 
 `devflow task next-action <task-id>` and `devflow task review <task-id>` are read-only supervisor-safe task inspection surfaces. `next-action` derives one recommended safe next action from `task.yaml`, patch evidence, verification evidence, promotion-preview evidence, and closure metadata. `review` renders a compact capsule with task identity, worker/lane, current state, changed files when known, patch proposal/review/dry-run/application status, verification status, promotion-preview status, Git/worktree facts, evidence paths, risks, safe commands, human-approval commands, and forbidden bypass actions. Both commands tolerate missing optional artifacts, distinguish unknown from failed, and never run workers, apply patches, verify, promote, mutate task state, create review files, route models, or call providers.
 
@@ -129,7 +143,7 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 
 `devflow git status`, `devflow sync-main`, and `devflow push-main` are Git guardrail surfaces. `git status` is read-only and reports DevMode presence plus branch, dirty, operation-in-progress, origin/main, promotion, and push safety. `sync-main` fetches origin and fast-forwards `main` only. `push-main` pushes `main` only when the local checkout is clean and `origin/main` is not ahead or diverged.
 
-`devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. Git-native promotion preview also reports origin/main freshness and conflict prediction. Promotion is not automatic and does not stage, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
+`devflow task promote-preview` and `devflow task promote` are explicit, human-controlled promotion surfaces. Promotion preview reports the task baseline commit, the current main checkout HEAD, and whether the baseline is unchanged, changed, or unavailable. `devflow task promote-preview <task-id> --project <project-id>` is read-only and resolves the registered project root before inspecting task workspace changes. `devflow task promote <task-id> --project <project-id>` resolves the registered project root, preserves the existing human confirmation and promotion safety gates, and applies approved changes to that project root instead of the caller's current directory. Git-native promotion preview also reports origin/main freshness and conflict prediction. Promotion is not automatic and does not stage, push, open a pull request, bypass verification readiness checks, or promote work from a stale task baseline unless the human explicitly passes `--force-stale-baseline` after reviewing the risk.
 
 `devflow task capsule <task-id>` renders a read-only Review Capsule from existing evidence. It summarizes task identity, status, worker, workspace/worktree, Git branch and latest commit when available, verification result, promotion-preview readiness, changed files, and inline previews for small changed text files. It labels missing evidence, truncates large text files, refuses absolute paths and `..` traversal, never reads outside the resolved task workspace/worktree, and never dumps binary files. `task run`, `task verify`, `task finalize`, and `task promote-preview` print the capsule after their normal output when current evidence is available. The capsule is a rendered view, not canonical state; it does not mutate task status, promote, close, weaken gates, or create markdown files by default. `--export-md` may write one explicit `.devflow/tasks/<task-id>/review-capsule.md` export only when requested.
 
@@ -139,7 +153,7 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 
 `devflow knowledge capture`, `knowledge list`, `knowledge show`, `knowledge promote`, `knowledge reject`, and `knowledge search` manage local Knowledge Foundry notes under `.devflow/knowledge/`. Capture creates proposed notes only from existing task or validation evidence; promotion/rejection changes knowledge status only and is separate from task promotion. This is human-reviewed knowledge curation, not ML training, hidden agent memory, vector search, RAG, or automatic task/goal creation.
 
-`devflow dogfood run --suite production-readiness` runs deterministic local production-readiness cases and writes `.devflow/dogfood/runs/<run-id>/run.yaml`, `scorecard.yaml`, `report.md`, and per-case `case-result.yaml` evidence. The suite measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. It reuses existing task, orchestration, worker outcome validation, verification, promotion-readiness, and knowledge surfaces. It does not execute providers, route autonomously, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models. Silver is the default pass gate for the production-readiness run.
+`devflow dogfood run --suite production-readiness` runs deterministic local production-readiness cases and writes `.devflow/dogfood/runs/<run-id>/run.yaml`, `scorecard.yaml`, `report.md`, and per-case `case-result.yaml` evidence. The suite measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. It reuses existing task, orchestration, worker outcome validation, verification, promotion-readiness, and knowledge surfaces, then closes any task records it created with the `evidence-only` outcome so dogfood evidence does not remain in the active project queue. It does not execute providers, route autonomously, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models. Silver is the default pass gate for the production-readiness run.
 
 `devflow task close` marks a task inactive without deleting evidence. It requires an explicit outcome and reason, writes `.devflow/tasks/<task-id>/closure.json`, appends a close event, and preserves logs, proposal patches, verification, finalization, and promotion artifacts. `devflow task show` and `devflow task list` surface closed tasks with their outcome. `devflow task cleanup <task-id> --preview` refuses active tasks, reports conservative task-owned runtime cleanup candidates, and deletes nothing. `--apply` reruns the same safety analysis, removes only safe `.devflow/workspaces/<task-id>` or `.devflow/worktrees/<task-id>/<worker>` runtime targets, writes `cleanup.json`, and appends cleanup evidence. The older `--dry-run` spelling remains a compatibility preview for existing Git-native cleanup reporting.
 

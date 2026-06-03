@@ -71,6 +71,22 @@ devflow project remove factory-scheduler --registry-only
 devflow project connect-github factory-scheduler --remote-url <url>
 devflow dashboard --all-projects
 devflow status --all-projects --json
+devflow task create --project factory-scheduler "example task"
+devflow task list --project factory-scheduler
+devflow task show task-0001 --project factory-scheduler
+devflow task run task-0001 --project factory-scheduler --worker shell -- /bin/sh -c "echo hello > result.txt"
+devflow task verify task-0001 --project factory-scheduler --shell "test -f result.txt"
+devflow task packet task-0001 --project factory-scheduler
+devflow task review task-0001 --project factory-scheduler
+devflow task next-action task-0001 --project factory-scheduler
+devflow task log task-0001 --project factory-scheduler
+devflow task review-patch task-0001 --project factory-scheduler
+devflow task patch-dry-run task-0001 --project factory-scheduler
+devflow task apply-patch task-0001 --project factory-scheduler --agent qwopus-implementer
+devflow task promote-preview task-0001 --project factory-scheduler
+devflow task promote task-0001 --project factory-scheduler
 ```
 
 `connect-github` attaches an existing GitHub remote and leaves push disabled unless `--allow-push` is explicitly passed.
+
+Task files belong to the project root, not to the DevFlow source checkout. Project-scoped task commands resolve `<project-id>` through the global registry, then read or write `<project-root>/.devflow/tasks/` and `<project-root>/.devflow/workspaces/` as appropriate. The first implemented project-scoped task commands are create, list, show, run, verify, packet, review, next-action, log, review-patch, patch-dry-run, apply-patch, promote-preview, and promote. Project-scoped promote-preview is read-only. Project-scoped promote preserves the existing human confirmation and promotion safety gates while applying approved changes to the registered project root. Task IDs are unique per project; cross-project displays use `<project_id>:<task_id>` when a task command is scoped with `--project`.

@@ -12,6 +12,7 @@ from devflow.control_room.patch_dry_run import latest_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review
 from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
 from devflow.control_room.persistence import get_task, list_tasks, utc_now
+from devflow.control_room.project_registry import project_task_ref
 from devflow.control_room.qwopus_evidence import read_qwopus_evidence
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.task_closure import read_closure
@@ -384,32 +385,38 @@ def render_supervisor_policy(*, json_output: bool) -> str:
     return _render_policy(policy)
 
 
-def build_task_next_action(root: Path, task_id: str) -> dict[str, Any]:
+def build_task_next_action(root: Path, task_id: str, *, project_id: str | None = None) -> dict[str, Any]:
     task = get_task(root, task_id)
     projection = build_task_status_projection(root, task_id, task=task)
     evidence = _task_evidence(root, task)
     policy = build_supervisor_policy()
     action = _decide_next_action(root, task, projection, evidence)
+    if project_id:
+        action = _scope_task_action_commands(action, project_id)
     action.update(
         {
             "schema_version": SUPERVISOR_SCHEMA_VERSION,
             "task_id": task.id,
+            "task_ref": project_task_ref(task.id, project_id),
             "status": task.status,
             "evidence_considered": evidence["evidence_paths"] + evidence["missing_evidence"],
             "forbidden_commands": policy["forbidden_actions"],
         }
     )
+    if project_id:
+        action["project_id"] = project_id
+        action["project_root"] = str(root)
     if evidence["unknowns"]:
         action["unknowns"] = sorted(set(action.get("unknowns", []) + evidence["unknowns"]))
     return action
 
 
-def render_task_next_action(root: Path, task_id: str, *, json_output: bool) -> str:
-    action = build_task_next_action(root, task_id)
+def render_task_next_action(root: Path, task_id: str, *, json_output: bool, project_id: str | None = None) -> str:
+    action = build_task_next_action(root, task_id, project_id=project_id)
     if json_output:
         return _json(action)
     lines = [
-        f"task: {task_id}",
+        f"task: {action['task_ref']}",
         f"status: {action['status']}",
         f"next_safe_action: {action['next_safe_action']}",
         f"recommended_action: {action['recommended_action']}",
@@ -418,6 +425,8 @@ def render_task_next_action(root: Path, task_id: str, *, json_output: bool) -> s
         f"reason: {action['reason']}",
         f"requires_human_approval: {'yes' if action['requires_human_approval'] else 'no'}",
     ]
+    if project_id:
+        lines.insert(1, f"project_root: {root}")
     if action["why_not_auto_runnable"]:
         lines.append(f"why_not_auto_runnable: {action['why_not_auto_runnable']}")
     if action["allowed_commands"]:
@@ -432,17 +441,18 @@ def render_task_next_action(root: Path, task_id: str, *, json_output: bool) -> s
     return "\n".join(lines) + "\n"
 
 
-def build_task_review(root: Path, task_id: str) -> dict[str, Any]:
+def build_task_review(root: Path, task_id: str, *, project_id: str | None = None) -> dict[str, Any]:
     task = get_task(root, task_id)
     projection = build_task_status_projection(root, task_id, task=task)
     evidence = _task_evidence(root, task)
-    next_action = build_task_next_action(root, task_id)
+    next_action = build_task_next_action(root, task_id, project_id=project_id)
     policy = build_supervisor_policy()
     closure = read_closure(root, task.id)
-    return {
+    review = {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
         "task": {
             "id": task.id,
+            "ref": project_task_ref(task.id, project_id),
             "title": task.title,
             "status": task.status,
             "active": _is_active_task(task),
@@ -508,15 +518,18 @@ def build_task_review(root: Path, task_id: str) -> dict[str, Any]:
             "reason": closure.get("reason") if closure else task.close_reason,
         },
     }
+    if project_id:
+        review["project"] = {"id": project_id, "root": str(root)}
+    return review
 
 
-def render_task_review(root: Path, task_id: str, *, json_output: bool) -> str:
-    review = build_task_review(root, task_id)
+def render_task_review(root: Path, task_id: str, *, json_output: bool, project_id: str | None = None) -> str:
+    review = build_task_review(root, task_id, project_id=project_id)
     if json_output:
         return _json(review)
     task = review["task"]
     lines = [
-        f"Task: {task['id']} - {task['title']}",
+        f"Task: {task['ref']} - {task['title']}",
         f"Status: {task['status']}",
         f"Worker/lane: {task['worker']} / {task['lane']}",
         f"Current state: {review['current_state']['display_status']}",
@@ -581,16 +594,16 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
     closed_tasks = [record for record in task_records if record["status"] == "closed"]
     review_ready = [
         record
-        for record in task_records
+        for record in active_tasks
         if str(record["recommended_command"] or "").startswith("devflow task review-patch")
     ]
     failed_verification = [
         record
-        for record in task_records
+        for record in active_tasks
         if record["verification_status"] == "failed" or record["status"] == "verification_failed"
     ]
     promotion_ready = [record for record in task_records if record["active"] and record["promotion_readiness"] == "ready"]
-    stale_or_conflicted = [record for record in task_records if record["stale_or_conflicted"]]
+    stale_or_conflicted = [record for record in active_tasks if record["stale_or_conflicted"]]
     return {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
         "repo_root": str(root.resolve()),
@@ -602,7 +615,7 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
         "active_task_count": len(active_tasks),
         "closed_task_count": len(closed_tasks),
         "review_ready_task_count": len(review_ready),
-        "blocked_task_count": len([record for record in task_records if record["blocked_reason"]]),
+        "blocked_task_count": len([record for record in active_tasks if record["blocked_reason"]]),
         "verification_failed_task_count": len(failed_verification),
         "promotion_ready_task_count": len(promotion_ready),
         "stale_or_conflicted_task_count": len(stale_or_conflicted),
@@ -626,11 +639,13 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         task
         for task in tasks
         if str(task["recommended_command"] or "").startswith("devflow task review-patch")
+        and task["active"]
     ]
     blocked = [
         task
         for task in tasks
-        if task["blocked_reason"] or task["verification_status"] == "failed" or task["status"] == "verification_failed"
+        if task["active"]
+        and (task["blocked_reason"] or task["verification_status"] == "failed" or task["status"] == "verification_failed")
     ]
     promotion_ready = [task for task in tasks if task["active"] and task["promotion_readiness"] == "ready"]
     ready_for_preview = [
@@ -988,6 +1003,58 @@ def _human_approval_next_action(command: str, safety_class: str) -> str:
     if safety_class == FORBIDDEN_FOR_SUPERVISOR:
         return f"do not run {command}; inspect policy or ask a human for an approved Dev-Flow command"
     return f"request human approval before running {command}"
+
+
+def _scope_task_action_commands(action: dict[str, Any], project_id: str) -> dict[str, Any]:
+    scoped = dict(action)
+    replacements: dict[str, str] = {}
+
+    recommended = scoped.get("recommended_command")
+    if isinstance(recommended, str):
+        scoped_recommended = _scope_task_command(recommended, project_id)
+        replacements[recommended] = scoped_recommended
+        scoped["recommended_command"] = scoped_recommended
+        classification = classify_supervisor_command(scoped_recommended)
+        scoped["safety_class"] = classification["safety_class"]
+        scoped["why_not_auto_runnable"] = classification["why_not_auto_runnable"]
+
+    for key in ("allowed_commands", "pure_read_only_commands", "commands_requiring_human_approval"):
+        commands = scoped.get(key)
+        if isinstance(commands, list):
+            scoped_commands = []
+            for command in commands:
+                if isinstance(command, str):
+                    scoped_command = _scope_task_command(command, project_id)
+                    replacements[command] = scoped_command
+                    scoped_commands.append(scoped_command)
+                else:
+                    scoped_commands.append(command)
+            scoped[key] = _dedupe_preserve_order(scoped_commands)
+
+    for key in ("next_safe_action", "recommended_action"):
+        text = scoped.get(key)
+        if isinstance(text, str):
+            for original, replacement in replacements.items():
+                text = text.replace(original, replacement)
+            scoped[key] = text
+
+    approval_commands = scoped.get("commands_requiring_human_approval")
+    if isinstance(approval_commands, list):
+        scoped["approval_required_commands"] = [
+            _approval_required_command(command) for command in approval_commands if isinstance(command, str)
+        ]
+
+    return scoped
+
+
+def _scope_task_command(command: str, project_id: str) -> str:
+    parts = command.split()
+    if len(parts) < 4 or parts[0] != "devflow" or parts[1] != "task":
+        return command
+    if "--project" in parts:
+        return command
+    quoted_project = shlex.quote(project_id)
+    return " ".join([*parts[:4], "--project", quoted_project, *parts[4:]])
 
 
 def _approval_required_command(command: str) -> dict[str, Any]:

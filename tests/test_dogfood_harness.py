@@ -15,6 +15,7 @@ from devflow.control_room.dogfood import (
     run_dogfood_suite,
     validate_dogfood_case,
 )
+from devflow.control_room.persistence import list_tasks
 
 
 runner = CliRunner()
@@ -70,6 +71,10 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
     assert len(result["run"]["cases_run"]) == 10
+    spawned_tasks = list_tasks(tmp_path)
+    assert spawned_tasks
+    assert all(task.status == "closed" for task in spawned_tasks)
+    assert {task.close_outcome for task in spawned_tasks} == {"evidence-only"}
 
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "threshold:" in report

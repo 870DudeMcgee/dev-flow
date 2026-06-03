@@ -14,9 +14,32 @@ from devflow.control_room.status_projection import (
     choose_task_focus_projection,
     list_task_status_projections,
 )
+from devflow.control_room.task_closure import close_task
 
 
 runner = CliRunner()
+
+
+def test_closed_failed_verification_is_not_active_dashboard_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = create_task(tmp_path, "Dogfood failed verification recovery")
+    assert runner.invoke(app, ["task", "run", task.id, "--shell", "printf actual > recovery.txt"]).exit_code == 0
+    verify = runner.invoke(app, ["task", "verify", task.id, "--shell", 'test "$(cat recovery.txt)" = expected'])
+    assert verify.exit_code == 1, verify.output
+    close_task(tmp_path, task.id, outcome="evidence-only", reason="dogfood evidence captured")
+
+    projection = list_task_status_projections(tmp_path)[0]
+    assert projection.display_status == "closed/evidence-only"
+    assert projection.is_active is False
+    assert projection.failed_verification is False
+    assert choose_task_dashboard_action([projection]) is None
+
+    state = collect_dashboard_state(tmp_path)
+    assert state.health.active_tasks == 0
+    assert state.health.failed_verification == 0
 
 
 def test_projection_prioritizes_manual_blocker_before_failed_and_ready_tasks(

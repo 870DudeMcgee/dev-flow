@@ -19,9 +19,10 @@ from devflow.control_room.paths import (
     dogfood_runs_dir,
     relative_path,
 )
-from devflow.control_room.persistence import atomic_write_text, get_task, utc_now
+from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
 from devflow.control_room.readiness import promotion_readiness_errors
 from devflow.control_room.service import create_task, init_control_room, run_shell_task, verify_task
+from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
 from devflow.control_room.worker_outcome import validate_worker_outcome, validate_worker_outcome_file
 
@@ -439,10 +440,14 @@ def run_dogfood_suite(
         case_dir = run_dir / "cases" / case["id"]
         case_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_text(case_dir / "case.yaml", yaml.safe_dump(case, sort_keys=False))
+        pre_case_task_ids = _task_ids(root)
         try:
             result = _RUNNERS[case["id"]](root, run_id, case, case_dir, shared)
         except Exception as exc:
             result = _failed_case_result(root, run_id, case, case_dir, exc)
+        closed_tasks = _close_new_dogfood_tasks(root, pre_case_task_ids, run_id, case["id"])
+        if closed_tasks:
+            result["dogfood_tasks_closed"] = closed_tasks
         _write_case_result(case_dir, result)
         results.append(result)
 
@@ -558,6 +563,21 @@ def _case_definition(
             "Workers remain replaceable; Dev-Flow owns state, verification, and promotion gates.",
         ],
     }
+
+
+def _task_ids(root: Path) -> set[str]:
+    return {task.id for task in list_tasks(root)}
+
+
+def _close_new_dogfood_tasks(root: Path, before_ids: set[str], run_id: str, case_id: str) -> list[str]:
+    reason = f"dogfood run {run_id} case {case_id} evidence captured; not active project work"
+    closed: list[str] = []
+    for task in list_tasks(root):
+        if task.id in before_ids or task.status == "closed":
+            continue
+        close_task(root, task.id, outcome="evidence-only", reason=reason)
+        closed.append(task.id)
+    return closed
 
 
 def _case_tiny_docs(
