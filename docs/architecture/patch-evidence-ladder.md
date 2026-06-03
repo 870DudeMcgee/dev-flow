@@ -1,6 +1,6 @@
 # Patch Evidence Ladder
 
-Status: Architecture/specification and current runtime alignment. This document distinguishes current implemented behavior from planned future milestones. Treat commands and artifacts as current only when source code and tests confirm them.
+Status: Current runtime alignment plus future roadmap. This document distinguishes implemented behavior from planned future milestones. Treat commands and artifacts as current only when source code and tests confirm them.
 
 ## Purpose
 
@@ -62,6 +62,7 @@ Current runtime facts confirmed by source, tests, and active docs:
 - `devflow task promote` is explicit and human-controlled.
 - Default task workspaces live under `.devflow/workspaces/<task-id>/`.
 - Opt-in Git-native shell task lanes are current through `devflow task create --git-worktree`, with worktrees under `.devflow/worktrees/<task-id>/shell/`.
+- Patch parsing, touched-file extraction, path-risk classification, and workspace target resolution are centralized in `src/devflow/control_room/patch_proposal.py`. Patch review, patch dry-run, and patch apply delegate to that shared module instead of carrying separate parsing/path policy logic.
 
 Current copy-workspace tasks and Git-native worktree tasks are both isolated task lanes. The default path is the copy workspace. The Git-native shell-worker path is opt-in and records Git facts, branch/worktree evidence, commit-bound verification, and Git-aware promotion readiness.
 

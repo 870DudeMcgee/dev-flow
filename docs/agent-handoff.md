@@ -103,6 +103,7 @@ Current product contract:
 - dry-run-first Git cleanup/repair commands: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, and `devflow task cleanup`
 - plan-only orchestration policy evidence, worker outcome metadata validation evidence, and human-reviewed Knowledge Foundry notes
 - trusted-local safety model only: shell execution is path-isolated in a copied workspace, not OS-sandboxed
+- integrated control-room refactoring modules documented in [docs/architecture/control-room-refactoring-integration.md](architecture/control-room-refactoring-integration.md): shared patch proposal parsing/path policy, centralized provider patch evidence behavior, projection-based status/dashboard/review capsule decisions, and task lifecycle write facade
 
 ## Git-Native Slice
 
@@ -171,6 +172,8 @@ devflow push-main
 Create one default shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Confirm `result.txt` exists only in `.devflow/workspaces/<task_id>/` before promotion and the task artifacts exist. For the Git-native path, create a task with `--git-worktree`, commit worker changes on `devflow/<task_id>/shell`, verify, finalize preview, finalize with `--commit`, confirm `task show` directs the next action to `promote-preview`, preview Git readiness without changing main, and promote only after explicit human approval.
 
 Current verification covers the command/filesystem/safety contract, copied workspace isolation, append-only events, verification logs, tampered workspace refusal, symlink skipping, dashboard projection, and promotion safety in the focused tests. Focused task-packet projection coverage lives in `tests/test_task_packet.py`.
+
+Goal `G-0001` integration notes live in [docs/architecture/control-room-refactoring-integration.md](architecture/control-room-refactoring-integration.md).
 
 ## Known Worktree State At Handoff
 
