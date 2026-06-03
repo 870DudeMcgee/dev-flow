@@ -54,6 +54,12 @@ model: gemma4:latest
 action: run_safe_command
 ```
 
+Hermes should follow `operator_plan.next_step`:
+
+- `run_recommended_command`: run `recommended_command` only when `operator_plan.may_auto_run_command` is true, summarize the command output briefly, then append `operator_plan.routing_footer`.
+- `answer_with_model`: answer with `operator_plan.model`, keeping the response short for Telegram, then append the footer.
+- `request_human_approval`: do not run the command or create work. Ask for explicit approval using `operator_plan.approval_prompt_hint`.
+
 Hermes must not directly edit:
 
 - `.devflow/`

@@ -254,11 +254,60 @@ def _with_footer(decision: dict[str, Any]) -> dict[str, Any]:
         f"model: {_model_for_footer(decision['model'])}\n"
         f"action: {decision['action']}"
     )
+    decision["operator_plan"] = _operator_plan(decision)
     return decision
 
 
 def _model_for_footer(model: str | None) -> str:
     return model or "none"
+
+
+def _operator_plan(decision: dict[str, Any]) -> dict[str, Any]:
+    classification = decision.get("command_classification") or {}
+    recommended_command = decision.get("recommended_command")
+    may_auto_run_command = bool(classification.get("supervisor_may_auto_run"))
+    approval_required = bool(classification.get("requires_human_approval"))
+
+    if decision["action"] == RUN_SAFE_COMMAND and may_auto_run_command:
+        next_step = "run_recommended_command"
+    elif decision["action"] in {CREATE_TASK, CREATE_CODEX_GOAL}:
+        next_step = "request_human_approval"
+        approval_required = True
+    elif recommended_command and not may_auto_run_command:
+        next_step = "request_human_approval"
+        approval_required = True
+    elif decision["model"]:
+        next_step = "answer_with_model"
+    else:
+        next_step = "request_human_approval"
+        approval_required = True
+
+    return {
+        "next_step": next_step,
+        "telegram_reply_style": "short_summary_with_footer",
+        "include_routing_footer": True,
+        "routing_footer": decision["routing_footer"],
+        "model": decision["model"],
+        "recommended_command": recommended_command,
+        "may_auto_run_command": may_auto_run_command,
+        "approval_required": approval_required,
+        "approval_prompt_hint": _approval_prompt_hint(decision),
+        "max_summary_lines": 8,
+    }
+
+
+def _approval_prompt_hint(decision: dict[str, Any]) -> str | None:
+    command = decision.get("recommended_command")
+    if command:
+        return (
+            "I approve this exact Dev-Flow command after reviewing the cited readiness evidence:\n"
+            f"{command}"
+        )
+    if decision["action"] == CREATE_CODEX_GOAL:
+        return "Ask for explicit approval before creating a Codex goal from this Telegram request."
+    if decision["action"] == CREATE_TASK:
+        return "Ask for explicit approval before creating a DevFlow task, then use devflow task create."
+    return None
 
 
 def _classify_supervisor_command(command: str) -> dict[str, Any]:

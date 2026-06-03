@@ -47,6 +47,9 @@ def test_devflow_status_routes_to_safe_read_command(tmp_path: Path) -> None:
     assert decision["action"] == "run_safe_command"
     assert decision["recommended_command"] == "devflow status --json"
     assert decision["command_classification"]["safety_class"] == PURE_READ_ONLY
+    assert decision["operator_plan"]["next_step"] == "run_recommended_command"
+    assert decision["operator_plan"]["may_auto_run_command"] is True
+    assert decision["operator_plan"]["telegram_reply_style"] == "short_summary_with_footer"
 
 
 def test_planning_and_deep_review_select_local_reasoning_models(tmp_path: Path) -> None:
@@ -59,6 +62,8 @@ def test_planning_and_deep_review_select_local_reasoning_models(tmp_path: Path) 
     assert deep["route"] == "deep_review"
     assert deep["model"] == "qwopus:latest"
     assert deep["action"] == "answer"
+    assert deep["operator_plan"]["next_step"] == "answer_with_model"
+    assert deep["operator_plan"]["model"] == "qwopus:latest"
 
 
 def test_implementation_routes_to_task_or_codex_goal_without_model(tmp_path: Path) -> None:
@@ -69,6 +74,9 @@ def test_implementation_routes_to_task_or_codex_goal_without_model(tmp_path: Pat
     assert task_decision["model"] is None
     assert task_decision["action"] == "create_task"
     assert task_decision["routing_footer"] == "route: implementation\nmodel: none\naction: create_task"
+    assert task_decision["operator_plan"]["next_step"] == "request_human_approval"
+    assert task_decision["operator_plan"]["approval_required"] is True
+    assert "devflow task create" in task_decision["operator_plan"]["approval_prompt_hint"]
     assert codex_decision["route"] == "implementation"
     assert codex_decision["action"] == "create_codex_goal"
 
@@ -92,6 +100,9 @@ def test_high_risk_command_requires_approval_instead_of_running(tmp_path: Path) 
     assert decision["command_classification"]["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
     assert decision["command_classification"]["requires_human_approval"] is True
     assert "human approval" in decision["reason"]
+    assert decision["operator_plan"]["next_step"] == "request_human_approval"
+    assert decision["operator_plan"]["recommended_command"] == "devflow task run task-0001 --worker shell -- echo hi"
+    assert "I approve this exact Dev-Flow command" in decision["operator_plan"]["approval_prompt_hint"]
 
 
 def test_dirty_git_tree_blocks_implementation_routing(tmp_path: Path) -> None:
@@ -129,3 +140,4 @@ def test_supervisor_route_message_cli_is_read_only(tmp_path: Path, monkeypatch) 
     payload = _read_json(result)
     assert payload["route"] == "devflow_read"
     assert payload["routing_footer"] == "route: devflow_read\nmodel: gemma4:latest\naction: run_safe_command"
+    assert payload["operator_plan"]["next_step"] == "run_recommended_command"
