@@ -18,7 +18,7 @@ from devflow.control_room.persistence import (
     utc_now,
 )
 from devflow.control_room.git_state import inspect_git_state
-from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
+from devflow.control_room.readiness import format_promotion_refusal, human_promotion_gate, promotion_readiness_errors
 from devflow.control_room.git_worktree import build_git_promotion_preview, is_git_worktree_task, promote_git_worktree
 from devflow.control_room.task_lifecycle import record_task_update
 
@@ -30,6 +30,7 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     task = get_task(root, task_id)
     if is_git_worktree_task(task):
         return build_git_promotion_preview(root, task)
+    human_gate = human_promotion_gate(task_dir(root, task_id))
     baseline = promotion_baseline(root, task)
     workspace = absolute_path(root, task.workspace).resolve()
     expected = (workspaces_dir(root) / task.id).resolve()
@@ -70,6 +71,7 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
         "modified": modified_files,
         "deleted": deleted_files,
         "diffs": diffs,
+        "human_approval": human_gate,
     }
 
 

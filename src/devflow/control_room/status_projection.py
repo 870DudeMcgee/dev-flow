@@ -456,6 +456,8 @@ def _review_capsule_promotion_readiness_text(payload: dict[str, Any] | None, not
         return note
     readiness = payload.get("promotion_readiness")
     if isinstance(readiness, str) and readiness:
+        if readiness == "ready" and payload.get("human_approval_required") is True:
+            return "ready (human approval required)"
         return readiness
     return "available"
 
@@ -464,6 +466,8 @@ def _review_capsule_promotion_preview_text(payload: dict[str, Any] | None, note:
     if payload is None:
         return note
     readiness = payload.get("promotion_readiness")
+    if readiness == "ready" and payload.get("human_approval_required") is True:
+        return "PASS (human approval required)"
     if readiness == "ready":
         return "PASS"
     if isinstance(readiness, str) and readiness:
@@ -492,6 +496,11 @@ def _review_capsule_decision_and_actions(
         return (
             "Run promotion preview before promoting.",
             [f"run promotion preview {task.id}", f"reject/close {task.id}"],
+        )
+    if preview.get("promotion_readiness") == "ready" and preview.get("human_approval_required") is True:
+        return (
+            "Human approval required before promotion.",
+            [f"review preview and approve {task.id}", f"reject/close {task.id}"],
         )
     if preview.get("promotion_readiness") == "ready":
         return (

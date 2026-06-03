@@ -9,6 +9,7 @@ from devflow.control_room.git_state import origin_main_sha
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.paths import absolute_path, relative_path, task_worker_dir, worktree_path, worktrees_dir
 from devflow.control_room.persistence import append_event, atomic_write_text, get_task, list_tasks, utc_now
+from devflow.control_room.readiness import human_promotion_gate
 from devflow.control_room.workspace import Workspace
 
 
@@ -114,6 +115,7 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
     diff_text = diff_patch_path.read_text(encoding="utf-8") if diff_patch_path.exists() else ""
     verification_status = task.verification_status
     readiness = _git_preview_readiness(root, task, state, worker_head, conflict_prediction)
+    human_gate = human_promotion_gate(root / ".devflow" / "tasks" / task.id)
     baseline_stale = bool(base_commit and main_head and base_commit != main_head)
     origin_baseline_stale = bool(base_commit and origin_main_head and base_commit != origin_main_head)
     preview = {
@@ -139,6 +141,9 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
         "conflict_files": conflict_files,
         "verification_status": verification_status,
         "promotion_readiness": readiness,
+        "human_approval_required": bool(human_gate.get("required")),
+        "human_approval_reason": human_gate.get("reason"),
+        "human_approval_prompt": human_gate.get("prompt"),
         "generated_at": utc_now().isoformat(),
     }
     atomic_write_text(worker_path / "promotion-preview.json", json.dumps(preview, sort_keys=True, indent=2) + "\n")
@@ -162,6 +167,7 @@ def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
         "binary": preview["binary"],
         "diffs": {"git-diff": diff_text} if diff_text else {},
         "git": preview,
+        "human_approval": human_gate,
     }
 
 

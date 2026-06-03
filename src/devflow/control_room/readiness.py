@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from devflow.control_room.models import TaskRecord
 
@@ -31,6 +34,29 @@ def format_promotion_refusal(task: TaskRecord, task_path: Path | None = None) ->
     return f"Refusing to promote task '{task.id}': {'; '.join(promotion_readiness_errors(task, task_path))}."
 
 
+def human_promotion_gate(task_path: Path) -> dict[str, Any]:
+    goal_link = _read_goal_link(task_path)
+    if goal_link is None:
+        return {"required": False}
+
+    checkpoint_required = bool(goal_link.get("human_checkpoint_required"))
+    promotion_allowed = bool(goal_link.get("promotion_allowed"))
+    required = checkpoint_required and not promotion_allowed
+    if not required:
+        return {"required": False}
+
+    goal_id = str(goal_link.get("goal_id") or "unknown-goal")
+    slice_id = str(goal_link.get("slice_id") or "unknown-slice")
+    reason = str(goal_link.get("checkpoint_reason") or "Human checkpoint required.")
+    return {
+        "required": True,
+        "goal_id": goal_id,
+        "slice_id": slice_id,
+        "reason": reason,
+        "prompt": f"Review HITL goal {goal_id} / {slice_id} before promotion.",
+    }
+
+
 def readiness_state(task: TaskRecord, task_path: Path) -> tuple[bool, list[str]]:
     errors = promotion_readiness_errors(task, task_path)
     ready = not errors
@@ -38,6 +64,17 @@ def readiness_state(task: TaskRecord, task_path: Path) -> tuple[bool, list[str]]
     if task.workspace_dirty:
         reasons.append("Warning: Workspace was created from a dirty worktree (uncommitted changes)")
     return ready, reasons
+
+
+def _read_goal_link(task_path: Path) -> dict[str, Any] | None:
+    goal_link_path = task_path / "goal-link.yaml"
+    if not goal_link_path.exists():
+        return None
+    try:
+        payload = yaml.safe_load(goal_link_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _verification_json_readiness_errors(task: TaskRecord, verification_path: Path) -> list[str]:
