@@ -1,0 +1,900 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from devflow.control_room.git_state import inspect_git_state
+from devflow.control_room.git_worktree import is_git_worktree_task, worker_id_for_task
+from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
+from devflow.control_room.patch_dry_run import latest_patch_dry_run
+from devflow.control_room.patch_review import latest_patch_review
+from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
+from devflow.control_room.persistence import get_task, list_tasks, utc_now
+from devflow.control_room.qwopus_evidence import read_qwopus_evidence
+from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
+from devflow.control_room.task_closure import read_closure
+
+
+SUPERVISOR_SCHEMA_VERSION = 1
+ACCEPTABLE_PATCH_REVIEW_STATUSES = {"low_risk_candidate", "review_required"}
+ACCEPTABLE_PATCH_DRY_RUN_STATUSES = {"would_apply_cleanly", "would_create_files", "would_modify_with_warnings"}
+NON_PROMOTABLE_CLOSE_OUTCOMES = {"rejected", "duplicate", "evidence-only", "evidence_only"}
+
+
+def build_supervisor_policy() -> dict[str, Any]:
+    return {
+        "schema_version": SUPERVISOR_SCHEMA_VERSION,
+        "policy_id": "devflow-supervisor-policy",
+        "allowed_commands": [
+            "devflow doctor",
+            "devflow reconcile",
+            "devflow dashboard",
+            "devflow status --json",
+            "devflow task list",
+            "devflow task show",
+            "devflow task review",
+            "devflow task next-action",
+            "devflow task log",
+            "devflow task review-patch",
+            "devflow task patch-dry-run",
+            "devflow task verify",
+            "devflow task promote-preview",
+            "devflow worktree list",
+            "devflow branch list",
+            "devflow knowledge list",
+            "devflow knowledge show",
+            "devflow knowledge search",
+            "devflow task create",
+            "devflow knowledge capture",
+        ],
+        "commands_requiring_human_approval": [
+            "devflow task apply-patch",
+            "devflow task promote",
+            "devflow task finalize --commit",
+            "devflow task cleanup --apply",
+            "devflow worktree prune without dry-run",
+            "devflow branch archive without dry-run",
+            "git push",
+            "any command that mutates main",
+            "any command that deletes runtime artifacts",
+        ],
+        "forbidden_actions": [
+            "direct source edits outside a Dev-Flow task workspace/worktree",
+            "direct mutation of task.yaml/events.jsonl/verification.json by hand",
+            "bypassing patch review or dry-run",
+            "bypassing verification",
+            "promoting without human approval",
+            "running hidden background schedulers against Dev-Flow",
+            "creating a second source of truth",
+            "storing canonical state outside .devflow",
+            "autonomous provider routing",
+            "remote provider execution unless explicitly promoted into the stable contract",
+            "direct git merge/push outside Dev-Flow promotion commands unless the human explicitly overrides",
+        ],
+    }
+
+
+def render_supervisor_policy(*, json_output: bool) -> str:
+    policy = build_supervisor_policy()
+    if json_output:
+        return _json(policy)
+    return _render_policy(policy)
+
+
+def build_task_next_action(root: Path, task_id: str) -> dict[str, Any]:
+    task = get_task(root, task_id)
+    projection = build_task_status_projection(root, task_id, task=task)
+    evidence = _task_evidence(root, task)
+    policy = build_supervisor_policy()
+    action = _decide_next_action(root, task, projection, evidence)
+    action.update(
+        {
+            "schema_version": SUPERVISOR_SCHEMA_VERSION,
+            "task_id": task.id,
+            "status": task.status,
+            "evidence_considered": evidence["evidence_paths"] + evidence["missing_evidence"],
+            "forbidden_commands": policy["forbidden_actions"],
+        }
+    )
+    if evidence["unknowns"]:
+        action["unknowns"] = sorted(set(action.get("unknowns", []) + evidence["unknowns"]))
+    return action
+
+
+def render_task_next_action(root: Path, task_id: str, *, json_output: bool) -> str:
+    action = build_task_next_action(root, task_id)
+    if json_output:
+        return _json(action)
+    lines = [
+        f"task: {task_id}",
+        f"status: {action['status']}",
+        f"next_safe_action: {action['next_safe_action']}",
+        f"reason: {action['reason']}",
+        f"requires_human_approval: {'yes' if action['requires_human_approval'] else 'no'}",
+    ]
+    if action["allowed_commands"]:
+        lines.append("allowed_commands:")
+        lines.extend(f"  - {command}" for command in action["allowed_commands"])
+    if action["commands_requiring_human_approval"]:
+        lines.append("commands_requiring_human_approval:")
+        lines.extend(f"  - {command}" for command in action["commands_requiring_human_approval"])
+    if action["unknowns"]:
+        lines.append("unknowns:")
+        lines.extend(f"  - {unknown}" for unknown in action["unknowns"])
+    return "\n".join(lines) + "\n"
+
+
+def build_task_review(root: Path, task_id: str) -> dict[str, Any]:
+    task = get_task(root, task_id)
+    projection = build_task_status_projection(root, task_id, task=task)
+    evidence = _task_evidence(root, task)
+    next_action = build_task_next_action(root, task_id)
+    policy = build_supervisor_policy()
+    closure = read_closure(root, task.id)
+    return {
+        "schema_version": SUPERVISOR_SCHEMA_VERSION,
+        "task": {
+            "id": task.id,
+            "title": task.title,
+            "status": task.status,
+            "active": _is_active_task(task),
+            "worker": task.worker,
+            "mode": _task_mode(task, evidence),
+            "lane": _task_mode(task, evidence),
+        },
+        "current_state": {
+            "display_status": projection.display_status,
+            "latest_log_line": projection.latest,
+            "blocked_reason": _blocked_reason(projection, evidence),
+        },
+        "changed_files": evidence["changed_files"],
+        "patch_proposal": {
+            "has_proposal_patch": evidence["has_proposal_patch"],
+            "paths": evidence["proposal_patch_paths"],
+        },
+        "patch_review": {
+            "status": _patch_review_status(evidence),
+            "path": evidence["patch_review_path"],
+            "risk": _string_from_mapping(evidence["patch_review"], "risk"),
+        },
+        "patch_dry_run": {
+            "status": _patch_dry_run_status(evidence),
+            "path": evidence["patch_dry_run_path"],
+            "risk": _string_from_mapping(evidence["patch_dry_run"], "risk"),
+        },
+        "patch_application": {
+            "status": "applied" if evidence["patch_application"] else "not_applied",
+            "path": evidence["patch_application_path"],
+        },
+        "verification": {
+            "status": evidence["verification_status"],
+            "path": evidence["verification_path"],
+            "log_path": projection.verification_log_path,
+            "command": projection.verification_command,
+        },
+        "promotion_preview": {
+            "status": evidence["promotion_preview_status"],
+            "path": evidence["promotion_preview_path"],
+            "promotion_readiness": evidence["promotion_readiness"],
+        },
+        "git": {
+            "branch_name": task.branch_name,
+            "workspace_path": task.workspace_path,
+            "workspace_kind": task.workspace_kind,
+            "workspace_commit": task.workspace_commit,
+            "workspace_dirty": task.workspace_dirty,
+            "facts_path": evidence["git_facts_path"],
+        },
+        "risks": _review_risks(projection, evidence),
+        "blocked_reasons": [reason for reason in [_blocked_reason(projection, evidence)] if reason],
+        "next_action": next_action,
+        "commands_safe_to_run": next_action["allowed_commands"],
+        "commands_requiring_human_approval": (
+            next_action["commands_requiring_human_approval"] or policy["commands_requiring_human_approval"]
+        ),
+        "forbidden_actions": policy["forbidden_actions"],
+        "evidence_paths": evidence["evidence_paths"],
+        "missing_optional_artifacts": evidence["missing_evidence"],
+        "closed": {
+            "outcome": closure.get("outcome") if closure else task.close_outcome,
+            "reason": closure.get("reason") if closure else task.close_reason,
+        },
+    }
+
+
+def render_task_review(root: Path, task_id: str, *, json_output: bool) -> str:
+    review = build_task_review(root, task_id)
+    if json_output:
+        return _json(review)
+    task = review["task"]
+    lines = [
+        f"Task: {task['id']} - {task['title']}",
+        f"Status: {task['status']}",
+        f"Worker/lane: {task['worker']} / {task['lane']}",
+        f"Current state: {review['current_state']['display_status']}",
+        f"Next safe action: {review['next_action']['next_safe_action']}",
+        "",
+        "Evidence summary",
+        f"- proposal.patch: {'present' if review['patch_proposal']['has_proposal_patch'] else 'missing'}",
+        f"- patch review: {review['patch_review']['status']}",
+        f"- patch dry-run: {review['patch_dry_run']['status']}",
+        f"- patch application: {review['patch_application']['status']}",
+        f"- verification: {review['verification']['status']}",
+        f"- promotion preview: {review['promotion_preview']['status']}",
+    ]
+    if review["changed_files"]:
+        lines.append("")
+        lines.append("Changed files")
+        lines.extend(f"- {name}" for name in review["changed_files"][:20])
+    if review["risks"]:
+        lines.append("")
+        lines.append("Risks / blocked reasons")
+        lines.extend(f"- {risk}" for risk in review["risks"])
+    lines.append("")
+    lines.append("Evidence paths")
+    lines.extend(f"- {path}" for path in review["evidence_paths"])
+    lines.append("")
+    lines.append("Commands safe to run")
+    if review["commands_safe_to_run"]:
+        lines.extend(f"- {command}" for command in review["commands_safe_to_run"])
+    else:
+        lines.append("- None")
+    lines.append("")
+    lines.append("Commands requiring human approval")
+    lines.extend(f"- {command}" for command in review["commands_requiring_human_approval"])
+    lines.append("")
+    lines.append("Forbidden/bypass actions")
+    lines.extend(f"- {action}" for action in review["forbidden_actions"])
+    return "\n".join(lines) + "\n"
+
+
+def build_control_room_status(root: Path) -> dict[str, Any]:
+    projections = list_task_status_projections(root)
+    task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
+    active_tasks = [record for record in task_records if record["active"]]
+    closed_tasks = [record for record in task_records if record["status"] == "closed"]
+    review_ready = [record for record in task_records if record["next_safe_action"].startswith("run devflow task review-patch")]
+    failed_verification = [
+        record
+        for record in task_records
+        if record["verification_status"] == "failed" or record["status"] == "verification_failed"
+    ]
+    promotion_ready = [record for record in task_records if record["active"] and record["promotion_readiness"] == "ready"]
+    stale_or_conflicted = [record for record in task_records if record["stale_or_conflicted"]]
+    return {
+        "schema_version": SUPERVISOR_SCHEMA_VERSION,
+        "repo_root": str(root.resolve()),
+        "git_status_summary": _git_status_summary(root),
+        "doctor_summary": {
+            "status": "unknown",
+            "reason": "not run by read-only status; run devflow doctor for fresh diagnostics",
+        },
+        "active_task_count": len(active_tasks),
+        "closed_task_count": len(closed_tasks),
+        "review_ready_task_count": len(review_ready),
+        "blocked_task_count": len([record for record in task_records if record["blocked_reason"]]),
+        "verification_failed_task_count": len(failed_verification),
+        "promotion_ready_task_count": len(promotion_ready),
+        "stale_or_conflicted_task_count": len(stale_or_conflicted),
+        "tasks": task_records,
+        "generated_at": utc_now().isoformat(),
+    }
+
+
+def render_control_room_status(root: Path) -> str:
+    return _json(build_control_room_status(root))
+
+
+def build_supervisor_packet(root: Path) -> dict[str, Any]:
+    status = build_control_room_status(root)
+    policy = build_supervisor_policy()
+    tasks = [
+        _compact_task_record(root, projection.task, projection, include_evidence_paths=True)
+        for projection in list_task_status_projections(root)
+    ]
+    needing_review = [task for task in tasks if task["next_safe_action"].startswith("run devflow task review-patch")]
+    blocked = [
+        task
+        for task in tasks
+        if task["blocked_reason"] or task["verification_status"] == "failed" or task["status"] == "verification_failed"
+    ]
+    promotion_ready = [task for task in tasks if task["active"] and task["promotion_readiness"] == "ready"]
+    return {
+        "schema_version": SUPERVISOR_SCHEMA_VERSION,
+        "project": {
+            "identity": "Dev-Flow local control room",
+            "repo_root": status["repo_root"],
+            "current_branch": status["git_status_summary"].get("branch"),
+            "git_cleanliness": status["git_status_summary"].get("dirty_state"),
+        },
+        "active_tasks": [task for task in tasks if task["active"]],
+        "tasks_needing_review": needing_review,
+        "tasks_blocked": blocked,
+        "tasks_promotion_ready": promotion_ready,
+        "next_recommended_safe_actions": _packet_next_actions(tasks),
+        "policy": {
+            "schema_version": policy["schema_version"],
+            "policy_id": policy["policy_id"],
+            "allowed_commands": policy["allowed_commands"],
+        },
+        "commands_requiring_human_approval": policy["commands_requiring_human_approval"],
+        "forbidden_actions": policy["forbidden_actions"],
+        "evidence_paths": sorted({path for task in tasks for path in task["evidence_paths"]}),
+        "warnings": _packet_warnings(status, tasks),
+        "timestamp": utc_now().isoformat(),
+    }
+
+
+def render_supervisor_packet(root: Path, *, json_output: bool) -> str:
+    packet = build_supervisor_packet(root)
+    if json_output:
+        return _json(packet)
+    lines = [
+        "Dev-Flow Supervisor Packet",
+        f"repo_root: {packet['project']['repo_root']}",
+        f"current_branch: {packet['project']['current_branch'] or 'unknown'}",
+        f"git_cleanliness: {packet['project']['git_cleanliness'] or 'unknown'}",
+        "",
+        "Next recommended safe actions",
+    ]
+    if packet["next_recommended_safe_actions"]:
+        for action in packet["next_recommended_safe_actions"]:
+            lines.append(f"- {action['task_id']}: {action['next_safe_action']}")
+    else:
+        lines.append("- None")
+    lines.append("")
+    lines.append("Commands requiring human approval")
+    lines.extend(f"- {command}" for command in packet["commands_requiring_human_approval"])
+    lines.append("")
+    lines.append("Forbidden actions")
+    lines.extend(f"- {action}" for action in packet["forbidden_actions"])
+    return "\n".join(lines) + "\n"
+
+
+def _compact_task_record(
+    root: Path,
+    task: TaskRecord,
+    projection: Any,
+    *,
+    include_evidence_paths: bool = False,
+) -> dict[str, Any]:
+    evidence = _task_evidence(root, task)
+    next_action = build_task_next_action(root, task.id)
+    active = _is_active_task(task)
+    blocked_reason = _blocked_reason(projection, evidence) if active else None
+    record = {
+        "id": task.id,
+        "title": task.title,
+        "status": task.status,
+        "active": active,
+        "mode": _task_mode(task, evidence),
+        "lane": _task_mode(task, evidence),
+        "worker": task.worker,
+        "has_proposal_patch": evidence["has_proposal_patch"],
+        "patch_review_status": _patch_review_status(evidence),
+        "patch_dry_run_status": _patch_dry_run_status(evidence),
+        "verification_status": projection.verification_status,
+        "promotion_preview_status": evidence["promotion_preview_status"],
+        "promotion_readiness": _status_promotion_readiness(task, projection, evidence),
+        "blocked_reason": blocked_reason,
+        "stale_or_conflicted": evidence["stale_or_conflicted"],
+        "next_safe_action": next_action["next_safe_action"],
+        "commands_requiring_human_approval": next_action["commands_requiring_human_approval"],
+    }
+    if include_evidence_paths:
+        record["evidence_paths"] = evidence["evidence_paths"]
+    return record
+
+
+def _decide_next_action(root: Path, task: TaskRecord, projection: Any, evidence: dict[str, Any]) -> dict[str, Any]:
+    task_id = task.id
+    unknowns = evidence["unknowns"][:]
+    if task.status == "closed":
+        outcome = (task.close_outcome or "").strip()
+        reason = "task is closed"
+        if outcome in NON_PROMOTABLE_CLOSE_OUTCOMES:
+            reason = f"task is closed with non-promotable outcome '{outcome}'"
+        return _action(
+            "no action; task is closed or non-promotable",
+            reason,
+            [],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if task.status == "promoted":
+        return _action(
+            "no action; task is already promoted",
+            "task has already been promoted to the main checkout",
+            [],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if projection.verification_status == "failed" or task.status == "verification_failed":
+        return _action(
+            "inspect verification evidence and fix task branch/workspace",
+            "verification failed and must be repaired before further gates",
+            [f"devflow task review {task_id}", f"devflow task log {task_id} --verify --tail 80"],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if evidence["stale_or_conflicted"]:
+        return _action(
+            "refresh/rebase/resolve according to existing Git-native promotion mechanics",
+            "promotion evidence reports a stale baseline or possible conflict",
+            [f"devflow task review {task_id}", f"devflow task promote-preview {task_id}"],
+            [],
+            False,
+            "medium",
+            unknowns,
+        )
+    if _promotion_preview_ready(evidence):
+        return _action(
+            f"human approval required before devflow task promote {task_id}",
+            "promotion preview says the task is ready; promotion still requires a human gate",
+            [f"devflow task review {task_id}"],
+            [f"devflow task promote {task_id}"],
+            True,
+            "high",
+            unknowns,
+        )
+    if (task.status == "verified" or projection.verification_status == "passed") and evidence["promotion_preview_status"] == "unknown":
+        return _action(
+            f"run devflow task promote-preview {task_id}",
+            "verification passed and no promotion preview evidence is available",
+            [f"devflow task promote-preview {task_id}"],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if evidence["patch_application"] and projection.verification_status != "passed":
+        return _action(
+            f"run devflow task verify {task_id}",
+            "patch has been applied to the isolated workspace but verification has not passed",
+            [f"devflow task verify {task_id} --shell \"<command>\""],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if evidence["has_proposal_patch"] and not evidence["patch_application"]:
+        review_status = _patch_review_status(evidence)
+        if review_status not in ACCEPTABLE_PATCH_REVIEW_STATUSES:
+            command = _patch_review_command(task_id, evidence)
+            return _action(
+                f"run {command}",
+                "proposal.patch exists but acceptable patch-review evidence is missing",
+                [command],
+                [],
+                False,
+                "high",
+                unknowns,
+            )
+        dry_run_status = _patch_dry_run_status(evidence)
+        if dry_run_status not in ACCEPTABLE_PATCH_DRY_RUN_STATUSES:
+            return _action(
+                f"run devflow task patch-dry-run {task_id}",
+                "patch review is acceptable but dry-run evidence is missing or not acceptable",
+                [f"devflow task patch-dry-run {task_id}"],
+                [],
+                False,
+                "high",
+                unknowns,
+            )
+        return _action(
+            f"human approval required before devflow task apply-patch {task_id}",
+            "reviewed dry-run evidence is ready; applying the patch mutates the isolated workspace",
+            [f"devflow task review {task_id}"],
+            [f"devflow task apply-patch {task_id}"],
+            True,
+            "high",
+            unknowns,
+        )
+    if task.status == "complete" or projection.manual_agent_state == "result_present":
+        return _action(
+            f"run devflow task verify {task_id}",
+            "worker output exists but verification has not passed",
+            [f"devflow task verify {task_id} --shell \"<command>\""],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if task.status == "created":
+        return _action(
+            "run worker or provide patch evidence",
+            "task exists but no worker or proposal evidence is available",
+            [f"devflow task run {task_id} --worker shell -- <command>"],
+            [],
+            False,
+            "high",
+            unknowns,
+        )
+    if task.status == "running":
+        return _action(
+            f"inspect task {task_id}",
+            "task is in progress",
+            [f"devflow task show {task_id}", f"devflow task log {task_id} --tail 80"],
+            [],
+            False,
+            "medium",
+            unknowns,
+        )
+    return _action(
+        f"inspect task {task_id}",
+        "no more specific safe action could be inferred from available evidence",
+        [f"devflow task review {task_id}", f"devflow task show {task_id}"],
+        [],
+        False,
+        "low",
+        unknowns,
+    )
+
+
+def _action(
+    next_safe_action: str,
+    reason: str,
+    allowed_commands: list[str],
+    commands_requiring_human_approval: list[str],
+    requires_human_approval: bool,
+    confidence: str,
+    unknowns: list[str],
+) -> dict[str, Any]:
+    return {
+        "next_safe_action": next_safe_action,
+        "reason": reason,
+        "allowed_commands": allowed_commands,
+        "requires_human_approval": requires_human_approval,
+        "commands_requiring_human_approval": commands_requiring_human_approval,
+        "confidence": confidence,
+        "unknowns": sorted(set(unknowns)),
+    }
+
+
+def _task_evidence(root: Path, task: TaskRecord) -> dict[str, Any]:
+    path = task_dir(root, task.id)
+    evidence_paths: list[str] = []
+    missing_evidence: list[str] = []
+    unknowns: list[str] = []
+    for required in ("task.yaml", "events.jsonl"):
+        _record_path(root, path / required, evidence_paths, missing_evidence, unknowns)
+
+    verification = _read_json(path / "verification.json")
+    verification_path = _record_path(root, path / "verification.json", evidence_paths, missing_evidence, unknowns)
+    patch_review = latest_patch_review(root, task.id)
+    patch_dry_run = latest_patch_dry_run(root, task.id)
+    patch_application = _read_json(path / "patch-application.json")
+    patch_application_path = _optional_path(root, path / "patch-application.json", evidence_paths)
+    proposal_paths = _proposal_patch_paths(root, task)
+    evidence_paths.extend(proposal_paths)
+    review_path = _latest_evidence_path(patch_review, "_review_path", evidence_paths)
+    dry_run_path = _latest_evidence_path(patch_dry_run, "_dry_run_path", evidence_paths)
+    promotion_preview, promotion_preview_path = _promotion_preview(root, task)
+    if promotion_preview_path:
+        evidence_paths.append(promotion_preview_path)
+    git_facts_path = _git_facts_path(root, task)
+    if git_facts_path:
+        evidence_paths.append(git_facts_path)
+
+    changed_files = _changed_files(patch_review, patch_dry_run, promotion_preview)
+    promotion_status = "available" if promotion_preview else "unknown"
+    verification_status = _artifact_status(verification, "status")
+    stale_or_conflicted = _stale_or_conflicted(promotion_preview)
+    return {
+        "evidence_paths": sorted(set(evidence_paths)),
+        "missing_evidence": sorted(set(missing_evidence)),
+        "unknowns": sorted(set(unknowns)),
+        "has_proposal_patch": bool(proposal_paths),
+        "proposal_patch_paths": proposal_paths,
+        "patch_review": patch_review,
+        "patch_review_path": review_path,
+        "patch_dry_run": patch_dry_run,
+        "patch_dry_run_path": dry_run_path,
+        "patch_application": patch_application,
+        "patch_application_path": patch_application_path,
+        "verification": verification,
+        "verification_status": verification_status,
+        "verification_path": verification_path,
+        "promotion_preview": promotion_preview,
+        "promotion_preview_path": promotion_preview_path,
+        "promotion_preview_status": promotion_status,
+        "promotion_readiness": _promotion_readiness_value(promotion_preview),
+        "stale_or_conflicted": stale_or_conflicted,
+        "changed_files": changed_files,
+        "git_facts_path": git_facts_path,
+    }
+
+
+def _proposal_patch_paths(root: Path, task: TaskRecord) -> list[str]:
+    paths: list[Path] = []
+    qwopus = read_qwopus_evidence(root, task.id)
+    if qwopus and qwopus.has_proposal_patch:
+        paths.append(qwopus.proposal_patch_path)
+    agents_dir = task_dir(root, task.id) / "agents"
+    if agents_dir.exists():
+        paths.extend(path for path in agents_dir.glob("*/proposal.patch") if path.exists() and path.stat().st_size > 0)
+    runs_dir = task_dir(root, task.id) / "local-model-runs"
+    if runs_dir.exists():
+        paths.extend(path for path in runs_dir.glob("*/proposal.patch") if path.exists() and path.stat().st_size > 0)
+    return sorted({relative_path(root, path) for path in paths})
+
+
+def _patch_review_command(task_id: str, evidence: dict[str, Any]) -> str:
+    for path in evidence["proposal_patch_paths"]:
+        parts = Path(path).parts
+        if "agents" in parts:
+            index = parts.index("agents")
+            if len(parts) > index + 1:
+                return f"devflow task review-patch {task_id} --agent {parts[index + 1]}"
+    return f"devflow task review-patch {task_id}"
+
+
+def _promotion_preview(root: Path, task: TaskRecord) -> tuple[dict[str, Any] | None, str | None]:
+    candidates: list[Path] = []
+    if is_git_worktree_task(task):
+        candidates.append(task_worker_dir(root, task.id, worker_id_for_task(task)) / "promotion-preview.json")
+    candidates.append(task_dir(root, task.id) / "promotion-preview.json")
+    for path in candidates:
+        payload = _read_json(path)
+        if payload:
+            return payload, relative_path(root, path)
+    return None, None
+
+
+def _git_facts_path(root: Path, task: TaskRecord) -> str | None:
+    if not is_git_worktree_task(task):
+        return None
+    path = task_worker_dir(root, task.id, worker_id_for_task(task)) / "git.json"
+    return relative_path(root, path) if path.exists() else None
+
+
+def _status_promotion_readiness(task: TaskRecord, projection: Any, evidence: dict[str, Any]) -> str:
+    if task.status == "promoted":
+        return "promoted"
+    if _promotion_preview_ready(evidence):
+        return "ready"
+    if evidence["promotion_readiness"] != "unknown":
+        return evidence["promotion_readiness"]
+    if (task.status == "verified" or projection.verification_status == "passed") and projection.promotion_ready:
+        return "ready"
+    if projection.promotion_blockers:
+        return "not_ready"
+    return "unknown"
+
+
+def _promotion_preview_ready(evidence: dict[str, Any]) -> bool:
+    return evidence["promotion_readiness"] == "ready"
+
+
+def _promotion_readiness_value(preview: dict[str, Any] | None) -> str:
+    if not preview:
+        return "unknown"
+    readiness = preview.get("promotion_readiness")
+    if isinstance(readiness, str):
+        return readiness
+    ready = preview.get("ready")
+    if isinstance(ready, bool):
+        return "ready" if ready else "not_ready"
+    return "unknown"
+
+
+def _stale_or_conflicted(preview: dict[str, Any] | None) -> bool:
+    if not preview:
+        return False
+    conflict = str(preview.get("conflict_prediction") or "")
+    return bool(preview.get("baseline_stale") or preview.get("origin_baseline_stale") or conflict not in {"", "clean"})
+
+
+def _changed_files(
+    patch_review: dict[str, Any] | None,
+    patch_dry_run: dict[str, Any] | None,
+    promotion_preview: dict[str, Any] | None,
+) -> list[str]:
+    files: list[str] = []
+    if promotion_preview:
+        for key in ("changed_files", "added", "modified", "deleted", "untracked", "binary"):
+            value = promotion_preview.get(key)
+            if isinstance(value, list):
+                files.extend(str(item) for item in value)
+        renamed = promotion_preview.get("renamed")
+        if isinstance(renamed, list):
+            for item in renamed:
+                if isinstance(item, dict):
+                    files.append(str(item.get("to") or item.get("path") or item))
+                else:
+                    files.append(str(item))
+    if patch_review and isinstance(patch_review.get("files_touched"), list):
+        files.extend(str(item) for item in patch_review["files_touched"])
+    if patch_dry_run:
+        for key in ("files_checked", "files_would_create", "files_would_modify", "files_would_delete"):
+            value = patch_dry_run.get(key)
+            if isinstance(value, list):
+                files.extend(str(item) for item in value)
+    return sorted(set(files))
+
+
+def _review_risks(projection: Any, evidence: dict[str, Any]) -> list[str]:
+    risks: list[str] = []
+    if projection.failed_verification:
+        risks.append("verification failed")
+    if evidence["stale_or_conflicted"]:
+        risks.append("promotion preview reports stale baseline or conflict risk")
+    if evidence["missing_evidence"]:
+        risks.append("some optional evidence artifacts are missing")
+    if projection.promotion_blockers:
+        risks.extend(projection.promotion_blockers)
+    return sorted(set(risks))
+
+
+def _blocked_reason(projection: Any, evidence: dict[str, Any]) -> str | None:
+    if projection.manual_agent_question:
+        return projection.manual_agent_question
+    if projection.failed_verification:
+        return "verification failed"
+    if projection.is_blocked:
+        return "task is blocked"
+    if evidence["stale_or_conflicted"]:
+        return "stale baseline or conflict risk"
+    return None
+
+
+def _task_mode(task: TaskRecord, evidence: dict[str, Any]) -> str:
+    if task.workspace_kind == "git_worktree":
+        return "git-worktree"
+    if evidence["has_proposal_patch"]:
+        return "patch-proposal"
+    if task.worker in {"qwen-planner", "gemma-reviewer"} or "local" in (task.worker or ""):
+        return "advisory"
+    if task.workspace_kind in {"copy_workspace", "copy-workspace"} or ".devflow/workspaces/" in task.workspace:
+        return "copy-workspace"
+    return "unknown"
+
+
+def _is_active_task(task: TaskRecord) -> bool:
+    return task.status not in {"closed", "promoted"}
+
+
+def _patch_review_status(evidence: dict[str, Any]) -> str:
+    return _artifact_status(evidence["patch_review"], "review_status")
+
+
+def _patch_dry_run_status(evidence: dict[str, Any]) -> str:
+    return _artifact_status(evidence["patch_dry_run"], "dry_run_status")
+
+
+def _artifact_status(payload: dict[str, Any] | None, key: str) -> str:
+    if not payload:
+        return "unknown"
+    value = payload.get(key)
+    return str(value) if value else "unknown"
+
+
+def _string_from_mapping(payload: dict[str, Any] | None, key: str) -> str | None:
+    if not payload:
+        return None
+    value = payload.get(key)
+    return str(value) if value is not None else None
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _record_path(
+    root: Path,
+    path: Path,
+    evidence_paths: list[str],
+    missing_evidence: list[str],
+    unknowns: list[str],
+) -> str | None:
+    rel = relative_path(root, path)
+    if path.exists():
+        evidence_paths.append(rel)
+        return rel
+    missing_evidence.append(rel)
+    unknowns.append(f"missing {rel}")
+    return None
+
+
+def _optional_path(root: Path, path: Path, evidence_paths: list[str]) -> str | None:
+    if not path.exists():
+        return None
+    rel = relative_path(root, path)
+    evidence_paths.append(rel)
+    return rel
+
+
+def _latest_evidence_path(payload: dict[str, Any] | None, key: str, evidence_paths: list[str]) -> str | None:
+    if not payload:
+        return None
+    path = payload.get(key)
+    if isinstance(path, str) and path:
+        evidence_paths.append(path)
+        return path
+    return None
+
+
+def _git_status_summary(root: Path) -> dict[str, Any]:
+    state = inspect_git_state(root)
+    return {
+        "git_repo": state.is_repo,
+        "repo_root": state.repo_root,
+        "branch": state.branch,
+        "head_sha": state.head_sha,
+        "origin_main_sha": state.origin_main_sha,
+        "dirty_state": "dirty" if state.dirty else "clean",
+        "staged_count": state.counts.staged,
+        "unstaged_count": state.counts.unstaged,
+        "untracked_count": state.counts.untracked,
+        "operation_in_progress": state.operation_in_progress,
+        "safe_for_worker_writes": state.safe_for_worker_writes,
+        "safe_for_promotion": state.safe_for_promotion,
+        "safe_for_push": state.safe_for_push,
+        "conflicted_files": list(state.conflicted_files),
+    }
+
+
+def _packet_next_actions(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    active = [task for task in tasks if task["active"]]
+    priority = {
+        "inspect verification evidence and fix task branch/workspace": 0,
+        "refresh/rebase/resolve according to existing Git-native promotion mechanics": 1,
+    }
+    return sorted(
+        [
+            {
+                "task_id": task["id"],
+                "title": task["title"],
+                "next_safe_action": task["next_safe_action"],
+                "commands_requiring_human_approval": task["commands_requiring_human_approval"],
+            }
+            for task in active
+        ],
+        key=lambda item: (priority.get(item["next_safe_action"], 10), item["task_id"]),
+    )[:10]
+
+
+def _packet_warnings(status: dict[str, Any], tasks: list[dict[str, Any]]) -> list[str]:
+    warnings: list[str] = []
+    git = status["git_status_summary"]
+    if git.get("dirty_state") == "dirty":
+        warnings.append("main checkout has uncommitted changes")
+    if status["stale_or_conflicted_task_count"]:
+        warnings.append("one or more tasks have stale/conflicted promotion evidence")
+    if any(task["verification_status"] == "failed" for task in tasks):
+        warnings.append("one or more tasks have failed verification")
+    return warnings
+
+
+def _render_policy(policy: dict[str, Any]) -> str:
+    lines = [
+        f"policy_id: {policy['policy_id']}",
+        f"schema_version: {policy['schema_version']}",
+        "",
+        "Allowed commands",
+    ]
+    lines.extend(f"- {command}" for command in policy["allowed_commands"])
+    lines.append("")
+    lines.append("Commands requiring human approval")
+    lines.extend(f"- {command}" for command in policy["commands_requiring_human_approval"])
+    lines.append("")
+    lines.append("Forbidden actions")
+    lines.extend(f"- {action}" for action in policy["forbidden_actions"])
+    return "\n".join(lines) + "\n"
+
+
+def _json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, indent=2) + "\n"

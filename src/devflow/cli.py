@@ -71,6 +71,13 @@ from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_s
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwopus_escalation_packet
 from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
+from devflow.control_room.supervisor_surface import (
+    render_control_room_status,
+    render_supervisor_packet,
+    render_supervisor_policy,
+    render_task_next_action,
+    render_task_review,
+)
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -83,6 +90,7 @@ goal_app = typer.Typer(help="Manage goals and planning scaffolds")
 worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
 dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
+supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -92,6 +100,7 @@ app.add_typer(goal_app, name="goal")
 app.add_typer(worker_app, name="worker")
 app.add_typer(knowledge_app, name="knowledge")
 app.add_typer(dogfood_app, name="dogfood")
+app.add_typer(supervisor_app, name="supervisor")
 
 
 @goal_app.command("init")
@@ -271,14 +280,30 @@ def dashboard_command(
 
 @app.command("status")
 def status_command(
-    json_output: bool = typer.Option(False, "--json", help="Print dashboard state as JSON.")
+    json_output: bool = typer.Option(False, "--json", help="Print supervisor-safe control-room status as JSON.")
 ) -> None:
     """Render the terminal Control Room Dashboard alias."""
     if json_output:
-        typer.echo(render_dashboard_json(Path.cwd()), nl=False)
+        typer.echo(render_control_room_status(Path.cwd()), nl=False)
     else:
         from devflow.control_room.dashboard import render_dashboard
         typer.echo(render_dashboard(Path.cwd()), nl=False)
+
+
+@supervisor_app.command("policy")
+def supervisor_policy_command(
+    json_output: bool = typer.Option(False, "--json", help="Print policy as JSON."),
+) -> None:
+    """Show the supervisor/Hermes operating policy."""
+    typer.echo(render_supervisor_policy(json_output=json_output), nl=False)
+
+
+@supervisor_app.command("packet")
+def supervisor_packet_command(
+    json_output: bool = typer.Option(False, "--json", help="Print supervisor packet as JSON."),
+) -> None:
+    """Show a compact supervisor packet derived from Dev-Flow artifacts."""
+    typer.echo(render_supervisor_packet(Path.cwd(), json_output=json_output), nl=False)
 
 
 @git_app.command("status")
@@ -777,6 +802,32 @@ def task_show(task_id: str) -> None:
     _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
     _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
     _echo_result_summary(task_path / "result.md", summary=qwopus_result_summary(Path.cwd(), task.id))
+
+
+@task_app.command("next-action")
+def task_next_action_command(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Print next action as JSON."),
+) -> None:
+    """Recommend one read-only next safe action for a task."""
+    try:
+        typer.echo(render_task_next_action(Path.cwd(), task_id, json_output=json_output), nl=False)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@task_app.command("review")
+def task_review_command(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Print review capsule as JSON."),
+) -> None:
+    """Render a compact supervisor-safe task review capsule."""
+    try:
+        typer.echo(render_task_review(Path.cwd(), task_id, json_output=json_output), nl=False)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @task_app.command("capsule")

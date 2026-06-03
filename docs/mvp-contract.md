@@ -16,6 +16,11 @@ devflow init
 devflow doctor
 devflow reconcile
 devflow dashboard
+devflow status --json
+devflow supervisor policy
+devflow supervisor policy --json
+devflow supervisor packet
+devflow supervisor packet --json
 devflow task --help
 devflow task create "example task"
 devflow task create --git-worktree "example git task"
@@ -36,6 +41,10 @@ devflow task list
 devflow task list --active
 devflow task list --closed
 devflow task show <task-id>
+devflow task review <task-id>
+devflow task review <task-id> --json
+devflow task next-action <task-id>
+devflow task next-action <task-id> --json
 devflow task capsule <task-id>
 devflow task packet <task-id>
 devflow task log <task-id>
@@ -86,16 +95,16 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `task create`, `task list`, `task show`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
 Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable only as a safe `local_patch_runtime` agent such as `qwopus-implementer`: provider `ollama`, loopback base URL, `workspace_write`, no shell, no network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
 
-Experimental task-fit, scout, route, scorecard, context, and supervisor commands are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The proof-agent registry commands are visible because they are part of this stable milestone.
+Experimental task-fit, scout, route, scorecard, context, and the legacy `supervise` loop are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The read-only `supervisor policy` and `supervisor packet` surfaces are visible because they are part of this stable milestone. The proof-agent registry commands are visible for the same reason.
 
-`devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow reconcile` reports crash/interruption evidence without mutating files, including partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts.
+`devflow init` creates or repairs the local control-room seed structure. `devflow doctor` checks that structure. `devflow reconcile` reports crash/interruption evidence without mutating files, including partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts. `devflow dashboard` renders the current text-only terminal dashboard from task artifacts. `devflow status --json` emits a read-only, machine-readable control-room summary for humans and supervisor agents.
 
 `devflow task create` creates the task artifacts and task workspace needed by the later commands. Shell worker commands and verification commands run from the task workspace. The preferred shell-worker invocation is `devflow task run <task-id> --worker shell -- <command>`; `--shell "<command>"` remains supported.
 
@@ -104,6 +113,10 @@ Experimental task-fit, scout, route, scorecard, context, and supervisor commands
 `devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch` when a unified diff is present, and records inspectable `run.json` plus `result.md` summaries. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is `devflow task show <task-id>`, `devflow task review-patch <task-id> --agent qwopus-implementer`, `devflow task patch-dry-run <task-id> --agent qwopus-implementer`, `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`. If Qwopus fails or produces no usable patch, `devflow task escalation-packet <task-id> --agent qwopus-implementer` writes a compact copy-paste packet from local evidence only; it does not call remote providers.
 
 `devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. The `--agent <agent-id>` form first normalizes that agent's `proposal.patch` into a matching local-model run evidence folder. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. `devflow task apply-patch` refuses mutation unless the selected patch has matching fresh acceptable patch review and dry-run evidence. The full staged contract is documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md).
+
+`devflow task next-action <task-id>` and `devflow task review <task-id>` are read-only supervisor-safe task inspection surfaces. `next-action` derives one recommended safe next action from `task.yaml`, patch evidence, verification evidence, promotion-preview evidence, and closure metadata. `review` renders a compact capsule with task identity, worker/lane, current state, changed files when known, patch proposal/review/dry-run/application status, verification status, promotion-preview status, Git/worktree facts, evidence paths, risks, safe commands, human-approval commands, and forbidden bypass actions. Both commands tolerate missing optional artifacts, distinguish unknown from failed, and never run workers, apply patches, verify, promote, mutate task state, create review files, route models, or call providers.
+
+`devflow supervisor policy` outputs the versioned supervisor/Hermes operating policy. `devflow supervisor packet` outputs one compact read-only packet with project identity, repo root, branch/cleanliness, active tasks, tasks needing review, blocked or failed tasks, promotion-ready tasks, next safe actions, policy summary, human-approval commands, forbidden actions, evidence paths, warnings, and timestamp. Hermes, Codex, Antigravity, and other supervisor agents must treat these as derived views over Dev-Flow artifacts, not a second source of truth.
 
 `devflow git status`, `devflow sync-main`, and `devflow push-main` are Git guardrail surfaces. `git status` is read-only and reports DevMode presence plus branch, dirty, operation-in-progress, origin/main, promotion, and push safety. `sync-main` fetches origin and fast-forwards `main` only. `push-main` pushes `main` only when the local checkout is clean and `origin/main` is not ahead or diverged.
 
