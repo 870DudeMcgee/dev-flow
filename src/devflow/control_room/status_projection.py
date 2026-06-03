@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.models import TaskRecord
@@ -13,6 +13,21 @@ from devflow.control_room.persistence import get_task, list_tasks
 from devflow.control_room.qwopus_evidence import qwopus_suggested_next_action
 from devflow.control_room.readiness import promotion_readiness_errors
 from devflow.control_room.task_closure import closure_next_action, read_closure
+
+
+class ProjectedNextAction(BaseModel):
+    label: str
+    task_id: str | None = None
+    command: str | None = None
+    reason: str
+
+
+class ReviewCapsuleProjection(BaseModel):
+    verification_text: str
+    promotion_readiness_text: str
+    promotion_preview_text: str
+    decision: str
+    safe_next_actions: list[str]
 
 
 class TaskStatusProjection(BaseModel):
@@ -24,6 +39,8 @@ class TaskStatusProjection(BaseModel):
     verification_command: str | None
     merge_ready: bool | None
     readiness_reasons: list[str]
+    promotion_ready: bool = False
+    promotion_blockers: list[str] = Field(default_factory=list)
     suggested_next_action: str
     manual_agent_state: str | None = None
     manual_agent_handoff_path: str | None = None
@@ -58,9 +75,177 @@ class TaskStatusProjection(BaseModel):
                 return "result_present"
         return self.task.status
 
+    @property
+    def is_blocked(self) -> bool:
+        if self.manual_agent_state == "result_present":
+            return False
+        return (
+            self.display_status in ("blocked", "blocked_question", "awaiting_human")
+            or self.manual_agent_state == "blocked"
+            or self.manual_agent_question is not None
+            or self.task.status == "blocked"
+        )
+
+    @property
+    def failed_verification(self) -> bool:
+        return self.task.status == "verification_failed" or self.verification_status == "failed"
+
+    @property
+    def needs_verification(self) -> bool:
+        if self.failed_verification:
+            return False
+        if self.task.status == "complete":
+            return True
+        if self.manual_agent_state == "result_present" and self.verification_status != "passed":
+            return True
+        return self.verification_status in ("not_run", "pending") and self.task.status not in (
+            "promoted",
+            "verified",
+            "created",
+            "blocked",
+        )
+
+    @property
+    def is_verified(self) -> bool:
+        return self.task.status == "verified" or self.verification_status == "passed"
+
+    @property
+    def ready_to_promote(self) -> bool:
+        return self.is_verified and self.promotion_ready
+
+    @property
+    def is_active(self) -> bool:
+        return self.task.status not in ("promoted", "verified")
+
+    @property
+    def is_worker_failed(self) -> bool:
+        return self.task.status == "worker_failed" or self.display_status == "worker_failed"
+
+    @property
+    def is_timeout(self) -> bool:
+        return self.task.status == "timeout"
+
+    @property
+    def dashboard_action_priority(self) -> int:
+        if self.is_blocked:
+            return 10
+        if self.failed_verification:
+            return 20
+        if self.is_worker_failed:
+            return 30
+        if self.is_timeout:
+            return 35
+        if self.ready_to_promote:
+            return 40
+        if self.needs_verification:
+            return 50
+        if self.task.status == "created":
+            return 70
+        if self.task.status == "running":
+            return 80
+        if self.task.status != "promoted":
+            return 90
+        return 100
+
+    @property
+    def dashboard_next_action(self) -> ProjectedNextAction:
+        task_id = self.task.id
+        if self.is_blocked:
+            return ProjectedNextAction(
+                label="Resolve blocker",
+                task_id=task_id,
+                command=f"devflow task show {task_id}",
+                reason="Manual worker blocked on a question.",
+            )
+        if self.failed_verification:
+            return ProjectedNextAction(
+                label="Inspect verification failure",
+                task_id=task_id,
+                command=f"devflow task log {task_id} --verify --tail 80",
+                reason="Verification failed and needs inspection before rerun.",
+            )
+        if self.is_worker_failed:
+            return ProjectedNextAction(
+                label="Inspect worker failure",
+                task_id=task_id,
+                command=f"devflow task log {task_id} --tail 80",
+                reason="Worker failed and logs should be inspected.",
+            )
+        if self.is_timeout:
+            return ProjectedNextAction(
+                label="Inspect timeout",
+                task_id=task_id,
+                command=f"devflow task log {task_id} --tail 80",
+                reason="Worker timed out.",
+            )
+        if self.ready_to_promote:
+            return ProjectedNextAction(
+                label="Preview promotion",
+                task_id=task_id,
+                command=f"devflow task promote-preview {task_id}",
+                reason="Verification passed; user should review promotion before promote.",
+            )
+        if self.needs_verification:
+            return ProjectedNextAction(
+                label="Run verification",
+                task_id=task_id,
+                command=f"devflow task verify {task_id} --shell \"<command>\"",
+                reason="Worker completed but verification has not passed.",
+            )
+        if self.task.status == "created":
+            return ProjectedNextAction(
+                label="Run task",
+                task_id=task_id,
+                command=f"devflow task run {task_id} --worker shell -- <command>",
+                reason="Task exists but no worker has run.",
+            )
+        if self.task.status == "running":
+            return ProjectedNextAction(
+                label="Inspect task",
+                task_id=task_id,
+                command=f"devflow task show {task_id}",
+                reason="Task is running or in progress.",
+            )
+        return ProjectedNextAction(
+            label="Inspect task",
+            task_id=task_id,
+            command=f"devflow task show {task_id}",
+            reason="No safer automated action was inferred.",
+        )
+
 
 def list_task_status_projections(root: Path) -> list[TaskStatusProjection]:
     return [build_task_status_projection(root, task.id, task=task) for task in list_tasks(root)]
+
+
+def choose_task_focus_projection(projections: list[TaskStatusProjection]) -> TaskStatusProjection | None:
+    if not projections:
+        return None
+    return sorted(projections, key=_dashboard_priority_sort_key)[0]
+
+
+def choose_task_dashboard_action(
+    projections: list[TaskStatusProjection],
+    *,
+    max_priority: int | None = None,
+) -> ProjectedNextAction | None:
+    candidates = [
+        projection
+        for projection in projections
+        if projection.dashboard_action_priority < 100
+        and (max_priority is None or projection.dashboard_action_priority <= max_priority)
+    ]
+    if not candidates:
+        return None
+    return sorted(candidates, key=_dashboard_priority_sort_key)[0].dashboard_next_action
+
+
+def _dashboard_priority_sort_key(projection: TaskStatusProjection) -> tuple[int, float, str]:
+    return (
+        projection.dashboard_action_priority,
+        -projection.task.updated_at.timestamp() if projection.task.updated_at else 0.0,
+        projection.task.id,
+    )
 
 
 def format_verify_token(verification_status: str | None, verification_exit_code: int | None) -> str:
@@ -107,6 +292,8 @@ def build_task_status_projection(root: Path, task_id: str, task: TaskRecord | No
         verification_command=verification_command,
         merge_ready=merge_ready,
         readiness_reasons=readiness_reasons,
+        promotion_ready=not promotion_errors,
+        promotion_blockers=promotion_errors,
         suggested_next_action=qwopus_next_action or _suggest_next_action(
             record.status,
             verification_status,
@@ -226,3 +413,97 @@ def _suggest_next_action(
     if status == "blocked":
         return "Resolve the workspace or safety block before running again."
     return "Check task status and logs for the next logical step."
+
+
+def build_review_capsule_projection(
+    task: TaskRecord,
+    verification: dict[str, Any] | None,
+    verification_note: str,
+    preview: dict[str, Any] | None,
+    preview_note: str,
+) -> ReviewCapsuleProjection:
+    decision, actions = _review_capsule_decision_and_actions(
+        task,
+        verification,
+        preview,
+        preview_note,
+    )
+    return ReviewCapsuleProjection(
+        verification_text=_review_capsule_verification_text(task, verification, verification_note),
+        promotion_readiness_text=_review_capsule_promotion_readiness_text(preview, preview_note),
+        promotion_preview_text=_review_capsule_promotion_preview_text(preview, preview_note),
+        decision=decision,
+        safe_next_actions=actions,
+    )
+
+
+def _review_capsule_verification_text(task: TaskRecord, payload: dict[str, Any] | None, note: str) -> str:
+    if payload is None:
+        return "missing (no verification.json)" if note.startswith("missing") else note
+    status = payload.get("status") or task.verification_status
+    exit_code = payload.get("exit_code")
+    if status == "passed":
+        return "PASS"
+    if status == "failed":
+        return f"FAIL (exit code {exit_code})" if exit_code is not None else "FAIL"
+    if status == "not_run":
+        return "NOT RUN"
+    return str(status or "unknown")
+
+
+def _review_capsule_promotion_readiness_text(payload: dict[str, Any] | None, note: str) -> str:
+    if payload is None:
+        return note
+    readiness = payload.get("promotion_readiness")
+    if isinstance(readiness, str) and readiness:
+        return readiness
+    return "available"
+
+
+def _review_capsule_promotion_preview_text(payload: dict[str, Any] | None, note: str) -> str:
+    if payload is None:
+        return note
+    readiness = payload.get("promotion_readiness")
+    if readiness == "ready":
+        return "PASS"
+    if isinstance(readiness, str) and readiness:
+        return f"not ready ({readiness})"
+    return "available"
+
+
+def _review_capsule_decision_and_actions(
+    task: TaskRecord,
+    verification: dict[str, Any] | None,
+    preview: dict[str, Any] | None,
+    preview_note: str,
+) -> tuple[str, list[str]]:
+    verification_status = (verification or {}).get("status") or task.verification_status
+    if verification is None or verification_status == "not_run":
+        return (
+            "Run verification for this task.",
+            [f"run verification {task.id}", f"reject/close {task.id}"],
+        )
+    if verification_status != "passed":
+        return (
+            "Needs changes before promotion.",
+            [f"needs changes {task.id}", f"reject/close {task.id}"],
+        )
+    if preview is None:
+        return (
+            "Run promotion preview before promoting.",
+            [f"run promotion preview {task.id}", f"reject/close {task.id}"],
+        )
+    if preview.get("promotion_readiness") == "ready":
+        return (
+            "Promote or reject this task.",
+            [f"promote {task.id}", f"reject/close {task.id}"],
+        )
+    if preview_note == "current command output":
+        return (
+            "Review promotion preview and decide whether this needs changes.",
+            [f"needs changes {task.id}", f"reject/close {task.id}"],
+        )
+    return (
+        "Needs changes before promotion.",
+        [f"needs changes {task.id}", f"reject/close {task.id}"],
+    )
