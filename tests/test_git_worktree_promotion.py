@@ -28,6 +28,27 @@ def _git(cwd: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
 
 
+def _write_hitl_goal_link(task_id: str = "task-0001") -> None:
+    (Path(".devflow/tasks") / task_id / "goal-link.yaml").write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "goal_id: G-0001",
+                "goal_path: .devflow/goals/G-0001",
+                "slice_id: TS-0005",
+                "execution_mode: HITL",
+                "human_checkpoint_required: true",
+                "checkpoint_reason: Integration combines parallel agent outputs.",
+                "promotion_allowed: false",
+                "risk: high",
+                "created_from_goal_slice: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def _create_orphan_worktree(branch: str = "devflow/task-9999/shell") -> Path:
     worktree = Path(".devflow/worktrees/task-9999/shell")
     worktree.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +133,57 @@ def test_git_worktree_task_runs_verifies_previews_and_promotes() -> None:
             assert promoted.exit_code == 0, promoted.output
             assert "Promotion complete." in promoted.output
             assert Path("worker.txt").read_text(encoding="utf-8") == "worker result\n"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_git_worktree_promote_preview_prompts_for_hitl_goal_approval() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+
+            created = runner.invoke(app, ["task", "create", "--git-worktree", "hitl gate task"])
+            assert created.exit_code == 0, created.output
+            _write_hitl_goal_link()
+
+            run = runner.invoke(
+                app,
+                [
+                    "task",
+                    "run",
+                    "task-0001",
+                    "--worker",
+                    "shell",
+                    "--",
+                    "/bin/sh",
+                    "-c",
+                    "printf 'worker result\\n' > worker.txt && git add worker.txt && git commit -m worker-result",
+                ],
+            )
+            assert run.exit_code == 0, run.output
+
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f worker.txt"])
+            assert verify.exit_code == 0, verify.output
+
+            preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert preview.exit_code == 0, preview.output
+            assert "promotion_readiness: ready" in preview.output
+            assert "human_approval_required: yes" in preview.output
+            assert "human_approval_reason: Integration combines parallel agent outputs." in preview.output
+            assert "human_approval_prompt: Review HITL goal G-0001 / TS-0005 before promotion." in preview.output
+            assert (
+                "next_action: Human approval required; review this preview, then run "
+                "'devflow task promote task-0001' and confirm the prompt."
+            ) in preview.output
+            assert "Decision needed:\nHuman approval required before promotion." in preview.output
+
+            preview_evidence = json.loads(
+                Path(".devflow/tasks/task-0001/workers/shell/promotion-preview.json").read_text(encoding="utf-8")
+            )
+            assert preview_evidence["human_approval_required"] is True
+            assert preview_evidence["human_approval_reason"] == "Integration combines parallel agent outputs."
         finally:
             os.chdir(old_cwd)
 

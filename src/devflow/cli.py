@@ -1659,10 +1659,19 @@ def task_promote_preview(task_id: str) -> None:
     diffs = res["diffs"]
     baseline = res["baseline"]
     git_preview = res.get("git")
+    human_approval = res.get("human_approval") or {}
+    human_approval_required = bool(human_approval.get("required"))
+    if human_approval_required:
+        next_action = (
+            f"Human approval required; review this preview, then run "
+            f"'devflow task promote {task_id}' and confirm the prompt."
+        )
+    else:
+        next_action = f"devflow task promote {task_id}"
 
     typer.echo("preview_only: yes")
     typer.echo("main_changed: no")
-    typer.echo(f"next_action: devflow task promote {task_id}")
+    typer.echo(f"next_action: {next_action}")
     typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
     typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
     if "origin_main_head" in baseline:
@@ -1670,6 +1679,12 @@ def task_promote_preview(task_id: str) -> None:
     typer.echo(f"baseline_status: {baseline['baseline_status']}")
     if "origin_baseline_status" in baseline:
         typer.echo(f"origin_baseline_status: {baseline['origin_baseline_status']}")
+    if human_approval_required:
+        typer.echo("human_approval_required: yes")
+        if human_approval.get("reason"):
+            typer.echo(f"human_approval_reason: {human_approval['reason']}")
+        if human_approval.get("prompt"):
+            typer.echo(f"human_approval_prompt: {human_approval['prompt']}")
     if git_preview:
         typer.echo(f"task_id: {git_preview['task_id']}")
         typer.echo(f"worker_id: {git_preview['worker_id']}")
