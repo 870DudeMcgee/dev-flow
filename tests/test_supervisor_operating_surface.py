@@ -157,6 +157,8 @@ def test_task_state_commands_are_approval_required() -> None:
         "devflow task create example",
         "devflow task close task-0001 --outcome duplicate --reason covered",
         "devflow task finalize task-0001",
+        "devflow task cleanup task-0001",
+        "devflow task cleanup task-0001 --preview",
         "devflow task cleanup task-0001 --apply",
         "devflow task apply-patch task-0001",
     ):
@@ -164,6 +166,13 @@ def test_task_state_commands_are_approval_required() -> None:
         assert classification["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
         assert classification["requires_human_approval"] is True
         assert classification["supervisor_may_auto_run"] is False
+
+
+def test_git_cleanup_dry_run_remains_pure_read_only() -> None:
+    classification = classify_supervisor_command("devflow task cleanup task-0001 --dry-run")
+    assert classification["safety_class"] == PURE_READ_ONLY
+    assert classification["requires_human_approval"] is False
+    assert classification["supervisor_may_auto_run"] is True
 
 
 def test_git_and_promotion_commands_are_approval_required_or_forbidden() -> None:
@@ -208,6 +217,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
         "devflow task patch-dry-run",
         "devflow task verify",
         "devflow task create",
+        "devflow task cleanup --preview",
         "devflow knowledge capture",
     ):
         assert command not in payload["allowed_commands"]
@@ -216,6 +226,8 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow task patch-dry-run" in payload["approval_required_evidence_writing"]
     assert "devflow task verify" in payload["approval_required_worker_runtime"]
     assert "devflow task create" in payload["approval_required_task_state"]
+    assert "devflow task cleanup --preview" in payload["approval_required_task_state"]
+    assert "devflow task cleanup --dry-run" in payload["allowed_commands"]
     assert "devflow knowledge capture" in payload["approval_required_evidence_writing"]
     assert "any command not recognized by the supervisor policy" in payload["forbidden_for_supervisor"]
 

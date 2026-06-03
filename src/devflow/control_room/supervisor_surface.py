@@ -46,7 +46,6 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow task history",
     "devflow task capsule",
     "devflow task packet",
-    "devflow task cleanup --preview",
     "devflow task cleanup --dry-run",
     "devflow worktree list",
     "devflow worktree prune",
@@ -78,6 +77,8 @@ APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow task create",
     "devflow task close",
     "devflow task finalize",
+    "devflow task cleanup",
+    "devflow task cleanup --preview",
     "devflow task cleanup --apply",
     "devflow task apply-patch",
     "devflow knowledge promote",
@@ -246,7 +247,7 @@ def _classify_supervisor_command(command: str) -> str:
     if subcommand == "packet":
         return APPROVAL_REQUIRED_EVIDENCE_WRITING if "--save" in tokens else PURE_READ_ONLY
     if subcommand == "cleanup":
-        return APPROVAL_REQUIRED_TASK_STATE if "--apply" in tokens else PURE_READ_ONLY
+        return PURE_READ_ONLY if "--dry-run" in tokens and "--apply" not in tokens else APPROVAL_REQUIRED_TASK_STATE
     if subcommand in {"review-patch", "patch-dry-run", "normalize-proposal", "orchestrate", "escalation-packet", "promote-preview"}:
         return APPROVAL_REQUIRED_EVIDENCE_WRITING
     if subcommand in {"create", "close", "finalize", "apply-patch"}:
