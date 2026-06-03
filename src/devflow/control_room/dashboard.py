@@ -79,6 +79,35 @@ class DashboardState(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+class MultiProjectDashboardItem(BaseModel):
+    project_id: str
+    name: str
+    path: str
+    status: str
+    path_status: str
+    source_control_mode: str
+    branch: str | None = None
+    working_tree: str | None = None
+    total_tasks: int = 0
+    active_tasks: int = 0
+    needs_verification: int = 0
+    ready_to_promote: int = 0
+    detail: str | None = None
+
+
+class MultiProjectDashboardState(BaseModel):
+    registry_path: str
+    projects_root: str
+    total_projects: int
+    active_projects: int
+    missing_projects: int
+    total_tasks: int
+    active_tasks: int
+    needs_verification: int
+    ready_to_promote: int
+    projects: list[MultiProjectDashboardItem]
+
+
 # --- Git and Project Helpers ---
 
 def _git_branch(root: Path) -> str | None:
@@ -426,6 +455,115 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
     
     state.next_action = choose_dashboard_next_action_v2(state, goal_projections)
     return state
+
+
+def collect_multi_project_dashboard_state(*, include_archived: bool = False) -> MultiProjectDashboardState:
+    from devflow.control_room.project_registry import load_registry, registry_path
+
+    registry = load_registry()
+    records = [
+        record for record in registry.projects
+        if include_archived or record.status != "archived"
+    ]
+    projects: list[MultiProjectDashboardItem] = []
+    for record in records:
+        root = Path(record.path)
+        if not root.exists():
+            projects.append(
+                MultiProjectDashboardItem(
+                    project_id=record.project_id,
+                    name=record.name,
+                    path=record.path,
+                    status=record.status,
+                    path_status="missing",
+                    source_control_mode=record.source_control_mode,
+                    detail="project path is missing",
+                )
+            )
+            continue
+        try:
+            state = collect_dashboard_state(root)
+            projects.append(
+                MultiProjectDashboardItem(
+                    project_id=record.project_id,
+                    name=record.name,
+                    path=record.path,
+                    status=record.status,
+                    path_status="present",
+                    source_control_mode=record.source_control_mode,
+                    branch=state.project.branch,
+                    working_tree=state.project.working_tree,
+                    total_tasks=state.health.total_tasks,
+                    active_tasks=state.health.active_tasks,
+                    needs_verification=state.health.needs_verification,
+                    ready_to_promote=state.health.ready_to_promote,
+                )
+            )
+        except Exception as exc:
+            projects.append(
+                MultiProjectDashboardItem(
+                    project_id=record.project_id,
+                    name=record.name,
+                    path=record.path,
+                    status=record.status,
+                    path_status="present",
+                    source_control_mode=record.source_control_mode,
+                    detail=f"dashboard unavailable: {exc}",
+                )
+            )
+
+    return MultiProjectDashboardState(
+        registry_path=registry_path().as_posix(),
+        projects_root=registry.projects_root,
+        total_projects=len(projects),
+        active_projects=sum(1 for project in projects if project.status == "active" and project.path_status == "present"),
+        missing_projects=sum(1 for project in projects if project.path_status == "missing"),
+        total_tasks=sum(project.total_tasks for project in projects),
+        active_tasks=sum(project.active_tasks for project in projects),
+        needs_verification=sum(project.needs_verification for project in projects),
+        ready_to_promote=sum(project.ready_to_promote for project in projects),
+        projects=projects,
+    )
+
+
+def render_multi_project_dashboard(*, include_archived: bool = False) -> str:
+    state = collect_multi_project_dashboard_state(include_archived=include_archived)
+    lines = [
+        "Dev-Flow Multi-Project Control Room",
+        "",
+        "Registry",
+        f"  Path: {state.registry_path}",
+        f"  Projects root: {state.projects_root}",
+        "",
+        "Project Health",
+        f"  Total projects: {state.total_projects}",
+        f"  Active projects: {state.active_projects}",
+        f"  Missing projects: {state.missing_projects}",
+        f"  Total tasks: {state.total_tasks}",
+        f"  Active tasks: {state.active_tasks}",
+        f"  Needs verification: {state.needs_verification}",
+        f"  Ready to promote: {state.ready_to_promote}",
+        "",
+        f"{'Project':<24} {'Status':<10} {'Path':<8} {'Tasks':<6} {'Active':<6} {'Verify':<6} {'Promote':<7} Branch",
+        "-" * 104,
+    ]
+    if not state.projects:
+        lines.append("No projects registered.")
+    for project in state.projects:
+        lines.append(
+            f"{project.project_id:<24} {project.status:<10} {project.path_status:<8} "
+            f"{project.total_tasks:<6} {project.active_tasks:<6} "
+            f"{project.needs_verification:<6} {project.ready_to_promote:<7} {project.branch or 'unknown'}"
+        )
+        if project.detail:
+            lines.append(f"  detail: {project.detail}")
+        lines.append(f"  root: {project.path}")
+    return "\n".join(lines) + "\n"
+
+
+def render_multi_project_dashboard_json(*, include_archived: bool = False) -> str:
+    state = collect_multi_project_dashboard_state(include_archived=include_archived)
+    return json.dumps(state.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
 
 
 def render_dashboard(repo_root: Path | None = None) -> str:

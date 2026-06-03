@@ -153,6 +153,14 @@ def sync_main(root: Path) -> str:
 
 def push_main(root: Path) -> str:
     repo = require_repo(root)
+    from devflow.control_room.project_registry import project_publication_policy
+
+    policy = project_publication_policy(repo)
+    if policy is not None and not policy.push_allowed:
+        raise GitStateError(
+            "Refusing push-main: project policy disallows remote publication.\n"
+            "Set .devflow/project/project.yaml remote_publication.push_allowed only after explicit human approval."
+        )
     state = inspect_git_state(repo)
     if state.branch != "main":
         raise GitStateError(f"Refusing push-main: current branch is {state.branch or 'detached'}, expected main.")

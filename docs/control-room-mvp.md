@@ -15,6 +15,7 @@ For details on the project's design and boundaries:
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction. [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the later task-fit, context-estimation, capability-profile, context-pack, scout, and routing feedback design. Both are design-only until implementation work explicitly promotes a slice.
 - [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees, commit-bound verification, Git-native promotion preview, and human-controlled promotion slice.
+- [docs/architecture/multi-project-registry.md](architecture/multi-project-registry.md) defines the first-class multi-project registry, project creation/import commands, and local-first Git/GitHub publication policy.
 
 
 ## Product Direction
@@ -60,6 +61,18 @@ devflow status --json
 devflow supervisor policy --json
 devflow supervisor packet --json
 devflow hermes imessage-check --json
+devflow project create "Factory Scheduler"
+devflow project create "Local Experiment" --source-control none
+devflow project import /path/to/existing/repo
+devflow project list
+devflow project show factory-scheduler
+devflow project status factory-scheduler
+devflow project doctor factory-scheduler
+devflow project archive factory-scheduler
+devflow project remove factory-scheduler --registry-only
+devflow project connect-github factory-scheduler --remote-url <url>
+devflow dashboard --all-projects
+devflow status --all-projects --json
 devflow task --help
 devflow task create "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
@@ -112,6 +125,8 @@ devflow task run <task_id> --worker devflow-manual-codex-worker
 ```
 
 The preferred shell-worker form is `devflow task run <task_id> --worker shell -- <command>`. The `--shell "<command>"` form remains supported.
+
+The project-management form is `devflow project create "Name"`. It creates a separate local project root under the configured projects root, initializes local Git by default, creates that project's own `.devflow/` scaffold, and registers the project in `~/.devflow/registry/projects.json`. It does not create a GitHub repository, add a remote, push, or publish by default. Existing project roots can be registered with `devflow project import /path/to/project`. `devflow dashboard --all-projects` renders the registry as a multi-project control-room view while preserving the existing single-project dashboard behavior.
 
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
 

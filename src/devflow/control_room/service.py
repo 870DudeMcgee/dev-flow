@@ -115,9 +115,9 @@ def promote_task(
 
 
 
-def init_control_room(root: Path) -> None:
+def init_control_room(root: Path, project_seed: Any | None = None) -> None:
     devflow_dir(root).mkdir(parents=True, exist_ok=True)
-    initialize_seed(root)
+    initialize_seed(root, project_seed=project_seed)
     system_dir(root).mkdir(parents=True, exist_ok=True)
     tasks_dir(root).mkdir(parents=True, exist_ok=True)
     workspaces_dir(root).mkdir(parents=True, exist_ok=True)

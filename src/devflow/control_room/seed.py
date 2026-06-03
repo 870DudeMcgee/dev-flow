@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 
 BOOTSTRAP_GOAL = "bootstrap-devflow-filesystem"
@@ -891,11 +894,21 @@ CONTEXT_CONGRUENCE_RULES = [
 ]
 
 
-def initialize_seed(root: Path) -> None:
+def initialize_seed(root: Path, project_seed: Any | None = None) -> None:
     for directory in DIRECTORIES:
         (root / directory).mkdir(parents=True, exist_ok=True)
 
-    for path, content in SEED_FILES.items():
+    seed_files = dict(SEED_FILES)
+    if project_seed is not None:
+        if hasattr(project_seed, "model_dump"):
+            payload = project_seed.model_dump(mode="json", exclude_none=False)
+        elif isinstance(project_seed, dict):
+            payload = project_seed
+        else:
+            raise TypeError("project_seed must be a mapping or Pydantic model")
+        seed_files[".devflow/project/project.yaml"] = yaml.safe_dump(payload, sort_keys=False)
+
+    for path, content in seed_files.items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
@@ -971,6 +984,10 @@ def _validate_project_yaml(path: Path, errors: list[str]) -> None:
     if not path.exists():
         return
     data = _read_simple_yaml_map(path)
+    project_id = data.get("project_id") or data.get("id")
+    if project_id != "devflow":
+        _validate_managed_project_yaml(display_path, data, errors)
+        return
     for key in ("id", "name", "status", "purpose", "current_active_goal", "source_documents"):
         if key not in data:
             errors.append(f"{display_path}: missing {key}")
@@ -980,6 +997,25 @@ def _validate_project_yaml(path: Path, errors: list[str]) -> None:
         errors.append(f"{display_path}: current_active_goal must be {BOOTSTRAP_GOAL}")
     if not isinstance(data.get("source_documents"), list) or not data["source_documents"]:
         errors.append(f"{display_path}: source_documents must be a non-empty list")
+
+
+def _validate_managed_project_yaml(display_path: str, data: dict[str, object], errors: list[str]) -> None:
+    for key in ("schema_version", "project_id", "name", "status", "root_path", "source_control", "remote_publication"):
+        if key not in data:
+            errors.append(f"{display_path}: missing {key}")
+    if data.get("schema_version") != 1:
+        errors.append(f"{display_path}: schema_version must be 1")
+    source_control = data.get("source_control")
+    if not isinstance(source_control, dict):
+        errors.append(f"{display_path}: source_control must be a mapping")
+    else:
+        if source_control.get("mode") not in {"none", "local_git", "remote_git", "github_managed"}:
+            errors.append(f"{display_path}: source_control.mode is invalid")
+    remote_publication = data.get("remote_publication")
+    if not isinstance(remote_publication, dict):
+        errors.append(f"{display_path}: remote_publication must be a mapping")
+    elif remote_publication.get("push_allowed") is not False and remote_publication.get("push_allowed") is not True:
+        errors.append(f"{display_path}: remote_publication.push_allowed must be boolean")
 
 
 def _validate_goal_yaml(path: Path, errors: list[str]) -> None:
