@@ -9,7 +9,8 @@ from typing import Any
 from devflow.control_room.git_worktree import is_git_worktree_task, worker_id_for_task
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.paths import absolute_path, relative_path, task_dir, workspaces_dir, worktrees_dir
-from devflow.control_room.persistence import append_event, atomic_write_text, get_task, save_task, utc_now
+from devflow.control_room.persistence import append_event, atomic_write_text, get_task, utc_now
+from devflow.control_room.task_lifecycle import record_task_update
 
 
 VALID_CLOSE_OUTCOMES = {"promoted", "rejected", "duplicate", "superseded", "abandoned", "evidence-only"}
@@ -33,23 +34,22 @@ def close_task(root: Path, task_id: str, *, outcome: str, reason: str) -> dict[s
     task_path = task_dir(root, task.id)
     atomic_write_text(task_path / "closure.json", json.dumps(closure, indent=2, sort_keys=True) + "\n")
 
-    task.status = "closed"
     task.close_outcome = outcome
     task.close_reason = reason.strip()
     task.closed_at = now
-    task.updated_at = now
-    task.last_event = "task_closed"
-    save_task(task_path, task)
-    append_event(
+    record_task_update(
         root,
-        task.id,
-        "task_closed",
-        {
+        task,
+        event_type="task_closed",
+        event_payload={
             "outcome": outcome,
             "reason": reason.strip(),
             "previous_status": previous_status,
             "closure_path": relative_path(root, task_path / "closure.json"),
         },
+        status="closed",
+        updated_at=now,
+        write_readiness=False,
     )
     return closure
 

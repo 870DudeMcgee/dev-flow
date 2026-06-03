@@ -9,6 +9,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.status_projection import ReviewCapsuleProjection
 
 
 runner = CliRunner()
@@ -122,6 +123,35 @@ def test_capsule_labels_missing_verification_and_promotion_preview() -> None:
             assert "Verification:\nmissing (no verification.json)" in capsule.output
             assert "Promotion preview:\nmissing (run devflow task promote-preview task-0001)" in capsule.output
             assert "Decision needed:\nRun verification for this task." in capsule.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_capsule_renders_status_projection_decision_model(monkeypatch) -> None:
+    def fake_projection(task, verification, verification_note, preview, preview_note):
+        return ReviewCapsuleProjection(
+            verification_text="PROJECTED VERIFY",
+            promotion_readiness_text="PROJECTED READINESS",
+            promotion_preview_text="PROJECTED PREVIEW",
+            decision="Projected decision.",
+            safe_next_actions=["projected action"],
+        )
+
+    monkeypatch.setattr("devflow.control_room.review_capsule.build_review_capsule_projection", fake_projection)
+
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            assert runner.invoke(app, ["task", "create", "projected capsule"]).exit_code == 0
+
+            capsule = runner.invoke(app, ["task", "capsule", "task-0001"])
+            assert capsule.exit_code == 0, capsule.output
+            assert "Decision needed:\nProjected decision." in capsule.output
+            assert "Verification:\nPROJECTED VERIFY" in capsule.output
+            assert "Promotion readiness:\nPROJECTED READINESS" in capsule.output
+            assert "Promotion preview:\nPROJECTED PREVIEW" in capsule.output
+            assert "Safe next actions:\n- projected action" in capsule.output
         finally:
             os.chdir(old_cwd)
 

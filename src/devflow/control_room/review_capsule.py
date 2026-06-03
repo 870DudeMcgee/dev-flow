@@ -16,6 +16,7 @@ from devflow.control_room.paths import (
     worktree_path,
 )
 from devflow.control_room.persistence import atomic_write_text, get_task
+from devflow.control_room.status_projection import build_review_capsule_projection
 
 
 INLINE_TEXT_LIMIT_BYTES = 4096
@@ -46,17 +47,14 @@ def render_review_capsule(
     diff_summary = _load_diff_summary(root, task)
     changed_files = _changed_files(root, task, workspace, workspace_note, preview, diff_summary)
 
-    verification_text = _verification_text(task, verification, verification_note)
-    promotion_readiness = _promotion_readiness_text(preview, preview_note)
-    promotion_preview_text = _promotion_preview_text(preview, preview_note)
-    decision, actions = _decision_and_actions(task, verification, verification_note, preview, preview_note)
+    status_projection = build_review_capsule_projection(task, verification, verification_note, preview, preview_note)
     latest_commit = _latest_commit(root, task, verification, preview, diff_summary)
 
     lines = [
         f"REVIEW CAPSULE - {task.id}",
         "",
         "Decision needed:",
-        decision,
+        status_projection.decision,
         "",
         "Task title:",
         task.title or "missing",
@@ -79,13 +77,13 @@ def render_review_capsule(
         [
             "",
             "Verification:",
-            verification_text,
+            status_projection.verification_text,
             "",
             "Promotion readiness:",
-            promotion_readiness,
+            status_projection.promotion_readiness_text,
             "",
             "Promotion preview:",
-            promotion_preview_text,
+            status_projection.promotion_preview_text,
             "",
             "Changed files:",
         ]
@@ -106,7 +104,7 @@ def render_review_capsule(
             "Safe next actions:",
         ]
     )
-    lines.extend(f"- {action}" for action in actions)
+    lines.extend(f"- {action}" for action in status_projection.safe_next_actions)
     return "\n".join(lines) + "\n"
 
 
@@ -374,88 +372,6 @@ def _looks_binary(path: Path) -> bool:
             return b"\0" in file_obj.read(_BINARY_SNIFF_BYTES)
     except OSError:
         return False
-
-
-def _verification_text(task: TaskRecord, payload: dict[str, Any] | None, note: str) -> str:
-    if payload is None:
-        return "missing (no verification.json)" if note.startswith("missing") else note
-    status = payload.get("status") or task.verification_status
-    exit_code = payload.get("exit_code")
-    if status == "passed":
-        return "PASS"
-    if status == "failed":
-        return f"FAIL (exit code {exit_code})" if exit_code is not None else "FAIL"
-    if status == "not_run":
-        return "NOT RUN"
-    return str(status or "unknown")
-
-
-def _promotion_readiness_text(payload: dict[str, Any] | None, note: str) -> str:
-    if payload is None:
-        return note
-    readiness = payload.get("promotion_readiness")
-    if isinstance(readiness, str) and readiness:
-        if readiness == "ready" and payload.get("human_approval_required") is True:
-            return "ready (human approval required)"
-        return readiness
-    return "available"
-
-
-def _promotion_preview_text(payload: dict[str, Any] | None, note: str) -> str:
-    if payload is None:
-        return note
-    readiness = payload.get("promotion_readiness")
-    if readiness == "ready" and payload.get("human_approval_required") is True:
-        return "PASS (human approval required)"
-    if readiness == "ready":
-        return "PASS"
-    if isinstance(readiness, str) and readiness:
-        return f"not ready ({readiness})"
-    return "available"
-
-
-def _decision_and_actions(
-    task: TaskRecord,
-    verification: dict[str, Any] | None,
-    verification_note: str,
-    preview: dict[str, Any] | None,
-    preview_note: str,
-) -> tuple[str, list[str]]:
-    verification_status = (verification or {}).get("status") or task.verification_status
-    if verification is None or verification_status == "not_run":
-        return (
-            "Run verification for this task.",
-            [f"run verification {task.id}", f"reject/close {task.id}"],
-        )
-    if verification_status != "passed":
-        return (
-            "Needs changes before promotion.",
-            [f"needs changes {task.id}", f"reject/close {task.id}"],
-        )
-    if preview is None:
-        return (
-            "Run promotion preview before promoting.",
-            [f"run promotion preview {task.id}", f"reject/close {task.id}"],
-        )
-    if preview.get("promotion_readiness") == "ready" and preview.get("human_approval_required") is True:
-        return (
-            "Human approval required before promotion.",
-            [f"review preview and approve {task.id}", f"reject/close {task.id}"],
-        )
-    if preview.get("promotion_readiness") == "ready":
-        return (
-            "Promote or reject this task.",
-            [f"promote {task.id}", f"reject/close {task.id}"],
-        )
-    if preview_note == "current command output":
-        return (
-            "Review promotion preview and decide whether this needs changes.",
-            [f"needs changes {task.id}", f"reject/close {task.id}"],
-        )
-    return (
-        "Needs changes before promotion.",
-        [f"needs changes {task.id}", f"reject/close {task.id}"],
-    )
 
 
 def _latest_commit(

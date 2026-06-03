@@ -9,8 +9,13 @@ from datetime import datetime
 from typing import Any
 from pydantic import BaseModel
 
-from devflow.control_room.status_projection import list_task_status_projections, TaskStatusProjection
-from devflow.control_room.readiness import promotion_readiness_errors
+from devflow.control_room.status_projection import (
+    ProjectedNextAction,
+    TaskStatusProjection,
+    choose_task_dashboard_action,
+    choose_task_focus_projection,
+    list_task_status_projections,
+)
 
 # --- Dashboard State Models ---
 
@@ -32,11 +37,8 @@ class DashboardHealth(BaseModel):
     worker_failed: int
     timeout: int
 
-class DashboardNextAction(BaseModel):
-    label: str
-    task_id: str | None = None
-    command: str | None = None
-    reason: str
+class DashboardNextAction(ProjectedNextAction):
+    pass
 
 class FocusTaskState(BaseModel):
     id: str
@@ -120,67 +122,11 @@ def _context_loaded(root: Path) -> bool:
 # --- Focus Task and Next Action Logic ---
 
 def find_focus_task(projections: list[TaskStatusProjection]) -> TaskStatusProjection | None:
-    if not projections:
-        return None
+    return choose_task_focus_projection(projections)
 
-    def get_sort_key(p: TaskStatusProjection):
-        ts = p.task.updated_at.timestamp() if p.task.updated_at else 0.0
-        return (ts, p.task.id)
 
-    # 1. Blocked task with human question/manual-agent blocker
-    tier1 = [
-        p for p in projections 
-        if p.display_status in ("blocked", "blocked_question", "awaiting_human") or 
-           p.manual_agent_state == "blocked" or 
-           p.manual_agent_question is not None or 
-           p.task.status == "blocked"
-    ]
-    if tier1:
-        return max(tier1, key=get_sort_key)
-
-    # 2. Verification failed task
-    tier2 = [p for p in projections if p.task.status == "verification_failed" or p.verification_status == "failed"]
-    if tier2:
-        return max(tier2, key=get_sort_key)
-
-    # 3. Complete task needing verification
-    tier3 = [
-        p for p in projections
-        if p.task.status == "complete" or
-           (p.manual_agent_state == "result_present" and p.verification_status != "passed") or
-           (p.verification_status in ("not_run", "pending") and p.task.status not in ("promoted", "verified", "created"))
-    ]
-    if tier3:
-        return max(tier3, key=get_sort_key)
-
-    # 4. Verified task ready to promote
-    def is_ready(p: TaskStatusProjection):
-        return (
-            (p.task.status == "verified" or p.verification_status == "passed") and 
-            not promotion_readiness_errors(p.task, p.task_path)
-        )
-
-    tier4 = [p for p in projections if is_ready(p)]
-    if tier4:
-        return max(tier4, key=get_sort_key)
-
-    # 5. Created task that has not run
-    tier5 = [p for p in projections if p.task.status == "created"]
-    if tier5:
-        return max(tier5, key=get_sort_key)
-
-    # 6. Running task
-    tier6 = [p for p in projections if p.task.status == "running"]
-    if tier6:
-        return max(tier6, key=get_sort_key)
-
-    # 7. Most recently updated non-promoted task
-    tier7 = [p for p in projections if p.task.status != "promoted"]
-    if tier7:
-        return max(tier7, key=get_sort_key)
-
-    # Fallback
-    return max(projections, key=get_sort_key)
+def _dashboard_action(action: ProjectedNextAction) -> DashboardNextAction:
+    return DashboardNextAction(**action.model_dump())
 
 def choose_dashboard_next_action(state: DashboardState) -> DashboardNextAction:
     focus = state.focus_task
@@ -192,7 +138,6 @@ def choose_dashboard_next_action(state: DashboardState) -> DashboardNextAction:
             reason="No tasks found."
         )
 
-    # Find the projection for the focus task
     focus_proj = None
     for p in state.tasks:
         if p.task.id == focus.id:
@@ -207,97 +152,7 @@ def choose_dashboard_next_action(state: DashboardState) -> DashboardNextAction:
             reason="Focus task details not found."
         )
 
-    task_id = focus.id
-    status = focus_proj.task.status
-    disp_status = focus_proj.display_status
-
-    # Blocked
-    if (disp_status in ("blocked", "blocked_question", "awaiting_human") or 
-        focus_proj.manual_agent_question is not None or 
-        status == "blocked"):
-        return DashboardNextAction(
-            label="Resolve blocker",
-            task_id=task_id,
-            command=f"devflow task show {task_id}",
-            reason="Manual worker blocked on a question."
-        )
-
-    # Verification failed
-    if status == "verification_failed" or focus_proj.verification_status == "failed":
-        return DashboardNextAction(
-            label="Inspect verification failure",
-            task_id=task_id,
-            command=f"devflow task log {task_id} --verify --tail 80",
-            reason="Verification failed and needs inspection before rerun."
-        )
-
-    # Complete / Needs verification
-    if (status == "complete" or 
-        (focus_proj.manual_agent_state == "result_present" and focus_proj.verification_status != "passed") or 
-        (focus_proj.verification_status in ("not_run", "pending") and status not in ("promoted", "verified", "created"))):
-        return DashboardNextAction(
-            label="Run verification",
-            task_id=task_id,
-            command=f"devflow task verify {task_id} --shell \"<command>\"",
-            reason="Worker completed but verification has not passed."
-        )
-
-    # Verified and ready to promote
-    is_ready_to_promote = (
-        (status == "verified" or focus_proj.verification_status == "passed") and 
-        not promotion_readiness_errors(focus_proj.task, focus_proj.task_path)
-    )
-    if is_ready_to_promote:
-        return DashboardNextAction(
-            label="Preview promotion",
-            task_id=task_id,
-            command=f"devflow task promote-preview {task_id}",
-            reason="Verification passed; user should review promotion before promote."
-        )
-
-    # Created
-    if status == "created":
-        return DashboardNextAction(
-            label="Run task",
-            task_id=task_id,
-            command=f"devflow task run {task_id} --worker shell -- <command>",
-            reason="Task exists but no worker has run."
-        )
-
-    # Running
-    if status == "running":
-        return DashboardNextAction(
-            label="Inspect task",
-            task_id=task_id,
-            command=f"devflow task show {task_id}",
-            reason="Task is running or in progress."
-        )
-
-    # Worker failed
-    if status == "worker_failed" or disp_status == "worker_failed":
-        return DashboardNextAction(
-            label="Inspect worker failure",
-            task_id=task_id,
-            command=f"devflow task log {task_id} --tail 80",
-            reason="Worker failed and logs should be inspected."
-        )
-
-    # Timeout
-    if status == "timeout":
-        return DashboardNextAction(
-            label="Inspect timeout",
-            task_id=task_id,
-            command=f"devflow task log {task_id} --tail 80",
-            reason="Worker timed out."
-        )
-
-    # Fallback
-    return DashboardNextAction(
-        label="Inspect task",
-        task_id=task_id,
-        command=f"devflow task show {task_id}",
-        reason="No safer automated action was inferred."
-    )
+    return _dashboard_action(focus_proj.dashboard_next_action)
 
 
 def choose_focus_goal_projection(goal_projections: list[Any], task_projections: list[Any]) -> Any | None:
@@ -336,45 +191,11 @@ def choose_focus_goal_projection(goal_projections: list[Any], task_projections: 
 
 
 def choose_dashboard_next_action_v2(state: DashboardState, goal_projections: list[Any]) -> DashboardNextAction:
-    # 1. Failed verification task
-    failed_verify = [p for p in state.tasks if p.task.status == "verification_failed" or p.verification_status == "failed"]
-    if failed_verify:
-        p = max(failed_verify, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
-        return DashboardNextAction(
-            label="Inspect verification failure",
-            task_id=p.task.id,
-            command=f"devflow task log {p.task.id} --verify --tail 80",
-            reason="Verification failed and needs inspection before rerun."
-        )
+    task_action = choose_task_dashboard_action(state.tasks, max_priority=50)
+    if task_action is not None:
+        return _dashboard_action(task_action)
 
-    # 2. Task ready to promote-preview
-    ready_promote = [p for p in state.tasks if (p.task.status == "verified" or p.verification_status == "passed") and not promotion_readiness_errors(p.task, p.task_path)]
-    if ready_promote:
-        p = max(ready_promote, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
-        return DashboardNextAction(
-            label="Preview promotion",
-            task_id=p.task.id,
-            command=f"devflow task promote-preview {p.task.id}",
-            reason="Verification passed; user should review promotion before promote."
-        )
-
-    # 3. Complete task needing verification
-    needs_verify = [
-        p for p in state.tasks
-        if p.task.status == "complete" or
-           (p.manual_agent_state == "result_present" and p.verification_status != "passed") or
-           (p.verification_status in ("not_run", "pending") and p.task.status not in ("promoted", "verified", "created"))
-    ]
-    if needs_verify:
-        p = max(needs_verify, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
-        return DashboardNextAction(
-            label="Run verification",
-            task_id=p.task.id,
-            command=f"devflow task verify {p.task.id} --shell \"<command>\"",
-            reason="Worker completed but verification has not passed."
-        )
-
-    # 4. Goal with implementation blocked / open questions
+    # 1. Goal with implementation blocked / open questions
     blocked_goals = [g for g in goal_projections if g.state == "blocked"]
     if blocked_goals:
         def get_goal_sort_key(p: Any):
@@ -395,7 +216,7 @@ def choose_dashboard_next_action_v2(state: DashboardState, goal_projections: lis
             reason="Implementation is blocked on open questions."
         )
 
-    # 5. Goal with task slices ready for review
+    # 2. Goal with task slices ready for review
     ready_goals = [g for g in goal_projections if g.state == "ready_for_task_creation"]
     if ready_goals:
         def get_goal_sort_key(p: Any):
@@ -416,18 +237,11 @@ def choose_dashboard_next_action_v2(state: DashboardState, goal_projections: lis
             reason="Goal task slices are ready for review."
         )
 
-    # 6. Created task waiting to run
-    created_tasks = [p for p in state.tasks if p.task.status == "created"]
-    if created_tasks:
-        p = max(created_tasks, key=lambda x: (x.task.updated_at.timestamp() if x.task.updated_at else 0.0, x.task.id))
-        return DashboardNextAction(
-            label="Run task",
-            task_id=p.task.id,
-            command=f"devflow task run {p.task.id} --worker shell -- <command>",
-            reason="Task exists but no worker has run."
-        )
+    task_action = choose_task_dashboard_action(state.tasks)
+    if task_action is not None:
+        return _dashboard_action(task_action)
 
-    # 7. No goals and no tasks
+    # 3. No goals and no tasks
     if not goal_projections and not state.tasks:
         return DashboardNextAction(
             label="Create a task",
@@ -516,47 +330,36 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
 
     for proj in projections:
         task = proj.task
-        disp_status = proj.display_status
-        verification_status = proj.verification_status
 
-        if task.status not in ("promoted", "verified"):
+        if proj.is_active:
             active_tasks += 1
 
-        is_blocked = (disp_status in ("blocked", "blocked_question", "awaiting_human") or task.status == "blocked")
-        if is_blocked:
+        if proj.is_blocked:
             blocked_tasks_count += 1
             blockers.append(proj)
 
-        is_needs_verify = (
-            task.status == "complete" or
-            (verification_status in ("not_run", "pending") and task.status != "promoted" and task.status != "created") or
-            (task.worker == "devflow-manual-codex-worker" and proj.manual_agent_state == "result_present" and verification_status != "passed")
-        )
-        if is_needs_verify:
+        if proj.needs_verification:
             needs_verification_count += 1
             needs_verification.append(proj)
 
-        is_failed_verify = (task.status == "verification_failed" or verification_status == "failed")
-        if is_failed_verify:
+        if proj.failed_verification:
             failed_verification_count += 1
             failed_verification.append(proj)
 
-        is_verified = (task.status == "verified" or verification_status == "passed")
-        if is_verified:
+        if proj.is_verified:
             verified_tasks_count += 1
 
-        is_ready = is_verified and len(promotion_readiness_errors(task, proj.task_path)) == 0
-        if is_ready:
+        if proj.ready_to_promote:
             ready_to_promote_count += 1
             ready_to_promote.append(proj)
 
         if task.status == "promoted":
             promoted_tasks_count += 1
 
-        if task.status == "worker_failed" or disp_status == "worker_failed":
+        if proj.is_worker_failed:
             worker_failed_count += 1
 
-        if task.status == "timeout":
+        if proj.is_timeout:
             timeout_count += 1
 
     health = DashboardHealth(

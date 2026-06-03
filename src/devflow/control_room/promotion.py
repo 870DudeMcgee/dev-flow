@@ -14,14 +14,13 @@ from devflow.control_room.paths import (
     workspaces_dir,
 )
 from devflow.control_room.persistence import (
-    append_event,
     get_task,
-    save_task,
     utc_now,
 )
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.readiness import format_promotion_refusal, human_promotion_gate, promotion_readiness_errors
 from devflow.control_room.git_worktree import build_git_promotion_preview, is_git_worktree_task, promote_git_worktree
+from devflow.control_room.task_lifecycle import record_task_update
 
 
 def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
@@ -216,20 +215,24 @@ def promote_task(
 
     if is_git_worktree_task(task):
         preview = promote_git_worktree(root, task)
-        task.status = "promoted"
-        task.updated_at = utc_now()
-        task.last_event = "task_promoted"
-        save_task(task_dir(root, task_id), task)
-        append_event(root, task_id, "task_promoted", {
-            "mode": "git_worktree",
-            "worker_id": preview["git"]["worker_id"],
-            "worker_branch": preview["git"]["worker_branch"],
-            "verified_commit": preview["git"]["worker_branch_head"],
-            "added": preview["added"],
-            "modified": preview["modified"],
-            "deleted": preview["deleted"],
-            "renamed": preview.get("renamed", []),
-        })
+        record_task_update(
+            root,
+            task,
+            event_type="task_promoted",
+            event_payload={
+                "mode": "git_worktree",
+                "worker_id": preview["git"]["worker_id"],
+                "worker_branch": preview["git"]["worker_branch"],
+                "verified_commit": preview["git"]["worker_branch_head"],
+                "added": preview["added"],
+                "modified": preview["modified"],
+                "deleted": preview["deleted"],
+                "renamed": preview.get("renamed", []),
+            },
+            status="promoted",
+            updated_at=utc_now(),
+            write_readiness=False,
+        )
         return task
 
     workspace = absolute_path(root, task.workspace).resolve()
@@ -293,16 +296,19 @@ def promote_task(
                     deleted_applied.append(name)
 
     # Update canonical task record and event log
-    task.status = "promoted"
-    task.updated_at = utc_now()
-    task.last_event = "task_promoted"
-
-    save_task(task_dir(root, task_id), task)
-    append_event(root, task_id, "task_promoted", {
-        "added": added_files,
-        "modified": modified_files,
-        "deleted_applied": deleted_applied,
-    })
+    record_task_update(
+        root,
+        task,
+        event_type="task_promoted",
+        event_payload={
+            "added": added_files,
+            "modified": modified_files,
+            "deleted_applied": deleted_applied,
+        },
+        status="promoted",
+        updated_at=utc_now(),
+        write_readiness=False,
+    )
 
     return task
 

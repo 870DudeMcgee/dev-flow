@@ -1,10 +1,12 @@
 # Agent Registry And Adapter Runtime
 
-Status: planning architecture. This document does not implement runtime behavior or expand the current shell-worker MVP.
+Status: planning architecture with current registry/adapter guardrails. This document does not expand the shell-worker MVP or enable remote provider execution.
 
 Dev-Flow is a local-first control room for replaceable coding workers. The shell worker is the only current runtime contract, but future worker types need one stable layer for registration, invocation, permissions, routing, and evidence. This document defines that target architecture without making agents the source of truth.
 
 Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents are replaceable runtimes. Workers propose. Dev-Flow records. Verification verifies. Humans promote.
+
+Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are experimental read-only in normal worker lookup. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
 
 Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the future task-fit profile, context estimator, model capability profile, context pack builder, scout roles, and routing-quality feedback loop. It is planning architecture only until the registry/manual/shell-alignment sequence is active.
 

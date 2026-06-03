@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-import fnmatch
 import json
 from pathlib import Path
 import re
@@ -9,6 +8,12 @@ from typing import Any
 
 import yaml
 
+from devflow.control_room.patch_proposal import (
+    extract_touched_files as proposal_touched_files,
+    inspect_patch_proposal,
+    is_dangerous_patch_path,
+    is_high_risk_patch_path,
+)
 from devflow.control_room.paths import relative_path, task_dir
 
 
@@ -22,58 +27,6 @@ REVIEW_STATUSES = {
 }
 
 RISKS = {"low", "medium", "high", "critical", "unknown"}
-
-DANGEROUS_EXACT_NAMES = {
-    "packet.json",
-    "packet.md",
-    "prompt.md",
-    "response.md",
-    "request.json",
-    "response.json",
-    "run.json",
-    "proposal.md",
-    "proposal.json",
-    "proposal.patch",
-    "patch-review.md",
-    "patch-review.json",
-}
-
-DANGEROUS_PATTERNS = [
-    ".git/**",
-    ".devflow/workspaces/**",
-    ".devflow/tasks/**",
-    ".devflow/agent-runs/**",
-    ".devflow/artifacts/**",
-    "local-model-runs/**",
-    "logs/**",
-    "__pycache__/**",
-    ".pytest_cache/**",
-    ".venv/**",
-    ".venv-*/**",
-    "node_modules/**",
-    "dist/**",
-    "build/**",
-]
-
-HIGH_RISK_PATTERNS = [
-    "src/devflow/control_room/patch_applier.py",
-    "src/devflow/control_room/verification.py",
-    "src/devflow/control_room/persistence.py",
-    "src/devflow/control_room/service.py",
-    "src/devflow/control_room/worker_adapter.py",
-    "src/devflow/control_room/agent_registry.py",
-    "src/devflow/control_room/git_worktree.py",
-    "src/devflow/cli.py",
-    "pyproject.toml",
-    ".github/workflows/**",
-    ".devflow/project/**",
-    "AGENTS.md",
-    "README.md",
-    "PRODUCT_NORTH_STAR.md",
-    "CHANGELOG.md",
-    "LICENSE",
-]
-
 
 @dataclass
 class PatchReview:
@@ -140,14 +93,13 @@ def review_patch_candidate(root: Path, task_id: str, *, run_id: str | None = Non
         return review
 
     patch_text = patch_file.read_text(encoding="utf-8")
-    files_touched = extract_touched_files(patch_text)
-    hunk_count = len(re.findall(r"^@@", patch_text, flags=re.MULTILINE))
-    has_header = "diff --git " in patch_text or ("--- " in patch_text and "+++ " in patch_text)
-    structurally_valid = bool(files_touched and hunk_count > 0 and has_header)
+    inspection = inspect_patch_proposal(patch_text)
+    files_touched = inspection.files_touched
+    hunk_count = inspection.hunk_count
     slice_alignment = _slice_alignment(repo_root, task_id, files_touched)
     warnings = optional_warnings + list(slice_alignment.pop("_warnings", []))
 
-    if not structurally_valid:
+    if not inspection.structurally_valid:
         review = PatchReview(
             schema_version=1,
             task_id=task_id,
@@ -292,33 +244,15 @@ def latest_patch_review(root: Path, task_id: str) -> dict[str, Any] | None:
 
 
 def extract_touched_files(patch_text: str) -> list[str]:
-    files: list[str] = []
-    for line in patch_text.splitlines():
-        if line.startswith("diff --git "):
-            parts = line.split()
-            if len(parts) >= 4:
-                files.append(_strip_patch_prefix(parts[3]))
-        elif line.startswith("--- ") or line.startswith("+++ "):
-            value = line[4:].split("\t", 1)[0].strip()
-            if value != "/dev/null":
-                files.append(_strip_patch_prefix(value))
-    return sorted(dict.fromkeys(path for path in files if path))
+    return proposal_touched_files(patch_text)
 
 
 def is_dangerous_path(path: str) -> bool:
-    normalized = _normalize_patch_path(path)
-    if Path(normalized).is_absolute():
-        return True
-    if ".." in Path(normalized).parts:
-        return True
-    if Path(normalized).name in DANGEROUS_EXACT_NAMES:
-        return True
-    return any(fnmatch.fnmatch(normalized, pattern) for pattern in DANGEROUS_PATTERNS)
+    return is_dangerous_patch_path(path)
 
 
 def is_high_risk_file(path: str) -> bool:
-    normalized = _normalize_patch_path(path)
-    return any(fnmatch.fnmatch(normalized, pattern) for pattern in HIGH_RISK_PATTERNS)
+    return is_high_risk_patch_path(path)
 
 
 def render_patch_review_markdown(review: PatchReview) -> str:
@@ -474,17 +408,6 @@ def _only_docs_or_tests(files_touched: list[str]) -> bool:
         or path.endswith(".txt")
         for path in files_touched
     )
-
-
-def _strip_patch_prefix(path: str) -> str:
-    path = path.strip().strip('"')
-    if path.startswith("a/") or path.startswith("b/"):
-        return path[2:]
-    return path
-
-
-def _normalize_patch_path(path: str) -> str:
-    return path.strip().strip('"').replace("\\", "/")
 
 
 def _render_bullets(items: list[str]) -> str:
