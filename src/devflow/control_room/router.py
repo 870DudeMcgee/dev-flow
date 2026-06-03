@@ -58,11 +58,16 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
 
     def _match_agent(role_name: str, recommended_tier: str, keyword_filters: list[str]) -> str:
         eligible: list[AgentDefinition] = []
+        role_pool = enabled_agents
+        if role_name == "worker":
+            role_pool = [
+                agent
+                for agent in enabled_agents
+                if agent.default_mode not in {"read_only", "docs_only", "manual_packet_only", "verify_only"}
+            ]
         
         # 1. Filter enabled agents by role capabilities or description keywords
-        for agent in enabled_agents:
-            if role_name == "worker" and agent.default_mode == "read_only":
-                continue
+        for agent in role_pool:
             agent_role = agent.role.lower()
             agent_id = agent.id.lower()
             
@@ -71,14 +76,14 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
                 eligible.append(agent)
 
         if not eligible:
-            if not enabled_agents:
+            if not role_pool:
                 # Extreme fallback if registry is completely empty
                 return "deterministic-shell"
             reasons.append(
                 f"no enabled {role_name} agent matched keywords {keyword_filters}; "
                 "falling back to an enabled local agent"
             )
-            eligible = list(enabled_agents)
+            eligible = list(role_pool)
 
         if not eligible:
             # Extreme fallback if registry is empty

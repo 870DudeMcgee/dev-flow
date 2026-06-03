@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 from devflow.control_room.persistence import save_task, get_task
 from devflow.control_room.service import create_task
 from devflow.control_room.router import route_task, save_routing_decision
+from devflow.control_room.agent_registry import AgentDefinition, AgentRegistry
 from devflow.cli import app
 
 
@@ -186,3 +187,36 @@ agents:
     assert len(local_rejections) >= 1
     assert any("risk mismatch" in r["reason"] for r in local_rejections)
 
+
+def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    agent = AgentDefinition(
+        id="local-qwopus-inspector",
+        provider="ollama",
+        model="qwopus:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="read_only",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        allowed_writes=["<task>/local-model-runs/**"],
+        forbidden_writes=["<workspace>/**", "<task>/agents/**/proposal.patch"],
+        enabled=True,
+    )
+    registry = AgentRegistry(
+        version=1,
+        default_agent_id=agent.id,
+        agents={agent.id: agent},
+    )
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Route read-only worker pool safely")
+    routing_res = route_task(tmp_path, task.id)
+    selected = routing_res["routing_decision"]["selected"]
+
+    assert selected["worker"] == "deterministic-shell"
