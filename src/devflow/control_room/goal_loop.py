@@ -31,10 +31,18 @@ class GoalParallelBatch(BaseModel):
     reason: str
 
 
+class GoalVerificationItem(BaseModel):
+    lane_id: str
+    task_id: str
+    command: str
+    devflow_command: str
+
+
 class GoalVerificationBatch(BaseModel):
     batch_id: str
     lane_ids: list[str] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
+    items: list[GoalVerificationItem] = Field(default_factory=list)
     commands: list[str] = Field(default_factory=list)
     shared_files: list[str] = Field(default_factory=list)
     verification_scope: str
@@ -281,14 +289,22 @@ def _verification_batches(lanes: list[GoalLoopLane]) -> list[GoalVerificationBat
                 selected = batch
                 break
         if selected is None:
-            selected = {"lanes": [], "commands": [], "shared_files_set": set(), "scopes": set()}
+            selected = {"lanes": [], "items": [], "commands": [], "shared_files_set": set(), "scopes": set()}
             batches.append(selected)
 
         task_id = lane.linked_task_ids[-1]
         selected["lanes"].append(lane)  # type: ignore[union-attr]
-        selected["commands"].extend(  # type: ignore[union-attr]
-            f"devflow task verify {task_id} -- {command}" for command in lane.verification_commands
-        )
+        for command in lane.verification_commands:
+            devflow_command = f"devflow task verify {task_id} -- {command}"
+            selected["items"].append(  # type: ignore[union-attr]
+                GoalVerificationItem(
+                    lane_id=lane.slice_id,
+                    task_id=task_id,
+                    command=command,
+                    devflow_command=devflow_command,
+                )
+            )
+            selected["commands"].append(devflow_command)  # type: ignore[union-attr]
         selected["shared_files_set"].update(lane_files)  # type: ignore[union-attr]
         selected["scopes"].add(lane.verification_scope)  # type: ignore[union-attr]
 
@@ -297,6 +313,7 @@ def _verification_batches(lanes: list[GoalLoopLane]) -> list[GoalVerificationBat
             batch_id=f"VB-{index:04d}",
             lane_ids=[lane.slice_id for lane in batch["lanes"]],  # type: ignore[index]
             task_ids=[lane.linked_task_ids[-1] for lane in batch["lanes"]],  # type: ignore[index]
+            items=list(batch["items"]),  # type: ignore[arg-type]
             commands=list(batch["commands"]),  # type: ignore[arg-type]
             shared_files=sorted(batch["shared_files_set"]),  # type: ignore[arg-type]
             verification_scope=_batch_scope(batch["scopes"]),  # type: ignore[arg-type]

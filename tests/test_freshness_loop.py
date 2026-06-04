@@ -392,6 +392,12 @@ task_slices:
         "devflow task verify task-0002 -- pytest tests/test_b.py",
         "devflow task verify task-0004 -- pytest tests/test_retry.py",
     ]
+    assert verify_batches[0]["items"][0] == {
+        "lane_id": "TS-0001",
+        "task_id": "task-0001",
+        "command": "pytest tests/test_a.py",
+        "devflow_command": "devflow task verify task-0001 -- pytest tests/test_a.py",
+    }
     assert verify_batches[0]["shared_files"] == ["src/a.py", "src/b.py", "src/c.py"]
     assert verify_batches[0]["verification_scope"] == "mixed"
     assert verify_batches[1]["lane_ids"] == ["TS-0003"]
