@@ -6,7 +6,7 @@ from pathlib import Path
 
 def init_test_git_repo(path: Path) -> None:
     subprocess.run(
-        ["git", "init"],
+        ["git", "init", "-b", "main"],
         cwd=path,
         capture_output=True,
         text=True,
