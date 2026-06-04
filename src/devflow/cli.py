@@ -539,6 +539,21 @@ def git_status_command() -> None:
     typer.echo(render_devmode_status(Path.cwd()), nl=False)
 
 
+@git_app.command("checkpoint")
+def git_checkpoint_command(
+    message: str = typer.Option(..., "--message", "-m", help="Commit message for the local checkpoint."),
+    yes: bool = typer.Option(False, "--yes", help="Stage all unignored changes and create the checkpoint commit."),
+) -> None:
+    """Preview or create an explicit local checkpoint commit."""
+    from devflow.control_room.git_checkpoint import checkpoint, render_checkpoint
+
+    try:
+        typer.echo(render_checkpoint(checkpoint(Path.cwd(), message=message, yes=yes)), nl=False)
+    except GitStateError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @app.command("sync-main")
 def sync_main_command() -> None:
     """Fetch origin and fast-forward local main only when safe."""

@@ -11,10 +11,10 @@ Dev-Flow artifacts beat Hermes memory every time.
 
 ## Path Authority
 
-Josh's current canonical checkout:
+Portable checkout authority:
 
 ```text
-/Users/jewelbait/Desktop/Local AI Dev Team
+<repo-root>
 ```
 
 Prohibited old checkout:
@@ -23,7 +23,7 @@ Prohibited old checkout:
 /Users/jewelbait/Desktop/DevFlow
 ```
 
-Never use the old path for current work. It is quarantined. Do not assume every user's checkout folder is named `DevFlow`.
+Never use the old path for current work. It is quarantined. Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs, but operators should use their actual repo root.
 
 ## Command Prefix
 

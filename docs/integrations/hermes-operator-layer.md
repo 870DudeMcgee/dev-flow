@@ -46,6 +46,8 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --prof
 
 Hermes defaults to read-only. It may inspect, summarize, recommend next safe actions, prepare Codex prompts, notify a human operator, run scheduled read-only briefs, and capture approved ideas through Dev-Flow commands.
 
+The Mac mini local-model setup and Telegram rollout sequence lives in [hermes-telegram-mac-mini-rollout.md](hermes-telegram-mac-mini-rollout.md). Use that document as the active setup goal before enabling Telegram-triggered read-only auto-runs.
+
 Telegram is a lightweight command surface, not a second brain. Hermes may receive Telegram text and ask Dev-Flow to classify it with `devflow supervisor route-message`. Dev-Flow owns the routing policy and exposes the Telegram default as local `gemma4:latest` through `devflow supervisor policy --json`. Dev-Flow returns the route, selected local model when applicable, action, reason, safety metadata, and a tiny footer. Hermes should append or preserve that footer in responses so real use can tune the policy:
 
 ```text
@@ -123,7 +125,7 @@ Hermes cron jobs are allowed only as read-only status/reporting loops unless Jos
 - Read-only commands: `git status`, `worktree list`, `branch list`
 - Output: main cleanliness, Dev-Flow worktrees, Dev-Flow branches
 - Alert-worthy: dirty main checkout, orphaned worktree candidates, diverged main
-- Must not: run `sync-main`, `push-main`, `worktree prune --apply`, or `branch archive` without explicit approval
+- Must not: run `git checkpoint --message "<message>" --yes`, `sync-main`, `push-main`, `worktree prune --apply`, or `branch archive` without explicit approval
 
 ### Knowledge/Idea Review Queue
 
@@ -145,10 +147,10 @@ Hermes profiles that can read personal messages or mobile gateways must not inhe
 
 ## Path Authority
 
-Josh's current canonical local checkout is:
+Portable checkout authority:
 
 ```text
-/Users/jewelbait/Desktop/Local AI Dev Team
+<repo-root>
 ```
 
 The old local checkout path is quarantined and must not be used for current work:
@@ -157,7 +159,7 @@ The old local checkout path is quarantined and must not be used for current work
 /Users/jewelbait/Desktop/DevFlow
 ```
 
-Do not hardcode `DevFlow` as a universal checkout folder. Other operators should use their actual repo root or `<repo-root>`. Do not restore legacy/quarantined material into active authority.
+Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs, but operators should use their actual repo root. Do not restore legacy/quarantined material into active authority.
 
 ## Non-Goals
 

@@ -28,7 +28,7 @@ APPROVAL_REQUIRED_TASK_STATE = "approval_required_task_state"
 APPROVAL_REQUIRED_WORKER_RUNTIME = "approval_required_worker_runtime"
 APPROVAL_REQUIRED_GIT = "approval_required_git"
 FORBIDDEN_FOR_SUPERVISOR = "forbidden_for_supervisor"
-JOSH_CANONICAL_CHECKOUT = "/Users/jewelbait/Desktop/Local AI Dev Team"
+JOSH_CANONICAL_CHECKOUT = "<repo-root>"
 PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
 
 PURE_READ_ONLY_COMMANDS = [
@@ -135,7 +135,7 @@ APPROVAL_REQUIRED_GIT_COMMANDS = [
 ]
 
 FORBIDDEN_SUPERVISOR_ACTIONS = [
-    "using /Users/jewelbait/Desktop/DevFlow for current work",
+    "using quarantined or stale hardcoded checkout paths for current work",
     "direct source edits outside a Dev-Flow task workspace/worktree",
     "direct source edits by Hermes",
     "direct edits to .devflow state files",
@@ -257,7 +257,7 @@ def build_supervisor_policy() -> dict[str, Any]:
         "path_authority": {
             "josh_canonical_checkout": JOSH_CANONICAL_CHECKOUT,
             "prohibited_checkout_paths": PROHIBITED_CHECKOUT_PATHS,
-            "portable_guidance": "Use the actual repo root in context; do not assume every checkout is named DevFlow.",
+            "portable_guidance": "Use the actual repo root in context. In this checkout, docs and examples refer to the local folder as DevFlow; do not hardcode Mac Studio paths into portable Hermes policy.",
         },
     }
 
@@ -317,7 +317,11 @@ def _classify_supervisor_command(command: str) -> str:
             return APPROVAL_REQUIRED_GIT
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "agent":
-        return PURE_READ_ONLY if subcommand in {"show", "packet"} else FORBIDDEN_FOR_SUPERVISOR
+        if subcommand in {"list", "show", "policy", "packet"}:
+            return PURE_READ_ONLY
+        if subcommand == "run":
+            return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
+        return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "worker":
         return APPROVAL_REQUIRED_EVIDENCE_WRITING if subcommand == "validate-outcome" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "knowledge":

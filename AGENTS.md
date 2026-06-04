@@ -4,7 +4,7 @@ All agent operations in this repository are governed by the canonical [docs/devm
 
 DevMode guides behavior only inside the host tool’s allowed instruction hierarchy and does not outrank higher-level platform, system, developer, safety, or explicit user instructions.
 
-Local checkout note: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; use the actual local path in context or a neutral placeholder such as `<repo-root>`.
+Local checkout note: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work.
 
 ---
 

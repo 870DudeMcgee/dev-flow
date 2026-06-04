@@ -261,7 +261,8 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert payload["telegram_routing"]["default_model"] == "gemma4:latest"
     assert payload["telegram_routing"]["footer_required"] is True
     assert payload["telegram_routing"]["routes"]["implementation"]["model"] is None
-    assert payload["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
+    assert payload["path_authority"]["josh_canonical_checkout"] == "<repo-root>"
+    assert "actual repo root" in payload["path_authority"]["portable_guidance"]
     assert "/Users/jewelbait/Desktop/DevFlow" in payload["path_authority"]["prohibited_checkout_paths"]
 
 
@@ -412,7 +413,7 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     assert packet["policy_summary"]["hermes_role"] == "external operator/chat/scheduling layer"
     assert "devflow hermes imessage-check --json" in packet["suggested_read_only_commands"]
     assert "devflow task verify" in packet["suggested_approval_required_commands"]
-    assert packet["path_authority"]["josh_canonical_checkout"] == "/Users/jewelbait/Desktop/Local AI Dev Team"
+    assert packet["path_authority"]["josh_canonical_checkout"] == "<repo-root>"
     assert packet["next_safe_action"]
     assert "next_recommended_safe_actions" not in packet
     assert packet["next_recommended_actions"]
@@ -544,12 +545,14 @@ def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:
         root / "docs" / "integrations" / "hermes-command-allowlist.md",
         root / "docs" / "integrations" / "hermes-imessage-exploration.md",
         root / "docs" / "integrations" / "hermes-local-parallelism.md",
+        root / "docs" / "integrations" / "hermes-telegram-mac-mini-rollout.md",
         root / "skills" / "hermes" / "devflow" / "SKILL.md",
     ]
     for path in docs:
         body = path.read_text(encoding="utf-8")
-        assert "/Users/jewelbait/Desktop/Local AI Dev Team" in body
+        assert "/Users/jewelbait/Desktop/Local AI Dev Team" not in body
         assert "/Users/jewelbait/Desktop/DevFlow" in body
+        assert "<repo-root>" in body or "actual local path" in body
         assert "quarantined" in body or "Prohibited old checkout" in body or "Forbidden" in body
 
 

@@ -164,6 +164,61 @@ def test_push_main_refuses_non_main_and_origin_ahead() -> None:
             os.chdir(old_cwd)
 
 
+def test_git_checkpoint_previews_then_commits_dirty_tree() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _init_repo(root)
+        base_head = _git(root, "rev-parse", "HEAD")
+        (root / "checkpoint.txt").write_text("checkpoint\n", encoding="utf-8")
+
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(root)
+            preview = runner.invoke(app, ["git", "checkpoint", "--message", "chore: checkpoint local work"])
+            assert preview.exit_code == 0, preview.output
+            assert "preview_only: yes" in preview.output
+            assert "checkpoint.txt" in preview.output
+            assert _git(root, "rev-parse", "HEAD") == base_head
+            assert "?? checkpoint.txt" in _git(root, "status", "--short")
+
+            committed = runner.invoke(
+                app,
+                ["git", "checkpoint", "--message", "chore: checkpoint local work", "--yes"],
+            )
+            assert committed.exit_code == 0, committed.output
+            assert "checkpoint: committed" in committed.output
+            assert "clean: yes" in committed.output
+            assert _git(root, "status", "--short") == ""
+            assert _git(root, "log", "-1", "--pretty=%s") == "chore: checkpoint local work"
+            assert _git(root, "rev-parse", "HEAD") != base_head
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_git_checkpoint_refuses_conflicted_or_empty_tree() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _init_repo(root)
+
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(root)
+            empty = runner.invoke(app, ["git", "checkpoint", "--message", "chore: empty", "--yes"])
+            assert empty.exit_code == 1, empty.output
+            assert "No changes to checkpoint" in empty.output
+
+            merge_head = Path(_git(root, "rev-parse", "--git-path", "MERGE_HEAD"))
+            if not merge_head.is_absolute():
+                merge_head = root / merge_head
+            merge_head.write_text(_git(root, "rev-parse", "HEAD") + "\n", encoding="utf-8")
+
+            operation = runner.invoke(app, ["git", "checkpoint", "--message", "chore: blocked", "--yes"])
+            assert operation.exit_code == 1, operation.output
+            assert "Git merge is in progress" in operation.output
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_promote_preview_detects_origin_main_stale_task_base() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:

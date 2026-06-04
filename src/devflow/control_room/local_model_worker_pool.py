@@ -167,6 +167,7 @@ def run_local_model_profile(
     packet_text, packet_was_truncated = _build_packet_text(root, task_id, profile, max_packet_chars)
     run_id = _new_run_id(profile.id)
     started_at = utc_now().isoformat()
+    task = get_task(root, task_id)
 
     client = LocalModelClient(
         base_url=_local_model_base_url(selected_base_url),
@@ -175,7 +176,7 @@ def run_local_model_profile(
         temperature=temperature,
     )
     system_prompt = _system_prompt(profile)
-    user_prompt = _user_prompt(packet_text, profile)
+    user_prompt = _user_prompt(packet_text, profile, task_id=task.id, task_title=task.title, task_status=task.status)
 
     try:
         result = client.chat_completion(system_prompt=system_prompt, user_prompt=user_prompt)
@@ -185,11 +186,16 @@ def run_local_model_profile(
             raise LocalModelWorkerPoolError("Local model returned an empty assistant response.")
         status = "success"
         error_message = None
+        quality_score, quality_notes = _response_quality(profile, task_id=task.id, response_text=response_text)
+        if quality_score is not None and quality_score < 0.75:
+            status = "low_quality"
     except (LocalModelClientError, LocalModelWorkerPoolError, ValueError) as exc:
         raw_output = getattr(exc, "response_body", None) or str(exc)
         response_text = ""
         status = "failed"
         error_message = str(exc)
+        quality_score = None
+        quality_notes = None
 
     evidence = write_worker_evidence(
         root=root,
@@ -216,6 +222,8 @@ def run_local_model_profile(
         started_at=started_at,
         base_url=client.base_url,
         error_message=error_message,
+        quality_notes=quality_notes,
+        quality_score=quality_score,
         max_raw_output_chars=max_raw_output_chars,
     )
 
@@ -251,6 +259,10 @@ def run_local_model_profile(
         "will_apply_patch": False,
         "will_commit_merge_push_or_promote": False,
     }
+    if quality_score is not None:
+        payload["quality_score"] = quality_score
+    if quality_notes:
+        payload["quality_notes"] = quality_notes
     if error_message:
         payload["error_message"] = error_message
     return payload
@@ -300,6 +312,8 @@ def _system_prompt(profile: AgentDefinition) -> str:
         "You are a replaceable local model worker inside Dev-Flow.\n"
         "Dev-Flow owns task state, evidence, verification, and promotion.\n"
         "Use only the bounded task packet provided.\n"
+        "Never invent or substitute a task id, title, status, command, file path, or execution result.\n"
+        "If a required detail is absent from the packet, write `unknown` and explain what evidence is missing.\n"
         "Do not claim you edited files, ran verification, applied patches, committed, merged, pushed, or promoted.\n"
         "Do not write or request proposal.patch for this read-only worker-pool profile.\n"
         f"Profile: {profile.id}\n"
@@ -308,18 +322,74 @@ def _system_prompt(profile: AgentDefinition) -> str:
     )
 
 
-def _user_prompt(packet_text: str, profile: AgentDefinition) -> str:
+def _user_prompt(
+    packet_text: str,
+    profile: AgentDefinition,
+    *,
+    task_id: str,
+    task_title: str,
+    task_status: str,
+) -> str:
     return (
+        "# Response Grounding Contract\n\n"
+        f"Your response must begin with this exact task id: {task_id}\n"
+        f"Task title from Dev-Flow: {task_title}\n"
+        f"Task status from Dev-Flow: {task_status}\n"
+        "Do not write `N/A`, `unknown`, `task-0000`, or any other placeholder for Task ID.\n\n"
         "# Bounded Dev-Flow Task Packet\n\n"
         f"```markdown\n{packet_text}\n```\n\n"
         "# Requested Output\n\n"
-        "Return concise structured evidence with these sections:\n"
+        "Return concise structured evidence with these exact sections:\n"
+        "## Task Grounding\n"
+        f"- Task ID: {task_id}\n"
+        f"- Task Title: {task_title}\n"
+        f"- Task Status: {task_status}\n"
+        f"- Worker/Profile: {profile.id}\n"
+        "- Evidence Reviewed:\n"
+        f"If the packet says {task_id}, the response must say {task_id}. Do not use placeholder task ids.\n\n"
         "## Summary\n"
+        "Summarize only what the packet proves. Distinguish pending work from completed work.\n\n"
         "## Findings\n"
+        "List useful observations grounded in packet evidence. Avoid generic local-model readiness boilerplate.\n\n"
         "## Risks Or Questions\n"
-        "## Suggested Next Dev-Flow Action\n\n"
+        "Name missing evidence, contradictions, or reasons the summary may be weak.\n\n"
+        "## Suggested Next Dev-Flow Action\n"
+        "Return one concrete Dev-Flow command or human review action. Do not suggest execution if the packet shows it already ran.\n\n"
         f"Keep the response aligned to profile `{profile.id}` and treat all recommendations as advisory evidence only."
     )
+
+
+def _response_quality(profile: AgentDefinition, *, task_id: str, response_text: str) -> tuple[float | None, str | None]:
+    if profile.id != "local-gemma4-summarizer":
+        return None, None
+
+    text = response_text.strip()
+    lowered = text.lower()
+    score = 1.0
+    notes: list[str] = []
+    required_sections = (
+        "## Task Grounding",
+        "## Summary",
+        "## Findings",
+        "## Risks Or Questions",
+        "## Suggested Next Dev-Flow Action",
+    )
+    for section in required_sections:
+        if section.lower() not in lowered:
+            score -= 0.12
+            notes.append(f"missing required section {section}")
+    if task_id not in text:
+        score -= 0.45
+        notes.append(f"response did not include task id {task_id}")
+    if "task-0000" in lowered or "task id: n/a" in lowered or "**task id:** n/a" in lowered:
+        score -= 0.25
+        notes.append("response used a placeholder task id")
+    if "execute the inference process" in lowered or "pending execution" in lowered:
+        score -= 0.15
+        notes.append("response suggested generic execution instead of summarizing packet evidence")
+
+    score = max(0.0, round(score, 2))
+    return score, "; ".join(notes) if notes else "passed grounded summarizer checks"
 
 
 def _assistant_text(response: dict[str, Any]) -> str:

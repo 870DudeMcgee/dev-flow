@@ -115,6 +115,54 @@ class TestClassifyEvidenceWriting:
 
 
 # ---------------------------------------------------------------------------
+# Agent inventory and local-model dry-run routing
+# ---------------------------------------------------------------------------
+
+class TestClassifyAgentCommands:
+    """Hermes needs read-only agent inventory and dry-run previews before approved model runs."""
+
+    def test_agent_inventory_commands_are_read_only(self):
+        for command in (
+            "devflow agent list --json",
+            "devflow agent show local-gemma4-summarizer --json",
+            "devflow agent policy --json",
+            "devflow agent packet task-0001 devflow-manual-codex-worker",
+        ):
+            result = runner.invoke(app, ["supervisor", "classify", command, "--json"])
+            payload = _json_output(result)
+            assert payload["safety_class"] == PURE_READ_ONLY
+            assert payload["requires_human_approval"] is False
+            assert payload["supervisor_may_auto_run"] is True
+
+    def test_agent_dry_run_is_read_only_but_real_run_requires_approval(self):
+        dry_run = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent run --task task-0001 --profile local-gemma4-summarizer --dry-run --json",
+                "--json",
+            ],
+        )
+        dry_payload = _json_output(dry_run)
+        assert dry_payload["safety_class"] == PURE_READ_ONLY
+        assert dry_payload["supervisor_may_auto_run"] is True
+
+        real_run = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent run --task task-0001 --profile local-gemma4-summarizer --json",
+                "--json",
+            ],
+        )
+        real_payload = _json_output(real_run)
+        assert real_payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+        assert real_payload["requires_human_approval"] is True
+
+
+# ---------------------------------------------------------------------------
 # Approval-required: task state mutation
 # ---------------------------------------------------------------------------
 
@@ -275,7 +323,7 @@ class TestClassifyForbidden:
     def test_agent_run(self):
         result = runner.invoke(app, ["supervisor", "classify", "devflow agent run --task task-0001", "--json"])
         payload = _json_output(result)
-        assert payload["safety_class"] == FORBIDDEN_FOR_SUPERVISOR
+        assert payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
         assert payload["requires_human_approval"] is True
         assert payload["supervisor_may_auto_run"] is False
 

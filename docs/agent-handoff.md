@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-Local checkout: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; future handoffs and command examples should use the actual path in context or a neutral placeholder such as `<repo-root>`.
+Local checkout: Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; future handoffs and command examples should use the actual path in context or a neutral placeholder such as `<repo-root>`.
 
 ## Current Direction
 
@@ -24,7 +24,7 @@ Active source of truth:
 - [docs/architecture/multi-project-registry.md](architecture/multi-project-registry.md) defines the first-class multi-project registry and local-first project Git/GitHub policy.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter runtime direction.
 - [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the future task-fit, context-estimation, model-capability, context-pack, scout, and routing-quality design.
-- [docs/integrations/hermes-operator-layer.md](integrations/hermes-operator-layer.md), [docs/integrations/hermes-command-allowlist.md](integrations/hermes-command-allowlist.md), [docs/integrations/hermes-imessage-exploration.md](integrations/hermes-imessage-exploration.md), and [docs/integrations/hermes-local-parallelism.md](integrations/hermes-local-parallelism.md) define Hermes as an external operator layer over supervisor-safe commands, including iMessage exploration, scheduled briefs, and bounded local parallelism.
+- [docs/integrations/hermes-operator-layer.md](integrations/hermes-operator-layer.md), [docs/integrations/hermes-command-allowlist.md](integrations/hermes-command-allowlist.md), [docs/integrations/hermes-imessage-exploration.md](integrations/hermes-imessage-exploration.md), [docs/integrations/hermes-local-parallelism.md](integrations/hermes-local-parallelism.md), and [docs/integrations/hermes-telegram-mac-mini-rollout.md](integrations/hermes-telegram-mac-mini-rollout.md) define Hermes as an external operator layer over supervisor-safe commands, including iMessage exploration, scheduled briefs, bounded local parallelism, and the Mac mini local-model rollout.
 
 
 Archive note: legacy software-factory archives are quarantined outside the active repository tree. Do not recreate or consult in-repo archive copies as process authority.

@@ -54,6 +54,8 @@ devflow --help
 devflow init
 devflow doctor
 devflow git status
+devflow git checkpoint --message "chore: checkpoint verified work"
+devflow git checkpoint --message "chore: checkpoint verified work" --yes
 devflow sync-main
 devflow reconcile
 devflow dashboard
@@ -177,7 +179,7 @@ Do not implement these in the first milestone:
 - browser or web dashboard UI
 - token-context routing helpers beyond the current read-only planning helper
 - task-fit/context routing runtime
-- automatic commit, push, merge, or pull request creation
+- hidden or autonomous commit, push, merge, or pull request creation
 
 ## Runtime Structure
 

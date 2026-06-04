@@ -16,6 +16,7 @@ Dev-Flow commands must not depend on agents remembering those skills. Runtime co
 Dev-Flow enforcement surfaces:
 
 - `devflow git status` reports branch, dirty state, operations in progress, origin/main relationship, push/promotion safety, and DevMode skill presence.
+- `devflow git checkpoint --message "<message>"` previews a local checkpoint commit; `--yes` stages all unignored changes and commits only when `main` is safe, origin is not ahead/diverged, and no Git operation or conflict is present. It does not push, promote, merge, or open a PR.
 - `devflow task orchestrate <task-id> --plan-only` records Git/DevMode baseline assumptions and stop conditions as planning evidence only; it does not execute workers or promote.
 - `devflow sync-main` fetches origin, switches to `main`, and fast-forwards only. It does not merge or rebase.
 - `devflow push-main` pushes `main` only when the worktree is clean, no Git operation is in progress, and `origin/main` is not ahead or diverged.

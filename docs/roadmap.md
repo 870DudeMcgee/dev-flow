@@ -4,7 +4,7 @@
 
 Dev-Flow is a local-first control room for parallel AI coding workers.
 
-Local checkout: Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Documentation and handoffs should not assume every user's checkout folder is named `DevFlow`.
+Local checkout: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work.
 
 The rebuild starts from a smaller foundation than the previous software-factory design:
 

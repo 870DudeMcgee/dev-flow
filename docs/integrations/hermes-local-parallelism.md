@@ -2,7 +2,7 @@
 
 Hermes may help coordinate local-worker parallelism around Dev-Flow. Hermes must not become the runtime, source of truth, or autonomous swarm controller.
 
-Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Do not assume every checkout is named `DevFlow`.
+Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Do not assume every checkout is named `DevFlow`.
 
 Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
 

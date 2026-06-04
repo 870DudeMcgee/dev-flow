@@ -138,6 +138,19 @@ def test_embedded_safe_command_may_auto_run(tmp_path: Path) -> None:
     assert decision["command_classification"]["supervisor_may_auto_run"] is True
 
 
+def test_embedded_agent_dry_run_command_may_auto_run(tmp_path: Path) -> None:
+    decision = route_telegram_message(
+        tmp_path,
+        "run devflow agent run --task task-0001 --profile local-gemma4-summarizer --dry-run --json",
+    )
+
+    assert decision["route"] == "devflow_read"
+    assert decision["action"] == "run_safe_command"
+    assert decision["command_classification"]["safety_class"] == PURE_READ_ONLY
+    assert decision["command_classification"]["supervisor_may_auto_run"] is True
+    assert decision["operator_plan"]["next_step"] == "run_recommended_command"
+
+
 def test_high_risk_command_requires_approval_instead_of_running(tmp_path: Path) -> None:
     decision = route_telegram_message(tmp_path, "run devflow task run task-0001 --worker shell -- echo hi")
 

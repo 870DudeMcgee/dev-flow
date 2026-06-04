@@ -6,7 +6,7 @@ Hermes may use this allowlist when acting as a Dev-Flow operator gateway. Prefer
 PYTHONPATH=src .venv/bin/python -m devflow.cli
 ```
 
-Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. The old path `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Other operators should use their actual repo root or `<repo-root>`.
+Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old path `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Other operators should use their actual repo root or `<repo-root>`.
 
 Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
 
@@ -66,6 +66,7 @@ Hermes may recommend these commands only after explicit human approval. They can
 These commands require direct human approval plus current Dev-Flow readiness evidence. Hermes must never run them autonomously.
 
 - `devflow task promote <task-id>`
+- `devflow git checkpoint --message "<message>" --yes`
 - `git commit`
 - `git merge`
 - `git push`

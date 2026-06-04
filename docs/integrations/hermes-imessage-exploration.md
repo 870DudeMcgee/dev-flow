@@ -2,7 +2,7 @@
 
 iMessage is an exploration target for Hermes as a read-only/status gateway into Dev-Flow. It is not a production authority path until Josh has manually reviewed the local dependencies, permissions, privacy boundaries, and approval flow.
 
-Josh's current canonical checkout is `/Users/jewelbait/Desktop/Local AI Dev Team`. `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Do not assume every checkout is named `DevFlow`.
+Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Do not assume every checkout is named `DevFlow`.
 
 Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
 
