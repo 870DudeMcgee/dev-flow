@@ -150,6 +150,14 @@ class TestClassifyTaskState:
         payload = _json_output(result)
         assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
 
+    def test_task_prune_closed_apply(self):
+        result = runner.invoke(
+            app,
+            ["supervisor", "classify", "devflow task prune-closed --apply --older-than 30d", "--json"],
+        )
+        payload = _json_output(result)
+        assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+
     def test_project_create(self):
         result = runner.invoke(
             app,

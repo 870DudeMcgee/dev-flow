@@ -107,6 +107,8 @@ APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow task cleanup",
     "devflow task cleanup --preview",
     "devflow task cleanup --apply",
+    "devflow task prune-closed --preview",
+    "devflow task prune-closed --apply",
     "devflow task apply-patch",
     "devflow knowledge promote",
     "devflow knowledge reject",
@@ -233,6 +235,7 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "merge",
                 "push",
                 "cleanup apply",
+                "closed evidence pruning apply",
                 "worker execution",
                 "verification runs",
                 "broad mutation",
@@ -356,6 +359,8 @@ def _classify_supervisor_command(command: str) -> str:
         return APPROVAL_REQUIRED_EVIDENCE_WRITING if "--save" in tokens else PURE_READ_ONLY
     if subcommand == "cleanup":
         return PURE_READ_ONLY if "--dry-run" in tokens and "--apply" not in tokens else APPROVAL_REQUIRED_TASK_STATE
+    if subcommand == "prune-closed":
+        return APPROVAL_REQUIRED_TASK_STATE
     if subcommand == "promote-preview":
         return PURE_READ_ONLY
     if subcommand in {"review-patch", "patch-dry-run", "normalize-proposal", "orchestrate", "escalation-packet"}:

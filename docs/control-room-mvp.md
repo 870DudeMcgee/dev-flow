@@ -116,6 +116,8 @@ devflow push-main
 devflow task close <task_id> --outcome rejected --reason "superseded by manual repair"
 devflow task cleanup <task_id> --preview
 devflow task cleanup <task_id> --apply
+devflow task prune-closed --preview --older-than 30d
+devflow task prune-closed --apply --older-than 30d
 devflow task orchestrate <task_id> --plan-only
 devflow worker validate-outcome <path-to-outcome-json>
 devflow knowledge capture --from-task <task_id>
@@ -203,6 +205,7 @@ Do not implement these in the first milestone:
       response.md
       raw_output.txt
       error.txt
+  prune-runs/<run-id>.json
   workspaces/<task_id>/
     local-workers/<worker-name>/
       prompt.md
@@ -215,6 +218,8 @@ Do not implement these in the first milestone:
 The filesystem is the source of truth. `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. New task event records include a monotonic `event_index`, `previous_event_hash`, and `event_hash` so `doctor` can detect malformed or edited task event streams. `verification.json` stores the latest verification result. Worker and verification logs are raw evidence. Worker and verification commands run only inside `.devflow/workspaces/<task_id>/`.
 
 Current task-state artifacts use schema version 1. New `task.yaml`, `verification.json`, `merge-readiness.json`, and `summary.json` files record that version; missing task schema versions are treated as version 1 for backward compatibility, while unknown task schema versions are refused.
+
+Closed-task cleanup and pruning are separate retention controls. `devflow task cleanup <task_id> --preview` and `--apply` remove only closed-task runtime artifacts under `.devflow/workspaces/<task_id>` or `.devflow/worktrees/<task_id>/<worker>`, while retaining `.devflow/tasks/<task_id>/` evidence. `devflow task prune-closed --preview --older-than <duration>` reports old closed-task evidence directories eligible for deletion and writes `.devflow/prune-runs/<run-id>.json`; `--apply` deletes only safe, eligible `.devflow/tasks/<task_id>/` evidence after repeating the same checks. It refuses active tasks, missing closure metadata, symlinked/path-traversal evidence paths, and anything outside `.devflow/tasks/`.
 
 Review Capsules are read-only rendered views over that evidence. After worker output, verification, finalization, or promotion preview, Dev-Flow prints a compact capsule with task identity, status, worker/workspace, Git branch and latest commit when available, verification result, promotion readiness, changed files, and inline contents for small changed text files. The flow is:
 
@@ -328,6 +333,7 @@ Implemented:
 - human-controlled promotion of verified changes to the main checkout
 - task closure evidence with explicit outcomes, inactive closed status, and preserved logs/artifacts
 - preview-first cleanup for closed tasks that removes only conservative task-owned `.devflow` runtime artifacts on `--apply`
+- preview-first pruning for old closed-task evidence that deletes only safe `.devflow/tasks/<task_id>/` evidence on explicit `--apply` and records `.devflow/prune-runs/<run-id>.json`
 - `devflow task local` for local Qwen/Qwopus/Gemma advisory evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
 - `devflow task run --worker qwopus-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
 - `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence

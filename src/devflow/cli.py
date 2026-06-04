@@ -40,6 +40,7 @@ from devflow.control_room.task_closure import (
     close_task,
     read_closure,
 )
+from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
 from devflow.control_room.patch_applier import (
     PatchError,
     PatchSelectionError,
@@ -737,6 +738,27 @@ def task_cleanup(
     typer.echo(f"mode: {'apply' if apply else 'preview'}")
     typer.echo(f"task: {task_id}")
     _echo_task_cleanup_result(result)
+
+
+@task_app.command("prune-closed")
+def task_prune_closed(
+    older_than: str = typer.Option(..., "--older-than", help="Prune closed-task evidence older than this duration, such as 30d or 12h."),
+    preview: bool = typer.Option(False, "--preview", help="Preview closed-task evidence pruning without deleting anything."),
+    apply: bool = typer.Option(False, "--apply", help="Apply closed-task evidence pruning."),
+) -> None:
+    """Preview or apply pruning for retained closed-task evidence."""
+    if preview == apply:
+        typer.echo("Choose exactly one of --preview or --apply.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        result = prune_closed_tasks(Path.cwd(), older_than=older_than, apply=apply)
+    except TaskPruneError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"mode: {'apply' if apply else 'preview'}")
+    typer.echo(f"older_than: {older_than}")
+    typer.echo(f"audit: {result['audit_path']}")
+    _echo_task_prune_result(result)
 
 
 @task_app.command("close")
@@ -3024,6 +3046,21 @@ def _echo_task_cleanup_result(result: dict[str, Any]) -> None:
         typer.echo("cleanup_candidates: none")
     for path in result.get("retained") or []:
         typer.echo(f"retained: {path}")
+
+
+def _echo_task_prune_result(result: dict[str, Any]) -> None:
+    would_prune = result.get("would_prune") or []
+    pruned = result.get("pruned") or []
+    for path in would_prune:
+        typer.echo(f"would_prune: {path}")
+    for path in pruned:
+        typer.echo(f"pruned: {path}")
+    if not would_prune and not pruned:
+        typer.echo("prune_candidates: none")
+    for item in result.get("skipped") or []:
+        typer.echo(f"skipped: {item['task_id']} {item['reason']}")
+    for item in result.get("refused") or []:
+        typer.echo(f"refused: {item['task_id']} {item['reason']}")
 
 
 def _echo_list(label: str, values: list[str]) -> None:

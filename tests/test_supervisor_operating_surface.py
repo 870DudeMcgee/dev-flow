@@ -160,6 +160,8 @@ def test_task_state_commands_are_approval_required() -> None:
         "devflow task cleanup task-0001",
         "devflow task cleanup task-0001 --preview",
         "devflow task cleanup task-0001 --apply",
+        "devflow task prune-closed --preview --older-than 30d",
+        "devflow task prune-closed --apply --older-than 30d",
         "devflow task apply-patch task-0001",
     ):
         classification = classify_supervisor_command(command)
@@ -229,6 +231,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
         "devflow task verify",
         "devflow task create",
         "devflow task cleanup --preview",
+        "devflow task prune-closed --preview",
         "devflow knowledge capture",
     ):
         assert command not in payload["allowed_commands"]
@@ -242,6 +245,8 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow project create" in payload["approval_required_task_state"]
     assert "devflow project connect-github" in payload["approval_required_git"]
     assert "devflow task cleanup --preview" in payload["approval_required_task_state"]
+    assert "devflow task prune-closed --preview" in payload["approval_required_task_state"]
+    assert "devflow task prune-closed --apply" in payload["approval_required_task_state"]
     assert "devflow task cleanup --dry-run" in payload["allowed_commands"]
     assert "devflow knowledge capture" in payload["approval_required_evidence_writing"]
     assert "any command not recognized by the supervisor policy" in payload["forbidden_for_supervisor"]

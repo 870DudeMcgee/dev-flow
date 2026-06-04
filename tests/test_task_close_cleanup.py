@@ -267,3 +267,105 @@ def test_cleanup_apply_removes_git_worktree_directory_conservatively() -> None:
         assert not worktree.exists()
 
     _with_temp_cwd(scenario)
+
+
+def test_prune_closed_preview_lists_old_closed_evidence_without_deleting() -> None:
+    def scenario(_: Path) -> None:
+        assert runner.invoke(app, ["task", "create", "old closed evidence"]).exit_code == 0
+        assert runner.invoke(
+            app,
+            ["task", "close", "task-0001", "--outcome", "evidence-only", "--reason", "preview pruning"],
+        ).exit_code == 0
+
+        prune = runner.invoke(app, ["task", "prune-closed", "--preview", "--older-than", "0s"])
+
+        assert prune.exit_code == 0, prune.output
+        assert "mode: preview" in prune.output
+        assert "would_prune: .devflow/tasks/task-0001" in prune.output
+        assert "audit: .devflow/prune-runs/" in prune.output
+        assert Path(".devflow/tasks/task-0001/task.yaml").exists()
+
+    _with_temp_cwd(scenario)
+
+
+def test_prune_closed_apply_deletes_only_eligible_closed_evidence() -> None:
+    def scenario(_: Path) -> None:
+        assert runner.invoke(app, ["task", "create", "closed prune apply"]).exit_code == 0
+        assert runner.invoke(
+            app,
+            ["task", "close", "task-0001", "--outcome", "abandoned", "--reason", "delete old evidence"],
+        ).exit_code == 0
+        assert runner.invoke(app, ["task", "create", "active survives pruning"]).exit_code == 0
+
+        prune = runner.invoke(app, ["task", "prune-closed", "--apply", "--older-than", "0s"])
+
+        assert prune.exit_code == 0, prune.output
+        assert "mode: apply" in prune.output
+        assert "pruned: .devflow/tasks/task-0001" in prune.output
+        assert "refused: task-0002 active task" in prune.output
+        assert not Path(".devflow/tasks/task-0001").exists()
+        assert Path(".devflow/tasks/task-0002/task.yaml").exists()
+        audit_files = list(Path(".devflow/prune-runs").glob("*.json"))
+        assert len(audit_files) == 1
+        audit = json.loads(audit_files[0].read_text(encoding="utf-8"))
+        assert audit["applied"] is True
+        assert audit["pruned"] == [".devflow/tasks/task-0001"]
+
+    _with_temp_cwd(scenario)
+
+
+def test_prune_closed_skips_recently_closed_tasks() -> None:
+    def scenario(_: Path) -> None:
+        assert runner.invoke(app, ["task", "create", "recent closed evidence"]).exit_code == 0
+        assert runner.invoke(
+            app,
+            ["task", "close", "task-0001", "--outcome", "evidence-only", "--reason", "too recent"],
+        ).exit_code == 0
+
+        prune = runner.invoke(app, ["task", "prune-closed", "--apply", "--older-than", "3650d"])
+
+        assert prune.exit_code == 0, prune.output
+        assert "skipped: task-0001 recently closed" in prune.output
+        assert "pruned:" not in prune.output
+        assert Path(".devflow/tasks/task-0001/task.yaml").exists()
+
+    _with_temp_cwd(scenario)
+
+
+def test_prune_closed_refuses_missing_closure_metadata() -> None:
+    def scenario(_: Path) -> None:
+        assert runner.invoke(app, ["task", "create", "missing closure"]).exit_code == 0
+        assert runner.invoke(
+            app,
+            ["task", "close", "task-0001", "--outcome", "evidence-only", "--reason", "metadata test"],
+        ).exit_code == 0
+        Path(".devflow/tasks/task-0001/closure.json").unlink()
+
+        prune = runner.invoke(app, ["task", "prune-closed", "--apply", "--older-than", "0s"])
+
+        assert prune.exit_code == 0, prune.output
+        assert "refused: task-0001 missing closure metadata" in prune.output
+        assert Path(".devflow/tasks/task-0001/task.yaml").exists()
+
+    _with_temp_cwd(scenario)
+
+
+def test_prune_closed_refuses_unsafe_task_evidence_paths() -> None:
+    def scenario(tmp: Path) -> None:
+        assert runner.invoke(app, ["task", "create", "unsafe prune path"]).exit_code == 0
+        assert runner.invoke(
+            app,
+            ["task", "close", "task-0001", "--outcome", "evidence-only", "--reason", "unsafe path test"],
+        ).exit_code == 0
+        unsafe_target = tmp / "outside-task-evidence"
+        Path(".devflow/tasks/task-0001").rename(unsafe_target)
+        Path(".devflow/tasks/task-0001").symlink_to(unsafe_target, target_is_directory=True)
+
+        prune = runner.invoke(app, ["task", "prune-closed", "--apply", "--older-than", "0s"])
+
+        assert prune.exit_code == 0, prune.output
+        assert "refused: task-0001 unsafe task evidence path" in prune.output
+        assert (unsafe_target / "task.yaml").exists()
+        assert Path(".devflow/tasks/task-0001").is_symlink()
+
+    _with_temp_cwd(scenario)

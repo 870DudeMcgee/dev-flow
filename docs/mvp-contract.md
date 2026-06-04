@@ -83,6 +83,8 @@ devflow task close <task-id> --outcome rejected --reason "superseded by manual r
 devflow task cleanup <task-id> --preview
 devflow task cleanup <task-id> --apply
 devflow task cleanup <task-id> --dry-run
+devflow task prune-closed --preview --older-than 30d
+devflow task prune-closed --apply --older-than 30d
 devflow worktree list
 devflow worktree prune --dry-run
 devflow branch list
@@ -157,6 +159,8 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 
 `devflow task close` marks a task inactive without deleting evidence. It requires an explicit outcome and reason, writes `.devflow/tasks/<task-id>/closure.json`, appends a close event, and preserves logs, proposal patches, verification, finalization, and promotion artifacts. `devflow task show` and `devflow task list` surface closed tasks with their outcome. `devflow task cleanup <task-id> --preview` refuses active tasks, reports conservative task-owned runtime cleanup candidates, and deletes nothing. `--apply` reruns the same safety analysis, removes only safe `.devflow/workspaces/<task-id>` or `.devflow/worktrees/<task-id>/<worker>` runtime targets, writes `cleanup.json`, and appends cleanup evidence. The older `--dry-run` spelling remains a compatibility preview for existing Git-native cleanup reporting.
 
+`devflow task prune-closed --preview --older-than <duration>` is the separate evidence-retention path. It scans task records, reports closed-task evidence directories under `.devflow/tasks/` that are older than the requested duration, and writes an audit record under `.devflow/prune-runs/<run-id>.json` without deleting anything. `--apply` repeats the same safety checks and deletes only eligible closed-task evidence directories under `.devflow/tasks/<task-id>/`. It refuses active tasks, closed tasks without valid `closure.json` metadata, symlinked or path-traversal task evidence paths, and anything whose resolved path is outside `.devflow/tasks/`. Cleanup removes runtime artifacts; prune-closed removes retained closed-task evidence only after explicit approval.
+
 `devflow agent show devflow-manual-codex-worker` displays the stable proof-agent contract:
 
 - Agent ID: `devflow-manual-codex-worker`
@@ -188,6 +192,7 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/patches/<patch-hash>.json
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/handoff.md
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/result.md
+.devflow/prune-runs/<run-id>.json
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/questions.jsonl
 .devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/worker_failed.json
 .devflow/tasks/<task-id>/agents/qwopus-implementer/packet.json
