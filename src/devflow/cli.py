@@ -114,6 +114,7 @@ dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness 
 supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
 hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 project_app = typer.Typer(help="Create and manage registered projects")
+map_app = typer.Typer(help="Project Code Map orientation layer (Milestone 11)")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -126,6 +127,7 @@ app.add_typer(dogfood_app, name="dogfood")
 app.add_typer(supervisor_app, name="supervisor")
 app.add_typer(hermes_app, name="hermes")
 app.add_typer(project_app, name="project")
+app.add_typer(map_app, name="map")
 
 
 @goal_app.command("init")
@@ -3786,6 +3788,23 @@ def qwopus_main() -> None:
             show_paths=args.show_paths,
             include_project=args.project,
         )
+
+
+@map_app.command("init")
+def map_init_command(
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing CODE_MAP.md."),
+) -> None:
+    """Scaffold a blank CODE_MAP.md project orientation file at the repo root."""
+    from devflow.control_room.code_map import CodeMapError, map_init
+
+    try:
+        target = map_init(Path.cwd(), force=force)
+    except CodeMapError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Created {target.name}")
+    typer.echo(f"path: {target}")
+    typer.echo("Edit CODE_MAP.md to describe your repo layout, entry points, and what workers should read first.")
 
 
 if __name__ == "__main__":
