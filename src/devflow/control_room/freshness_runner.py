@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 from typing import Literal
@@ -14,6 +16,7 @@ from devflow.control_room.parallel_verification import ParallelVerificationRun, 
 from devflow.control_room.parallel_worker import ParallelWorkerRun, run_parallel_worker_batch
 from devflow.control_room.paths import devflow_dir, relative_path
 from devflow.control_room.persistence import atomic_write_text
+from devflow.control_room.project_registry import devflow_home
 
 
 BoundedFreshnessRunStatus = Literal[
@@ -49,6 +52,28 @@ class BoundedFreshnessRun(BaseModel):
     started_at: str
     finished_at: str
     iterations: list[BoundedFreshnessIteration] = Field(default_factory=list)
+    report_path: str | None = None
+    next_action: str
+
+
+class BoundedMultiProjectFreshnessIteration(BaseModel):
+    iteration: int
+    status: str
+    state_hash: str
+    projects_checked: int
+    checkpoint_opportunity_count: int
+    push_opportunity_count: int
+    next_action: str
+
+
+class BoundedMultiProjectFreshnessRun(BaseModel):
+    schema_version: int = 1
+    run_id: str
+    status: BoundedFreshnessRunStatus
+    max_iterations: int
+    started_at: str
+    finished_at: str
+    iterations: list[BoundedMultiProjectFreshnessIteration] = Field(default_factory=list)
     report_path: str | None = None
     next_action: str
 
@@ -168,6 +193,59 @@ def run_bounded_freshness_control(
     return _write_report(root, run) if write_report else run
 
 
+def run_bounded_multi_project_freshness_control(
+    *,
+    max_iterations: int = 3,
+    write_report: bool = True,
+) -> BoundedMultiProjectFreshnessRun:
+    """Run bounded read-mostly freshness iterations across registered projects."""
+    from devflow.control_room.multi_project_freshness import run_multi_project_freshness_loop
+
+    if max_iterations < 1:
+        raise ValueError("max_iterations must be at least 1.")
+
+    started_at = _now()
+    previous_hash: str | None = None
+    iterations: list[BoundedMultiProjectFreshnessIteration] = []
+    status: BoundedFreshnessRunStatus = "max_iterations_reached"
+    next_action = "Re-run the bounded multi-project control loop or inspect the latest aggregate snapshot."
+
+    for index in range(1, max_iterations + 1):
+        report = run_multi_project_freshness_loop(write_snapshot=True)
+        state_hash = _multi_project_state_hash(report)
+        iteration = BoundedMultiProjectFreshnessIteration(
+            iteration=index,
+            status=report.status,
+            state_hash=state_hash,
+            projects_checked=report.projects_checked,
+            checkpoint_opportunity_count=report.checkpoint_opportunity_count,
+            push_opportunity_count=report.push_opportunity_count,
+            next_action=report.next_action,
+        )
+        iterations.append(iteration)
+
+        if report.status == "needs_human_decision":
+            status = "needs_human_decision"
+            next_action = report.next_action
+            break
+        if previous_hash == state_hash:
+            status = "stable"
+            next_action = report.next_action
+            break
+        previous_hash = state_hash
+
+    run = BoundedMultiProjectFreshnessRun(
+        run_id=_run_id(started_at),
+        status=status,
+        max_iterations=max_iterations,
+        started_at=started_at,
+        finished_at=_now(),
+        iterations=iterations,
+        next_action=next_action,
+    )
+    return _write_multi_project_report(run) if write_report else run
+
+
 def render_bounded_freshness_run(run: BoundedFreshnessRun) -> str:
     lines = [
         "Bounded Freshness Control Run",
@@ -206,6 +284,26 @@ def render_bounded_freshness_run(run: BoundedFreshnessRun) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_bounded_multi_project_freshness_run(run: BoundedMultiProjectFreshnessRun) -> str:
+    lines = [
+        "Bounded Multi-Project Freshness Control Run",
+        "",
+        f"Status: {run.status}",
+        f"Iterations: {len(run.iterations)}/{run.max_iterations}",
+    ]
+    if run.report_path:
+        lines.append(f"Report: {run.report_path}")
+    lines.extend(["", "Iterations"])
+    for iteration in run.iterations:
+        lines.append(
+            f"  - {iteration.iteration}: {iteration.status}, projects={iteration.projects_checked}, "
+            f"checkpoints={iteration.checkpoint_opportunity_count}, pushes={iteration.push_opportunity_count}, "
+            f"hash={iteration.state_hash}"
+        )
+    lines.extend(["", "Next Action", f"  {run.next_action}"])
+    return "\n".join(lines) + "\n"
+
+
 def _first_verification_batch(report: FreshnessReport):
     for goal in report.goal_loop:
         if goal.verification_batches:
@@ -237,6 +335,20 @@ def _write_report(root: Path, run: BoundedFreshnessRun) -> BoundedFreshnessRun:
     updated = run.model_copy(update={"report_path": relative_path(root, report_path)})
     atomic_write_text(report_path, updated.model_dump_json(indent=2) + "\n")
     return updated
+
+
+def _write_multi_project_report(run: BoundedMultiProjectFreshnessRun) -> BoundedMultiProjectFreshnessRun:
+    report_path = devflow_home() / "freshness" / "control-runs" / f"{run.run_id}.json"
+    updated = run.model_copy(update={"report_path": report_path.as_posix()})
+    atomic_write_text(report_path, updated.model_dump_json(indent=2) + "\n")
+    return updated
+
+
+def _multi_project_state_hash(report) -> str:
+    payload = report.model_dump()
+    payload.pop("generated_at", None)
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def only_loop_artifact_changes(root: Path) -> bool:

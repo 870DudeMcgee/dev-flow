@@ -92,6 +92,48 @@ def test_freshness_run_executes_verification_when_explicitly_allowed_then_report
     assert (tmp_path / task.workspace / "verified.txt").is_file()
 
 
+def test_freshness_run_all_projects_repeats_registered_project_scans(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home" / ".devflow"
+    monkeypatch.setenv("DEVFLOW_HOME", home.as_posix())
+    projects_root = tmp_path / "projects"
+    runner = CliRunner()
+
+    alpha = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
+    beta = runner.invoke(app, ["project", "create", "Beta App", "--projects-root", projects_root.as_posix()])
+    assert alpha.exit_code == 0, alpha.output
+    assert beta.exit_code == 0, beta.output
+
+    alpha_root = projects_root / "alpha-app"
+    brief_path = alpha_root / "goal.md"
+    brief_path.write_text("## Goal Brief\nCoordinate project scans.", encoding="utf-8")
+    monkeypatch.chdir(alpha_root)
+    assert runner.invoke(app, ["goal", "init", "--from", "goal.md"]).exit_code == 0
+
+    result = runner.invoke(app, ["freshness", "run", "--all-projects", "--max-iterations", "3", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "stable"
+    assert payload["iterations"][-1]["projects_checked"] == 2
+    assert len(payload["iterations"]) >= 2
+    assert Path(payload["report_path"]).is_file()
+    assert (home / "freshness" / "latest-all-projects.json").is_file()
+
+
+def test_freshness_run_all_projects_rejects_dispatch_flags(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home" / ".devflow"
+    monkeypatch.setenv("DEVFLOW_HOME", home.as_posix())
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["freshness", "run", "--all-projects", "--create-tasks"])
+
+    assert result.exit_code == 1
+    assert "read-mostly bounded runs only" in result.output
+
+
 def _project_goal(root: Path, lanes: list[tuple[str, str, str]]) -> None:
     brief_path = root / "goal.md"
     brief_path.write_text("## Goal Brief\nRun bounded control loop.", encoding="utf-8")

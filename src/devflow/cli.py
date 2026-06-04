@@ -261,6 +261,7 @@ def freshness_create_batch(
 @freshness_app.command("run")
 def freshness_run(
     max_iterations: int = typer.Option(3, "--max-iterations", min=1, help="Maximum bounded loop iterations."),
+    all_projects: bool = typer.Option(False, "--all-projects", help="Run bounded read-mostly loop iterations across registered projects."),
     create_tasks: bool = typer.Option(
         False,
         "--create-tasks",
@@ -281,7 +282,25 @@ def freshness_run(
     json_output: bool = typer.Option(False, "--json", help="Print the control run report as JSON."),
 ) -> None:
     """Run bounded PLC-style freshness iterations."""
-    from devflow.control_room.freshness_runner import render_bounded_freshness_run, run_bounded_freshness_control
+    from devflow.control_room.freshness_runner import (
+        render_bounded_freshness_run,
+        render_bounded_multi_project_freshness_run,
+        run_bounded_freshness_control,
+        run_bounded_multi_project_freshness_control,
+    )
+
+    if all_projects:
+        if create_tasks or execute_workers or execute_verification:
+            typer.echo("Error: --all-projects currently supports read-mostly bounded runs only.", err=True)
+            raise typer.Exit(code=1)
+        run = run_bounded_multi_project_freshness_control(max_iterations=max_iterations)
+        if json_output:
+            typer.echo(json.dumps(run.model_dump(), indent=2, sort_keys=True))
+        else:
+            typer.echo(render_bounded_multi_project_freshness_run(run), nl=False)
+        if run.status == "needs_human_decision":
+            raise typer.Exit(code=2)
+        return
 
     run = run_bounded_freshness_control(
         Path.cwd(),
