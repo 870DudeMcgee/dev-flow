@@ -142,6 +142,8 @@ def render_freshness_report(report: FreshnessReport) -> str:
             lines.append(
                 f"  - {goal.goal_id}: {goal.loop_state} "
                 f"(ready_parallel={goal.ready_parallel_lane_count}, batches={goal.ready_parallel_batch_count}, "
+                f"worker_batches={goal.ready_worker_batch_count}, "
+                f"worker_commands={goal.worker_command_count}, "
                 f"verify_batches={goal.ready_verification_batch_count}, "
                 f"verify_commands={goal.verification_command_count}, "
                 f"conflicts={goal.conflicting_ready_lane_count}, active={goal.active_task_count}, "
@@ -227,6 +229,8 @@ def _append_freshness_event(root: Path, report: FreshnessReport) -> None:
                 "loop_state": goal.loop_state,
                 "active_task_count": goal.active_task_count,
                 "ready_parallel_lane_count": goal.ready_parallel_lane_count,
+                "ready_worker_batch_count": goal.ready_worker_batch_count,
+                "worker_command_count": goal.worker_command_count,
                 "ready_verification_batch_count": goal.ready_verification_batch_count,
                 "verification_command_count": goal.verification_command_count,
                 "completed_slice_count": goal.completed_slice_count,

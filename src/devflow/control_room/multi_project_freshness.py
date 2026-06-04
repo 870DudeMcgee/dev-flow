@@ -21,6 +21,8 @@ class ProjectGoalLoopSummary(BaseModel):
     active_task_count: int
     completed_slice_count: int
     ready_parallel_lane_count: int
+    ready_worker_batch_count: int = 0
+    worker_command_count: int = 0
     ready_verification_batch_count: int = 0
     verification_command_count: int = 0
     next_action: str
@@ -36,6 +38,8 @@ class ProjectFreshnessSummary(BaseModel):
     linked_tasks_checked: int = 0
     active_task_count: int = 0
     ready_parallel_lane_count: int = 0
+    ready_worker_batch_count: int = 0
+    worker_command_count: int = 0
     ready_verification_batch_count: int = 0
     verification_command_count: int = 0
     checkpoint_opportunity: bool = False
@@ -124,15 +128,16 @@ def render_multi_project_freshness_report(report: MultiProjectFreshnessReport) -
         f"Checkpoint opportunities: {report.checkpoint_opportunity_count}",
         f"Push opportunities: {report.push_opportunity_count}",
         "",
-        f"{'Project':<24} {'Status':<22} {'Goals':<5} {'Ready':<5} {'Verify':<6} {'Active':<6} Next",
-        "-" * 96,
+        f"{'Project':<24} {'Status':<22} {'Goals':<5} {'Ready':<5} {'Work':<5} {'Verify':<6} {'Active':<6} Next",
+        "-" * 104,
     ]
     if not report.projects:
         lines.append("No registered projects.")
     for project in report.projects:
         lines.append(
             f"{project.project_id:<24} {project.status:<22} {project.goals_checked:<5} "
-            f"{project.ready_parallel_lane_count:<5} {project.ready_verification_batch_count:<6} "
+            f"{project.ready_parallel_lane_count:<5} {project.ready_worker_batch_count:<5} "
+            f"{project.ready_verification_batch_count:<6} "
             f"{project.active_task_count:<6} {project.next_action}"
         )
     lines.extend(["", "Next Action", f"  {report.next_action}"])
@@ -142,6 +147,8 @@ def render_multi_project_freshness_report(report: MultiProjectFreshnessReport) -
 def _project_summary(project_id: str, root: Path, report) -> ProjectFreshnessSummary:
     active_task_count = sum(goal.active_task_count for goal in report.goal_loop)
     ready_parallel_lane_count = sum(goal.ready_parallel_lane_count for goal in report.goal_loop)
+    ready_worker_batch_count = sum(goal.ready_worker_batch_count for goal in report.goal_loop)
+    worker_command_count = sum(goal.worker_command_count for goal in report.goal_loop)
     ready_verification_batch_count = sum(goal.ready_verification_batch_count for goal in report.goal_loop)
     verification_command_count = sum(goal.verification_command_count for goal in report.goal_loop)
     goals = [
@@ -151,6 +158,8 @@ def _project_summary(project_id: str, root: Path, report) -> ProjectFreshnessSum
             active_task_count=goal.active_task_count,
             completed_slice_count=goal.completed_slice_count,
             ready_parallel_lane_count=goal.ready_parallel_lane_count,
+            ready_worker_batch_count=goal.ready_worker_batch_count,
+            worker_command_count=goal.worker_command_count,
             ready_verification_batch_count=goal.ready_verification_batch_count,
             verification_command_count=goal.verification_command_count,
             next_action=goal.next_action,
@@ -167,6 +176,8 @@ def _project_summary(project_id: str, root: Path, report) -> ProjectFreshnessSum
         linked_tasks_checked=report.linked_tasks_checked,
         active_task_count=active_task_count,
         ready_parallel_lane_count=ready_parallel_lane_count,
+        ready_worker_batch_count=ready_worker_batch_count,
+        worker_command_count=worker_command_count,
         ready_verification_batch_count=ready_verification_batch_count,
         verification_command_count=verification_command_count,
         checkpoint_opportunity=report.loop_start_git.checkpoint_opportunity,

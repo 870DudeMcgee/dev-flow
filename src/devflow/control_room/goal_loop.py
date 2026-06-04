@@ -16,6 +16,8 @@ class GoalLoopLane(BaseModel):
     linked_task_ids: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
     shared_files: list[str] = Field(default_factory=list)
+    worker_policy: dict[str, Any] = Field(default_factory=dict)
+    worker_commands: list[str] = Field(default_factory=list)
     verification_policy: dict[str, Any] = Field(default_factory=dict)
     verification_scope: str = "none"
     verification_commands: list[str] = Field(default_factory=list)
@@ -49,6 +51,23 @@ class GoalVerificationBatch(BaseModel):
     reason: str
 
 
+class GoalWorkerItem(BaseModel):
+    lane_id: str
+    task_id: str
+    command: str
+    devflow_command: str
+
+
+class GoalWorkerBatch(BaseModel):
+    batch_id: str
+    lane_ids: list[str] = Field(default_factory=list)
+    task_ids: list[str] = Field(default_factory=list)
+    items: list[GoalWorkerItem] = Field(default_factory=list)
+    commands: list[str] = Field(default_factory=list)
+    shared_files: list[str] = Field(default_factory=list)
+    reason: str
+
+
 class GoalLoopState(BaseModel):
     goal_id: str
     title: str
@@ -63,10 +82,13 @@ class GoalLoopState(BaseModel):
     conflicting_ready_lane_count: int = 0
     ready_verification_batch_count: int = 0
     verification_command_count: int = 0
+    ready_worker_batch_count: int = 0
+    worker_command_count: int = 0
     blocked_lane_count: int
     next_action: str
     lanes: list[GoalLoopLane] = Field(default_factory=list)
     parallel_batches: list[GoalParallelBatch] = Field(default_factory=list)
+    worker_batches: list[GoalWorkerBatch] = Field(default_factory=list)
     verification_batches: list[GoalVerificationBatch] = Field(default_factory=list)
 
 
@@ -105,6 +127,7 @@ def build_goal_loop_states(
         completed_slice_count = sum(1 for lane in lanes if lane.lane_state == "complete")
         ready_parallel_lane_count = sum(1 for lane in lanes if lane.lane_state == "ready_to_create_task")
         parallel_batches = _parallel_batches(lanes)
+        worker_batches = _worker_batches(lanes)
         verification_batches = _verification_batches(lanes)
         conflicting_ready_lane_count = max(0, ready_parallel_lane_count - len(parallel_batches[0].lane_ids)) if parallel_batches else 0
         blocked_lane_count = sum(1 for lane in lanes if lane.lane_state in {"blocked", "needs_human_review"})
@@ -131,10 +154,13 @@ def build_goal_loop_states(
                 conflicting_ready_lane_count=conflicting_ready_lane_count,
                 ready_verification_batch_count=len(verification_batches),
                 verification_command_count=sum(len(batch.commands) for batch in verification_batches),
+                ready_worker_batch_count=len(worker_batches),
+                worker_command_count=sum(len(batch.commands) for batch in worker_batches),
                 blocked_lane_count=blocked_lane_count,
                 next_action=_goal_loop_next_action(goal_id, loop_state, lanes, parallel_batches),
                 lanes=lanes,
                 parallel_batches=parallel_batches,
+                worker_batches=worker_batches,
                 verification_batches=verification_batches,
             )
         )
@@ -146,6 +172,8 @@ def _goal_loop_lane(goal_id: str, slice_data: dict[str, Any], linked: list[dict[
     title = str(slice_data.get("title") or slice_id)
     blockers = [str(item) for item in slice_data.get("blocked_by") or []]
     shared_files = sorted({str(item) for item in slice_data.get("shared_files") or [] if str(item).strip()})
+    worker_policy = _normalize_worker_policy(slice_data)
+    worker_commands = _worker_commands_from_policy(worker_policy)
     verification_policy = _normalize_verification_policy(slice_data.get("verification_policy"))
     verification_commands = _verification_commands_from_policy(verification_policy)
     risk = str(slice_data.get("risk") or "medium").lower()
@@ -208,6 +236,8 @@ def _goal_loop_lane(goal_id: str, slice_data: dict[str, Any], linked: list[dict[
         linked_task_ids=linked_task_ids,
         blockers=blockers,
         shared_files=shared_files,
+        worker_policy=worker_policy,
+        worker_commands=worker_commands,
         verification_policy=verification_policy,
         verification_scope=verification_scope,
         verification_commands=verification_commands,
@@ -271,6 +301,56 @@ def _parallel_batches(lanes: list[GoalLoopLane]) -> list[GoalParallelBatch]:
     ]
 
 
+def _worker_batches(lanes: list[GoalLoopLane]) -> list[GoalWorkerBatch]:
+    batches: list[dict[str, object]] = []
+    ready = [
+        lane
+        for lane in lanes
+        if lane.lane_state == "ready_to_run_or_verify"
+        and lane.linked_task_ids
+        and lane.worker_commands
+    ]
+    for lane in ready:
+        lane_files = set(lane.shared_files)
+        selected: dict[str, object] | None = None
+        for batch in batches:
+            batch_files = batch["shared_files_set"]
+            if not lane_files or not batch_files or lane_files.isdisjoint(batch_files):  # type: ignore[arg-type]
+                selected = batch
+                break
+        if selected is None:
+            selected = {"lanes": [], "items": [], "commands": [], "shared_files_set": set()}
+            batches.append(selected)
+
+        task_id = lane.linked_task_ids[-1]
+        selected["lanes"].append(lane)  # type: ignore[union-attr]
+        for command in lane.worker_commands:
+            devflow_command = f"devflow task run {task_id} --worker shell -- {command}"
+            selected["items"].append(  # type: ignore[union-attr]
+                GoalWorkerItem(
+                    lane_id=lane.slice_id,
+                    task_id=task_id,
+                    command=command,
+                    devflow_command=devflow_command,
+                )
+            )
+            selected["commands"].append(devflow_command)  # type: ignore[union-attr]
+        selected["shared_files_set"].update(lane_files)  # type: ignore[union-attr]
+
+    return [
+        GoalWorkerBatch(
+            batch_id=f"WB-{index:04d}",
+            lane_ids=[lane.slice_id for lane in batch["lanes"]],  # type: ignore[index]
+            task_ids=[lane.linked_task_ids[-1] for lane in batch["lanes"]],  # type: ignore[index]
+            items=list(batch["items"]),  # type: ignore[arg-type]
+            commands=list(batch["commands"]),  # type: ignore[arg-type]
+            shared_files=sorted(batch["shared_files_set"]),  # type: ignore[arg-type]
+            reason="Worker commands in this batch have no declared shared file conflicts.",
+        )
+        for index, batch in enumerate(batches, start=1)
+    ]
+
+
 def _verification_batches(lanes: list[GoalLoopLane]) -> list[GoalVerificationBatch]:
     batches: list[dict[str, object]] = []
     ready = [
@@ -329,6 +409,33 @@ def _normalize_verification_policy(raw_policy: Any) -> dict[str, Any]:
     if isinstance(raw_policy, str) and raw_policy.strip():
         return {"policy_type": raw_policy.strip()}
     return {}
+
+
+def _normalize_worker_policy(slice_data: dict[str, Any]) -> dict[str, Any]:
+    for key in ("worker_policy", "execution_policy"):
+        policy = slice_data.get(key)
+        if isinstance(policy, dict):
+            return {str(policy_key): value for policy_key, value in policy.items()}
+    policy: dict[str, Any] = {}
+    for key in ("worker_commands", "shell_commands", "run_commands", "commands"):
+        if key in slice_data:
+            policy[key] = slice_data.get(key)
+    return policy
+
+
+def _worker_commands_from_policy(policy: dict[str, Any]) -> list[str]:
+    keys = (
+        "commands",
+        "worker_commands",
+        "shell_commands",
+        "run_commands",
+        "implementation_commands",
+        "focused_commands",
+    )
+    commands: list[str] = []
+    for key in keys:
+        commands.extend(_command_values(policy.get(key)))
+    return _dedupe(commands)
 
 
 def _verification_commands_from_policy(policy: dict[str, Any]) -> list[str]:

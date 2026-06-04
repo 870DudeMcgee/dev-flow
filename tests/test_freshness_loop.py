@@ -171,6 +171,9 @@ task_slices:
     assert projects["alpha-app"]["path_status"] == "present"
     assert projects["alpha-app"]["goals"][0]["goal_id"] == "G-0001"
     assert projects["alpha-app"]["goals"][0]["ready_parallel_lane_count"] == 1
+    assert projects["alpha-app"]["goals"][0]["ready_worker_batch_count"] == 0
+    assert projects["alpha-app"]["ready_worker_batch_count"] == 0
+    assert projects["alpha-app"]["worker_command_count"] == 0
     assert projects["alpha-app"]["goals"][0]["ready_verification_batch_count"] == 0
     assert projects["alpha-app"]["ready_verification_batch_count"] == 0
     assert projects["alpha-app"]["checkpoint_opportunity"] is True
