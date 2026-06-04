@@ -108,6 +108,8 @@ Dry-run does not call the model and does not write evidence. It reports task id,
 
 The real MVP vertical slice runs one safe local profile such as `local-qwopus-inspector`: it builds a bounded task packet, calls `LocalModelClient`, writes WorkerEvidence, caps raw output, captures failure, and stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
 
+`local-gemma4-summarizer` uses a Gemma-specific native Ollama chat path because `gemma4:latest` has thinking capability and the OpenAI-compatible endpoint can cap or reshape full task packets in ways that hide the useful final content. That profile calls `/api/chat` with `think: false`, explicit `num_ctx`, and a compact evidence-summary packet. The quality gate still rejects missing task grounding, placeholder task ids, and generic readiness summaries.
+
 ## WorkerEvidence
 
 WorkerEvidence stores:

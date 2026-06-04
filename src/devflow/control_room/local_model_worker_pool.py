@@ -24,6 +24,9 @@ from devflow.control_room.worker_evidence import expected_worker_evidence_output
 
 PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
 LOCAL_MODEL_WORKER_TYPE = "local_model_worker_pool"
+GEMMA_NATIVE_PROFILE_IDS = {"local-gemma4-summarizer"}
+GEMMA_NATIVE_NUM_CTX = 8192
+GEMMA_NATIVE_NUM_PREDICT = 1536
 
 
 class LocalModelWorkerPoolError(ValueError):
@@ -177,9 +180,22 @@ def run_local_model_profile(
     )
     system_prompt = _system_prompt(profile)
     user_prompt = _user_prompt(packet_text, profile, task_id=task.id, task_title=task.title, task_status=task.status)
+    runtime = "local_model_client"
+    evidence_base_url = client.base_url
 
     try:
-        result = client.chat_completion(system_prompt=system_prompt, user_prompt=user_prompt)
+        if _uses_native_ollama_chat(profile):
+            result = client.native_chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                think=False,
+                num_ctx=GEMMA_NATIVE_NUM_CTX,
+                num_predict=GEMMA_NATIVE_NUM_PREDICT,
+            )
+            runtime = "local_model_client.native_ollama_chat"
+            evidence_base_url = client.get_native_chat_url()
+        else:
+            result = client.chat_completion(system_prompt=system_prompt, user_prompt=user_prompt)
         raw_output = json.dumps(result.get("response", result), indent=2, sort_keys=True)
         response_text = _assistant_text(result.get("response", {}))
         if not response_text:
@@ -217,10 +233,10 @@ def run_local_model_profile(
         model_role_name=profile.model_role_name,
         required_verification_command=profile.required_verification_command,
         model_alias_group=profile.model_alias_group,
-        runtime="local_model_client",
+        runtime=runtime,
         status=status,
         started_at=started_at,
-        base_url=client.base_url,
+        base_url=evidence_base_url,
         error_message=error_message,
         quality_notes=quality_notes,
         quality_score=quality_score,
@@ -238,7 +254,7 @@ def run_local_model_profile(
         "run_id": run_id,
         "model": profile.model,
         "adapter": profile.adapter,
-        "runtime": "local_model_client",
+        "runtime": runtime,
         "adapter_maturity": profile.adapter_maturity or adapter_maturity(profile.adapter),
         "permission_mode": profile.default_mode,
         "hermes_delegable": profile.hermes_delegable,
@@ -297,7 +313,7 @@ def _build_packet_text(
         packet = build_agent_packet(task_id, profile, root=root)
     except KeyError as exc:
         raise LocalModelWorkerPoolError(str(exc)) from exc
-    packet_text = render_task_packet_text(packet)
+    packet_text = _render_compact_evidence_packet(packet) if _uses_compact_packet(profile) else render_task_packet_text(packet)
     if max_packet_chars < 1:
         max_packet_chars = 16_000
     if len(packet_text) <= max_packet_chars:
@@ -305,6 +321,89 @@ def _build_packet_text(
     suffix = f"\n\n[packet capped at {max_packet_chars} characters]\n"
     keep = max(0, max_packet_chars - len(suffix))
     return packet_text[:keep] + suffix, True
+
+
+def _uses_native_ollama_chat(profile: AgentDefinition) -> bool:
+    return profile.id in GEMMA_NATIVE_PROFILE_IDS
+
+
+def _uses_compact_packet(profile: AgentDefinition) -> bool:
+    return profile.id in GEMMA_NATIVE_PROFILE_IDS
+
+
+def _render_compact_evidence_packet(packet: Any) -> str:
+    lines = [
+        "# Compact Dev-Flow Evidence Packet",
+        f"- Task ID: {packet.task_id}",
+        f"- Title: {packet.title}",
+        f"- Status: {packet.status}",
+        f"- Agent/Profile: {packet.agent_id or 'unknown'}",
+        f"- Adapter: {packet.adapter}",
+        f"- Workspace Path: {packet.workspace_path}",
+    ]
+    if packet.goal_context:
+        lines.extend(
+            [
+                "",
+                "## Goal Link",
+                f"- Goal ID: {packet.goal_context.get('goal_id', 'unknown')}",
+                f"- Slice ID: {packet.goal_context.get('slice_id', 'unknown')}",
+                f"- Execution Mode: {packet.goal_context.get('execution_mode', 'unknown')}",
+                f"- Human Checkpoint Required: {packet.goal_context.get('human_checkpoint_required', 'unknown')}",
+                f"- Promotion Allowed: {packet.goal_context.get('promotion_allowed', 'unknown')}",
+            ]
+        )
+    if packet.task_slice:
+        acceptance = packet.task_slice.get("acceptance_criteria") or []
+        lines.extend(
+            [
+                "",
+                "## Task Slice",
+                f"- Summary: {packet.task_slice.get('summary', 'unknown')}",
+                "- Acceptance Criteria:",
+            ]
+        )
+        lines.extend(f"  - {item}" for item in acceptance[:8])
+    if packet.verification:
+        lines.extend(
+            [
+                "",
+                "## Verification",
+                f"- Status: {packet.verification.get('status', 'unknown')}",
+                f"- Command: {packet.verification.get('command', 'unknown')}",
+                f"- Exit Code: {packet.verification.get('exit_code', 'unknown')}",
+            ]
+        )
+    if packet.next_action:
+        lines.extend(
+            [
+                "",
+                "## Next Action Projection",
+                f"- Action: {packet.next_action.get('action', 'unknown')}",
+                f"- Command: {packet.next_action.get('command', 'unknown')}",
+                f"- Reason: {packet.next_action.get('reason', 'unknown')}",
+            ]
+        )
+    if packet.recent_events:
+        lines.extend(["", "## Recent Events"])
+        for event in packet.recent_events[-8:]:
+            event_type = event.get("event") or event.get("type") or "event"
+            timestamp = event.get("timestamp") or event.get("created_at") or "unknown-time"
+            detail = event.get("status") or event.get("summary") or event.get("command") or ""
+            suffix = f" ({detail})" if detail else ""
+            lines.append(f"- {timestamp}: {event_type}{suffix}")
+    if packet.result_summary:
+        lines.extend(["", "## Result Summary", packet.result_summary])
+    lines.extend(
+        [
+            "",
+            "## Hard Constraints",
+            "- Use the exact Task ID from this packet.",
+            "- Do not claim source edits, verification, commits, merge, push, or promotion unless this packet proves them.",
+            "- Treat model output as advisory evidence only.",
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _system_prompt(profile: AgentDefinition) -> str:
@@ -393,6 +492,11 @@ def _response_quality(profile: AgentDefinition, *, task_id: str, response_text: 
 
 
 def _assistant_text(response: dict[str, Any]) -> str:
+    message = response.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
     choices = response.get("choices")
     if isinstance(choices, list) and choices:
         message = choices[0].get("message") if isinstance(choices[0], dict) else None

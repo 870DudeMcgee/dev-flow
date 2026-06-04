@@ -46,6 +46,12 @@ class LocalModelClient:
             return f"{base}/v1/chat/completions"
         return f"{base}/chat/completions"
 
+    def get_native_chat_url(self) -> str:
+        base = self.base_url.rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]
+        return f"{base}/api/chat"
+
     def chat_completion(self, system_prompt: str, user_prompt: str) -> dict:
         if not self.model_id:
             raise LocalModelClientError("LOCAL_MODEL_ID is missing. Please set the environment variable or pass --model.")
@@ -82,6 +88,74 @@ class LocalModelClient:
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
                 MAX_RESPONSE_BYTES = 2000000
                 res_data = response.read(MAX_RESPONSE_BYTES).decode("utf-8")
+                response_json = json.loads(res_data)
+                return {
+                    "url": url,
+                    "payload": payload,
+                    "response": response_json,
+                    "status_code": response.status,
+                }
+        except urllib.error.HTTPError as exc:
+            try:
+                err_body = exc.read().decode("utf-8")
+            except Exception:
+                err_body = ""
+            raise LocalModelClientError(
+                f"HTTP Error {exc.code}: {exc.reason}",
+                status_code=exc.code,
+                response_body=err_body,
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise LocalModelClientError(
+                f"Local model server at {url} is unreachable: {exc.reason}"
+            ) from exc
+        except Exception as exc:
+            raise LocalModelClientError(f"Request failed: {exc}") from exc
+
+    def native_chat_completion(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        think: bool = False,
+        num_ctx: int = 8192,
+        num_predict: int = 1536,
+    ) -> dict:
+        if not self.model_id:
+            raise LocalModelClientError("LOCAL_MODEL_ID is missing. Please set the environment variable or pass --model.")
+
+        max_prompt_chars = 40_000
+        if len(system_prompt) > max_prompt_chars:
+            system_prompt = system_prompt[:max_prompt_chars]
+        if len(user_prompt) > max_prompt_chars:
+            user_prompt = user_prompt[:max_prompt_chars]
+
+        url = self.get_native_chat_url()
+        payload = {
+            "model": self.model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": False,
+            "think": think,
+            "options": {
+                "temperature": self.temperature,
+                "num_ctx": num_ctx,
+                "num_predict": num_predict,
+            },
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                max_response_bytes = 2_000_000
+                res_data = response.read(max_response_bytes).decode("utf-8")
                 response_json = json.loads(res_data)
                 return {
                     "url": url,

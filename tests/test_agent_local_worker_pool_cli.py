@@ -169,29 +169,28 @@ def test_gemma_summarizer_prompt_requires_grounded_task_brief(
     create_result = runner.invoke(app, ["task", "create", "first approved evidence smoke"])
     assert create_result.exit_code == 0, create_result.output
     captured_payloads: list[dict[str, Any]] = []
+    captured_urls: list[str] = []
 
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        captured_urls.append(req.full_url)
         captured_payloads.append(json.loads(req.data.decode("utf-8")))
         body = {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": (
-                            "## Task Grounding\n"
-                            "- Task ID: task-0001\n"
-                            "- Task Title: first approved evidence smoke\n"
-                            "- Task Status: created\n"
-                            "- Worker/Profile: local-gemma4-summarizer\n"
-                            "- Evidence Reviewed: bounded task packet\n\n"
-                            "## Summary\nGrounded.\n\n"
-                            "## Findings\n- Packet names task-0001.\n\n"
-                            "## Risks Or Questions\n- None.\n\n"
-                            "## Suggested Next Dev-Flow Action\nReview evidence."
-                        ),
-                    }
-                }
-            ]
+            "message": {
+                "role": "assistant",
+                "content": (
+                    "## Task Grounding\n"
+                    "- Task ID: task-0001\n"
+                    "- Task Title: first approved evidence smoke\n"
+                    "- Task Status: created\n"
+                    "- Worker/Profile: local-gemma4-summarizer\n"
+                    "- Evidence Reviewed: bounded task packet\n\n"
+                    "## Summary\nGrounded.\n\n"
+                    "## Findings\n- Packet names task-0001.\n\n"
+                    "## Risks Or Questions\n- None.\n\n"
+                    "## Suggested Next Dev-Flow Action\nReview evidence."
+                ),
+            },
+            "done": True,
         }
         return MockResponse(json.dumps(body).encode("utf-8"))
 
@@ -203,16 +202,28 @@ def test_gemma_summarizer_prompt_requires_grounded_task_brief(
     )
 
     assert result.exit_code == 0, result.output
-    messages = captured_payloads[0]["messages"]
+    assert captured_urls == ["http://127.0.0.1:11434/api/chat"]
+    native_payload = captured_payloads[0]
+    assert native_payload["think"] is False
+    assert native_payload["options"]["num_ctx"] >= 8192
+    assert native_payload["options"]["temperature"] == 0
+    messages = native_payload["messages"]
     system_prompt = messages[0]["content"]
     user_prompt = messages[1]["content"]
     assert "Never invent or substitute a task id" in system_prompt
     assert "If the packet says task-0001, the response must say task-0001" in user_prompt
     assert "Your response must begin with this exact task id: task-0001" in user_prompt
+    assert len(user_prompt) < 6000
+    assert "Source Pointers" not in user_prompt
     assert "## Task Grounding" in user_prompt
     assert "Task ID:" in user_prompt
     assert "Task Title:" in user_prompt
     assert "Evidence Reviewed:" in user_prompt
+    payload = json.loads(result.output)
+    run_metadata = json.loads((tmp_path / payload["run_metadata_path"]).read_text(encoding="utf-8"))
+    assert run_metadata["runtime"] == "local_model_client.native_ollama_chat"
+    assert run_metadata["base_url"] == "http://127.0.0.1:11434/api/chat"
+    assert run_metadata["quality_score"] == 1.0
 
 
 def test_gemma_summarizer_low_quality_response_is_flagged(
@@ -226,14 +237,11 @@ def test_gemma_summarizer_low_quality_response_is_flagged(
 
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
         body = {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "Task ID: N/A\nThis is a generic local model readiness summary.",
-                    }
-                }
-            ]
+            "message": {
+                "role": "assistant",
+                "content": "Task ID: N/A\nThis is a generic local model readiness summary.",
+            },
+            "done": True,
         }
         return MockResponse(json.dumps(body).encode("utf-8"))
 
