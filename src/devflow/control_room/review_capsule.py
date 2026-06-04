@@ -249,8 +249,8 @@ def _entries_from_diff_summary(summary: dict[str, Any]) -> list[_ChangedFile]:
 
 
 def _copy_workspace_changes(root: Path, workspace: Path) -> list[_ChangedFile]:
-    workspace_files = _relative_files(workspace)
-    main_files = _relative_files(root)
+    workspace_files = _relative_files(workspace, root)
+    main_files = _relative_files(root, root)
     entries: list[_ChangedFile] = []
     for path in workspace_files - main_files:
         entries.append(_ChangedFile(path, "added", _looks_binary(workspace / path)))
@@ -268,7 +268,7 @@ def _copy_workspace_changes(root: Path, workspace: Path) -> list[_ChangedFile]:
     return _sorted_unique_entries(entries)
 
 
-def _relative_files(base: Path) -> set[str]:
+def _relative_files(base: Path, repo_root: Path | None = None) -> set[str]:
     files: set[str] = set()
     if not base.is_dir():
         return files
@@ -279,6 +279,10 @@ def _relative_files(base: Path) -> set[str]:
             files.add(path.relative_to(base).as_posix())
         except ValueError:
             continue
+    if repo_root is not None and files:
+        from devflow.control_room.git_state import git_ignored_paths
+        ignored = git_ignored_paths(repo_root, list(files))
+        files = files - ignored
     return files
 
 

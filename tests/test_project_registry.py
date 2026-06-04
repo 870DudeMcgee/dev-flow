@@ -603,7 +603,7 @@ def test_task_promote_preview_project_reads_registered_project_root_not_cwd(tmp_
     assert "cwd-workspace" not in result.output
     assert "from the project_root above" in result.output
     assert project_task_yaml.read_text(encoding="utf-8") == task_yaml_before
-    assert not (project_root / ".devflow" / "tasks" / "task-0001" / "promotion-preview.json").exists()
+    assert (project_root / ".devflow" / "tasks" / "task-0001" / "promotion-preview.json").exists()
     assert not (control_root / ".devflow" / "tasks" / "task-0001" / "promotion-preview.json").exists()
 
 

@@ -341,3 +341,22 @@ def _git(cwd: Path, args: list[str], *, check: bool) -> subprocess.CompletedProc
         detail = (proc.stderr or proc.stdout or "git command failed").strip()
         raise GitStateError(detail)
     return proc
+
+
+def git_ignored_paths(root: Path, paths: list[str]) -> set[str]:
+    if not paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "check-ignore", "--stdin", "-z"],
+            input="\0".join(paths),
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if proc.returncode not in {0, 1}:
+            return set()
+        return {p for p in proc.stdout.split("\0") if p}
+    except Exception:
+        return set()

@@ -39,8 +39,8 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     if not workspace.is_dir():
         raise ValueError(f"Workspace directory does not exist: {workspace}")
 
-    workspace_files = _get_relative_files(workspace)
-    main_files = _get_relative_files(root)
+    workspace_files = _get_relative_files(workspace, root)
+    main_files = _get_relative_files(root, root)
 
     added_files = sorted(list(workspace_files - main_files))
     deleted_files = sorted(list(main_files - workspace_files))
@@ -64,7 +64,7 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
     for name in deleted_files:
         diffs[name] = _generate_file_diff(name, root / name, None)
 
-    return {
+    res = {
         "task_id": task.id,
         "baseline": baseline,
         "added": added_files,
@@ -73,6 +73,13 @@ def preview_task_promotion(root: Path, task_id: str) -> dict[str, Any]:
         "diffs": diffs,
         "human_approval": human_gate,
     }
+
+    import json
+    from devflow.control_room.persistence import atomic_write_text
+    preview_path = task_dir(root, task.id) / "promotion-preview.json"
+    atomic_write_text(preview_path, json.dumps(res, sort_keys=True, indent=2) + "\n")
+
+    return res
 
 
 def current_main_head(root: Path) -> str | None:
@@ -242,8 +249,8 @@ def promote_task(
     if not workspace.is_dir():
         raise ValueError(f"Workspace directory does not exist: {workspace}")
 
-    workspace_files = _get_relative_files(workspace)
-    main_files = _get_relative_files(root)
+    workspace_files = _get_relative_files(workspace, root)
+    main_files = _get_relative_files(root, root)
 
     added_files = sorted(list(workspace_files - main_files))
     deleted_files = sorted(list(main_files - workspace_files))
@@ -329,7 +336,7 @@ def _display_commit(commit: str | None) -> str:
     return commit if commit else "unavailable"
 
 
-def _get_relative_files(base_dir: Path) -> set[str]:
+def _get_relative_files(base_dir: Path, repo_root: Path | None = None) -> set[str]:
     rel_files = set()
     if not base_dir.is_dir():
         return rel_files
@@ -340,6 +347,10 @@ def _get_relative_files(base_dir: Path) -> set[str]:
                 rel_files.add(rel.as_posix())
             except ValueError:
                 pass
+    if repo_root is not None and rel_files:
+        from devflow.control_room.git_state import git_ignored_paths
+        ignored = git_ignored_paths(repo_root, list(rel_files))
+        rel_files = rel_files - ignored
     return rel_files
 
 

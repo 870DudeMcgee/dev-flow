@@ -665,7 +665,7 @@ def test_promote_harden_copy_escapes_root(monkeypatch: pytest.MonkeyPatch) -> No
 
             # Monkeypatch _get_relative_files to return a path that escapes root
             from devflow.control_room import service
-            def mock_get_relative_files(base_dir: Path) -> set[str]:
+            def mock_get_relative_files(base_dir: Path, *args, **kwargs) -> set[str]:
                 if base_dir == Path(tmp):
                     return {"file.txt"}
                 return {"../escaped.txt"}
@@ -708,7 +708,7 @@ def test_promote_harden_copy_ignored_path(monkeypatch: pytest.MonkeyPatch) -> No
 
             # Monkeypatch _get_relative_files to return a path in .git
             from devflow.control_room import service
-            def mock_get_relative_files(base_dir: Path) -> set[str]:
+            def mock_get_relative_files(base_dir: Path, *args, **kwargs) -> set[str]:
                 if base_dir == Path(tmp):
                     return {"file.txt"}
                 return {".git/config"}
@@ -787,5 +787,50 @@ def test_task_show_promotion_visibility() -> None:
             res_show_malformed = runner.invoke(app, ["task", "show", "task-0001"])
             assert res_show_malformed.exit_code == 0
             assert "promoted_changes:" in res_show_malformed.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_preview_filters_git_ignored_files_and_saves_json() -> None:
+    import subprocess
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-b", "main"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True)
+
+            # Setup gitignore
+            Path(".gitignore").write_text("ignored-build/\n.ignored-file\n", encoding="utf-8")
+            Path("file.txt").write_text("initial\n", encoding="utf-8")
+            subprocess.run(["git", "add", ".gitignore", "file.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "init"], check=True)
+
+            # Create ignored files on main repo (root)
+            Path(".ignored-file").write_text("ignored content\n", encoding="utf-8")
+            ignored_build_dir = Path("ignored-build")
+            ignored_build_dir.mkdir()
+            Path(ignored_build_dir / "foo.txt").write_text("build artifact\n", encoding="utf-8")
+
+            created = runner.invoke(app, ["task", "create", "ignored-filter-test"])
+            assert created.exit_code == 0
+
+            # Run promote-preview
+            res = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert res.exit_code == 0, res.output
+
+            # Ignored files should not be listed as deleted
+            assert "ignored-build" not in res.output
+            assert ".ignored-file" not in res.output
+
+            # promotion-preview.json should have been written to the task directory
+            preview_json_path = Path(".devflow/tasks/task-0001/promotion-preview.json")
+            assert preview_json_path.exists()
+            data = json.loads(preview_json_path.read_text(encoding="utf-8"))
+            assert data["task_id"] == "task-0001"
+            assert "deleted" in data
+            assert "ignored-build/foo.txt" not in data["deleted"]
+            assert ".ignored-file" not in data["deleted"]
         finally:
             os.chdir(old_cwd)
