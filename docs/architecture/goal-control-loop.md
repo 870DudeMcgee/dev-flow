@@ -16,7 +16,7 @@ Each loop iteration starts with Git hygiene before new work is spawned:
 4. If Git is conflicted, mid-operation, diverged, behind remote, detached, or off `main`, stop with the safest repair action.
 5. Only then evaluate goals, task slices, linked tasks, freshness, parallelism, and verification evidence.
 
-The current implemented slice is `devflow freshness loop`: it runs one read-mostly control iteration, writes `.devflow/freshness/latest.json`, detects stale goal/task guidance, records a loop-start Git decision, and projects per-goal parallel lanes. It never commits, pushes, promotes, routes providers, or mutates task source code.
+The current implemented slice is `devflow freshness loop`: it runs one read-mostly control iteration, writes `.devflow/freshness/latest.json`, updates derived per-goal loop state, appends loop history, detects stale goal/task guidance, records a loop-start Git decision, and projects per-goal parallel lanes. It never commits, pushes, promotes, routes providers, or mutates task source code.
 
 ## Parallelism Model
 
@@ -51,8 +51,12 @@ The freshness snapshot includes two loop-control sections:
 
 - `loop_start_git`: whether the loop should checkpoint, push, sync, resolve Git state, or continue.
 - `goal_loop`: one projection per goal with goal state, active linked tasks, completed slices, blocked lanes, ready parallel lane count, and lane-level commands.
+- `.devflow/goals/<goal_id>/loop-state.json`: the latest derived state for one goal, including relevant findings and lane recommendations.
+- `.devflow/freshness/events.jsonl`: append-only loop iteration history with event hashes.
 
 Lane states are recommendations, not execution. `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
+
+The per-goal loop-state files are derived projections, not canonical goal source. They exist so each loop leaves current, inspectable state beside the goal it is evaluating without rewriting the human-authored goal brief, PRD, task slices, or handoff.
 
 For registered project folders, `devflow freshness loop --all-projects` runs the project-local loop for each active registry entry. Each project keeps its own `.devflow/freshness/latest.json`; the registry-level aggregate lives at `~/.devflow/freshness/latest-all-projects.json`. The aggregate is a control-room index over project-local truth, not a replacement for project-local state.
 

@@ -41,6 +41,36 @@ def test_freshness_loop_writes_clean_snapshot(tmp_path: Path, monkeypatch) -> No
     assert snapshot["goals_checked"] == 1
     assert snapshot["loop_start_git"]["checkpoint_opportunity"] is True
     assert snapshot["loop_start_git"]["recommended_action"] == "checkpoint_before_more_work"
+    goal_state_path = tmp_path / ".devflow" / "goals" / "G-0001" / "loop-state.json"
+    assert goal_state_path.exists()
+    goal_state = json.loads(goal_state_path.read_text(encoding="utf-8"))
+    assert goal_state["canonical"] is False
+    assert goal_state["source"] == "derived_freshness_loop"
+    assert goal_state["goal"]["goal_id"] == "G-0001"
+    assert goal_state["project_snapshot_path"] == ".devflow/freshness/latest.json"
+
+
+def test_freshness_loop_appends_hash_chained_iteration_history(tmp_path: Path, monkeypatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nTrack loop history.", encoding="utf-8")
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["goal", "init", "--from", "my_goal.md"]).exit_code == 0
+    first = runner.invoke(app, ["freshness", "loop", "--json"])
+    second = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    events_path = tmp_path / ".devflow" / "freshness" / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    assert [event["event_index"] for event in events] == [0, 1]
+    assert events[0]["previous_event_hash"] is None
+    assert events[1]["previous_event_hash"] == events[0]["event_hash"]
+    assert events[0]["event"] == "freshness_loop_iteration"
+    assert events[0]["goal_loop"][0]["goal_id"] == "G-0001"
 
 
 def test_freshness_loop_records_continue_decision_when_git_is_clean(tmp_path: Path, monkeypatch) -> None:

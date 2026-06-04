@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from devflow.control_room.goal_loop import GoalLoopState, build_goal_loop_states
 from devflow.control_room.paths import devflow_dir, goal_dir, goals_dir, relative_path, task_dir
-from devflow.control_room.persistence import atomic_write_text, list_tasks
+from devflow.control_room.persistence import atomic_write_text, event_content_hash, list_tasks
 
 
 FreshnessStatus = Literal["ok", "stale", "needs_human_decision"]
@@ -102,6 +102,8 @@ def run_freshness_loop(root: Path, *, write_snapshot: bool = True) -> FreshnessR
             _freshness_snapshot_path(root),
             json.dumps(report.model_dump(), indent=2, sort_keys=True) + "\n",
         )
+        _write_goal_loop_state_files(root, report)
+        _append_freshness_event(root, report)
     return report
 
 
@@ -168,6 +170,87 @@ def render_freshness_report(report: FreshnessReport) -> str:
 
 def _freshness_snapshot_path(root: Path) -> Path:
     return devflow_dir(root) / "freshness" / "latest.json"
+
+
+def _freshness_events_path(root: Path) -> Path:
+    return devflow_dir(root) / "freshness" / "events.jsonl"
+
+
+def _write_goal_loop_state_files(root: Path, report: FreshnessReport) -> None:
+    findings_by_scope: dict[str, list[dict[str, Any]]] = {}
+    for finding in report.findings:
+        findings_by_scope.setdefault(finding.scope, []).append(finding.model_dump())
+    for goal in report.goal_loop:
+        payload = {
+            "schema_version": 1,
+            "source": "derived_freshness_loop",
+            "canonical": False,
+            "generated_at": report.generated_at,
+            "state_hash": report.state_hash,
+            "project_snapshot_path": report.snapshot_path,
+            "status": report.status,
+            "loop_start_git": report.loop_start_git.model_dump(),
+            "goal": goal.model_dump(),
+            "findings": findings_by_scope.get(goal.goal_id, []),
+        }
+        atomic_write_text(
+            goal_dir(root, goal.goal_id) / "loop-state.json",
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        )
+
+
+def _append_freshness_event(root: Path, report: FreshnessReport) -> None:
+    events_path = _freshness_events_path(root)
+    previous_hash, next_index = _freshness_event_tail(events_path)
+    event = {
+        "timestamp": report.generated_at,
+        "event": "freshness_loop_iteration",
+        "event_index": next_index,
+        "previous_event_hash": previous_hash,
+        "status": report.status,
+        "state_hash": report.state_hash,
+        "goals_checked": report.goals_checked,
+        "tasks_checked": report.tasks_checked,
+        "linked_tasks_checked": report.linked_tasks_checked,
+        "stale_count": report.stale_count,
+        "needs_human_decision_count": report.needs_human_decision_count,
+        "loop_start_git_action": report.loop_start_git.recommended_action,
+        "checkpoint_opportunity": report.loop_start_git.checkpoint_opportunity,
+        "push_opportunity": report.loop_start_git.push_opportunity,
+        "goal_loop": [
+            {
+                "goal_id": goal.goal_id,
+                "loop_state": goal.loop_state,
+                "active_task_count": goal.active_task_count,
+                "ready_parallel_lane_count": goal.ready_parallel_lane_count,
+                "completed_slice_count": goal.completed_slice_count,
+            }
+            for goal in report.goal_loop
+        ],
+    }
+    event["event_hash"] = event_content_hash(event)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    with events_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def _freshness_event_tail(path: Path) -> tuple[str | None, int]:
+    if not path.exists():
+        return None, 0
+    previous_hash: str | None = None
+    next_index = 0
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.strip():
+            continue
+        try:
+            event = json.loads(raw_line)
+        except json.JSONDecodeError:
+            break
+        if not isinstance(event, dict):
+            break
+        previous_hash = event.get("event_hash") or event_content_hash(event)
+        next_index += 1
+    return previous_hash, next_index
 
 
 def _loop_start_git_decision(root: Path) -> LoopStartGitDecision:
