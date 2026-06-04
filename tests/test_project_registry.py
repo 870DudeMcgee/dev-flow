@@ -226,6 +226,73 @@ def test_task_list_and_show_project_read_registered_project_root(tmp_path: Path,
     assert "title: alpha task" in shown.output
 
 
+def test_task_commands_from_nested_project_directory_use_project_local_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _devflow_home(tmp_path, monkeypatch)
+    projects_root = tmp_path / "projects"
+
+    created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
+    assert created.exit_code == 0, created.output
+    project_root = projects_root / "alpha-app"
+    nested = project_root / "src" / "feature" / "deep"
+    nested.mkdir(parents=True)
+    create_task(project_root, "root task")
+
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(nested)
+        listing = runner.invoke(app, ["task", "list"])
+        shown = runner.invoke(app, ["task", "show", "task-0001"])
+        new_task = runner.invoke(app, ["task", "create", "nested task"])
+    finally:
+        os.chdir(old_cwd)
+
+    assert listing.exit_code == 0, listing.output
+    assert "alpha-app:task-0001" in listing.output
+    assert "root task" in listing.output
+    assert shown.exit_code == 0, shown.output
+    assert "task: alpha-app:task-0001" in shown.output
+    assert new_task.exit_code == 0, new_task.output
+    assert "Created alpha-app:task-0002: nested task" in new_task.output
+    assert (project_root / ".devflow" / "tasks" / "task-0002" / "task.yaml").is_file()
+    assert not (nested / ".devflow").exists()
+
+
+def test_project_local_task_state_survives_missing_registry_entry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _devflow_home(tmp_path, monkeypatch)
+    projects_root = tmp_path / "projects"
+
+    created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
+    assert created.exit_code == 0, created.output
+    project_root = projects_root / "alpha-app"
+    nested = project_root / "docs" / "notes"
+    nested.mkdir(parents=True)
+    create_task(project_root, "local authoritative task")
+
+    removed = runner.invoke(app, ["project", "remove", "alpha-app", "--registry-only"])
+    assert removed.exit_code == 0, removed.output
+
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(nested)
+        listing = runner.invoke(app, ["task", "list"])
+        shown = runner.invoke(app, ["task", "show", "task-0001"])
+    finally:
+        os.chdir(old_cwd)
+
+    assert listing.exit_code == 0, listing.output
+    assert "alpha-app:task-0001" in listing.output
+    assert "local authoritative task" in listing.output
+    assert shown.exit_code == 0, shown.output
+    assert "task: alpha-app:task-0001" in shown.output
+    assert "title: local authoritative task" in shown.output
+
+
 def test_task_run_and_verify_project_use_registered_project_root(tmp_path: Path, monkeypatch) -> None:
     _devflow_home(tmp_path, monkeypatch)
     projects_root = tmp_path / "projects"

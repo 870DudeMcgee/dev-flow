@@ -31,6 +31,7 @@ class ProjectRegistryError(ValueError):
 class ProjectRootResolution:
     root: Path
     project_id: str | None
+    source: str = "cwd"
 
 
 def devflow_home(home: Path | None = None) -> Path:
@@ -168,14 +169,29 @@ def get_project_record(project_id: str, *, home: Path | None = None) -> ProjectR
 
 def resolve_project_root(current_root: Path, project_id: str | None, *, home: Path | None = None) -> ProjectRootResolution:
     if project_id is None:
-        return ProjectRootResolution(root=current_root.resolve(), project_id=None)
+        return resolve_current_project_root(current_root)
     record = get_project_record(project_id, home=home)
     root = Path(record.path).expanduser().resolve()
     if record.status == "archived":
         raise ProjectRegistryError(f"Project is archived: {record.project_id}")
     if not root.is_dir():
         raise ProjectRegistryError(f"Project path is missing: {root}")
-    return ProjectRootResolution(root=root, project_id=record.project_id)
+    return ProjectRootResolution(root=root, project_id=record.project_id, source="registry")
+
+
+def resolve_current_project_root(start: Path) -> ProjectRootResolution:
+    """Resolve implicit project commands to the nearest ancestor with .devflow state."""
+    current = start.expanduser().resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / ".devflow").is_dir():
+            project_id = None
+            try:
+                metadata = load_project_metadata(candidate)
+                project_id = metadata.project_id
+            except ProjectRegistryError:
+                project_id = None
+            return ProjectRootResolution(root=candidate, project_id=project_id, source="ancestor")
+    return ProjectRootResolution(root=current, project_id=None, source="cwd")
 
 
 def project_task_ref(task_id: str, project_id: str | None) -> str:
