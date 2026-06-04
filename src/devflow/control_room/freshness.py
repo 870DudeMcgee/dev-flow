@@ -142,6 +142,8 @@ def render_freshness_report(report: FreshnessReport) -> str:
             lines.append(
                 f"  - {goal.goal_id}: {goal.loop_state} "
                 f"(ready_parallel={goal.ready_parallel_lane_count}, batches={goal.ready_parallel_batch_count}, "
+                f"verify_batches={goal.ready_verification_batch_count}, "
+                f"verify_commands={goal.verification_command_count}, "
                 f"conflicts={goal.conflicting_ready_lane_count}, active={goal.active_task_count}, "
                 f"complete={goal.completed_slice_count}/{goal.total_slices})"
             )
@@ -225,6 +227,8 @@ def _append_freshness_event(root: Path, report: FreshnessReport) -> None:
                 "loop_state": goal.loop_state,
                 "active_task_count": goal.active_task_count,
                 "ready_parallel_lane_count": goal.ready_parallel_lane_count,
+                "ready_verification_batch_count": goal.ready_verification_batch_count,
+                "verification_command_count": goal.verification_command_count,
                 "completed_slice_count": goal.completed_slice_count,
             }
             for goal in report.goal_loop
@@ -359,8 +363,8 @@ def _goal_ids(root: Path) -> list[str]:
 def _linked_tasks_by_goal_slice(
     root: Path,
     findings: list[FreshnessFinding],
-) -> dict[str, dict[str, list[dict[str, str]]]]:
-    linked: dict[str, dict[str, list[dict[str, str]]]] = {}
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    linked: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for task in list_tasks(root):
         link_path = task_dir(root, task.id) / "goal-link.yaml"
         if not link_path.exists():
@@ -402,6 +406,7 @@ def _linked_tasks_by_goal_slice(
                 "task_id": task.id,
                 "status": task.status,
                 "verification_status": task.verification_status,
+                "verification_command": task.verification_command or "",
                 "updated_at": task.updated_at.isoformat(),
             }
         )
@@ -411,7 +416,7 @@ def _linked_tasks_by_goal_slice(
 def _check_goal_against_linked_tasks(
     root: Path,
     goal_id: str,
-    linked_slices: dict[str, list[dict[str, str]]],
+    linked_slices: dict[str, list[dict[str, Any]]],
     slices: list[dict[str, Any]],
     findings: list[FreshnessFinding],
 ) -> None:
@@ -538,7 +543,7 @@ def _next_action_for(status: FreshnessStatus) -> str:
 def _state_hash(
     root: Path,
     goal_ids: list[str],
-    linked_tasks: dict[str, dict[str, list[dict[str, str]]]],
+    linked_tasks: dict[str, dict[str, list[dict[str, Any]]]],
     findings: list[FreshnessFinding],
     goal_loop: list[GoalLoopState],
 ) -> str:

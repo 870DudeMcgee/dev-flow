@@ -171,6 +171,8 @@ task_slices:
     assert projects["alpha-app"]["path_status"] == "present"
     assert projects["alpha-app"]["goals"][0]["goal_id"] == "G-0001"
     assert projects["alpha-app"]["goals"][0]["ready_parallel_lane_count"] == 1
+    assert projects["alpha-app"]["goals"][0]["ready_verification_batch_count"] == 0
+    assert projects["alpha-app"]["ready_verification_batch_count"] == 0
     assert projects["alpha-app"]["checkpoint_opportunity"] is True
     assert projects["beta-app"]["path_status"] == "missing"
     assert projects["beta-app"]["status"] == "missing"
@@ -294,6 +296,109 @@ task_slices:
     assert goal_loop["parallel_batches"][0]["shared_files"] == ["src/a.py", "src/b.py"]
     assert goal_loop["parallel_batches"][1]["lane_ids"] == ["TS-0003"]
     assert goal_loop["parallel_batches"][1]["shared_files"] == ["src/a.py"]
+
+
+def test_freshness_loop_projects_parallel_verification_batches(tmp_path: Path, monkeypatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nRun verification in safe batches.", encoding="utf-8")
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["goal", "init", "--from", "my_goal.md"]).exit_code == 0
+
+    slices_path = tmp_path / ".devflow" / "goals" / "G-0001" / "task-slices.yaml"
+    slices_path.write_text(
+        """
+task_slices:
+  - task_id: TS-0001
+    title: First verification lane
+    summary: Has a focused command.
+    parallel_safe: true
+    shared_files: [src/a.py]
+    risk: low
+    execution_mode: AFK
+    verification_policy:
+      focused_tests_required: true
+      focused_commands:
+        - pytest tests/test_a.py
+  - task_id: TS-0002
+    title: Second verification lane
+    summary: Can verify with TS-0001.
+    parallel_safe: true
+    shared_files: [src/b.py]
+    risk: low
+    execution_mode: AFK
+    verification_policy:
+      focused_tests_required: true
+      focused_commands:
+        - pytest tests/test_b.py
+  - task_id: TS-0003
+    title: Conflicting verification lane
+    summary: Must not verify beside TS-0001.
+    parallel_safe: true
+    shared_files: [src/a.py]
+    risk: low
+    execution_mode: AFK
+    verification_policy:
+      focused_tests_required: true
+      focused_commands:
+        - pytest tests/test_a_alt.py
+  - task_id: TS-0004
+    title: Retry previous verification
+    summary: Uses the task's existing verification command.
+    parallel_safe: true
+    shared_files: [src/c.py]
+    risk: low
+    execution_mode: AFK
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0001"]).exit_code == 0
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0002"]).exit_code == 0
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0003"]).exit_code == 0
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0004"]).exit_code == 0
+    retry = get_task(tmp_path, "task-0004")
+    retry.status = "verification_failed"
+    retry.verification_status = "failed"
+    retry.verification_command = "pytest tests/test_retry.py"
+    retry.updated_at = utc_now()
+    save_task(tmp_path / ".devflow" / "tasks" / "task-0004", retry)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    goal_loop = payload["goal_loop"][0]
+    assert goal_loop["ready_verification_batch_count"] == 2
+    assert goal_loop["verification_command_count"] == 4
+
+    lanes = {lane["slice_id"]: lane for lane in goal_loop["lanes"]}
+    assert lanes["TS-0001"]["verification_scope"] == "focused"
+    assert lanes["TS-0001"]["verification_commands"] == ["pytest tests/test_a.py"]
+    assert lanes["TS-0002"]["verification_commands"] == ["pytest tests/test_b.py"]
+    assert lanes["TS-0003"]["verification_commands"] == ["pytest tests/test_a_alt.py"]
+    assert lanes["TS-0004"]["verification_scope"] == "custom"
+    assert lanes["TS-0004"]["verification_commands"] == ["pytest tests/test_retry.py"]
+
+    verify_batches = goal_loop["verification_batches"]
+    assert verify_batches[0]["batch_id"] == "VB-0001"
+    assert verify_batches[0]["lane_ids"] == ["TS-0001", "TS-0002", "TS-0004"]
+    assert verify_batches[0]["task_ids"] == ["task-0001", "task-0002", "task-0004"]
+    assert verify_batches[0]["commands"] == [
+        "devflow task verify task-0001 -- pytest tests/test_a.py",
+        "devflow task verify task-0002 -- pytest tests/test_b.py",
+        "devflow task verify task-0004 -- pytest tests/test_retry.py",
+    ]
+    assert verify_batches[0]["shared_files"] == ["src/a.py", "src/b.py", "src/c.py"]
+    assert verify_batches[0]["verification_scope"] == "mixed"
+    assert verify_batches[1]["lane_ids"] == ["TS-0003"]
+    assert verify_batches[1]["commands"] == [
+        "devflow task verify task-0003 -- pytest tests/test_a_alt.py",
+    ]
+    assert verify_batches[1]["shared_files"] == ["src/a.py"]
 
 
 def test_freshness_loop_asks_when_goal_handoff_contradicts_promoted_task(

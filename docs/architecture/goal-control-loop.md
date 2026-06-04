@@ -26,7 +26,7 @@ Parallelism is allowed at every level only when ownership is explicit:
 - Goal level: a goal can be sliced into tasks with declared risk, execution mode, checkpoint requirement, and parallel-safety hints.
 - Task level: each task owns one isolated workspace or opt-in Git worktree and one active writer lock.
 - Worker level: replaceable workers can run in parallel when their task boundaries, locks, Git baseline, and verification expectations do not conflict.
-- Test level: verification commands are task-local evidence; broader test suites are selected by blast radius before promotion or checkpoint.
+- Test level: verification commands are task-local evidence; the loop projects conflict-aware verification batches from each slice's `verification_policy` so focused tests can run in parallel when their declared file scopes do not overlap. Broader test suites are selected by blast radius before promotion or checkpoint.
 
 Parallel speed comes from small bounded lanes, not from weakening isolation. A fast loop should do cheap state reads, emit compact decisions, and spawn work only when the state says it is safe.
 
@@ -56,9 +56,11 @@ The freshness snapshot includes two loop-control sections:
 
 Lane states are recommendations, not execution. `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. Ready lanes are grouped into `parallel_batches` using declared `shared_files`; lanes in the same batch have no declared shared-file conflict. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
 
+Verification batches are also recommendations, not execution. When a linked task is ready to run or repair verification and its slice declares concrete commands in `verification_policy` (`focused_commands`, `verification_commands`, `test_commands`, `broad_commands`, or related command lists), the loop emits `verification_batches` with `devflow task verify ...` commands grouped by the same declared `shared_files` conflict boundary. This exposes test/process parallelism without starting test processes, rewriting verification evidence, or marking work complete.
+
 The per-goal loop-state files are derived projections, not canonical goal source. They exist so each loop leaves current, inspectable state beside the goal it is evaluating without rewriting the human-authored goal brief, PRD, task slices, or handoff.
 
-For registered project folders, `devflow freshness loop --all-projects` runs the project-local loop for each active registry entry. Each project keeps its own `.devflow/freshness/latest.json`; the registry-level aggregate lives at `~/.devflow/freshness/latest-all-projects.json`. The aggregate is a control-room index over project-local truth, not a replacement for project-local state.
+For registered project folders, `devflow freshness loop --all-projects` runs the project-local loop for each active registry entry. Each project keeps its own `.devflow/freshness/latest.json`; the registry-level aggregate lives at `~/.devflow/freshness/latest-all-projects.json` and rolls up project/goal counts for ready task lanes and verification batches. The aggregate is a control-room index over project-local truth, not a replacement for project-local state.
 
 ## Hermes And Local Models
 
