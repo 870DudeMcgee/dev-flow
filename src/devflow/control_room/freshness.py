@@ -141,7 +141,9 @@ def render_freshness_report(report: FreshnessReport) -> str:
         for goal in report.goal_loop:
             lines.append(
                 f"  - {goal.goal_id}: {goal.loop_state} "
-                f"(ready_parallel={goal.ready_parallel_lane_count}, active={goal.active_task_count}, complete={goal.completed_slice_count}/{goal.total_slices})"
+                f"(ready_parallel={goal.ready_parallel_lane_count}, batches={goal.ready_parallel_batch_count}, "
+                f"conflicts={goal.conflicting_ready_lane_count}, active={goal.active_task_count}, "
+                f"complete={goal.completed_slice_count}/{goal.total_slices})"
             )
             lines.append(f"    next: {goal.next_action}")
     else:

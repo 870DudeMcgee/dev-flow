@@ -194,28 +194,43 @@ task_slices:
     title: Ready parallel slice
     summary: Can start independently.
     parallel_safe: true
+    shared_files: [src/a.py]
     risk: low
     execution_mode: AFK
   - task_id: TS-0002
+    title: Second parallel slice
+    summary: Can run with TS-0001.
+    parallel_safe: true
+    shared_files: [src/b.py]
+    risk: low
+    execution_mode: AFK
+  - task_id: TS-0003
+    title: Conflicting parallel slice
+    summary: Must not run with TS-0001.
+    parallel_safe: true
+    shared_files: [src/a.py]
+    risk: low
+    execution_mode: AFK
+  - task_id: TS-0004
     title: Blocked slice
-    summary: Depends on TS-0003.
-    blocked_by: [TS-0003]
+    summary: Depends on TS-0005.
+    blocked_by: [TS-0005]
     parallel_safe: true
     risk: medium
     execution_mode: HITL
-  - task_id: TS-0003
+  - task_id: TS-0005
     title: Verified linked slice
     summary: Already has verified work.
     parallel_safe: true
     risk: medium
     execution_mode: HITL
-  - task_id: TS-0004
+  - task_id: TS-0006
     title: Running linked slice
     summary: Already has active work.
     parallel_safe: true
     risk: medium
     execution_mode: HITL
-  - task_id: TS-0005
+  - task_id: TS-0007
     title: Closed linked slice
     summary: Has closed evidence, not active promotion work.
     parallel_safe: true
@@ -225,21 +240,21 @@ task_slices:
         encoding="utf-8",
     )
 
-    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0003"]).exit_code == 0
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0005"]).exit_code == 0
     verified = get_task(tmp_path, "task-0001")
     verified.status = "verified"
     verified.verification_status = "passed"
     verified.updated_at = utc_now()
     save_task(tmp_path / ".devflow" / "tasks" / "task-0001", verified)
 
-    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0004"]).exit_code == 0
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0006"]).exit_code == 0
     running = get_task(tmp_path, "task-0002")
     running.status = "running"
     running.verification_status = "pending"
     running.updated_at = utc_now()
     save_task(tmp_path / ".devflow" / "tasks" / "task-0002", running)
 
-    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0005"]).exit_code == 0
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0007"]).exit_code == 0
     closed = get_task(tmp_path, "task-0003")
     closed.status = "closed"
     closed.verification_status = "passed"
@@ -253,21 +268,32 @@ task_slices:
     goal_loop = payload["goal_loop"][0]
     assert goal_loop["goal_id"] == "G-0001"
     assert goal_loop["loop_state"] == "ready_for_parallel_task_creation"
-    assert goal_loop["ready_parallel_lane_count"] == 1
+    assert goal_loop["ready_parallel_lane_count"] == 3
+    assert goal_loop["ready_parallel_batch_count"] == 2
+    assert goal_loop["conflicting_ready_lane_count"] == 1
     assert goal_loop["active_task_count"] == 2
+    assert "Parallel batch PB-0001" in goal_loop["next_action"]
     assert "devflow goal create-task G-0001 TS-0001" in goal_loop["next_action"]
+    assert "devflow goal create-task G-0001 TS-0002" in goal_loop["next_action"]
 
     lanes = {lane["slice_id"]: lane for lane in goal_loop["lanes"]}
     assert lanes["TS-0001"]["lane_state"] == "ready_to_create_task"
     assert lanes["TS-0001"]["command"] == "devflow goal create-task G-0001 TS-0001"
-    assert lanes["TS-0002"]["lane_state"] == "blocked"
-    assert lanes["TS-0002"]["blockers"] == ["TS-0003"]
-    assert lanes["TS-0003"]["lane_state"] == "ready_to_promote"
-    assert lanes["TS-0003"]["command"] == "devflow task promote-preview task-0001"
-    assert lanes["TS-0004"]["lane_state"] == "running"
-    assert lanes["TS-0004"]["command"] == "devflow task show task-0002"
-    assert lanes["TS-0005"]["lane_state"] == "closed"
-    assert lanes["TS-0005"]["command"] == "devflow task show task-0003"
+    assert lanes["TS-0001"]["shared_files"] == ["src/a.py"]
+    assert lanes["TS-0002"]["lane_state"] == "ready_to_create_task"
+    assert lanes["TS-0003"]["lane_state"] == "ready_to_create_task"
+    assert lanes["TS-0004"]["lane_state"] == "blocked"
+    assert lanes["TS-0004"]["blockers"] == ["TS-0005"]
+    assert lanes["TS-0005"]["lane_state"] == "ready_to_promote"
+    assert lanes["TS-0005"]["command"] == "devflow task promote-preview task-0001"
+    assert lanes["TS-0006"]["lane_state"] == "running"
+    assert lanes["TS-0006"]["command"] == "devflow task show task-0002"
+    assert lanes["TS-0007"]["lane_state"] == "closed"
+    assert lanes["TS-0007"]["command"] == "devflow task show task-0003"
+    assert goal_loop["parallel_batches"][0]["lane_ids"] == ["TS-0001", "TS-0002"]
+    assert goal_loop["parallel_batches"][0]["shared_files"] == ["src/a.py", "src/b.py"]
+    assert goal_loop["parallel_batches"][1]["lane_ids"] == ["TS-0003"]
+    assert goal_loop["parallel_batches"][1]["shared_files"] == ["src/a.py"]
 
 
 def test_freshness_loop_asks_when_goal_handoff_contradicts_promoted_task(

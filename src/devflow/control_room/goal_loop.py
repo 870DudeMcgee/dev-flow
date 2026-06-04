@@ -15,8 +15,17 @@ class GoalLoopLane(BaseModel):
     execution_mode: str
     linked_task_ids: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
+    shared_files: list[str] = Field(default_factory=list)
     recommendation: str
     command: str | None = None
+
+
+class GoalParallelBatch(BaseModel):
+    batch_id: str
+    lane_ids: list[str] = Field(default_factory=list)
+    commands: list[str] = Field(default_factory=list)
+    shared_files: list[str] = Field(default_factory=list)
+    reason: str
 
 
 class GoalLoopState(BaseModel):
@@ -29,9 +38,12 @@ class GoalLoopState(BaseModel):
     active_task_count: int
     completed_slice_count: int
     ready_parallel_lane_count: int
+    ready_parallel_batch_count: int = 0
+    conflicting_ready_lane_count: int = 0
     blocked_lane_count: int
     next_action: str
     lanes: list[GoalLoopLane] = Field(default_factory=list)
+    parallel_batches: list[GoalParallelBatch] = Field(default_factory=list)
 
 
 def build_goal_loop_states(
@@ -68,6 +80,8 @@ def build_goal_loop_states(
         )
         completed_slice_count = sum(1 for lane in lanes if lane.lane_state == "complete")
         ready_parallel_lane_count = sum(1 for lane in lanes if lane.lane_state == "ready_to_create_task")
+        parallel_batches = _parallel_batches(lanes)
+        conflicting_ready_lane_count = max(0, ready_parallel_lane_count - len(parallel_batches[0].lane_ids)) if parallel_batches else 0
         blocked_lane_count = sum(1 for lane in lanes if lane.lane_state in {"blocked", "needs_human_review"})
         loop_state = _goal_loop_state(
             goal_state=goal_state,
@@ -88,9 +102,12 @@ def build_goal_loop_states(
                 active_task_count=active_task_count,
                 completed_slice_count=completed_slice_count,
                 ready_parallel_lane_count=ready_parallel_lane_count,
+                ready_parallel_batch_count=len(parallel_batches),
+                conflicting_ready_lane_count=conflicting_ready_lane_count,
                 blocked_lane_count=blocked_lane_count,
-                next_action=_goal_loop_next_action(goal_id, loop_state, lanes),
+                next_action=_goal_loop_next_action(goal_id, loop_state, lanes, parallel_batches),
                 lanes=lanes,
+                parallel_batches=parallel_batches,
             )
         )
     return states
@@ -100,6 +117,7 @@ def _goal_loop_lane(goal_id: str, slice_data: dict[str, Any], linked: list[dict[
     slice_id = str(slice_data.get("task_id") or "unknown-slice")
     title = str(slice_data.get("title") or slice_id)
     blockers = [str(item) for item in slice_data.get("blocked_by") or []]
+    shared_files = sorted({str(item) for item in slice_data.get("shared_files") or [] if str(item).strip()})
     risk = str(slice_data.get("risk") or "medium").lower()
     execution_mode = str(slice_data.get("execution_mode") or "HITL").upper()
     parallel_safe = bool(slice_data.get("parallel_safe"))
@@ -153,6 +171,7 @@ def _goal_loop_lane(goal_id: str, slice_data: dict[str, Any], linked: list[dict[
         execution_mode=execution_mode,
         linked_task_ids=linked_task_ids,
         blockers=blockers,
+        shared_files=shared_files,
         recommendation=recommendation,
         command=command,
     )
@@ -182,8 +201,46 @@ def _goal_loop_state(
     return goal_state
 
 
-def _goal_loop_next_action(goal_id: str, loop_state: str, lanes: list[GoalLoopLane]) -> str:
+def _parallel_batches(lanes: list[GoalLoopLane]) -> list[GoalParallelBatch]:
+    batches: list[dict[str, object]] = []
+    ready = [lane for lane in lanes if lane.lane_state == "ready_to_create_task"]
+    for lane in ready:
+        lane_files = set(lane.shared_files)
+        selected: dict[str, object] | None = None
+        for batch in batches:
+            batch_files = batch["shared_files_set"]
+            if not lane_files or not batch_files or lane_files.isdisjoint(batch_files):  # type: ignore[arg-type]
+                selected = batch
+                break
+        if selected is None:
+            selected = {"lanes": [], "commands": [], "shared_files_set": set()}
+            batches.append(selected)
+        selected["lanes"].append(lane)  # type: ignore[union-attr]
+        if lane.command:
+            selected["commands"].append(lane.command)  # type: ignore[union-attr]
+        selected["shared_files_set"].update(lane_files)  # type: ignore[union-attr]
+
+    return [
+        GoalParallelBatch(
+            batch_id=f"PB-{index:04d}",
+            lane_ids=[lane.slice_id for lane in batch["lanes"]],  # type: ignore[index]
+            commands=list(batch["commands"]),  # type: ignore[arg-type]
+            shared_files=sorted(batch["shared_files_set"]),  # type: ignore[arg-type]
+            reason="Lanes in this batch have no declared shared file conflicts.",
+        )
+        for index, batch in enumerate(batches, start=1)
+    ]
+
+
+def _goal_loop_next_action(
+    goal_id: str,
+    loop_state: str,
+    lanes: list[GoalLoopLane],
+    parallel_batches: list[GoalParallelBatch],
+) -> str:
     if loop_state == "ready_for_parallel_task_creation":
+        if parallel_batches:
+            return "Parallel batch PB-0001: " + "; ".join(parallel_batches[0].commands)
         ready = [lane for lane in lanes if lane.lane_state == "ready_to_create_task"]
         commands = [lane.command for lane in ready if lane.command]
         return "Parallel candidates: " + "; ".join(commands)

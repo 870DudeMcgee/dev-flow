@@ -54,7 +54,7 @@ The freshness snapshot includes two loop-control sections:
 - `.devflow/goals/<goal_id>/loop-state.json`: the latest derived state for one goal, including relevant findings and lane recommendations.
 - `.devflow/freshness/events.jsonl`: append-only loop iteration history with event hashes.
 
-Lane states are recommendations, not execution. `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
+Lane states are recommendations, not execution. `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. Ready lanes are grouped into `parallel_batches` using declared `shared_files`; lanes in the same batch have no declared shared-file conflict. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
 
 The per-goal loop-state files are derived projections, not canonical goal source. They exist so each loop leaves current, inspectable state beside the goal it is evaluating without rewriting the human-authored goal brief, PRD, task slices, or handoff.
 
