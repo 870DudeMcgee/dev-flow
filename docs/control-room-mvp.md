@@ -17,6 +17,7 @@ For details on the project's design and boundaries:
 - [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees, commit-bound verification, Git-native promotion preview, and human-controlled promotion slice.
 - [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md) defines the explicit patch application gating and verification/readiness invalidation gating (Milestones 9 & 10).
 - [docs/architecture/multi-project-registry.md](architecture/multi-project-registry.md) defines the first-class multi-project registry, project creation/import commands, and local-first Git/GitHub publication policy.
+- [docs/architecture/goal-control-loop.md](architecture/goal-control-loop.md) defines the PLC-style goal control loop direction: every iteration checks Git checkpoint/push opportunities first, then reconciles project-local goals, task slices, parallel lanes, verification evidence, and blockers.
 
 
 ## Product Direction
@@ -160,7 +161,7 @@ The orchestration policy form is `devflow task orchestrate <task_id> --plan-only
 
 The guardrail outcome metadata form is `devflow worker validate-outcome <path-to-outcome-json>`. It validates worker outcome metadata and writes validation evidence only. It does not run agents, apply patches, verify code, promote, route models, or mutate `task.yaml`.
 
-The freshness loop form is `devflow freshness loop`. It runs one control-loop iteration against canonical goal and task state, writes a derived snapshot to `.devflow/freshness/latest.json`, and reports stale or contradictory goal/task/handoff guidance. When repair is ambiguous, it exits with a human-decision status instead of rewriting docs or goal artifacts.
+The freshness loop form is `devflow freshness loop`. It runs one control-loop iteration against canonical goal and task state, writes a derived snapshot to `.devflow/freshness/latest.json`, records the loop-start Git checkpoint/push decision, projects per-goal loop state plus parallel-safe task lane recommendations, and reports stale or contradictory goal/task/handoff guidance. When repair is ambiguous, it exits with a human-decision status instead of rewriting docs, goal artifacts, commits, remotes, or spawning workers.
 
 Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
 

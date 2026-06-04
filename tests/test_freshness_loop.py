@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -25,11 +26,159 @@ def test_freshness_loop_writes_clean_snapshot(tmp_path: Path, monkeypatch) -> No
     assert result.exit_code == 0
     assert "Freshness Loop" in result.output
     assert "Status: ok" in result.output
+    assert "Goal Loop" in result.output
     snapshot_path = tmp_path / ".devflow" / "freshness" / "latest.json"
     assert snapshot_path.exists()
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     assert snapshot["status"] == "ok"
     assert snapshot["goals_checked"] == 1
+    assert snapshot["loop_start_git"]["checkpoint_opportunity"] is True
+    assert snapshot["loop_start_git"]["recommended_action"] == "checkpoint_before_more_work"
+
+
+def test_freshness_loop_records_continue_decision_when_git_is_clean(tmp_path: Path, monkeypatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["goal", "init", "--from", "my_goal.md"]).exit_code == 0
+
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "goal baseline"], cwd=tmp_path, check=True)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["loop_start_git"]["recommended_action"] == "continue_loop"
+    assert payload["loop_start_git"]["checkpoint_opportunity"] is False
+    assert payload["loop_start_git"]["push_opportunity"] is False
+
+
+def test_freshness_loop_records_push_opportunity_when_main_is_ahead(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    origin = tmp_path.parent / "origin.git"
+    subprocess.run(["git", "init", "--bare", origin.as_posix()], check=True)
+    subprocess.run(["git", "remote", "add", "origin", origin.as_posix()], cwd=tmp_path, check=True)
+    subprocess.run(["git", "push", "-u", "origin", "main"], cwd=tmp_path, check=True)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["goal", "init", "--from", "my_goal.md"]).exit_code == 0
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "goal baseline"], cwd=tmp_path, check=True)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["loop_start_git"]["recommended_action"] == "push_main"
+    assert payload["loop_start_git"]["push_opportunity"] is True
+    assert payload["loop_start_git"]["command"] == "devflow push-main"
+
+
+def test_freshness_loop_projects_goal_parallel_lanes(tmp_path: Path, monkeypatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement parallel loop lanes.", encoding="utf-8")
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["goal", "init", "--from", "my_goal.md"]).exit_code == 0
+
+    slices_path = tmp_path / ".devflow" / "goals" / "G-0001" / "task-slices.yaml"
+    slices_path.write_text(
+        """
+task_slices:
+  - task_id: TS-0001
+    title: Ready parallel slice
+    summary: Can start independently.
+    parallel_safe: true
+    risk: low
+    execution_mode: AFK
+  - task_id: TS-0002
+    title: Blocked slice
+    summary: Depends on TS-0003.
+    blocked_by: [TS-0003]
+    parallel_safe: true
+    risk: medium
+    execution_mode: HITL
+  - task_id: TS-0003
+    title: Verified linked slice
+    summary: Already has verified work.
+    parallel_safe: true
+    risk: medium
+    execution_mode: HITL
+  - task_id: TS-0004
+    title: Running linked slice
+    summary: Already has active work.
+    parallel_safe: true
+    risk: medium
+    execution_mode: HITL
+  - task_id: TS-0005
+    title: Closed linked slice
+    summary: Has closed evidence, not active promotion work.
+    parallel_safe: true
+    risk: medium
+    execution_mode: HITL
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0003"]).exit_code == 0
+    verified = get_task(tmp_path, "task-0001")
+    verified.status = "verified"
+    verified.verification_status = "passed"
+    verified.updated_at = utc_now()
+    save_task(tmp_path / ".devflow" / "tasks" / "task-0001", verified)
+
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0004"]).exit_code == 0
+    running = get_task(tmp_path, "task-0002")
+    running.status = "running"
+    running.verification_status = "pending"
+    running.updated_at = utc_now()
+    save_task(tmp_path / ".devflow" / "tasks" / "task-0002", running)
+
+    assert runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0005"]).exit_code == 0
+    closed = get_task(tmp_path, "task-0003")
+    closed.status = "closed"
+    closed.verification_status = "passed"
+    closed.updated_at = utc_now()
+    save_task(tmp_path / ".devflow" / "tasks" / "task-0003", closed)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    goal_loop = payload["goal_loop"][0]
+    assert goal_loop["goal_id"] == "G-0001"
+    assert goal_loop["loop_state"] == "ready_for_parallel_task_creation"
+    assert goal_loop["ready_parallel_lane_count"] == 1
+    assert goal_loop["active_task_count"] == 2
+    assert "devflow goal create-task G-0001 TS-0001" in goal_loop["next_action"]
+
+    lanes = {lane["slice_id"]: lane for lane in goal_loop["lanes"]}
+    assert lanes["TS-0001"]["lane_state"] == "ready_to_create_task"
+    assert lanes["TS-0001"]["command"] == "devflow goal create-task G-0001 TS-0001"
+    assert lanes["TS-0002"]["lane_state"] == "blocked"
+    assert lanes["TS-0002"]["blockers"] == ["TS-0003"]
+    assert lanes["TS-0003"]["lane_state"] == "ready_to_promote"
+    assert lanes["TS-0003"]["command"] == "devflow task promote-preview task-0001"
+    assert lanes["TS-0004"]["lane_state"] == "running"
+    assert lanes["TS-0004"]["command"] == "devflow task show task-0002"
+    assert lanes["TS-0005"]["lane_state"] == "closed"
+    assert lanes["TS-0005"]["command"] == "devflow task show task-0003"
 
 
 def test_freshness_loop_asks_when_goal_handoff_contradicts_promoted_task(

@@ -10,6 +10,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field
 
+from devflow.control_room.goal_loop import GoalLoopState, build_goal_loop_states
 from devflow.control_room.paths import devflow_dir, goal_dir, goals_dir, relative_path, task_dir
 from devflow.control_room.persistence import atomic_write_text, list_tasks
 
@@ -29,11 +30,28 @@ class FreshnessFinding(BaseModel):
     suggested_action: str
 
 
+class LoopStartGitDecision(BaseModel):
+    is_repo: bool
+    branch: str | None = None
+    head_sha: str | None = None
+    clean: bool
+    checkpoint_opportunity: bool
+    push_opportunity: bool
+    recommended_action: str
+    command: str | None = None
+    reason: str
+    changed_file_count: int = 0
+    main_ahead_origin_main: int | None = None
+    main_behind_origin_main: int | None = None
+
+
 class FreshnessReport(BaseModel):
     schema_version: int = 1
     generated_at: str
     status: FreshnessStatus
     state_hash: str
+    loop_start_git: LoopStartGitDecision
+    goal_loop: list[GoalLoopState] = Field(default_factory=list)
     goals_checked: int
     tasks_checked: int
     linked_tasks_checked: int
@@ -47,18 +65,29 @@ class FreshnessReport(BaseModel):
 def run_freshness_loop(root: Path, *, write_snapshot: bool = True) -> FreshnessReport:
     """Run one freshness-control iteration and update derived freshness state."""
     findings: list[FreshnessFinding] = []
+    loop_start_git = _loop_start_git_decision(root)
     linked_tasks = _linked_tasks_by_goal_slice(root, findings)
     goals = _goal_ids(root)
+    goal_slices = {goal_id: _load_goal_slices(root, goal_id, findings) for goal_id in goals}
 
     for goal_id in goals:
-        _check_goal_against_linked_tasks(root, goal_id, linked_tasks.get(goal_id, {}), findings)
+        _check_goal_against_linked_tasks(
+            root,
+            goal_id,
+            linked_tasks.get(goal_id, {}),
+            goal_slices.get(goal_id, []),
+            findings,
+        )
 
     status = _status_for(findings)
-    state_hash = _state_hash(root, goals, linked_tasks, findings)
+    goal_loop = build_goal_loop_states(root, goals, goal_slices, linked_tasks)
+    state_hash = _state_hash(root, goals, linked_tasks, findings, goal_loop)
     report = FreshnessReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         status=status,
         state_hash=state_hash,
+        loop_start_git=loop_start_git,
+        goal_loop=goal_loop,
         goals_checked=len(goals),
         tasks_checked=len(list_tasks(root)),
         linked_tasks_checked=sum(len(tasks) for slices in linked_tasks.values() for tasks in slices.values()),
@@ -84,14 +113,38 @@ def render_freshness_report(report: FreshnessReport) -> str:
         f"Snapshot: {report.snapshot_path}",
         f"State hash: {report.state_hash}",
         "",
-        "State Tested",
-        f"  Goals: {report.goals_checked}",
-        f"  Tasks: {report.tasks_checked}",
-        f"  Linked tasks: {report.linked_tasks_checked}",
-        f"  Stale findings: {report.stale_count}",
-        f"  Human decisions: {report.needs_human_decision_count}",
-        "",
+        "Loop Start Git Decision",
+        f"  Recommended: {report.loop_start_git.recommended_action}",
+        f"  Reason: {report.loop_start_git.reason}",
+        f"  Clean: {'yes' if report.loop_start_git.clean else 'no'}",
+        f"  Checkpoint opportunity: {'yes' if report.loop_start_git.checkpoint_opportunity else 'no'}",
+        f"  Push opportunity: {'yes' if report.loop_start_git.push_opportunity else 'no'}",
     ]
+    if report.loop_start_git.command:
+        lines.append(f"  Command: {report.loop_start_git.command}")
+    lines.extend(
+        [
+            "",
+            "State Tested",
+            f"  Goals: {report.goals_checked}",
+            f"  Tasks: {report.tasks_checked}",
+            f"  Linked tasks: {report.linked_tasks_checked}",
+            f"  Stale findings: {report.stale_count}",
+            f"  Human decisions: {report.needs_human_decision_count}",
+            "",
+            "Goal Loop",
+        ]
+    )
+    if report.goal_loop:
+        for goal in report.goal_loop:
+            lines.append(
+                f"  - {goal.goal_id}: {goal.loop_state} "
+                f"(ready_parallel={goal.ready_parallel_lane_count}, active={goal.active_task_count}, complete={goal.completed_slice_count}/{goal.total_slices})"
+            )
+            lines.append(f"    next: {goal.next_action}")
+    else:
+        lines.append("  None")
+    lines.append("")
     if report.findings:
         lines.append("Findings")
         for finding in report.findings:
@@ -115,6 +168,99 @@ def render_freshness_report(report: FreshnessReport) -> str:
 
 def _freshness_snapshot_path(root: Path) -> Path:
     return devflow_dir(root) / "freshness" / "latest.json"
+
+
+def _loop_start_git_decision(root: Path) -> LoopStartGitDecision:
+    from devflow.control_room.git_state import inspect_git_state
+
+    state = inspect_git_state(root)
+    if not state.is_repo:
+        return LoopStartGitDecision(
+            is_repo=False,
+            clean=True,
+            checkpoint_opportunity=False,
+            push_opportunity=False,
+            recommended_action="skip_git",
+            reason="This project is not inside a Git repository.",
+        )
+
+    changed_count = state.counts.staged + state.counts.unstaged + state.counts.untracked + len(state.conflicted_files)
+
+    base = {
+        "is_repo": True,
+        "branch": state.branch,
+        "head_sha": state.head_sha,
+        "clean": not state.dirty,
+        "changed_file_count": changed_count,
+        "main_ahead_origin_main": state.main_ahead_origin_main,
+        "main_behind_origin_main": state.main_behind_origin_main,
+    }
+    if state.operation_in_progress:
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=False,
+            push_opportunity=False,
+            recommended_action="resolve_git_operation",
+            reason=f"Git {state.operation_in_progress} is in progress.",
+        )
+    if state.conflicted_files:
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=False,
+            push_opportunity=False,
+            recommended_action="resolve_conflicts",
+            reason="Conflicted files are present.",
+        )
+    if state.branch != "main":
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=False,
+            push_opportunity=False,
+            recommended_action="return_to_main_before_checkpoint",
+            reason=f"Current branch is {state.branch or 'detached'}, so Dev-Flow will not checkpoint or push main.",
+        )
+    if state.main_diverged_origin_main:
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=False,
+            push_opportunity=False,
+            recommended_action="resolve_main_divergence",
+            reason="Local main and origin/main have diverged.",
+        )
+    if state.main_behind_origin_main and state.main_behind_origin_main > 0:
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=False,
+            push_opportunity=False,
+            recommended_action="sync_main",
+            command="devflow sync-main",
+            reason="origin/main is ahead of local main.",
+        )
+    if state.dirty:
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=True,
+            push_opportunity=False,
+            recommended_action="checkpoint_before_more_work",
+            command="devflow git checkpoint --message 'chore: checkpoint verified work'",
+            reason="The working tree has local changes; decide whether they are verified and should become a checkpoint before starting more loop work.",
+        )
+    if state.safe_for_push and state.main_ahead_origin_main and state.main_ahead_origin_main > 0:
+        return LoopStartGitDecision(
+            **base,
+            checkpoint_opportunity=False,
+            push_opportunity=True,
+            recommended_action="push_main",
+            command="devflow push-main",
+            reason="Local main is clean and ahead of origin/main.",
+        )
+    return LoopStartGitDecision(
+        **base,
+        checkpoint_opportunity=False,
+        push_opportunity=False,
+        recommended_action="continue_loop",
+        reason="Main is clean and has no immediate checkpoint or push opportunity.",
+    )
 
 
 def _goal_ids(root: Path) -> list[str]:
@@ -181,10 +327,10 @@ def _check_goal_against_linked_tasks(
     root: Path,
     goal_id: str,
     linked_slices: dict[str, list[dict[str, str]]],
+    slices: list[dict[str, Any]],
     findings: list[FreshnessFinding],
 ) -> None:
     slices_path = goal_dir(root, goal_id) / "task-slices.yaml"
-    slices = _load_goal_slices(root, goal_id, findings)
     slice_ids = [slice_data["task_id"] for slice_data in slices if slice_data.get("task_id")]
     promoted_slice_ids = [
         slice_id
@@ -309,11 +455,13 @@ def _state_hash(
     goal_ids: list[str],
     linked_tasks: dict[str, dict[str, list[dict[str, str]]]],
     findings: list[FreshnessFinding],
+    goal_loop: list[GoalLoopState],
 ) -> str:
     payload = {
         "goal_ids": goal_ids,
         "linked_tasks": linked_tasks,
         "findings": [finding.model_dump() for finding in findings],
+        "goal_loop": [goal.model_dump() for goal in goal_loop],
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
