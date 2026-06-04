@@ -186,3 +186,34 @@ def test_init_and_strict_doctor_print_trusted_local_warning(tmp_path: Path) -> N
         assert "shell execution is path-isolated, not sandboxed" in doctor_result.output
     finally:
         os.chdir(old_cwd)
+
+
+def test_doctor_macos_hidden_flag(tmp_path: Path) -> None:
+    import sys
+    if sys.platform != "darwin":
+        return
+
+    init_control_room(tmp_path)
+
+    # Make a dummy site packages dir inside tmp_path
+    site_packages = tmp_path / "venv" / "lib" / "site-packages"
+    site_packages.mkdir(parents=True, exist_ok=True)
+
+    sys.path.append(str(site_packages))
+    try:
+        checks = doctor(tmp_path)
+        assert not any(name.startswith("python path check") for name, ok, detail in checks)
+
+        # Now set hidden flag on the venv dir
+        venv_dir = tmp_path / "venv"
+        subprocess.run(["chflags", "hidden", str(venv_dir)], check=True)
+        try:
+            checks_hidden = doctor(tmp_path)
+            hidden_checks = [c for c in checks_hidden if c[0].startswith("python path check")]
+            assert len(hidden_checks) == 1
+            assert hidden_checks[0][1] is False
+            assert "macOS hidden flag set on" in hidden_checks[0][2]
+        finally:
+            subprocess.run(["chflags", "nohidden", str(venv_dir)], check=True)
+    finally:
+        sys.path.remove(str(site_packages))

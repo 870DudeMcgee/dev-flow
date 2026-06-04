@@ -480,6 +480,32 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
         ("tasks directory", tasks_dir(root).exists(), str(tasks_dir(root))),
         ("workspaces directory", workspaces_dir(root).exists(), str(workspaces_dir(root))),
     ]
+    import sys
+    import os
+    if sys.platform == "darwin":
+        for path_str in sys.path:
+            if not path_str:
+                continue
+            try:
+                path = Path(path_str).resolve()
+            except Exception:
+                continue
+            try:
+                abs_root = root.resolve()
+                if abs_root in path.parents or path == abs_root:
+                    curr = path
+                    while curr != abs_root and curr != curr.parent:
+                        st = os.stat(curr)
+                        if hasattr(st, "st_flags") and (st.st_flags & 0x8000):
+                            checks.append((
+                                f"python path check ({curr.name})",
+                                False,
+                                f"macOS hidden flag set on {curr} - run 'chflags -R nohidden {curr}' to fix ModuleNotFoundError"
+                            ))
+                            break
+                        curr = curr.parent
+            except Exception:
+                pass
     if seed_errors:
         checks.append(("seed contract", False, "; ".join(seed_errors)))
     elif devflow_dir(root).exists():
