@@ -32,6 +32,7 @@ class TaskPacketLimits(BaseModel):
     worker_log_tail_lines: int = Field(default=20, ge=0)
     verify_log_tail_lines: int = Field(default=20, ge=0)
     log_tail_bytes: int = Field(default=8192, ge=0)
+    code_map_excerpt_lines: int = Field(default=80, ge=0)
 
 
 class TaskPacketLog(BaseModel):
@@ -76,6 +77,7 @@ class TaskPacket(BaseModel):
     context_budget: dict[str, Any] | None = None
     verification_policy: dict[str, Any] | None = None
     bounded_sources: dict[str, Any] | None = None
+    code_map_excerpt: dict[str, Any] | None = None
     operator_warnings: list[str] = Field(default_factory=list)
     next_action: dict[str, Any] | None = None
     devmode_discipline: list[str] = Field(default_factory=list)
@@ -479,6 +481,19 @@ def render_task_packet_text(packet: TaskPacket) -> str:
             for line in content_str.splitlines():
                 lines.append(f"  > {line}")
             lines.append("")
+
+    if packet.code_map_excerpt:
+        cm = packet.code_map_excerpt
+        lines.append("## Project Code Map")
+        lines.append(f"- **Path**: {cm.get('path')}")
+        if cm.get("truncated"):
+            lines.append(f"- **Excerpt**: first {cm.get('included_lines')} of {cm.get('line_count')} line(s)")
+        else:
+            lines.append(f"- **Excerpt**: {cm.get('included_lines')} line(s)")
+        lines.append("")
+        for line in cm.get("lines") or []:
+            lines.append(f"> {line}")
+        lines.append("")
             
     if packet.devmode_discipline:
         lines.append("## DevMode Discipline")
@@ -549,6 +564,7 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         packet_limits.log_tail_bytes,
         notes,
     )
+    code_map_excerpt = _read_code_map_excerpt(repo_root, packet_limits.code_map_excerpt_lines, notes)
     adapter = task.worker_adapter or task.worker
 
     # Path Virtualization Slices
@@ -706,6 +722,7 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
             context_budget=context_budget,
             verification_policy=verification_policy,
             bounded_sources=bounded_sources,
+            code_map_excerpt=code_map_excerpt,
             operator_warnings=operator_warnings,
             next_action=next_action,
             devmode_discipline=devmode_discipline_lines(repo_root),
@@ -986,6 +1003,29 @@ def _tail_log(repo_root: Path, path: Path, label: str, line_limit: int, byte_lim
         omitted_bytes=omitted_bytes,
         truncated=omitted_lines > 0 or omitted_bytes > 0,
     )
+
+
+def _read_code_map_excerpt(repo_root: Path, line_limit: int, notes: list[str]) -> dict[str, Any] | None:
+    path = repo_root / "CODE_MAP.md"
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        notes.append(f"CODE_MAP.md could not be read: {exc}")
+        return None
+    included = lines[:line_limit] if line_limit else []
+    omitted = max(len(lines) - len(included), 0)
+    if omitted:
+        notes.append(f"Included first {len(included)} of {len(lines)} CODE_MAP.md line(s).")
+    return {
+        "path": "CODE_MAP.md",
+        "lines": included,
+        "line_count": len(lines),
+        "included_lines": len(included),
+        "omitted_lines": omitted,
+        "truncated": omitted > 0,
+    }
 
 
 def _constraints(virtual_workspace_path: str) -> list[str]:

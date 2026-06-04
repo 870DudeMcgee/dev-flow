@@ -6,7 +6,7 @@ from pathlib import Path
 
 from devflow.control_room.service import create_task, verify_task
 from devflow.control_room.agent_registry import load_agent_registry
-from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packet, build_task_packet
+from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packet, build_task_packet, render_task_packet_text
 
 
 def test_task_packet_canonical_files_precedence_on_conflict() -> None:
@@ -220,6 +220,70 @@ def test_task_packet_missing_optional_logs_do_not_crash() -> None:
         assert packet.logs["verify"].tail == []
         assert packet.logs["verify"].line_count == 0
         assert packet.logs["verify"].omitted_lines == 0
+
+
+def test_task_packet_omits_code_map_excerpt_when_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "No map")
+
+        packet = build_task_packet("task-0001", root=root)
+
+        assert packet.code_map_excerpt is None
+
+
+def test_task_packet_includes_bounded_code_map_excerpt() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "With map")
+        (root / "CODE_MAP.md").write_text(
+            "# Code Map\n\n## What this repo does\n\nDev-Flow coordinates workers.\n",
+            encoding="utf-8",
+        )
+
+        packet = build_task_packet("task-0001", root=root)
+
+        assert packet.code_map_excerpt is not None
+        assert packet.code_map_excerpt["path"] == "CODE_MAP.md"
+        assert packet.code_map_excerpt["lines"] == [
+            "# Code Map",
+            "",
+            "## What this repo does",
+            "",
+            "Dev-Flow coordinates workers.",
+        ]
+        assert packet.code_map_excerpt["truncated"] is False
+        assert packet.code_map_excerpt["omitted_lines"] == 0
+
+
+def test_task_packet_truncates_code_map_excerpt_by_limit() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "Long map")
+        (root / "CODE_MAP.md").write_text("\n".join(f"line {index}" for index in range(1, 6)) + "\n", encoding="utf-8")
+
+        packet = build_task_packet("task-0001", TaskPacketLimits(code_map_excerpt_lines=2), root=root)
+
+        assert packet.code_map_excerpt is not None
+        assert packet.code_map_excerpt["lines"] == ["line 1", "line 2"]
+        assert packet.code_map_excerpt["line_count"] == 5
+        assert packet.code_map_excerpt["included_lines"] == 2
+        assert packet.code_map_excerpt["omitted_lines"] == 3
+        assert packet.code_map_excerpt["truncated"] is True
+        assert "Included first 2 of 5 CODE_MAP.md line(s)." in packet.truncation_notes
+
+
+def test_task_packet_text_renders_code_map_excerpt() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        create_task(root, "Render map")
+        (root / "CODE_MAP.md").write_text("# Code Map\n\n## Layout\n\n- `src/`\n", encoding="utf-8")
+
+        rendered = render_task_packet_text(build_task_packet("task-0001", root=root))
+
+        assert "## Project Code Map" in rendered
+        assert "- **Path**: CODE_MAP.md" in rendered
+        assert "> # Code Map" in rendered
 
 
 def test_task_packet_ignores_stale_authoritative_summary_fields() -> None:
