@@ -19,7 +19,7 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Current production hardening slice: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md)
+Current production hardening slice: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) and [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md)
 
 Next architecture direction: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing defined in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 
@@ -327,7 +327,7 @@ Boundary: no mutation. Patch dry-run writes `patch-dry-run.json` and `patch-dry-
 
 ## Milestone 9: Explicit Reviewed Patch Apply To Isolated Workspace
 
-Status: next recommended implementation milestone.
+Status: implemented. Gating details and pre-conditions are documented in [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md).
 
 Goal: harden explicit patch application so it requires fresh acceptable patch review and dry-run evidence before mutating the isolated task workspace.
 
@@ -335,7 +335,7 @@ Boundary: patch application remains the explicit mutation boundary. It must not 
 
 ## Milestone 10: Verification/Readiness Hardening Around Applied Patches
 
-Status: in progress.
+Status: implemented. State transitions and gating logic are documented in [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md).
 
 Goal: tighten verification and readiness evidence around applied patches while keeping verification separate from apply-patch and promotion.
 
