@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,12 @@ from typer.testing import CliRunner
 from devflow.cli import app
 from devflow.control_room.persistence import get_task, save_task, utc_now
 from tests.helpers import setup_temp_git_repo
+
+
+def _devflow_home(tmp_path: Path, monkeypatch) -> Path:
+    home = tmp_path / "home" / ".devflow"
+    monkeypatch.setenv("DEVFLOW_HOME", home.as_posix())
+    return home
 
 
 def test_freshness_loop_writes_clean_snapshot(tmp_path: Path, monkeypatch) -> None:
@@ -85,6 +92,58 @@ def test_freshness_loop_records_push_opportunity_when_main_is_ahead(
     assert payload["loop_start_git"]["recommended_action"] == "push_main"
     assert payload["loop_start_git"]["push_opportunity"] is True
     assert payload["loop_start_git"]["command"] == "devflow push-main"
+
+
+def test_freshness_loop_all_projects_updates_registered_project_snapshots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = _devflow_home(tmp_path, monkeypatch)
+    projects_root = tmp_path / "projects"
+    runner = CliRunner()
+
+    alpha = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
+    beta = runner.invoke(app, ["project", "create", "Beta App", "--projects-root", projects_root.as_posix()])
+    assert alpha.exit_code == 0, alpha.output
+    assert beta.exit_code == 0, beta.output
+
+    alpha_root = projects_root / "alpha-app"
+    brief_path = alpha_root / "goal.md"
+    brief_path.write_text("## Goal Brief\nCoordinate parallel project work.", encoding="utf-8")
+    monkeypatch.chdir(alpha_root)
+    assert runner.invoke(app, ["goal", "init", "--from", "goal.md"]).exit_code == 0
+    (alpha_root / ".devflow" / "goals" / "G-0001" / "task-slices.yaml").write_text(
+        """
+task_slices:
+  - task_id: TS-0001
+    title: Parallel project slice
+    summary: Safe project-local work.
+    parallel_safe: true
+    risk: low
+    execution_mode: AFK
+""".lstrip(),
+        encoding="utf-8",
+    )
+    shutil.rmtree(projects_root / "beta-app")
+
+    result = runner.invoke(app, ["freshness", "loop", "--all-projects", "--json"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.output)
+    assert payload["status"] == "needs_human_decision"
+    assert payload["projects_checked"] == 2
+    assert payload["missing_project_count"] == 1
+    assert payload["snapshot_path"] == (home / "freshness" / "latest-all-projects.json").as_posix()
+    assert (home / "freshness" / "latest-all-projects.json").is_file()
+    assert (alpha_root / ".devflow" / "freshness" / "latest.json").is_file()
+
+    projects = {project["project_id"]: project for project in payload["projects"]}
+    assert projects["alpha-app"]["path_status"] == "present"
+    assert projects["alpha-app"]["goals"][0]["goal_id"] == "G-0001"
+    assert projects["alpha-app"]["goals"][0]["ready_parallel_lane_count"] == 1
+    assert projects["alpha-app"]["checkpoint_opportunity"] is True
+    assert projects["beta-app"]["path_status"] == "missing"
+    assert projects["beta-app"]["status"] == "missing"
 
 
 def test_freshness_loop_projects_goal_parallel_lanes(tmp_path: Path, monkeypatch) -> None:

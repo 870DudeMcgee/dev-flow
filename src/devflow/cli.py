@@ -135,10 +135,25 @@ app.add_typer(freshness_app, name="freshness")
 @freshness_app.command("loop")
 def freshness_loop(
     json_output: bool = typer.Option(False, "--json", help="Print the loop report as JSON."),
+    all_projects: bool = typer.Option(False, "--all-projects", help="Run the loop across every registered project."),
 ) -> None:
     """Run one freshness-control loop iteration and update derived state."""
-    from devflow.control_room.freshness import render_freshness_report, run_freshness_loop
+    if all_projects:
+        from devflow.control_room.multi_project_freshness import (
+            render_multi_project_freshness_report,
+            run_multi_project_freshness_loop,
+        )
 
+        report = run_multi_project_freshness_loop()
+        if json_output:
+            typer.echo(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+        else:
+            typer.echo(render_multi_project_freshness_report(report), nl=False)
+        if report.status == "needs_human_decision":
+            raise typer.Exit(code=2)
+        return
+
+    from devflow.control_room.freshness import render_freshness_report, run_freshness_loop
     report = run_freshness_loop(Path.cwd())
     if json_output:
         typer.echo(json.dumps(report.model_dump(), indent=2, sort_keys=True))

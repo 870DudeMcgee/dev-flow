@@ -54,6 +54,8 @@ The freshness snapshot includes two loop-control sections:
 
 Lane states are recommendations, not execution. `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
 
+For registered project folders, `devflow freshness loop --all-projects` runs the project-local loop for each active registry entry. Each project keeps its own `.devflow/freshness/latest.json`; the registry-level aggregate lives at `~/.devflow/freshness/latest-all-projects.json`. The aggregate is a control-room index over project-local truth, not a replacement for project-local state.
+
 ## Hermes And Local Models
 
 Hermes can be an external operator or chat gateway over supervisor-safe Dev-Flow commands. A local model such as Qwopus can contribute bounded evidence, patch proposals, review notes, or goal-satisfaction judgments through the agent registry. Dev-Flow still owns the state machine, locks, verification, checkpoint decisions, merge readiness, and human-controlled publication.
