@@ -1,0 +1,34 @@
+#!/bin/bash
+# df - Dev-Flow local bootstrap wrapper with environment diagnostics
+
+# 1. Virtual Environment Existence Check
+if [ ! -f ".venv/bin/devflow" ]; then
+    echo "Error: Virtual environment or devflow entrypoint (.venv/bin/devflow) not found." >&2
+    echo "Please install devflow in editable mode first:" >&2
+    echo "    .venv/bin/python -m pip install -e ." >&2
+    exit 1
+fi
+
+# 2. Check python import path health
+if ! .venv/bin/python -c "import devflow" 2>/dev/null; then
+    # Import failed, check for macOS hidden flags on site-packages
+    if [ "$(uname)" = "Darwin" ]; then
+        # Search site-packages specifically for the hidden flag
+        SITE_PACKAGES_HIDDEN=$(find .venv/lib -name "site-packages" -flags +hidden 2>/dev/null | wc -l)
+        if [ "$SITE_PACKAGES_HIDDEN" -gt 0 ]; then
+            echo "Error: macOS hidden flags detected on .venv/lib/.../site-packages." >&2
+            echo "This prevents Python from resolving the editable install of 'devflow'." >&2
+            echo "Please run the following command to repair your environment:" >&2
+            echo "    find .venv -flags +hidden -print0 | xargs -0 chflags -h nohidden" >&2
+            exit 1
+        fi
+    fi
+    
+    # Otherwise, print the actual import error for debugging
+    echo "Error: Failed to import devflow. Output from import check:" >&2
+    .venv/bin/python -c "import devflow" >&2
+    exit 1
+fi
+
+# 3. Delegate to the actual venv devflow entrypoint
+exec .venv/bin/devflow "$@"
