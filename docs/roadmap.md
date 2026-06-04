@@ -343,11 +343,11 @@ Initial hardening slice: applying a reviewed patch invalidates prior verificatio
 
 ## Milestone 11: Project Code Map MVP
 
-Status: 11C active (implementation). Contract: [docs/architecture/project-code-map-mvp.md](architecture/project-code-map-mvp.md). 11A (contract) and 11B (`map init`) are complete.
+Status: 11D active (implementation). Contract: [docs/architecture/project-code-map-mvp.md](architecture/project-code-map-mvp.md). 11A (contract), 11B (`map init`), and 11C (`map show`) are complete.
 
 Goal: introduce a compact project orientation layer, likely `CODE_MAP.md` with an optional `.code-map.yaml` companion, so workers can orient before broad repo scans.
 
-Boundary: future map commands such as `devflow map init`, `devflow map show`, and `devflow map check` do not exist yet.
+Boundary: `devflow map init` and `devflow map show` are implemented. The current narrow slice is `devflow map check`; task-packet integration remains future work.
 
 ## Milestone 12: Idea Foundry MVP
 
@@ -358,7 +358,7 @@ Goal: capture raw ideas, classify them later, link them to project/goal context,
 Boundary: future idea commands such as `devflow idea capture`, `devflow idea classify`, and `devflow idea promote` do not exist yet.
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 11C, `devflow map show` implementation. The 11B slice (`map init`) is complete. The 11C slice adds `map_show` to `code_map.py`, the `devflow map show` CLI command, and focused tests. Keep `map check`, task-packet integration, provider-backed adapters, routing, databases, web dashboards, and autonomous behavior out of this slice.
+> **Next Priority**: Milestone 11D, `devflow map check` implementation. The 11A contract, 11B `map init`, and 11C `map show` slices are complete. The 11D slice adds `map_check` to `code_map.py`, the `devflow map check` CLI command, and focused tests. Keep task-packet integration, provider-backed adapters, routing, databases, web dashboards, and autonomous behavior out of this slice.
 
 ## Later, Not Now
 

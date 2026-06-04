@@ -3820,5 +3820,40 @@ def map_show_command() -> None:
     typer.echo(content, nl=False)
 
 
+@map_app.command("check")
+def map_check_command() -> None:
+    """Validate CODE_MAP.md required sections and entry-point paths."""
+    from devflow.control_room.code_map import CodeMapError, map_check
+
+    try:
+        result = map_check(Path.cwd())
+    except CodeMapError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if result.ok:
+        typer.echo("CODE_MAP.md check passed")
+        if result.checked_paths:
+            typer.echo("checked entry points:")
+            for path in result.checked_paths:
+                typer.echo(f"  - {path}")
+        return
+
+    typer.echo("CODE_MAP.md check failed", err=True)
+    if result.missing_sections:
+        typer.echo("missing sections:", err=True)
+        for section in result.missing_sections:
+            typer.echo(f"  - {section}", err=True)
+    if result.unfilled_sections:
+        typer.echo("unfilled sections:", err=True)
+        for section in result.unfilled_sections:
+            typer.echo(f"  - {section}", err=True)
+    if result.broken_paths:
+        typer.echo("broken entry-point paths:", err=True)
+        for path in result.broken_paths:
+            typer.echo(f"  - {path}", err=True)
+    raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     main()
