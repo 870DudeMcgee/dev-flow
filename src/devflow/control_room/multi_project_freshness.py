@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,37 +67,28 @@ class MultiProjectFreshnessReport(BaseModel):
     projects: list[ProjectFreshnessSummary] = Field(default_factory=list)
 
 
-def run_multi_project_freshness_loop(*, write_snapshot: bool = True) -> MultiProjectFreshnessReport:
-    projects: list[ProjectFreshnessSummary] = []
-    for record in list_project_records():
-        root = Path(record.path).expanduser().resolve()
-        if not root.is_dir():
-            projects.append(
-                ProjectFreshnessSummary(
-                    project_id=record.project_id,
-                    path=root.as_posix(),
-                    path_status="missing",
-                    status="missing",
-                    next_action=f"Run `devflow project doctor {record.project_id}` and repair or archive the registry entry.",
-                    error="project path is missing",
-                )
-            )
-            continue
-        try:
-            report = run_freshness_loop(root, write_snapshot=write_snapshot)
-        except Exception as exc:
-            projects.append(
-                ProjectFreshnessSummary(
-                    project_id=record.project_id,
-                    path=root.as_posix(),
-                    path_status="present",
-                    status="failed",
-                    next_action=f"Run `devflow project doctor {record.project_id}` and inspect the project-local freshness inputs.",
-                    error=str(exc),
-                )
-            )
-            continue
-        projects.append(_project_summary(record.project_id, root, report))
+def run_multi_project_freshness_loop(
+    *,
+    write_snapshot: bool = True,
+    max_parallel: int = 4,
+) -> MultiProjectFreshnessReport:
+    if max_parallel < 1:
+        raise ValueError("max_parallel must be at least 1.")
+
+    records = list_project_records()
+    indexed_records = list(enumerate(records))
+    projects_by_index: dict[int, ProjectFreshnessSummary] = {}
+    worker_count = min(max_parallel, len(indexed_records)) or 1
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(_scan_registered_project, record, write_snapshot=write_snapshot): index
+            for index, record in indexed_records
+        }
+        for future in as_completed(futures):
+            projects_by_index[futures[future]] = future.result()
+
+    projects = [projects_by_index[index] for index, _record in indexed_records]
 
     status = _aggregate_status(projects)
     report = MultiProjectFreshnessReport(
@@ -116,6 +108,31 @@ def run_multi_project_freshness_loop(*, write_snapshot: bool = True) -> MultiPro
     if write_snapshot:
         atomic_write_text(_aggregate_snapshot_path(), json.dumps(report.model_dump(), indent=2, sort_keys=True) + "\n")
     return report
+
+
+def _scan_registered_project(record, *, write_snapshot: bool) -> ProjectFreshnessSummary:
+    root = Path(record.path).expanduser().resolve()
+    if not root.is_dir():
+        return ProjectFreshnessSummary(
+            project_id=record.project_id,
+            path=root.as_posix(),
+            path_status="missing",
+            status="missing",
+            next_action=f"Run `devflow project doctor {record.project_id}` and repair or archive the registry entry.",
+            error="project path is missing",
+        )
+    try:
+        report = run_freshness_loop(root, write_snapshot=write_snapshot)
+    except Exception as exc:
+        return ProjectFreshnessSummary(
+            project_id=record.project_id,
+            path=root.as_posix(),
+            path_status="present",
+            status="failed",
+            next_action=f"Run `devflow project doctor {record.project_id}` and inspect the project-local freshness inputs.",
+            error=str(exc),
+        )
+    return _project_summary(record.project_id, root, report)
 
 
 def render_multi_project_freshness_report(report: MultiProjectFreshnessReport) -> str:

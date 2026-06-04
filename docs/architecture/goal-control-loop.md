@@ -62,7 +62,7 @@ The first execution helper for verification batches is task-grained. `devflow fr
 
 The per-goal loop-state files are derived projections, not canonical goal source. They exist so each loop leaves current, inspectable state beside the goal it is evaluating without rewriting the human-authored goal brief, PRD, task slices, or handoff.
 
-For registered project folders, `devflow freshness loop --all-projects` runs the project-local loop for each active registry entry. Each project keeps its own `.devflow/freshness/latest.json`; the registry-level aggregate lives at `~/.devflow/freshness/latest-all-projects.json` and rolls up project/goal counts for ready task lanes and verification batches. The aggregate is a control-room index over project-local truth, not a replacement for project-local state.
+For registered project folders, `devflow freshness loop --all-projects` runs the project-local loop for each active registry entry with bounded concurrency. Each project keeps its own `.devflow/freshness/latest.json`; the registry-level aggregate lives at `~/.devflow/freshness/latest-all-projects.json`, is reassembled in registry order, and rolls up project/goal counts for ready task lanes and verification batches. The aggregate is a control-room index over project-local truth, not a replacement for project-local state.
 
 ## Hermes And Local Models
 

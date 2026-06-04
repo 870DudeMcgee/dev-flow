@@ -71,6 +71,7 @@ class BoundedMultiProjectFreshnessRun(BaseModel):
     run_id: str
     status: BoundedFreshnessRunStatus
     max_iterations: int
+    max_parallel: int
     started_at: str
     finished_at: str
     iterations: list[BoundedMultiProjectFreshnessIteration] = Field(default_factory=list)
@@ -196,6 +197,7 @@ def run_bounded_freshness_control(
 def run_bounded_multi_project_freshness_control(
     *,
     max_iterations: int = 3,
+    max_parallel: int = 4,
     write_report: bool = True,
 ) -> BoundedMultiProjectFreshnessRun:
     """Run bounded read-mostly freshness iterations across registered projects."""
@@ -203,6 +205,8 @@ def run_bounded_multi_project_freshness_control(
 
     if max_iterations < 1:
         raise ValueError("max_iterations must be at least 1.")
+    if max_parallel < 1:
+        raise ValueError("max_parallel must be at least 1.")
 
     started_at = _now()
     previous_hash: str | None = None
@@ -211,7 +215,7 @@ def run_bounded_multi_project_freshness_control(
     next_action = "Re-run the bounded multi-project control loop or inspect the latest aggregate snapshot."
 
     for index in range(1, max_iterations + 1):
-        report = run_multi_project_freshness_loop(write_snapshot=True)
+        report = run_multi_project_freshness_loop(write_snapshot=True, max_parallel=max_parallel)
         state_hash = _multi_project_state_hash(report)
         iteration = BoundedMultiProjectFreshnessIteration(
             iteration=index,
@@ -238,6 +242,7 @@ def run_bounded_multi_project_freshness_control(
         run_id=_run_id(started_at),
         status=status,
         max_iterations=max_iterations,
+        max_parallel=max_parallel,
         started_at=started_at,
         finished_at=_now(),
         iterations=iterations,
@@ -290,6 +295,7 @@ def render_bounded_multi_project_freshness_run(run: BoundedMultiProjectFreshness
         "",
         f"Status: {run.status}",
         f"Iterations: {len(run.iterations)}/{run.max_iterations}",
+        f"Max parallel: {run.max_parallel}",
     ]
     if run.report_path:
         lines.append(f"Report: {run.report_path}")

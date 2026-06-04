@@ -3,11 +3,16 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.freshness import FreshnessReport, LoopStartGitDecision
+from devflow.control_room.multi_project_freshness import run_multi_project_freshness_loop
 from devflow.control_room.persistence import get_task, save_task, utc_now
 from tests.helpers import setup_temp_git_repo
 
@@ -179,6 +184,63 @@ task_slices:
     assert projects["alpha-app"]["checkpoint_opportunity"] is True
     assert projects["beta-app"]["path_status"] == "missing"
     assert projects["beta-app"]["status"] == "missing"
+
+
+def test_multi_project_freshness_scans_registered_projects_in_parallel(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    roots = [tmp_path / name for name in ("alpha", "beta", "gamma")]
+    for root in roots:
+        root.mkdir()
+    records = [
+        SimpleNamespace(project_id="alpha", path=roots[0].as_posix()),
+        SimpleNamespace(project_id="beta", path=roots[1].as_posix()),
+        SimpleNamespace(project_id="gamma", path=roots[2].as_posix()),
+    ]
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def fake_scan(root: Path, *, write_snapshot: bool = True) -> FreshnessReport:
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return FreshnessReport(
+            generated_at="2026-06-04T00:00:00+00:00",
+            status="ok",
+            state_hash=root.name,
+            loop_start_git=LoopStartGitDecision(
+                is_repo=True,
+                branch="main",
+                head_sha=root.name,
+                clean=True,
+                checkpoint_opportunity=False,
+                push_opportunity=False,
+                recommended_action="continue_loop",
+                reason="test",
+            ),
+            goals_checked=0,
+            tasks_checked=0,
+            linked_tasks_checked=0,
+            stale_count=0,
+            needs_human_decision_count=0,
+            snapshot_path=".devflow/freshness/latest.json",
+            next_action="Continue.",
+        )
+
+    monkeypatch.setattr("devflow.control_room.multi_project_freshness.list_project_records", lambda: records)
+    monkeypatch.setattr("devflow.control_room.multi_project_freshness.run_freshness_loop", fake_scan)
+
+    report = run_multi_project_freshness_loop(write_snapshot=False, max_parallel=2)
+
+    assert max_active == 2
+    assert [project.project_id for project in report.projects] == ["alpha", "beta", "gamma"]
+    assert report.status == "ok"
 
 
 def test_freshness_loop_projects_goal_parallel_lanes(tmp_path: Path, monkeypatch) -> None:
