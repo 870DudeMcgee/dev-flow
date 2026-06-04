@@ -742,9 +742,11 @@ def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_
     assert gemma_fast.model == "gemma4:latest"
     assert gemma_fast.weight_class == "small"
     assert "8.0B" in " ".join(gemma_fast.manifest_notes)
-    assert gemma_dense.model == "gemma4:31b"
+    assert gemma_dense.model == "gemma4-review:latest"
     assert gemma_dense.machine_class == "mac_studio"
     assert gemma_dense.model_role_name == "gemma-dense-judge"
+    assert gemma_dense.required_verification_command == "ollama show gemma4-review:latest"
+    assert "num_ctx 32768" in " ".join(gemma_dense.manifest_notes)
 
 
 def test_agent_registry_rejects_unsafe_hermes_delegation(tmp_path: Path) -> None:

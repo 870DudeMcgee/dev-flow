@@ -831,7 +831,7 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
         },
         {
             "id": "local-gemma4-31b-dense-judge",
-            "model": "gemma4:31b",
+            "model": "gemma4-review:latest",
             "role": "local_senior_worker",
             "tier": "premium_local",
             "model_role_name": "gemma-dense-judge",
@@ -839,9 +839,9 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             "weight_class": "heavy",
             "secondary_roles": ["strict-reviewer", "final-local-judge", "ux-spec-verifier", "multimodal-artifact-reviewer"],
             "purpose": "Provide strict local final review and goal-satisfaction judgment from bounded task packets.",
-            "use_caution": ["Use as a reviewer/judge, not a default implementation worker; verify the downloaded manifest before relying on modality claims."],
-            "required_verification_command": "ollama show gemma4:31b",
-            "manifest_notes": ["Mac Studio dense 31B Gemma reviewer/judge; user is downloading this model now."],
+            "use_caution": ["Use as a reviewer/judge, not a default implementation worker; tuned alias constrains context to reduce local memory pressure."],
+            "required_verification_command": "ollama show gemma4-review:latest",
+            "manifest_notes": ["Mac Studio dense 31B Gemma reviewer/judge via local gemma4-review:latest alias from gemma4:31b with num_ctx 32768."],
             "hermes_delegable": True,
         },
     ]

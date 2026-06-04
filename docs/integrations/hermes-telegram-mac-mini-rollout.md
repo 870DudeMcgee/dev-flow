@@ -38,7 +38,7 @@ Mac Studio heavy-worker class:
 - `qwopus:latest`: deep reasoning, architecture review, task decomposition, patch proposal path.
 - `qwen3.6:latest`: local supervisor/planner if distinct from Qwopus after manifest review.
 - `qwen2.5-coder:32b-instruct`: heavy local coding specialist.
-- `gemma4:31b`: dense judge/reviewer.
+- `gemma4-review:latest`: dense judge/reviewer alias for `gemma4:31b` with reduced `num_ctx 32768` to limit local memory pressure during review runs.
 
 ## Setup Sequence
 
