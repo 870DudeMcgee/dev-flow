@@ -343,7 +343,7 @@ Initial hardening slice: applying a reviewed patch invalidates prior verificatio
 
 ## Milestone 11: Project Code Map MVP
 
-Status: future.
+Status: 11A active (contract definition). Contract: [docs/architecture/project-code-map-mvp.md](architecture/project-code-map-mvp.md). Implementation commands and source changes are deferred to later slices.
 
 Goal: introduce a compact project orientation layer, likely `CODE_MAP.md` with an optional `.code-map.yaml` companion, so workers can orient before broad repo scans.
 
@@ -358,7 +358,7 @@ Goal: capture raw ideas, classify them later, link them to project/goal context,
 Boundary: future idea commands such as `devflow idea capture`, `devflow idea classify`, and `devflow idea promote` do not exist yet.
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 9, explicit reviewed patch apply to isolated workspace only. Require fresh acceptable review and dry-run evidence before mutation, and keep verification, promotion, provider-backed adapters, complex scheduling, web dashboards, autonomous routing, and legacy workflow machinery out of that slice.
+> **Next Priority**: Milestone 11, Project Code Map MVP. Milestones 9 and 10 are implemented. The next slice is 11A (contract definition only): define `CODE_MAP.md` schema, document future `devflow map` commands, and add the bounded map excerpt integration contract to task packet. Keep provider-backed adapters, routing, databases, web dashboards, and autonomous behavior out of that slice.
 
 ## Later, Not Now
 
