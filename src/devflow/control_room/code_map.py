@@ -68,3 +68,18 @@ def map_init(root: Path, *, force: bool = False) -> Path:
         )
     target.write_text(_DEFAULT_TEMPLATE, encoding="utf-8")
     return target
+
+
+def map_show(root: Path) -> str:
+    """Return the text contents of CODE_MAP.md at *root*.
+
+    Raises CodeMapError with a clear message if CODE_MAP.md does not exist.
+    """
+    target = root / "CODE_MAP.md"
+    if not target.exists():
+        raise CodeMapError(
+            "CODE_MAP.md not found. "
+            "Run 'devflow map init' to scaffold one."
+        )
+    return target.read_text(encoding="utf-8")
+

@@ -3807,5 +3807,18 @@ def map_init_command(
     typer.echo("Edit CODE_MAP.md to describe your repo layout, entry points, and what workers should read first.")
 
 
+@map_app.command("show")
+def map_show_command() -> None:
+    """Print the contents of CODE_MAP.md to stdout."""
+    from devflow.control_room.code_map import CodeMapError, map_show
+
+    try:
+        content = map_show(Path.cwd())
+    except CodeMapError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(content, nl=False)
+
+
 if __name__ == "__main__":
     main()
