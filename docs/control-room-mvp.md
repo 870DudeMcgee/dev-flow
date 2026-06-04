@@ -59,6 +59,8 @@ devflow git checkpoint --message "chore: checkpoint verified work"
 devflow git checkpoint --message "chore: checkpoint verified work" --yes
 devflow sync-main
 devflow reconcile
+devflow freshness loop
+devflow freshness loop --json
 devflow dashboard
 devflow status --json
 devflow supervisor policy --json
@@ -157,6 +159,8 @@ The registry-backed local Qwopus form is `devflow task run <task_id> --worker qw
 The orchestration policy form is `devflow task orchestrate <task_id> --plan-only`. It writes task-local policy evidence with Git/DevMode baseline, allowed roles, context layers, write boundaries, stop conditions, and human promotion requirements. It does not execute workers, call provider APIs, route autonomously, apply patches, verify, promote, or mutate main.
 
 The guardrail outcome metadata form is `devflow worker validate-outcome <path-to-outcome-json>`. It validates worker outcome metadata and writes validation evidence only. It does not run agents, apply patches, verify code, promote, route models, or mutate `task.yaml`.
+
+The freshness loop form is `devflow freshness loop`. It runs one control-loop iteration against canonical goal and task state, writes a derived snapshot to `.devflow/freshness/latest.json`, and reports stale or contradictory goal/task/handoff guidance. When repair is ambiguous, it exits with a human-decision status instead of rewriting docs or goal artifacts.
 
 Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
 

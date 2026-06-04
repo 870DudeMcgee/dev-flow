@@ -15,7 +15,7 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and human-controlled promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Future context intake layers such as Project Code Map and Idea Foundry are documented there as roadmap concepts, not current stable commands.
 
 ### Stable Commands
-- **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`
+- **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`, `devflow freshness loop`
 - **Dashboard**: `devflow dashboard`
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Policy & Evidence**: `devflow task orchestrate --plan-only`, `devflow worker validate-outcome`
@@ -254,6 +254,8 @@ After `task finalize --commit`, the commit is on the task worker branch and main
 `devflow doctor --strict` is a read-only readiness report. It now checks stale task locks, unsafe workspace paths, malformed or inconsistent JSON artifacts, missing worker/verification logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks. It does not repair artifacts automatically.
 
 `devflow reconcile` is a read-only crash/interruption report. It surfaces partial task/system event writes, task/system event divergence, interrupted promotion evidence such as stale promote locks, and inconsistent task artifacts. Use `--json` for machine-readable output or `--task <task-id>` to inspect one task. It does not repair artifacts automatically.
+
+`devflow freshness loop` runs one goal/task/document freshness pass, writes `.devflow/freshness/latest.json`, and reports contradictions such as a goal handoff claiming promotion is pending after a linked task has been promoted. If repair is ambiguous, it exits with a human-decision status instead of rewriting goal or handoff artifacts.
 
 Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future remote provider adapters may be described in registries, but only `shell`, `manual`, and approved local Ollama patch agents such as `qwopus-implementer` are executable through `task run`; local Qwen/Qwopus/Gemma evidence capture uses `task local` and does not apply model output.
 

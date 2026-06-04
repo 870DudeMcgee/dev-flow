@@ -63,6 +63,7 @@ Current product contract:
 - `devflow init`
 - `devflow doctor`
 - `devflow reconcile`
+- `devflow freshness loop`
 - `devflow dashboard`
 - `devflow task --help`
 - `devflow task create "title"`
@@ -91,6 +92,7 @@ Current product contract:
 - local Ollama worker artifacts under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`: `prompt.md`, `response.raw.md`, `response.md`, `run.json`, and `stderr.log`
 - strict doctor read-only diagnostics for stale locks, unsafe workspace paths, invalid JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks
 - read-only reconciliation reporting for partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts
+- freshness loop snapshots under `.devflow/freshness/latest.json` that compare canonical goal/task state with linked task slices and handoffs, then stop for a human decision when repair is ambiguous
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
 - POSIX process-group cleanup for shell and verification timeout paths
@@ -134,6 +136,7 @@ devflow doctor
 devflow git status
 devflow sync-main
 devflow reconcile
+devflow freshness loop
 devflow dashboard
 devflow task --help
 devflow task create "example task"

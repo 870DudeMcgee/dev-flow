@@ -115,6 +115,7 @@ supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervis
 hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 project_app = typer.Typer(help="Create and manage registered projects")
 map_app = typer.Typer(help="Project Code Map orientation layer (Milestone 11)")
+freshness_app = typer.Typer(help="Detect stale goal/task/document guidance")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -128,6 +129,23 @@ app.add_typer(supervisor_app, name="supervisor")
 app.add_typer(hermes_app, name="hermes")
 app.add_typer(project_app, name="project")
 app.add_typer(map_app, name="map")
+app.add_typer(freshness_app, name="freshness")
+
+
+@freshness_app.command("loop")
+def freshness_loop(
+    json_output: bool = typer.Option(False, "--json", help="Print the loop report as JSON."),
+) -> None:
+    """Run one freshness-control loop iteration and update derived state."""
+    from devflow.control_room.freshness import render_freshness_report, run_freshness_loop
+
+    report = run_freshness_loop(Path.cwd())
+    if json_output:
+        typer.echo(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    else:
+        typer.echo(render_freshness_report(report), nl=False)
+    if report.status == "needs_human_decision":
+        raise typer.Exit(code=2)
 
 
 @goal_app.command("init")
