@@ -175,6 +175,7 @@ Implemented pieces:
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
 - `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
 - Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The only approved browser mutation is exact human-approved task verification: `devflow task verify <task_id> --shell "<command>"`, with the server rechecking the classifier, requiring the exact approval phrase, and refusing placeholder verification commands.
+- Verification refresh: after an executed approved task-verification action, the browser re-fetches `/api/snapshot` so task lanes, status, progress receipts, and evidence panes update from filesystem truth without a manual page reload.
 - `operating_layer_assets.py`: owns the bundled HTML, CSS, and JavaScript for the local browser shell.
 - Orchestrator-first UI: renders current directive, next safe action, mission feed, health bars, counters, and real project-wide worker activity before repo chrome.
 - Page routing: the browser shell maps hash navigation to separate page views so Overview, Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review are not stacked into one cluttered page. The command center remains visible on routed pages so the global filter and project controls stay available.
@@ -221,6 +222,7 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 23. [ ] Split large UI asset strings into deeper, efficient modules once the visual direction is accepted.
 24. [x] Add explicit supervisor-safe Action Rail execution for `pure_read_only` Dev-Flow commands while blocking approval-required commands in the browser.
 25. [x] Add the first approval-gated browser mutation for exact `devflow task verify <task_id> --shell "<command>"` commands, with server-side classifier recheck and exact approval echo.
+26. [x] Refresh the browser snapshot after approved task verification so lane/status/evidence changes are visible immediately from `/api/snapshot`.
 
 ## Next Safe Slice
 

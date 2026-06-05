@@ -433,6 +433,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "all-projects-button" in js
         assert "/api/actions/run" in js
         assert "executeAction" in js
+        assert "refreshSnapshotAfterApprovedVerification" in js
+        assert "await refreshSnapshotAfterApprovedVerification(action)" in js
     finally:
         server.shutdown()
         server.server_close()

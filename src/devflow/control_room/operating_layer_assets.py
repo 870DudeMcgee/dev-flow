@@ -5826,6 +5826,7 @@ function renderActionResult(result) {
 async function executeAction(action, options = {}) {
   const command = options.approvedVerification ? approvedVerificationCommand(action) : action.command;
   const body = { command, project: selectedProjectId };
+  let refreshedSnapshot = false;
   if (options.approvedVerification) {
     body.human_approved = true;
     body.approval_phrase = APPROVAL_PHRASE;
@@ -5857,6 +5858,10 @@ async function executeAction(action, options = {}) {
     } else {
       actionRunState = { command: action.command, status: "complete", payload };
     }
+    if (options.approvedVerification && payload.executed === true) {
+      await refreshSnapshotAfterApprovedVerification(action);
+      refreshedSnapshot = true;
+    }
   } catch (error) {
     actionRunState = {
       command: action.command,
@@ -5864,7 +5869,16 @@ async function executeAction(action, options = {}) {
       message: error instanceof Error ? error.message : "Action failed",
     };
   }
-  renderActionPreview(action);
+  if (!refreshedSnapshot) renderActionPreview(action);
+}
+
+async function refreshSnapshotAfterApprovedVerification(action) {
+  const priorTaskId = selectedTaskId;
+  await loadSnapshot(selectedProjectId);
+  if (priorTaskId && taskById(priorTaskId)) selectedTaskId = priorTaskId;
+  const refreshedAction = (taskById(selectedTaskId)?.actions || []).find((item) => item.command === action.command);
+  if (refreshedAction) selectedActionCommand = refreshedAction.command;
+  render();
 }
 
 function mapScopedActions() {
