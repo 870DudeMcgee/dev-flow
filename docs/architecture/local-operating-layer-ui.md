@@ -228,11 +228,12 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 
 Prepare the next implementation slice around operational controls and maintainability:
 
-1. Add visual-regression QA helpers that capture desktop/mobile screenshots and assert no overflow, Orchestrator-first ordering, progress rows, and no mission-feed overlap.
-2. Review the full operating-layer diff for accidental scope creep.
-3. Keep all active docs aligned with the guarded control-layer contract.
-4. Run focused and broader verification.
-7. Stage/commit only after human approval.
+1. Seed real desktop/mobile browser baselines when the environment can provide rendered screenshots reliably.
+2. Keep the dogfood production-readiness visual QA case passing with deterministic fallback, external/Appshot, or optional Playwright evidence.
+3. Review the full operating-layer diff for accidental scope creep.
+4. Keep all active docs aligned with the guarded control-layer contract.
+5. Run focused and broader verification.
+6. Stage/commit only after human approval.
 
 Do not add worker execution, promotion, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. The only approved browser mutation is task verification through the guarded `/api/actions/run` approval path.
 

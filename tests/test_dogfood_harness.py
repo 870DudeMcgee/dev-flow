@@ -41,12 +41,13 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 10
+    assert len(cases) == 11
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "knowledge-capture-from-validation-failure",
         "central-schema-refactor-risk",
+        "operating-layer-visual-qa-hardening",
     }
     for case in cases:
         assert validate_dogfood_case(case) == []
@@ -70,7 +71,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 10
+    assert len(result["run"]["cases_run"]) == 11
     spawned_tasks = list_tasks(tmp_path)
     assert spawned_tasks
     assert all(task.status == "closed" for task in spawned_tasks)
@@ -135,6 +136,35 @@ def test_knowledge_capture_case_creates_proposed_source_linked_knowledge(tmp_pat
     assert item["linked_artifacts"]
     assert item["promoted_at"] is None
     assert item["rejected_at"] is None
+
+
+def test_operating_layer_visual_qa_case_writes_baseline_artifacts(tmp_path: Path, monkeypatch) -> None:
+    _init_dogfood_repo(tmp_path)
+    import devflow.control_room.operating_layer_visual_qa as visual_qa
+
+    monkeypatch.setattr(visual_qa, "_browser_target_ready", lambda base_url: False)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["operating-layer-visual-qa-hardening"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("desktop and mobile visual QA paths were exercised" in lesson for lesson in case_result["lessons"])
+    visual_result_path = next(path for path in case_result["artifacts_created"] if path.endswith("visual-qa-result.json"))
+    visual_result = yaml.safe_load((tmp_path / visual_result_path).read_text(encoding="utf-8"))
+    assert visual_result["status"] == "pass"
+    assert visual_result["capture_method"] == "deterministic-snapshot-fallback"
+    assert {artifact["viewport"] for artifact in visual_result["artifacts"]} == {"desktop", "mobile"}
+    for artifact in visual_result["artifacts"]:
+        assert artifact["status"] == "pass"
+        for key in ("current", "baseline", "current_png", "baseline_png", "current_metadata", "baseline_metadata"):
+            assert (tmp_path / artifact[key]).exists()
+        metadata = yaml.safe_load((tmp_path / artifact["current_metadata"]).read_text(encoding="utf-8"))
+        checks = metadata["checks"]
+        assert checks["no_horizontal_overflow"] is True
+        assert checks["orchestrator_first"] is True
+        assert checks["worker_progress_rows"] is True
+        assert checks["action_rail_safety_states"] is True
 
 
 def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:

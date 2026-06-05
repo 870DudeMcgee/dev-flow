@@ -13,6 +13,10 @@ import yaml
 
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.knowledge_foundry import capture_from_validation, search_knowledge
+from devflow.control_room.operating_layer_visual_qa import (
+    build_visual_qa_plan,
+    write_visual_qa_image_fallbacks,
+)
 from devflow.control_room.orchestration_plan import create_orchestration_plan
 from devflow.control_room.paths import (
     dogfood_cases_dir,
@@ -39,6 +43,7 @@ CATEGORY_MAX: dict[str, int] = {
     "E_recovery_failure_handling": 15,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
+    "H_operating_layer_visual_qa": 10,
 }
 
 CATEGORY_LABELS: dict[str, str] = {
@@ -49,6 +54,7 @@ CATEGORY_LABELS: dict[str, str] = {
     "E_recovery_failure_handling": "E - Recovery and failure handling",
     "F_knowledge_capture": "F - Knowledge capture",
     "G_performance_lightweight": "G - Performance/lightweight behavior",
+    "H_operating_layer_visual_qa": "H - Operating-layer visual QA",
 }
 
 CRITICAL_CASES = {
@@ -347,6 +353,36 @@ def production_readiness_cases() -> list[dict[str, Any]]:
             scoring={
                 "A_safety_git_discipline": 3,
                 "E_recovery_failure_handling": 2,
+            },
+        ),
+        _case_definition(
+            case_id="operating-layer-visual-qa-hardening",
+            title="Operating Layer visual QA hardening",
+            category="H_operating_layer_visual_qa",
+            task_type="operating_layer_visual_qa",
+            risk_level="medium",
+            purpose="Prove the local operating-layer UI has deterministic visual QA evidence in dogfood.",
+            expected_behavior=[
+                "desktop and mobile visual QA paths are planned",
+                "current and baseline PNG/SVG artifacts are written",
+                "deterministic fallback is enough when browser screenshots are unavailable",
+                "external/Appshot or Playwright rasters are accepted when present",
+                "visual metadata covers no-overflow, Orchestrator-first layout, worker progress, and Action Rail safety",
+            ],
+            command_sequence=[
+                "devflow task create 'Dogfood operating layer visual QA'",
+                "devflow task run <task-id> --worker shell -- /bin/sh -c 'printf visual > visual.txt'",
+                "devflow task verify <task-id> --shell 'test -s visual.txt'",
+                "devflow operating-layer visual-qa --write-current --update-baseline --json",
+            ],
+            success_criteria=[
+                "desktop and mobile current/baseline artifacts exist",
+                "visual QA status is pass",
+                "metadata confirms no horizontal overflow",
+                "metadata confirms Orchestrator-first ordering, worker progress rows, and Action Rail safety state",
+            ],
+            scoring={
+                "H_operating_layer_visual_qa": 10,
             },
         ),
     ]
@@ -1088,6 +1124,133 @@ def _case_central_schema_risk(
     return _finalize_case(root, case, state, scores, failures)
 
 
+def _case_operating_layer_visual_qa(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    task = create_task(root, "Dogfood operating layer visual QA")
+    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+
+    run_shell_task(root, task.id, ["/bin/sh", "-c", "printf visual > visual.txt"], timeout_seconds=10)
+    _record_command(state, f"devflow task run {task.id} --worker shell -- write visual fixture", status="passed")
+
+    verified = verify_task(root, task.id, ["/bin/sh", "-c", "test -s visual.txt"], timeout_seconds=10)
+    _record_command(state, f"devflow task verify {task.id} --shell visual check", status=verified.verification_status)
+
+    plan = build_visual_qa_plan(root)
+    result = write_visual_qa_image_fallbacks(root, update_baseline=True)
+    plan_path = case_dir / "artifacts" / "visual-qa-plan.json"
+    result_path = case_dir / "artifacts" / "visual-qa-result.json"
+    atomic_write_text(plan_path, json.dumps(plan, indent=2, sort_keys=True) + "\n")
+    atomic_write_text(result_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].extend([relative_path(root, plan_path), relative_path(root, result_path)])
+    _record_command(
+        state,
+        "devflow operating-layer visual-qa --write-current --update-baseline --json",
+        status=result["status"],
+        output=relative_path(root, result_path),
+    )
+
+    viewports = {str(viewport.get("name")) for viewport in plan.get("viewports", []) if isinstance(viewport, dict)}
+    artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), list) else []
+    artifact_viewports = {
+        str(artifact.get("viewport"))
+        for artifact in artifacts
+        if isinstance(artifact, dict)
+    }
+    artifact_paths = [
+        artifact.get(path_key)
+        for artifact in artifacts
+        if isinstance(artifact, dict)
+        for path_key in ("current", "baseline", "current_png", "baseline_png", "current_metadata", "baseline_metadata")
+    ]
+    metadata_items = [_load_visual_qa_metadata(root, artifact) for artifact in artifacts if isinstance(artifact, dict)]
+    metadata_checks = [
+        metadata.get("checks", {})
+        for metadata in metadata_items
+        if isinstance(metadata, dict) and isinstance(metadata.get("checks"), dict)
+    ]
+    capture_method = str(result.get("capture_method", ""))
+    accepted_methods = {
+        "deterministic-snapshot-fallback",
+        "external-browser-raster",
+        "playwright-browser-raster",
+    }
+    accepted_capture = capture_method in accepted_methods or capture_method.startswith("mixed:")
+
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        2,
+        viewports == {"desktop", "mobile"} and artifact_viewports == {"desktop", "mobile"},
+        "desktop and mobile visual QA paths were exercised",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        2,
+        result.get("status") == "pass"
+        and all(isinstance(path, str) and (root / path).exists() for path in artifact_paths),
+        "current and baseline PNG/SVG/metadata artifacts exist",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        2,
+        metadata_checks
+        and all(bool(checks.get("no_horizontal_overflow")) for checks in metadata_checks),
+        "visual metadata confirms no horizontal overflow",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        1,
+        metadata_checks
+        and all(bool(checks.get("orchestrator_first")) for checks in metadata_checks),
+        "visual metadata confirms Orchestrator-first layout",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        1,
+        metadata_checks
+        and all(bool(checks.get("worker_progress_rows")) for checks in metadata_checks),
+        "visual metadata confirms worker progress rows",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        1,
+        metadata_checks
+        and all(bool(checks.get("action_rail_safety_states")) for checks in metadata_checks),
+        "visual metadata confirms Action Rail safety state",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "H_operating_layer_visual_qa",
+        1,
+        accepted_capture,
+        "visual QA accepted deterministic fallback, external/Appshot, or Playwright raster evidence",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
 _RUNNERS: dict[str, CaseRunner] = {
     "tiny-deterministic-docs-task": _case_tiny_docs,
     "cli-help-bounded-feature-task": _case_cli_help,
@@ -1099,6 +1262,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "handoff-resume": _case_handoff_resume,
     "parallelism-decision-docs-test-split": _case_parallelism_docs_test,
     "central-schema-refactor-risk": _case_central_schema_risk,
+    "operating-layer-visual-qa-hardening": _case_operating_layer_visual_qa,
 }
 
 
@@ -1575,6 +1739,16 @@ def _commands_have_no_provider_calls(commands: list[dict[str, Any]]) -> bool:
         any(token in str(command.get("command", "")).lower() for token in forbidden)
         for command in commands
     )
+
+
+def _load_visual_qa_metadata(root: Path, artifact: dict[str, Any]) -> dict[str, Any]:
+    metadata_path = artifact.get("current_metadata")
+    if not isinstance(metadata_path, str):
+        return {}
+    try:
+        return json.loads((root / metadata_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
 
 
 def _cleanup_file(path: Path, warnings: list[str]) -> bool:

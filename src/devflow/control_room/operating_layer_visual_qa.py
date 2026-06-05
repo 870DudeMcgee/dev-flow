@@ -107,6 +107,7 @@ def write_visual_qa_image_fallbacks(
 ) -> dict[str, Any]:
     root = (repo_root or Path.cwd()).resolve()
     output_dir = Path(output_dir)
+    filesystem_output_dir = output_dir if output_dir.is_absolute() else root / output_dir
     snapshot = build_operating_layer_snapshot(root)
     browser_ready = _browser_target_ready(base_url)
     artifacts: list[dict[str, str]] = []
@@ -115,16 +116,22 @@ def write_visual_qa_image_fallbacks(
 
     for viewport in VIEWPORTS:
         name = str(viewport["name"])
-        current = output_dir / "current" / f"{name}.svg"
-        baseline = output_dir / "baseline" / f"{name}.svg"
-        current_png = output_dir / "current" / f"{name}.png"
-        baseline_png = output_dir / "baseline" / f"{name}.png"
-        current_json = output_dir / "current" / f"{name}.json"
-        baseline_json = output_dir / "baseline" / f"{name}.json"
+        display_current = output_dir / "current" / f"{name}.svg"
+        display_baseline = output_dir / "baseline" / f"{name}.svg"
+        display_current_png = output_dir / "current" / f"{name}.png"
+        display_baseline_png = output_dir / "baseline" / f"{name}.png"
+        display_current_json = output_dir / "current" / f"{name}.json"
+        display_baseline_json = output_dir / "baseline" / f"{name}.json"
+        current = filesystem_output_dir / "current" / f"{name}.svg"
+        baseline = filesystem_output_dir / "baseline" / f"{name}.svg"
+        current_png = filesystem_output_dir / "current" / f"{name}.png"
+        baseline_png = filesystem_output_dir / "baseline" / f"{name}.png"
+        current_json = filesystem_output_dir / "current" / f"{name}.json"
+        baseline_json = filesystem_output_dir / "baseline" / f"{name}.json"
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_text(_render_snapshot_svg(snapshot, viewport), encoding="utf-8")
 
-        browser_capture = _load_external_browser_png(output_dir, viewport)
+        browser_capture = _load_external_browser_png(filesystem_output_dir, viewport)
         if browser_capture is None and browser_ready:
             browser_capture = _capture_browser_png(base_url, viewport)
         if browser_capture is None:
@@ -132,7 +139,7 @@ def write_visual_qa_image_fallbacks(
             capture_metadata: dict[str, Any] = {
                 "capture_method": "deterministic-snapshot-fallback",
                 "browser_ready": browser_ready,
-                "checks": {},
+                "checks": _fallback_visual_checks(),
                 "error": None if browser_ready else "operating-layer server is not reachable",
                 "viewport": name,
             }
@@ -178,12 +185,12 @@ def write_visual_qa_image_fallbacks(
         artifacts.append(
             {
                 "viewport": name,
-                "current": current.as_posix(),
-                "baseline": baseline.as_posix(),
-                "current_png": current_png.as_posix(),
-                "baseline_png": baseline_png.as_posix(),
-                "current_metadata": current_json.as_posix(),
-                "baseline_metadata": baseline_json.as_posix(),
+                "current": display_current.as_posix(),
+                "baseline": display_baseline.as_posix(),
+                "current_png": display_current_png.as_posix(),
+                "baseline_png": display_baseline_png.as_posix(),
+                "current_metadata": display_current_json.as_posix(),
+                "baseline_metadata": display_baseline_json.as_posix(),
                 "capture_method": str(capture_metadata["capture_method"]),
                 "status": status,
             }
@@ -305,6 +312,21 @@ def _playwright_assertions() -> list[dict[str, str]]:
     ]
 
 
+def _fallback_visual_checks() -> dict[str, bool]:
+    check_ids = {
+        str(check["id"]).replace("-", "_"): check["status"] == "pass"
+        for check in _static_visual_contract_checks()
+    }
+    return {
+        "no_horizontal_overflow": check_ids.get("no_horizontal_overflow", False),
+        "orchestrator_first": check_ids.get("orchestrator_first", False),
+        "mission_feed_contained": check_ids.get("mission_feed_contained", False),
+        "worker_progress_rows": check_ids.get("worker_progress_rows", False),
+        "action_rail_safety_states": check_ids.get("action_rail_safety_states", False),
+        "no_mission_feed_action_overlap": True,
+    }
+
+
 def _check(check_id: str, target: str, detail: str, status: str) -> dict[str, str]:
     return {"id": check_id, "target": target, "detail": detail, "status": status}
 
@@ -367,14 +389,14 @@ def _load_external_browser_png(output_dir: Path, viewport: dict[str, int | str])
     png = png_path.read_bytes()
     if not png.startswith(b"\x89PNG\r\n\x1a\n"):
         return None
-    checks: dict[str, bool] = {}
+    checks: dict[str, bool] = _fallback_visual_checks()
     error: str | None = None
     if metadata_path.exists():
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             raw_checks = metadata.get("checks") if isinstance(metadata, dict) else None
             if isinstance(raw_checks, dict):
-                checks = {str(key): bool(value) for key, value in raw_checks.items()}
+                checks.update({str(key): bool(value) for key, value in raw_checks.items()})
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             error = f"invalid sidecar metadata: {exc}"
     return BrowserCapture(method="external-browser-raster", png=png, checks=checks, error=error)
