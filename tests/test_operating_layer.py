@@ -456,6 +456,101 @@ def test_operating_layer_server_serves_app_and_snapshot(
         thread.join(timeout=5)
 
 
+def test_operating_layer_visual_qa_plan_covers_core_regression_contracts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "visual qa task"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    from devflow.control_room.operating_layer_visual_qa import build_visual_qa_plan
+
+    plan = build_visual_qa_plan(tmp_path)
+
+    assert plan["schema_version"] == 1
+    assert plan["surface"] == "operating-layer"
+    assert [viewport["name"] for viewport in plan["viewports"]] == ["desktop", "mobile"]
+    assert plan["screenshots"] == [
+        {
+            "viewport": "desktop",
+            "current": ".devflow/operating-layer/visual-qa/current/desktop.png",
+            "baseline": ".devflow/operating-layer/visual-qa/baseline/desktop.png",
+            "fallback_current": ".devflow/operating-layer/visual-qa/current/desktop.svg",
+            "fallback_baseline": ".devflow/operating-layer/visual-qa/baseline/desktop.svg",
+        },
+        {
+            "viewport": "mobile",
+            "current": ".devflow/operating-layer/visual-qa/current/mobile.png",
+            "baseline": ".devflow/operating-layer/visual-qa/baseline/mobile.png",
+            "fallback_current": ".devflow/operating-layer/visual-qa/current/mobile.svg",
+            "fallback_baseline": ".devflow/operating-layer/visual-qa/baseline/mobile.svg",
+        },
+    ]
+    assert {check["id"] for check in plan["checks"]} >= {
+        "desktop-screenshot",
+        "mobile-screenshot",
+        "no-horizontal-overflow",
+        "orchestrator-first",
+        "mission-feed-contained",
+        "worker-progress-rows",
+        "action-rail-safety-states",
+    }
+    assert all(check["status"] == "pass" for check in plan["checks"])
+
+
+def test_operating_layer_visual_qa_cli_renders_json_plan(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "visual qa cli task"]).exit_code == 0
+
+    result = runner.invoke(app, ["operating-layer", "visual-qa", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["visual_flow"] == (
+        "app loads -> first viewport renders Orchestrator, Mission Feed, worker progress, "
+        "and Action Rail safety states without horizontal overflow"
+    )
+    assert payload["browser_runtime"] == "codex-in-app-browser"
+    assert payload["serve_command"] == "devflow operating-layer serve --host 127.0.0.1 --port 8765"
+
+
+def test_operating_layer_visual_qa_writes_svg_image_fallbacks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "visual image fallback task"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    result = runner.invoke(app, ["operating-layer", "visual-qa", "--write-current", "--update-baseline", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["image_fallback"]["status"] == "pass"
+    assert payload["image_fallback"]["format"] == "svg"
+    for artifact in payload["image_fallback"]["artifacts"]:
+        current = tmp_path / artifact["current"]
+        baseline = tmp_path / artifact["baseline"]
+        current_png = tmp_path / artifact["current_png"]
+        baseline_png = tmp_path / artifact["baseline_png"]
+        assert current.exists(), artifact
+        assert baseline.exists(), artifact
+        assert current_png.exists(), artifact
+        assert baseline_png.exists(), artifact
+        assert current.read_text(encoding="utf-8").startswith("<svg")
+        assert "Dev-Flow Operating Layer" in current.read_text(encoding="utf-8")
+        assert current_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
 def test_operating_layer_server_runs_supervisor_safe_read_only_action(
     tmp_path: Path,
     monkeypatch,

@@ -730,6 +730,40 @@ def operating_layer_serve_command(
         typer.echo("Stopped Dev-Flow Operating Layer")
 
 
+@operating_layer_app.command("visual-qa")
+def operating_layer_visual_qa_command(
+    json_output: bool = typer.Option(False, "--json", help="Print the visual QA plan as JSON."),
+    base_url: str = typer.Option("http://127.0.0.1:8765", "--base-url", help="Operating-layer URL to test."),
+    write_current: bool = typer.Option(False, "--write-current", help="Write current SVG image fallback artifacts."),
+    update_baseline: bool = typer.Option(False, "--update-baseline", help="Update SVG image fallback baselines."),
+) -> None:
+    """Render the operating-layer visual-regression QA plan."""
+    from devflow.control_room.operating_layer_visual_qa import (
+        build_visual_qa_plan,
+        render_visual_qa_plan,
+        render_visual_qa_plan_json,
+        write_visual_qa_image_fallbacks,
+    )
+
+    if write_current or update_baseline:
+        plan = build_visual_qa_plan(Path.cwd(), base_url=base_url)
+        plan["image_fallback"] = write_visual_qa_image_fallbacks(Path.cwd(), update_baseline=update_baseline)
+        if json_output:
+            import json
+
+            typer.echo(json.dumps(plan, indent=2, sort_keys=True) + "\n", nl=False)
+            return
+        typer.echo(render_visual_qa_plan(Path.cwd(), base_url=base_url), nl=False)
+        typer.echo(f"Image fallback: {plan['image_fallback']['status']}")
+        return
+
+    if json_output:
+        typer.echo(render_visual_qa_plan_json(Path.cwd(), base_url=base_url), nl=False)
+        return
+
+    typer.echo(render_visual_qa_plan(Path.cwd(), base_url=base_url), nl=False)
+
+
 @supervisor_app.command("policy")
 def supervisor_policy_command(
     json_output: bool = typer.Option(False, "--json", help="Print policy as JSON."),
