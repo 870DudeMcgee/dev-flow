@@ -1196,6 +1196,46 @@ button:focus-visible {
   margin-top: 8px;
 }
 
+.action-execute-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.action-run-button {
+  border-color: rgba(15, 118, 110, 0.48);
+  background: var(--teal);
+  color: #ffffff;
+}
+
+.action-run-button[disabled] {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.action-result {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 10px;
+}
+
+.action-result strong {
+  display: block;
+  font-size: var(--type-body);
+}
+
+.action-result pre {
+  max-height: 220px;
+  margin: 8px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .detail-panel {
   margin-top: 16px;
   border-top: 1px solid var(--border);
@@ -4245,6 +4285,7 @@ let selectedProjectId = null;
 let selectedProjectName = null;
 let selectedProjectPathStatus = null;
 let selectedActionCommand = null;
+let actionRunState = null;
 let selectedSpecDocumentKey = null;
 let agentsExpanded = false;
 let globalFilter = "";
@@ -5643,6 +5684,12 @@ function renderActionPreview(action) {
   }
   const mayAutoRun = action.supervisor_may_auto_run ? "Supervisor read-only safe" : "Human approval required";
   const approval = action.requires_human_approval ? "approval required" : "no approval required";
+  const isRunning = actionRunState && actionRunState.command === action.command && actionRunState.status === "running";
+  const actionResult = actionRunState && actionRunState.command === action.command ? actionRunState : null;
+  const executeLabel = action.supervisor_may_auto_run ? "Execute read-only command" : "Approval required in CLI";
+  const resultMarkup = actionResult && actionResult.status !== "running"
+    ? renderActionResult(actionResult)
+    : "";
   preview.innerHTML = `
     <div class="section-heading">
       <span>Command Preview</span>
@@ -5667,8 +5714,85 @@ function renderActionPreview(action) {
       </div>
     </div>
     <code>${escapeHtml(action.command)}</code>
-    <p>${escapeHtml(action.reason || "This browser surface is preview-only; run commands from the trusted CLI.")}</p>
+    <p>${escapeHtml(action.reason || "This command is supervisor-classified as safe for this local control layer.")}</p>
+    <div class="action-execute-row">
+      <button type="button" class="action-run-button" data-run-action ${action.supervisor_may_auto_run && !isRunning ? "" : "disabled"}>
+        ${escapeHtml(isRunning ? "Running..." : executeLabel)}
+      </button>
+      <span class="label">${escapeHtml(action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval")}</span>
+    </div>
+    ${isRunning ? '<div class="action-result"><strong>Running command...</strong></div>' : resultMarkup}
   `;
+  const runButton = preview.querySelector("[data-run-action]");
+  if (runButton && action.supervisor_may_auto_run) {
+    runButton.addEventListener("click", () => executeAction(action));
+  }
+}
+
+function renderActionResult(result) {
+  if (result.status === "blocked") {
+    return `
+      <div class="action-result">
+        <strong>Approval gate</strong>
+        <p>${escapeHtml(result.message || "This command requires human approval and was not executed.")}</p>
+      </div>
+    `;
+  }
+  if (result.status === "error") {
+    return `
+      <div class="action-result">
+        <strong>Command error</strong>
+        <p>${escapeHtml(result.message || "The command could not be executed.")}</p>
+      </div>
+    `;
+  }
+  const payload = result.payload || {};
+  const output = [payload.stdout, payload.stderr].filter(Boolean).join("\\n");
+  const status = payload.timed_out ? "Timed out" : `Exit ${payload.exit_code}`;
+  return `
+    <div class="action-result">
+      <strong>${escapeHtml(status)}</strong>
+      ${payload.output_truncated ? "<p>Output was truncated.</p>" : ""}
+      <pre>${escapeHtml(output || "No output")}</pre>
+    </div>
+  `;
+}
+
+async function executeAction(action) {
+  actionRunState = { command: action.command, status: "running" };
+  renderActionPreview(action);
+  try {
+    const response = await fetch("/api/actions/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: action.command, project: selectedProjectId }),
+    });
+    const payload = await response.json().catch(() => ({ error: "Action unavailable" }));
+    if (!response.ok && payload.executed === false) {
+      actionRunState = {
+        command: action.command,
+        status: "blocked",
+        message: payload.message || payload.error || "Action requires approval",
+        payload,
+      };
+    } else if (!response.ok) {
+      actionRunState = {
+        command: action.command,
+        status: "error",
+        message: payload.error || payload.stderr || "Action failed",
+        payload,
+      };
+    } else {
+      actionRunState = { command: action.command, status: "complete", payload };
+    }
+  } catch (error) {
+    actionRunState = {
+      command: action.command,
+      status: "error",
+      message: error instanceof Error ? error.message : "Action failed",
+    };
+  }
+  renderActionPreview(action);
 }
 
 function mapScopedActions() {

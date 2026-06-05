@@ -431,6 +431,80 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "evidenceSummary" in js
         assert "/api/snapshot?project=" in js
         assert "all-projects-button" in js
+        assert "/api/actions/run" in js
+        assert "executeAction" in js
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_supervisor_safe_read_only_action(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "ui control task"]).exit_code == 0
+
+    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        body = json.dumps({"command": "devflow task list"})
+        connection.request(
+            "POST",
+            "/api/actions/run",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert payload["executed"] is True
+        assert payload["exit_code"] == 0
+        assert payload["classification"]["safety_class"] == "pure_read_only"
+        assert "task-0001" in payload["stdout"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_blocks_approval_required_actions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "blocked runtime action"]).exit_code == 0
+    worker_log = tmp_path / ".devflow" / "tasks" / "task-0001" / "logs" / "worker.log"
+    original_worker_log = worker_log.read_text() if worker_log.exists() else None
+
+    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        body = json.dumps({"command": "devflow task run task-0001 --worker shell -- echo hi"})
+        connection.request(
+            "POST",
+            "/api/actions/run",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == HTTPStatus.CONFLICT
+        assert payload["executed"] is False
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_worker_runtime"
+        assert (worker_log.read_text() if worker_log.exists() else None) == original_worker_log
     finally:
         server.shutdown()
         server.server_close()

@@ -1,6 +1,6 @@
 # Local Operating-Layer UI
 
-Status: Active implemented read-only slice
+Status: Active implemented control-layer slice
 Date: 2026-06-04
 
 ## Purpose
@@ -51,7 +51,7 @@ The operating layer should make Dev-Flow feel like an Agent OS without becoming 
 5. **Evidence beats trust.** Every worker outcome should connect to task events, log paths, verification evidence, readiness evidence, and safe next commands.
 6. **Isolation is a product feature.** Workspace/worktree ownership, dirty state, branch state, and promotion readiness are not implementation details; they are control-room UI facts.
 7. **Progressive disclosure protects attention.** Worker detail, lower boards, logs, and evidence panes should stay compact until the user drills down.
-8. **The browser shell is read-only until proven.** Mutating command execution belongs behind supervisor-safe gates only after the read-only surface is trusted.
+8. **The browser shell is guarded, not decorative.** It may execute supervisor-classified read-only Dev-Flow commands from the Action Rail, while mutating worker/runtime/task/git commands stop at an explicit approval gate and trusted CLI execution.
 
 ## Product Map
 
@@ -98,8 +98,8 @@ Dev-Flow should be an Orchestrator-first local control room:
 
 - Overview page: project-wide `Worker Activity` grouped by real `task.worker` values, `Current Directive`, `Next Safe Action`, `Work Feed`, `System Health`, compact counters, and compact repository/project chrome.
 - Drilldown pages: Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review each show only the panels that belong to that work mode.
-- Navigation: the browser shell uses hash-based read-only page routing over one derived snapshot. Page changes must not spawn workers, mutate canonical state, or require a server-side route.
-- Mutations: no browser-executed mutations until read-only review has been trusted and supervisor-safe command execution is explicitly designed.
+- Navigation: the browser shell uses hash-based page routing over one derived snapshot. Page changes must not spawn workers, mutate canonical state, or require a server-side route.
+- Controls: Action Rail execution is limited to supervisor-classified `pure_read_only` Dev-Flow commands. Approval-required worker/runtime/task/git commands are displayed as explicit approval gates and are not executed by the browser.
 
 ## UI Spec
 
@@ -127,7 +127,7 @@ First-viewport acceptance requirements:
 
 ## Snapshot Contract
 
-The first build slice is read-only:
+The operating-layer entrypoints are:
 
 ```bash
 devflow operating-layer snapshot --json
@@ -165,7 +165,7 @@ The snapshot must not:
 
 ## Implemented Surface
 
-The current local operating layer is a read-only browser shell and JSON snapshot over existing Dev-Flow projections. It is implemented under `src/devflow/control_room/` and wired through `devflow operating-layer`.
+The current local operating layer is the browser control layer and JSON snapshot over existing Dev-Flow projections. It is implemented under `src/devflow/control_room/` and wired through `devflow operating-layer`.
 
 Implemented pieces:
 
@@ -173,15 +173,16 @@ Implemented pieces:
 - Worker activity projection: `operating_layer.py` derives project-wide worker rows with worker id, plain display name, state, task count, verified percent, recent output count, and latest task evidence.
 - Mission feed projection: `operating_layer.py` derives plain-language Orchestrator updates such as "Task progress", "Task update", "Evidence", "Question", and "Ready for review" from existing Dev-Flow artifacts; the browser shell only renders this list.
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
-- `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
+- `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
+- Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes only `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for all approval-required commands without running them.
 - `operating_layer_assets.py`: owns the bundled HTML, CSS, and JavaScript for the local browser shell.
 - Orchestrator-first UI: renders current directive, next safe action, mission feed, health bars, counters, and real project-wide worker activity before repo chrome.
-- Page routing: the browser shell maps hash navigation to separate read-only page views so Overview, Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review are not stacked into one cluttered page. The command center remains visible on routed pages so the read-only global filter and project controls stay available.
+- Page routing: the browser shell maps hash navigation to separate page views so Overview, Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review are not stacked into one cluttered page. The command center remains visible on routed pages so the global filter and project controls stay available.
 - Project drilldown: `/api/snapshot?project=<project_id>` resolves registered projects through the existing registry and returns that project's derived snapshot.
 - Global filter: narrows visible worker-lane tasks and Progress readiness receipts client-side by task id, title, status, worker, workspace, verification state, and latest event text without changing canonical state.
 - Operating Map: scoped map nodes for goals, inbox, workers, progress, review, and projects.
-- Selection Context Bar: names active map/goal scope and provides a read-only Clear control.
-- Action Rail: supervisor-classified safe commands for project, task, goal, lane, and batch contexts, with a collapsible read-only command preview that explains safety class and approval state without executing anything.
+- Selection Context Bar: names active map/goal scope and provides a Clear control.
+- Action Rail: supervisor-classified commands for project, task, goal, lane, and batch contexts, with a collapsible command preview, read-only command execution, bounded command output, and explicit approval gates for unsafe commands.
 - Question & Blocker Inbox: groups manual worker questions, blocked tasks, failed/attention tasks, and freshness findings needing human decisions.
 - Goals page: shows goal loop state, completion progress, all projected slices, linked task ids, risk, recommendations, ready/blocked lanes, conflict-aware parallel/worker/verification batches, and safe commands.
 - Spec Board references: shows goal-specific relevant files, optional `.devflow/standards/index.yml` entries, and architecture contract links as bounded read-only reference chips.
@@ -204,30 +205,30 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 7. [x] Add Agent OS-inspired Spec Board and Task Progress projections without adding canonical state.
 8. [x] Add Multi-Project Overview from the existing registry-backed dashboard projection.
 9. [x] Add read-only project drilldown by resolving registered project ids through the existing project registry and fetching that project's derived snapshot.
-10. [x] Add a read-only Action Rail that lists supervisor-classified project, task, goal, lane, and batch commands without executing mutations.
+10. [x] Add an Action Rail that lists supervisor-classified project, task, goal, lane, and batch commands without executing mutations.
 11. [x] Add selected-task evidence drilldown with bounded recent events, verification summary, evidence paths, and scrubbed text previews.
 12. [x] Add a Question & Blocker Inbox that groups manual questions, blocked tasks, failed/attention tasks, and freshness human-decision findings.
 13. [x] Add Operating Map, scoped panel filtering, context reset, and accessibility affordances.
 14. [x] Add polished Agent OS-style UI chrome with Orchestrator-first ordering, compact repo chrome, collapsible lower sections, attention strip, micro-interactions, and reduced-motion support.
 15. [x] Split static UI assets into `operating_layer_assets.py` so the HTTP server remains a small request router.
 16. [x] Add standards/reference visibility to the Spec Board from goal context, optional `.devflow/standards/index.yml`, and architecture contracts.
-17. [x] Add read-only command preview for Action Rail items.
+17. [x] Add command preview for Action Rail items.
 18. [x] Add a client-side global filter for worker-lane task discovery.
 19. [x] Replace decorative radar with real worker-activity rows and verify the first viewport with desktop/mobile screenshots.
 20. [x] Move project-wide worker activity into a typed backend snapshot projection.
 21. [x] Move the Orchestrator mission feed into a typed backend snapshot projection with plain-language labels.
 22. [x] Split the long stacked dashboard into hash-routed page views using the same read-only snapshot.
 23. [ ] Split large UI asset strings into deeper, efficient modules once the visual direction is accepted.
-24. [ ] Consider explicit supervisor-safe command execution only after the read-only surface has been reviewed and trusted.
+24. [x] Add explicit supervisor-safe Action Rail execution for `pure_read_only` Dev-Flow commands while blocking approval-required commands in the browser.
 
 ## Next Safe Slice
 
-Prepare the next implementation slice around deeper modules and maintainability:
+Prepare the next implementation slice around operational controls and maintainability:
 
 1. Extract UI asset generation into focused Python functions or separate asset constants while keeping `operating_layer_server.py` as a small router.
 2. Add visual-regression QA helpers that capture desktop/mobile screenshots and assert no overflow, Orchestrator-first ordering, progress rows, and no mission-feed overlap.
 3. Review the full operating-layer diff for accidental scope creep.
-4. Keep all active docs aligned with the read-only UI contract.
+4. Keep all active docs aligned with the guarded control-layer contract.
 6. Run focused and broader verification.
 7. Stage/commit only after human approval.
 

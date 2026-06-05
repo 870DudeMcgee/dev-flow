@@ -116,7 +116,7 @@ hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 project_app = typer.Typer(help="Create and manage registered projects")
 map_app = typer.Typer(help="Project Code Map orientation layer (Milestone 11)")
 freshness_app = typer.Typer(help="Detect stale goal/task/document guidance")
-operating_layer_app = typer.Typer(help="Read-only local operating-layer UI projections")
+operating_layer_app = typer.Typer(help="Local operating-layer UI and supervisor-safe controls")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -686,7 +686,7 @@ def status_command(
 def operating_layer_snapshot_command(
     json_output: bool = typer.Option(False, "--json", help="Print the operating-layer snapshot as JSON."),
 ) -> None:
-    """Render the read-only local operating-layer snapshot."""
+    """Render the local operating-layer snapshot."""
     from devflow.control_room.operating_layer import (
         build_operating_layer_snapshot,
         render_operating_layer_snapshot_json,
@@ -710,13 +710,13 @@ def operating_layer_serve_command(
     port: int = typer.Option(8765, "--port", min=0, help="Port for the local UI server. Use 0 for an ephemeral port."),
     open_browser: bool = typer.Option(False, "--open", help="Open the local UI in the default browser."),
 ) -> None:
-    """Serve the read-only local operating-layer UI."""
+    """Serve the local operating-layer UI and supervisor-safe controls."""
     from devflow.control_room.operating_layer_server import run_operating_layer_server
 
     def _ready(server: object) -> None:
         address = getattr(server, "server_address")
         typer.echo(f"Dev-Flow Operating Layer: http://{address[0]}:{address[1]}")
-        typer.echo("Read-only UI. Press Ctrl+C to stop.")
+        typer.echo("Control layer active. Press Ctrl+C to stop.")
 
     try:
         run_operating_layer_server(
