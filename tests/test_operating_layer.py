@@ -10,13 +10,28 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
+from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
+from devflow.control_room.operating_layer_html import INDEX_HTML as SPLIT_INDEX_HTML
+from devflow.control_room.operating_layer_script import APP_JS as SPLIT_APP_JS
 from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer, OperatingLayerRequestHandler
+from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
 from devflow.control_room.persistence import utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
 from devflow.control_room.project_registry import register_project, write_project_metadata
 
 
 runner = CliRunner()
+
+
+def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
+    assert INDEX_HTML is SPLIT_INDEX_HTML
+    assert APP_CSS is SPLIT_APP_CSS
+    assert APP_JS is SPLIT_APP_JS
+    assert '<link rel="stylesheet" href="/app.css">' in INDEX_HTML
+    assert '<script src="/app.js"></script>' in INDEX_HTML
+    assert ".approved-verification-control" in APP_CSS
+    assert "refreshSnapshotAfterApprovedVerification" in APP_JS
+    assert "I approve this exact Dev-Flow command" in APP_JS
 
 
 def test_operating_layer_snapshot_json_is_read_only_contract(
