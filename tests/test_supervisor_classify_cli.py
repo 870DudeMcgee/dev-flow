@@ -87,6 +87,19 @@ class TestClassifyReadOnly:
         payload = _json_output(result)
         assert payload["safety_class"] == PURE_READ_ONLY
 
+    def test_devflow_goal_read_commands(self):
+        for command in (
+            "devflow goal list",
+            "devflow goal show G-0001",
+            "devflow goal status G-0001",
+            "devflow goal next G-0001",
+            "devflow goal slices G-0001",
+        ):
+            result = runner.invoke(app, ["supervisor", "classify", command, "--json"])
+            payload = _json_output(result)
+            assert payload["safety_class"] == PURE_READ_ONLY
+            assert payload["supervisor_may_auto_run"] is True
+
 
 # ---------------------------------------------------------------------------
 # Approval-required: evidence writing
@@ -213,6 +226,16 @@ class TestClassifyTaskState:
         )
         payload = _json_output(result)
         assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+
+    def test_goal_state_commands(self):
+        for command in (
+            "devflow goal init brief.md",
+            "devflow goal create-task G-0001 TS-0001",
+        ):
+            result = runner.invoke(app, ["supervisor", "classify", command, "--json"])
+            payload = _json_output(result)
+            assert payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+            assert payload["requires_human_approval"] is True
 
 
 # ---------------------------------------------------------------------------

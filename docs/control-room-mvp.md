@@ -180,6 +180,8 @@ Knowledge Foundry commands write proposed/promoted/rejected reusable notes under
 
 The dogfood production-readiness form is `devflow dogfood run --suite production-readiness`. It runs deterministic local cases against existing Dev-Flow control-room surfaces and writes scorecards under `.devflow/dogfood/`. It measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, and lightweight behavior. Dogfood closes any task records it creates with the `evidence-only` outcome after each case so test evidence does not remain in the active project queue. It is not autonomous model execution: it does not call providers, route workers, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models.
 
+The local operating-layer form is `devflow operating-layer snapshot --json` and `devflow operating-layer serve --host 127.0.0.1 --port 8765`. It is the first approved UI contract for a browser-friendly control-room surface. It composes existing project, goal, task, freshness, verification, evidence, question, lane, and promotion projections into one read-only snapshot and serves a local static UI over that same snapshot. The filesystem remains the source of truth; the snapshot is derived and disposable. See [docs/architecture/local-operating-layer-ui.md](architecture/local-operating-layer-ui.md).
+
 The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
 
 The registry-backed local model worker-pool form is `devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json` for preview and `devflow agent run --task <task_id> --profile local-qwopus-inspector --json` for the first real vertical slice. It treats Josh's local fleet as heterogeneous: Mac mini runs small utility/helper workers, Mac Studio runs heavy reasoning/implementation/review workers, and `qwen2.5-coder:14b` is configurable as `either`. Profiles include machine class, weight class, model role name, caution notes, manifest verification command, and alias metadata. The real slice builds a bounded TaskPacket, calls `local_model_client.py`, writes WorkerEvidence under `.devflow/tasks/<task_id>/local-model-runs/<run-id>/`, caps raw output, captures failure, and stops. Gemma summarizer profiles use a compact evidence packet plus native Ollama `/api/chat` with thinking disabled when required by the model/template. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state. See [docs/architecture/local-model-worker-pool.md](architecture/local-model-worker-pool.md).
@@ -195,7 +197,7 @@ Do not implement these in the first milestone:
 - remote provider-backed adapter calls before explicit promotion into the runtime contract
 - old task-packet workflow orchestration
 - PR automation
-- browser or web dashboard UI
+- autonomous browser/web dashboard mutation surfaces
 - token-context routing helpers beyond the current read-only planning helper
 - task-fit/context routing runtime
 - hidden or autonomous commit, push, merge, or pull request creation
@@ -321,7 +323,7 @@ Only after that slice stays stable should new runtime behavior be promoted into 
 
 ## Acceptance Gauntlet
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed adapters, browser/web dashboard UI, database, or worktree orchestration are part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed adapters, database, autonomous browser dashboard mutation surface, or worktree orchestration are part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
 
 ## Current Implementation Status
 
@@ -343,6 +345,7 @@ Implemented:
 - tampered workspace refusal before shell or verification commands execute
 - symlink skipping during scratchpad copy
 - text-only terminal dashboard
+- read-only local operating-layer snapshot for browser-friendly UI state
 - read-only crash/interruption reconciliation reporting for partial event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts
 - stable `devflow-manual-codex-worker` registry contract
 - proof-agent bounded packets with role, allowed reads, allowed writes, forbidden writes, required outputs, completion rules, and manual instructions
@@ -363,7 +366,7 @@ Implemented:
 
 Outside the current product contract:
 
-- browser or web dashboard UI
+- autonomous browser/web dashboard mutation surface
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
 - task-fit/context routing (Design documented only. It does not select agents, invoke scouts, build runtime context packs, or change shell-worker behavior.)
 - provider-backed non-shell worker adapters

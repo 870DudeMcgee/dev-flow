@@ -154,7 +154,7 @@ This document does not define or implement:
 - copy-back;
 - merge automation;
 - PR automation;
-- dashboard expansion;
+- adapter-specific dashboard expansion beyond the read-only operating layer;
 - database state;
 - worktrees;
 - memory systems;

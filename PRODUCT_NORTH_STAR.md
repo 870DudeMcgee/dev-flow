@@ -382,7 +382,9 @@ The first production-worthy MVP is not a full AI swarm.
 
 The first MVP is a non-AI control room that proves the infrastructure works.
 
-The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration, browser/web dashboards, enabled non-shell adapters, autonomous routing, and automatic merge or pull-request behavior.
+The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration as the default path, enabled non-shell adapters, autonomous routing, and automatic merge or pull-request behavior.
+
+The next approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a read-only browser-friendly projection over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker evidence, verification, questions, and promotion readiness without reading huge logs. This slice does not add a database, autonomous routing, provider-backed worker calls, hidden memory, or direct merge/push/PR automation.
 
 The next architecture direction is [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md). It defines agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md) extends that direction with task-fit scoring, context estimation, layered context packs, scout roles, and routing-quality feedback. These documents are design-only until implementation explicitly starts with registry loading, manual packets, shell alignment, task-fit/context estimation, context pack building, and conservative routing.
 

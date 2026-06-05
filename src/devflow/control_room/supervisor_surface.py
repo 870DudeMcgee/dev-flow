@@ -48,6 +48,11 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow hermes imessage-check",
     "devflow hermes imessage-check --json",
     "devflow git status",
+    "devflow goal list",
+    "devflow goal show",
+    "devflow goal status",
+    "devflow goal next",
+    "devflow goal slices",
     "devflow project list",
     "devflow project show",
     "devflow project status",
@@ -97,6 +102,8 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
 
 APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow init",
+    "devflow goal init",
+    "devflow goal create-task",
     "devflow project create",
     "devflow project import",
     "devflow project archive",
@@ -308,6 +315,12 @@ def _classify_supervisor_command(command: str) -> str:
         return PURE_READ_ONLY if subcommand == "imessage-check" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "git":
         return PURE_READ_ONLY if subcommand == "status" else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "goal":
+        if subcommand in {"list", "show", "status", "next", "slices"}:
+            return PURE_READ_ONLY
+        if subcommand in {"init", "create-task"}:
+            return APPROVAL_REQUIRED_TASK_STATE
+        return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "project":
         if subcommand in {"list", "show", "status", "doctor"}:
             return PURE_READ_ONLY

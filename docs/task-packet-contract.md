@@ -145,7 +145,7 @@ This contract does not define or implement:
 - copy-back;
 - merge automation;
 - pull request automation;
-- dashboard expansion;
+- task-packet-specific dashboard expansion beyond the read-only operating layer;
 - database state;
 - worktrees;
 - memory systems;

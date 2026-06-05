@@ -24,7 +24,7 @@ This pass does not define or implement:
 - prompt orchestration;
 - multi-agent scheduling;
 - copy-back, merge, or pull request automation;
-- dashboard expansion;
+- Codex-adapter dashboard expansion beyond the read-only operating layer;
 - runtime changes to the current shell-only MVP.
 
 ## Proposed Future Adapter Behavior
