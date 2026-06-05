@@ -1204,6 +1204,24 @@ button:focus-visible {
   margin-top: 12px;
 }
 
+.approved-verification-control {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.approved-verification-control input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--type-body);
+}
+
 .action-run-button {
   border-color: rgba(15, 118, 110, 0.48);
   background: var(--teal);
@@ -4286,11 +4304,13 @@ let selectedProjectName = null;
 let selectedProjectPathStatus = null;
 let selectedActionCommand = null;
 let actionRunState = null;
+let verificationCommandInputs = {};
 let selectedSpecDocumentKey = null;
 let agentsExpanded = false;
 let globalFilter = "";
 let currentPage = "orchestrator";
 
+const APPROVAL_PHRASE = "I approve this exact Dev-Flow command";
 const laneLimit = ["blocked", "running", "needs_verification", "ready_to_promote", "new"];
 const pageSections = {
   orchestrator: ["orchestrator", "command"],
@@ -5686,7 +5706,24 @@ function renderActionPreview(action) {
   const approval = action.requires_human_approval ? "approval required" : "no approval required";
   const isRunning = actionRunState && actionRunState.command === action.command && actionRunState.status === "running";
   const actionResult = actionRunState && actionRunState.command === action.command ? actionRunState : null;
-  const executeLabel = action.supervisor_may_auto_run ? "Execute read-only command" : "Approval required in CLI";
+  const isApprovedVerification = isTaskVerificationAction(action);
+  const verificationCommand = (verificationCommandInputs[action.command] || "").trim();
+  const effectiveCommand = isApprovedVerification && verificationCommand ? approvedVerificationCommand(action) : action.command;
+  const canRun = action.supervisor_may_auto_run || (isApprovedVerification && verificationCommand);
+  const executeLabel = action.supervisor_may_auto_run
+    ? "Execute read-only command"
+    : (isApprovedVerification ? "Approve and run verification" : "Approval required in CLI");
+  const controlLabel = isApprovedVerification
+    ? "This approved action runs only the exact verification command shown above."
+    : (action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval");
+  const verificationControl = isApprovedVerification
+    ? `
+      <label class="approved-verification-control">
+        <span class="label">Verification shell command</span>
+        <input type="text" data-verification-command value="${escapeHtml(verificationCommand)}" placeholder="test -f result.txt">
+      </label>
+    `
+    : "";
   const resultMarkup = actionResult && actionResult.status !== "running"
     ? renderActionResult(actionResult)
     : "";
@@ -5713,20 +5750,48 @@ function renderActionPreview(action) {
         <strong>${escapeHtml(approval)}</strong>
       </div>
     </div>
-    <code>${escapeHtml(action.command)}</code>
+    <code>${escapeHtml(effectiveCommand)}</code>
     <p>${escapeHtml(action.reason || "This command is supervisor-classified as safe for this local control layer.")}</p>
+    ${verificationControl}
     <div class="action-execute-row">
-      <button type="button" class="action-run-button" data-run-action ${action.supervisor_may_auto_run && !isRunning ? "" : "disabled"}>
+      <button type="button" class="action-run-button" data-run-action ${canRun && !isRunning ? "" : "disabled"}>
         ${escapeHtml(isRunning ? "Running..." : executeLabel)}
       </button>
-      <span class="label">${escapeHtml(action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval")}</span>
+      <span class="label">${escapeHtml(controlLabel)}</span>
     </div>
     ${isRunning ? '<div class="action-result"><strong>Running command...</strong></div>' : resultMarkup}
   `;
-  const runButton = preview.querySelector("[data-run-action]");
-  if (runButton && action.supervisor_may_auto_run) {
-    runButton.addEventListener("click", () => executeAction(action));
+  const verificationInput = preview.querySelector("[data-verification-command]");
+  if (verificationInput) {
+    verificationInput.addEventListener("input", (event) => {
+      verificationCommandInputs[action.command] = event.target.value;
+      renderActionPreview(action);
+    });
   }
+  const runButton = preview.querySelector("[data-run-action]");
+  if (runButton && canRun) {
+    runButton.addEventListener("click", () => executeAction(action, { approvedVerification: isApprovedVerification }));
+  }
+}
+
+function isTaskVerificationAction(action) {
+  return Boolean(
+    action &&
+      action.safety_class === "approval_required_worker_runtime" &&
+      /^devflow task verify\\s+/.test(action.command || "")
+  );
+}
+
+function approvedVerificationCommand(action) {
+  const shellCommand = (verificationCommandInputs[action.command] || "").trim();
+  const quoted = quoteShellArgument(shellCommand);
+  if ((action.command || "").includes("\\"<command>\\"")) return action.command.replace("\\"<command>\\"", quoted);
+  if ((action.command || "").includes("<command>")) return action.command.replace("<command>", quoted);
+  return `${action.command} --shell ${quoted}`;
+}
+
+function quoteShellArgument(value) {
+  return `"${String(value).replace(/\\\\/g, "\\\\\\\\").replace(/"/g, "\\\\\\"")}"`;
 }
 
 function renderActionResult(result) {
@@ -5758,14 +5823,21 @@ function renderActionResult(result) {
   `;
 }
 
-async function executeAction(action) {
+async function executeAction(action, options = {}) {
+  const command = options.approvedVerification ? approvedVerificationCommand(action) : action.command;
+  const body = { command, project: selectedProjectId };
+  if (options.approvedVerification) {
+    body.human_approved = true;
+    body.approval_phrase = APPROVAL_PHRASE;
+    body.approved_command = command;
+  }
   actionRunState = { command: action.command, status: "running" };
   renderActionPreview(action);
   try {
     const response = await fetch("/api/actions/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command: action.command, project: selectedProjectId }),
+      body: JSON.stringify(body),
     });
     const payload = await response.json().catch(() => ({ error: "Action unavailable" }));
     if (!response.ok && payload.executed === false) {

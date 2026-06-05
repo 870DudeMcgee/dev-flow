@@ -490,7 +490,15 @@ def test_operating_layer_server_blocks_approval_required_actions(
     host, port = server.server_address
     try:
         connection = HTTPConnection(host, port, timeout=5)
-        body = json.dumps({"command": "devflow task run task-0001 --worker shell -- echo hi"})
+        command = "devflow task run task-0001 --worker shell -- echo hi"
+        body = json.dumps(
+            {
+                "command": command,
+                "human_approved": True,
+                "approval_phrase": "I approve this exact Dev-Flow command",
+                "approved_command": command,
+            }
+        )
         connection.request(
             "POST",
             "/api/actions/run",
@@ -505,6 +513,54 @@ def test_operating_layer_server_blocks_approval_required_actions(
         assert payload["requires_human_approval"] is True
         assert payload["classification"]["safety_class"] == "approval_required_worker_runtime"
         assert (worker_log.read_text() if worker_log.exists() else None) == original_worker_log
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_task_verification(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "approved verification action"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    command = 'devflow task verify task-0001 --shell "test -f result.txt"'
+    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        body = json.dumps(
+            {
+                "command": command,
+                "human_approved": True,
+                "approval_phrase": "I approve this exact Dev-Flow command",
+                "approved_command": command,
+            }
+        )
+        connection.request(
+            "POST",
+            "/api/actions/run",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_worker_runtime"
+        assert payload["exit_code"] == 0
+        assert "task-0001: verification passed" in payload["stdout"]
+        verification = json.loads((tmp_path / ".devflow" / "tasks" / "task-0001" / "verification.json").read_text())
+        assert verification["status"] == "passed"
     finally:
         server.shutdown()
         server.server_close()
