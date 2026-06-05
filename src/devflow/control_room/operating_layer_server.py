@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,6 +18,7 @@ from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_H
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
 from devflow.control_room.supervisor_surface import (
+    APPROVAL_REQUIRED_GIT,
     APPROVAL_REQUIRED_WORKER_RUNTIME,
     PURE_READ_ONLY,
     classify_supervisor_command,
@@ -87,14 +89,16 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
 
         classification = classify_supervisor_command(command)
-        approved_mutation = False
+        approved_verification = False
+        approved_promotion = False
         if classification["safety_class"] != PURE_READ_ONLY:
             try:
-                approved_mutation = _is_approved_task_verification(payload, command, classification)
+                approved_verification = _is_approved_task_verification(payload, command, classification)
+                approved_promotion = _is_approved_task_promotion(payload, command, classification)
             except ValueError as exc:
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
                 return
-        if classification["safety_class"] != PURE_READ_ONLY and not approved_mutation:
+        if classification["safety_class"] != PURE_READ_ONLY and not (approved_verification or approved_promotion):
             self._send_json(
                 {
                     "executed": False,
@@ -114,10 +118,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 root = resolve_project_root(self.server.repo_root, project_id.strip()).root
             args = (
                 _approved_task_verification_command_args(command)
-                if approved_mutation
+                if approved_verification
+                else _approved_task_promotion_command_args(command)
+                if approved_promotion
                 else _supervisor_read_only_command_args(command)
             )
-        except (ProjectRegistryError, ValueError) as exc:
+            context_path = _write_promotion_context(root, command, payload) if approved_promotion else None
+        except (ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
 
@@ -128,6 +135,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 cwd=root,
                 env=env,
                 text=True,
+                input="y\n" if approved_promotion else None,
                 capture_output=True,
                 timeout=ACTION_TIMEOUT_SECONDS,
                 check=False,
@@ -159,6 +167,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 "stdout": _truncate_text(stdout),
                 "stderr": _truncate_text(stderr),
                 "output_truncated": _output_was_truncated(stdout, stderr),
+                "context_path": context_path,
             },
             HTTPStatus.OK,
         )
@@ -266,11 +275,85 @@ def _approved_task_verification_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
+def _approved_task_promotion_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 4 or normalized[1:3] != ["task", "promote"]:
+        raise ValueError("only approved task promotion may run from the operating layer")
+    task_id = normalized[3]
+    if not task_id or task_id.startswith("-"):
+        raise ValueError("task promotion command requires a task id")
+    allowed_options = {"--project"}
+    index = 4
+    while index < len(normalized):
+        token = normalized[index]
+        if token not in allowed_options:
+            raise ValueError("approved browser promotion allows only the optional --project flag")
+        if token == "--project":
+            if index + 1 >= len(normalized) or normalized[index + 1].startswith("-"):
+                raise ValueError("approved browser promotion requires a project id after --project")
+            index += 2
+            continue
+        index += 1
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _write_promotion_context(root: Path, command: str, payload: dict[str, object]) -> str | None:
+    note = payload.get("context_note")
+    if not isinstance(note, str) or not note.strip():
+        return None
+    _approved_task_promotion_command_args(command)
+    task_id = _promotion_task_id(command)
+    task_path = root / ".devflow" / "tasks" / task_id
+    if not task_path.is_dir():
+        raise ValueError(f"task not found for promotion context: {task_id}")
+    cleaned = note.strip()
+    if len(cleaned) > 4000:
+        cleaned = cleaned[:4000].rstrip() + "\n\n[truncated]"
+    context_path = task_path / "promotion-context.md"
+    timestamp = datetime.now(timezone.utc).isoformat()
+    entry = (
+        f"\n## {timestamp}\n\n"
+        f"- command: `{command}`\n"
+        f"- source: operating-layer approval\n\n"
+        f"{cleaned}\n"
+    )
+    if context_path.exists():
+        with context_path.open("a", encoding="utf-8") as handle:
+            handle.write(entry)
+    else:
+        context_path.write_text("# Human Promotion Context\n" + entry, encoding="utf-8")
+    return context_path.relative_to(root).as_posix()
+
+
+def _promotion_task_id(command: str) -> str:
+    normalized = _normalize_devflow_command_tokens(shlex.split(command))
+    if len(normalized) < 4:
+        raise ValueError("task promotion command requires a task id")
+    return normalized[3]
+
+
 def _is_approved_task_verification(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
     if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
         return False
     try:
         _approved_task_verification_command_args(command)
+    except ValueError:
+        return False
+    if payload.get("human_approved") is not True:
+        return False
+    if payload.get("approval_phrase") != ACTION_APPROVAL_PHRASE:
+        return False
+    if payload.get("approved_command") != command:
+        return False
+    return True
+
+
+def _is_approved_task_promotion(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_GIT:
+        return False
+    try:
+        _approved_task_promotion_command_args(command)
     except ValueError:
         return False
     if payload.get("human_approved") is not True:

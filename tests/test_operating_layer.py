@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from http import HTTPStatus
 from http.client import HTTPConnection
@@ -30,8 +31,22 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert '<link rel="stylesheet" href="/app.css">' in INDEX_HTML
     assert '<script src="/app.js"></script>' in INDEX_HTML
     assert ".approved-verification-control" in APP_CSS
-    assert "refreshSnapshotAfterApprovedVerification" in APP_JS
+    assert ".task-review-panel" in APP_CSS
+    assert "refreshSnapshotAfterApprovedAction" in APP_JS
+    assert "isTaskPromotionAction" in APP_JS
+    assert "Approve & promote" in APP_JS
+    assert "data-promotion-context" in APP_JS
+    assert "data-promotion-approval" not in APP_JS
+    assert 'id="task-review-panel"' in INDEX_HTML
     assert "I approve this exact Dev-Flow command" in APP_JS
+
+
+def test_operating_layer_approved_action_result_retention_hooks_are_present() -> None:
+    assert "lastApprovedActionResult" in APP_JS
+    assert "rememberApprovedActionResult" in APP_JS
+    assert "refreshSnapshotAfterApprovedAction" in APP_JS
+    assert "preservedActionResultForSelectedTask" in APP_JS
+    assert "Last approved command" in APP_JS
 
 
 def test_operating_layer_snapshot_json_is_read_only_contract(
@@ -116,6 +131,12 @@ def test_operating_layer_groups_verification_and_promotion_lanes(
     assert snapshot.gate_receipts[0].next_gate == "human_decision"
     assert snapshot.tasks[0].detail.verification is not None
     assert snapshot.tasks[0].detail.verification.status == "passed"
+    review = {item.label: item.value for item in snapshot.tasks[0].detail.review_summary}
+    assert review["Task"] == "task-0001 - needs verification"
+    assert review["Status"] == "verified"
+    assert review["Verification"] == "passed"
+    assert "result.txt" in review["Changed files"]
+    assert "done" in review["Task contents"]
     assert str(tmp_path) not in (snapshot.tasks[0].detail.result_preview or "")
 
 
@@ -448,8 +469,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "all-projects-button" in js
         assert "/api/actions/run" in js
         assert "executeAction" in js
-        assert "refreshSnapshotAfterApprovedVerification" in js
-        assert "await refreshSnapshotAfterApprovedVerification(action)" in js
+        assert "refreshSnapshotAfterApprovedAction" in js
+        assert "await refreshSnapshotAfterApprovedAction(action)" in js
     finally:
         server.shutdown()
         server.server_close()
@@ -762,6 +783,67 @@ def test_operating_layer_server_runs_approved_task_verification(
         assert "task-0001: verification passed" in payload["stdout"]
         verification = json.loads((tmp_path / ".devflow" / "tasks" / "task-0001" / "verification.json").read_text())
         assert verification["status"] == "passed"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_task_promotion(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "devflow@example.test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "DevFlow Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+
+    assert runner.invoke(app, ["task", "create", "ship visible approval evidence"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > approval.txt"])
+    assert run.exit_code == 0, run.output
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f approval.txt"])
+    assert verify.exit_code == 0, verify.output
+    preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+    assert preview.exit_code == 0, preview.output
+
+    command = "devflow task promote task-0001"
+    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        body = json.dumps(
+            {
+                "command": command,
+                "human_approved": True,
+                "approval_phrase": "I approve this exact Dev-Flow command",
+                "approved_command": command,
+                "context_note": "Ship this because the browser review confirmed the visible approval evidence.",
+            }
+        )
+        connection.request(
+            "POST",
+            "/api/actions/run",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_git"
+        assert payload["exit_code"] == 0
+        assert "Promotion complete." in payload["stdout"]
+        assert payload["context_path"] == ".devflow/tasks/task-0001/promotion-context.md"
+        task_yaml = (tmp_path / ".devflow" / "tasks" / "task-0001" / "task.yaml").read_text()
+        assert 'status: "promoted"' in task_yaml
+        context = (tmp_path / ".devflow" / "tasks" / "task-0001" / "promotion-context.md").read_text()
+        assert "Ship this because the browser review confirmed the visible approval evidence." in context
+        assert "devflow task promote task-0001" in context
     finally:
         server.shutdown()
         server.server_close()

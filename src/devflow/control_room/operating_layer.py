@@ -16,7 +16,7 @@ from devflow.control_room.dashboard import (
 )
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.log_sanitizer import sanitize_log_line
-from devflow.control_room.paths import goals_dir, relative_path, task_dir
+from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.status_projection import TaskStatusProjection
 from devflow.control_room.supervisor_surface import classify_supervisor_command
@@ -78,12 +78,18 @@ class OperatingLayerTaskVerification(BaseModel):
     log_path: str | None = None
 
 
+class OperatingLayerReviewItem(BaseModel):
+    label: str
+    value: str
+
+
 class OperatingLayerTaskDetail(BaseModel):
     events_path: str
     verification_path: str
     recent_events: list[OperatingLayerTaskEvent] = Field(default_factory=list)
     verification: OperatingLayerTaskVerification | None = None
     evidence_paths: list[str] = Field(default_factory=list)
+    review_summary: list[OperatingLayerReviewItem] = Field(default_factory=list)
     latest_worker_line: str | None = None
     latest_verification_line: str | None = None
     result_preview: str | None = None
@@ -974,11 +980,95 @@ def _task_detail(root: Path, projection: TaskStatusProjection) -> OperatingLayer
         recent_events=_recent_events(root, base / "events.jsonl", notes),
         verification=_verification_detail(base / "verification.json", notes),
         evidence_paths=sorted(dict.fromkeys(evidence_paths)),
+        review_summary=_task_review_summary(root, projection, notes),
         latest_worker_line=_artifact_preview(root, task.log_path, notes),
         latest_verification_line=_artifact_preview(root, projection.verification_log_path, notes),
         result_preview=_artifact_preview(root, task.result_path, notes),
         notes=notes,
     )
+
+
+def _task_review_summary(
+    root: Path,
+    projection: TaskStatusProjection,
+    notes: list[str],
+) -> list[OperatingLayerReviewItem]:
+    task = projection.task
+    changed_files = _changed_workspace_files(root, task.workspace, notes)
+    task_contents = _changed_file_contents(root, task.workspace, changed_files, notes)
+    return [
+        OperatingLayerReviewItem(label="Task", value=f"{task.id} - {task.title}"),
+        OperatingLayerReviewItem(label="Status", value=task.status),
+        OperatingLayerReviewItem(label="Verification", value=projection.verification_status or "not_run"),
+        OperatingLayerReviewItem(
+            label="Changed files",
+            value="\n".join(changed_files) if changed_files else "No file changes detected",
+        ),
+        OperatingLayerReviewItem(label="Task contents", value=task_contents or "No changed file preview available"),
+        OperatingLayerReviewItem(
+            label="Next action",
+            value=projection.dashboard_next_action.command or f"devflow task show {task.id}",
+        ),
+    ]
+
+
+def _changed_workspace_files(root: Path, workspace_value: str, notes: list[str], *, limit: int = 20) -> list[str]:
+    workspace = absolute_path(root, workspace_value).resolve()
+    if not workspace.is_dir():
+        notes.append(f"workspace unavailable for review summary: {workspace_value}")
+        return []
+
+    changed: list[str] = []
+    for path in sorted(workspace.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            name = path.relative_to(workspace).as_posix()
+        except ValueError:
+            continue
+        if _is_ignored_review_name(name):
+            continue
+        target = root / name
+        try:
+            if not target.exists() or (target.is_file() and path.read_bytes() != target.read_bytes()):
+                changed.append(name)
+        except OSError:
+            changed.append(name)
+        if len(changed) >= limit:
+            break
+    return changed
+
+
+def _changed_file_contents(
+    root: Path,
+    workspace_value: str,
+    changed_files: list[str],
+    notes: list[str],
+    *,
+    limit: int = 5,
+) -> str:
+    workspace = absolute_path(root, workspace_value).resolve()
+    previews: list[str] = []
+    for name in changed_files[:limit]:
+        path = workspace / name
+        try:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            notes.append(f"{name} preview unavailable: {exc}")
+            continue
+        lines = []
+        for line in raw.splitlines():
+            preview = sanitize_log_line(line, max_chars=180)
+            if preview:
+                lines.append(preview)
+        if lines:
+            previews.append(f"{name}: " + "\n".join(lines[:4]))
+    return "\n".join(previews)
+
+
+def _is_ignored_review_name(name: str) -> bool:
+    ignored = {".git", ".devflow", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv"}
+    return any(part in ignored for part in Path(name).parts)
 
 
 def _recent_events(root: Path, path: Path, notes: list[str], *, limit: int = 5) -> list[OperatingLayerTaskEvent]:
@@ -1571,8 +1661,11 @@ def _task_actions(
     if next_action_command:
         commands.insert(0, ("Next safe action", next_action_command, "task"))
     if ready_to_promote:
-        commands.append(
-            ("Review preview", _scope_task_command(f"devflow task promote-preview {task_id}", project_id), "task")
+        commands.extend(
+            [
+                ("Review preview", _scope_task_command(f"devflow task promote-preview {task_id}", project_id), "task"),
+                ("Approve promotion", _scope_task_command(f"devflow task promote {task_id}", project_id), "task"),
+            ]
         )
 
     seen: set[str] = set()

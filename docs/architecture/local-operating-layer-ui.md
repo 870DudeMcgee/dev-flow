@@ -174,7 +174,7 @@ Implemented pieces:
 - Mission feed projection: `operating_layer.py` derives plain-language Orchestrator updates such as "Task progress", "Task update", "Evidence", "Question", and "Ready for review" from existing Dev-Flow artifacts; the browser shell only renders this list.
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
 - `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
-- Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The only approved browser mutation is exact human-approved task verification: `devflow task verify <task_id> --shell "<command>"`, with the server rechecking the classifier, requiring the exact approval phrase, and refusing placeholder verification commands.
+- Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The approved browser mutations are limited to exact human-approved task verification and exact human-approved task promotion, with the server rechecking the classifier, requiring the exact approval phrase, refusing placeholder verification commands, and preserving the existing promotion safety gates.
 - Verification refresh: after an executed approved task-verification action, the browser re-fetches `/api/snapshot` so task lanes, status, progress receipts, and evidence panes update from filesystem truth without a manual page reload.
 - UI assets: `operating_layer_assets.py` remains the public facade, while `operating_layer_html.py`, `operating_layer_styles.py`, and `operating_layer_script.py` own the bundled HTML, CSS, and JavaScript for the local browser shell.
 - Orchestrator-first UI: renders current directive, next safe action, mission feed, health bars, counters, and real project-wide worker activity before repo chrome.
@@ -222,20 +222,22 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 23. [x] Split large UI asset strings into deeper, efficient modules once the visual direction is accepted.
 24. [x] Add explicit supervisor-safe Action Rail execution for `pure_read_only` Dev-Flow commands while blocking approval-required commands in the browser.
 25. [x] Add the first approval-gated browser mutation for exact `devflow task verify <task_id> --shell "<command>"` commands, with server-side classifier recheck and exact approval echo.
-26. [x] Refresh the browser snapshot after approved task verification so lane/status/evidence changes are visible immediately from `/api/snapshot`.
+26. [x] Add exact approval-gated task promotion with server-side classifier recheck, exact approval echo, optional context capture, and existing promotion safety gates.
+27. [x] Refresh the browser snapshot after approved task verification or promotion so lane/status/evidence changes are visible immediately from `/api/snapshot`.
 
 ## Next Safe Slice
 
 Prepare the next implementation slice around operational controls and maintainability:
 
-1. Seed real desktop/mobile browser baselines when the environment can provide rendered screenshots reliably.
-2. Keep the dogfood production-readiness visual QA case passing with deterministic fallback, external/Appshot, or optional Playwright evidence.
-3. Review the full operating-layer diff for accidental scope creep.
-4. Keep all active docs aligned with the guarded control-layer contract.
-5. Run focused and broader verification.
-6. Stage/commit only after human approval.
+1. Preserve approved Action Rail command results after snapshot refresh using [docs/superpowers/plans/2026-06-05-operating-layer-approved-action-result-retention.md](../superpowers/plans/2026-06-05-operating-layer-approved-action-result-retention.md).
+2. Seed real desktop/mobile browser baselines when the environment can provide rendered screenshots reliably.
+3. Keep the dogfood production-readiness visual QA case passing with deterministic fallback, external/Appshot, or optional Playwright evidence.
+4. Review the full operating-layer diff for accidental scope creep.
+5. Keep all active docs aligned with the guarded control-layer contract.
+6. Run focused and broader verification.
+7. Stage/commit only after human approval.
 
-Do not add worker execution, promotion, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. The only approved browser mutation is task verification through the guarded `/api/actions/run` approval path.
+Do not add worker execution, task creation, patch application, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
 
 ## Design Constraints
 

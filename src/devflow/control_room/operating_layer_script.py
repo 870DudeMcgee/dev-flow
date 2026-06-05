@@ -9,7 +9,9 @@ let selectedProjectName = null;
 let selectedProjectPathStatus = null;
 let selectedActionCommand = null;
 let actionRunState = null;
+let lastApprovedActionResult = null;
 let verificationCommandInputs = {};
+let promotionContextInputs = {};
 let selectedSpecDocumentKey = null;
 let agentsExpanded = false;
 let globalFilter = "";
@@ -1375,10 +1377,12 @@ function renderActions() {
     return;
   }
   const visibleActions = actions.slice(0, 8);
-  if (!visibleActions.some((action) => action.command === selectedActionCommand)) {
-    selectedActionCommand = visibleActions[0].command;
+  const preservedResult = preservedActionResultForSelectedTask(visibleActions);
+  const renderedActions = preservedResult ? [preservedResult.action, ...visibleActions].slice(0, 8) : visibleActions;
+  if (!renderedActions.some((action) => action.command === selectedActionCommand)) {
+    selectedActionCommand = renderedActions[0].command;
   }
-  visibleActions.forEach((action) => {
+  renderedActions.forEach((action) => {
     const item = document.createElement("button");
     item.type = "button";
     const selected = action.command === selectedActionCommand;
@@ -1397,7 +1401,7 @@ function renderActions() {
     });
     list.appendChild(item);
   });
-  renderActionPreview(visibleActions.find((action) => action.command === selectedActionCommand) || visibleActions[0]);
+  renderActionPreview(renderedActions.find((action) => action.command === selectedActionCommand) || renderedActions[0]);
 }
 
 function renderActionPreview(action) {
@@ -1410,22 +1414,42 @@ function renderActionPreview(action) {
   const mayAutoRun = action.supervisor_may_auto_run ? "Supervisor read-only safe" : "Human approval required";
   const approval = action.requires_human_approval ? "approval required" : "no approval required";
   const isRunning = actionRunState && actionRunState.command === action.command && actionRunState.status === "running";
-  const actionResult = actionRunState && actionRunState.command === action.command ? actionRunState : null;
+  const preservedResult =
+    lastApprovedActionResult && lastApprovedActionResult.command === action.command
+      ? lastApprovedActionResult
+      : null;
+  const actionResult =
+    actionRunState && actionRunState.command === action.command ? actionRunState : preservedResult;
   const isApprovedVerification = isTaskVerificationAction(action);
+  const isApprovedPromotion = isTaskPromotionAction(action);
   const verificationCommand = (verificationCommandInputs[action.command] || "").trim();
+  const promotionContext = promotionContextInputs[action.command] || "";
   const effectiveCommand = isApprovedVerification && verificationCommand ? approvedVerificationCommand(action) : action.command;
-  const canRun = action.supervisor_may_auto_run || (isApprovedVerification && verificationCommand);
+  const canRun =
+    action.supervisor_may_auto_run ||
+    (isApprovedVerification && verificationCommand) ||
+    isApprovedPromotion;
   const executeLabel = action.supervisor_may_auto_run
     ? "Execute read-only command"
-    : (isApprovedVerification ? "Approve and run verification" : "Approval required in CLI");
+    : (isApprovedVerification ? "Approve and run verification" : (isApprovedPromotion ? "Approve & promote" : "Approval required in CLI"));
   const controlLabel = isApprovedVerification
     ? "This approved action runs only the exact verification command shown above."
-    : (action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval");
+    : (isApprovedPromotion
+      ? "Promotes only the exact command shown; optional context is saved with the decision."
+      : (action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval"));
   const verificationControl = isApprovedVerification
     ? `
       <label class="approved-verification-control">
         <span class="label">Verification shell command</span>
         <input type="text" data-verification-command value="${escapeHtml(verificationCommand)}" placeholder="test -f result.txt">
+      </label>
+    `
+    : "";
+  const promotionControl = isApprovedPromotion
+    ? `
+      <label class="approved-promotion-control">
+        <span class="label">Context note</span>
+        <textarea data-promotion-context rows="3" placeholder="Add reviewer context for this promotion...">${escapeHtml(promotionContext)}</textarea>
       </label>
     `
     : "";
@@ -1458,6 +1482,7 @@ function renderActionPreview(action) {
     <code>${escapeHtml(effectiveCommand)}</code>
     <p>${escapeHtml(action.reason || "This command is supervisor-classified as safe for this local control layer.")}</p>
     ${verificationControl}
+    ${promotionControl}
     <div class="action-execute-row">
       <button type="button" class="action-run-button" data-run-action ${canRun && !isRunning ? "" : "disabled"}>
         ${escapeHtml(isRunning ? "Running..." : executeLabel)}
@@ -1473,9 +1498,17 @@ function renderActionPreview(action) {
       renderActionPreview(action);
     });
   }
+  const promotionContextInput = preview.querySelector("[data-promotion-context]");
+  if (promotionContextInput) {
+    promotionContextInput.addEventListener("input", (event) => {
+      promotionContextInputs[action.command] = event.target.value;
+    });
+  }
   const runButton = preview.querySelector("[data-run-action]");
   if (runButton && canRun) {
-    runButton.addEventListener("click", () => executeAction(action, { approvedVerification: isApprovedVerification }));
+    runButton.addEventListener("click", () =>
+      executeAction(action, { approvedVerification: isApprovedVerification, approvedPromotion: isApprovedPromotion })
+    );
   }
 }
 
@@ -1484,6 +1517,14 @@ function isTaskVerificationAction(action) {
     action &&
       action.safety_class === "approval_required_worker_runtime" &&
       /^devflow task verify\\s+/.test(action.command || "")
+  );
+}
+
+function isTaskPromotionAction(action) {
+  return Boolean(
+    action &&
+      action.safety_class === "approval_required_git" &&
+      /^devflow task promote\\s+/.test(action.command || "")
   );
 }
 
@@ -1528,14 +1569,35 @@ function renderActionResult(result) {
   `;
 }
 
+function rememberApprovedActionResult(action, runState) {
+  if (!action || !runState || runState.status === "running") return;
+  lastApprovedActionResult = {
+    ...runState,
+    action: { ...action, label: "Last approved command" },
+    projectId: selectedProjectId,
+    taskId: selectedTaskId,
+  };
+}
+
+function preservedActionResultForSelectedTask(actions) {
+  if (!lastApprovedActionResult) return null;
+  if (lastApprovedActionResult.projectId !== selectedProjectId) return null;
+  if (lastApprovedActionResult.taskId !== selectedTaskId) return null;
+  if (actions.some((action) => action.command === lastApprovedActionResult.command)) return null;
+  return lastApprovedActionResult;
+}
+
 async function executeAction(action, options = {}) {
   const command = options.approvedVerification ? approvedVerificationCommand(action) : action.command;
   const body = { command, project: selectedProjectId };
   let refreshedSnapshot = false;
-  if (options.approvedVerification) {
+  if (options.approvedVerification || options.approvedPromotion) {
     body.human_approved = true;
     body.approval_phrase = APPROVAL_PHRASE;
     body.approved_command = command;
+    if (options.approvedPromotion) {
+      body.context_note = promotionContextInputs[action.command] || "";
+    }
   }
   actionRunState = { command: action.command, status: "running" };
   renderActionPreview(action);
@@ -1563,8 +1625,8 @@ async function executeAction(action, options = {}) {
     } else {
       actionRunState = { command: action.command, status: "complete", payload };
     }
-    if (options.approvedVerification && payload.executed === true) {
-      await refreshSnapshotAfterApprovedVerification(action);
+    if ((options.approvedVerification || options.approvedPromotion) && payload.executed === true) {
+      await refreshSnapshotAfterApprovedAction(action);
       refreshedSnapshot = true;
     }
   } catch (error) {
@@ -1577,12 +1639,20 @@ async function executeAction(action, options = {}) {
   if (!refreshedSnapshot) renderActionPreview(action);
 }
 
-async function refreshSnapshotAfterApprovedVerification(action) {
+async function refreshSnapshotAfterApprovedAction(action) {
   const priorTaskId = selectedTaskId;
+  const priorRunState =
+    actionRunState && actionRunState.command === action.command ? { ...actionRunState } : null;
+  if (priorRunState) rememberApprovedActionResult(action, priorRunState);
   await loadSnapshot(selectedProjectId);
   if (priorTaskId && taskById(priorTaskId)) selectedTaskId = priorTaskId;
-  const refreshedAction = (taskById(selectedTaskId)?.actions || []).find((item) => item.command === action.command);
-  if (refreshedAction) selectedActionCommand = refreshedAction.command;
+  if (lastApprovedActionResult && lastApprovedActionResult.taskId === selectedTaskId) {
+    selectedActionCommand = lastApprovedActionResult.command;
+    actionRunState = lastApprovedActionResult;
+  } else {
+    const refreshedAction = (taskById(selectedTaskId)?.actions || []).find((item) => item.command === action.command);
+    if (refreshedAction) selectedActionCommand = refreshedAction.command;
+  }
   render();
 }
 
@@ -1905,15 +1975,19 @@ function renderGates() {
   byId("gate-count").textContent = gates.length;
   const summary = byId("progress-summary-grid");
   const list = byId("gate-list");
+  const review = byId("task-review-panel");
   summary.innerHTML = "";
   list.innerHTML = "";
+  if (review) review.innerHTML = "";
   if (!sectionExpanded("gates")) return;
   if (!gates.length) {
     summary.innerHTML = "";
+    if (review) review.innerHTML = "";
     list.innerHTML = `<div class="empty">${selectedIds.length ? "No linked task progress" : "None"}</div>`;
     return;
   }
   renderProgressSummary(gates, summary);
+  renderTaskReviewPanel(review);
   gates.slice(0, 12).forEach((gate) => {
     list.appendChild(renderProgressTask(gate));
   });
@@ -1937,6 +2011,95 @@ function renderProgressSummary(gates, target) {
     card.innerHTML = `<span>${escapeHtml(label)}</span><strong>${value}</strong>`;
     target.appendChild(card);
   });
+}
+
+function renderTaskReviewPanel(target) {
+  if (!target) return;
+  const task = taskById(selectedTaskId) || (visibleTasks()[0] || null);
+  target.innerHTML = "";
+  if (!task) {
+    target.innerHTML = `<div class="empty">Select a task to review</div>`;
+    return;
+  }
+  const review = task.detail && task.detail.review_summary ? task.detail.review_summary : [];
+  const promoteAction = (task.actions || []).find((action) => isTaskPromotionAction(action));
+  const promoteCommand = promoteAction ? promoteAction.command : "";
+  const contextValue = promoteCommand ? (promotionContextInputs[promoteCommand] || "") : "";
+  const actionResult = promoteAction && actionRunState && actionRunState.command === promoteAction.command ? actionRunState : null;
+  const isPromoting = Boolean(actionResult && actionResult.status === "running");
+  const summaryItems = review.length
+    ? review
+    : [
+        { label: "Task", value: `${task.id} - ${task.title}` },
+        { label: "Status", value: task.display_status || task.status },
+        { label: "Verification", value: task.verification_status || "missing" },
+        { label: "Next action", value: task.next_action ? task.next_action.command : "None" },
+      ];
+  const reviewByLabel = Object.fromEntries(summaryItems.map((item) => [item.label, item.value || "None"]));
+  const changedFiles = reviewByLabel["Changed files"] || "No file changes detected";
+  const taskContents = reviewByLabel["Task contents"] || "No changed file preview available";
+  const metaItems = summaryItems.filter((item) => !["Task", "Changed files", "Task contents"].includes(item.label));
+  target.innerHTML = `
+    <div class="task-review-head">
+      <div>
+        <span>${escapeHtml(plainTaskStatusLabel(task))}</span>
+        <h3>${escapeHtml(task.title || task.id)}</h3>
+        <p>${escapeHtml(plainTaskStatusLine(task))}</p>
+      </div>
+      <strong>${escapeHtml(task.id)}</strong>
+    </div>
+    <div class="task-review-layout">
+      <div class="task-review-brief">
+        ${metaItems.map((item) => `
+          <div class="task-review-row">
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(item.value || "None")}</strong>
+          </div>
+        `).join("")}
+        <div class="task-review-row stack">
+          <span>Changed files</span>
+          <pre>${escapeHtml(changedFiles)}</pre>
+        </div>
+      </div>
+      ${promoteAction ? `
+        <div class="review-approval-card">
+          <div>
+            <span>Human decision</span>
+            <strong>Approve & promote</strong>
+            <code>${escapeHtml(promoteCommand)}</code>
+          </div>
+          <label>
+            <span class="label">Optional context</span>
+            <textarea data-promotion-context rows="4" placeholder="Add reviewer context for this promotion...">${escapeHtml(contextValue)}</textarea>
+          </label>
+          <button type="button" data-review-promote ${isPromoting ? "disabled" : ""}>${escapeHtml(isPromoting ? "Promoting..." : "Approve & promote")}</button>
+        </div>
+      ` : `
+        <div class="review-approval-card muted">
+          <div>
+            <span>Next step</span>
+            <strong>${escapeHtml(plainNextStep(task.next_action ? task.next_action.label : task.lane))}</strong>
+            <code>${escapeHtml(task.next_action ? task.next_action.command : "No approval action available")}</code>
+          </div>
+        </div>
+      `}
+    </div>
+    <details class="task-review-preview" open>
+      <summary>Changed content preview</summary>
+      <pre>${escapeHtml(taskContents)}</pre>
+    </details>
+    ${actionResult && actionResult.status !== "running" ? renderActionResult(actionResult) : ""}
+  `;
+  const contextInput = target.querySelector("[data-promotion-context]");
+  if (contextInput && promoteAction) {
+    contextInput.addEventListener("input", (event) => {
+      promotionContextInputs[promoteAction.command] = event.target.value;
+    });
+  }
+  const promoteButton = target.querySelector("[data-review-promote]");
+  if (promoteButton && promoteAction && !isPromoting) {
+    promoteButton.addEventListener("click", () => executeAction(promoteAction, { approvedPromotion: true }));
+  }
 }
 
 function renderProgressTask(gate) {
@@ -1974,7 +2137,9 @@ function renderProgressTask(gate) {
   row.addEventListener("click", () => {
     if (!task.id) return;
     selectedTaskId = task.id;
-    renderInspector();
+    selectedGoalSelection = null;
+    selectedMapNode = null;
+    render();
   });
   return row;
 }

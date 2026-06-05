@@ -250,6 +250,7 @@ INDEX_HTML = """<!doctype html>
         </button>
         <div class="section-body progress-page">
           <div id="progress-summary-grid" class="progress-summary-grid" aria-label="Task readiness summary"></div>
+          <div id="task-review-panel" class="task-review-panel" aria-live="polite" aria-atomic="true" aria-label="Selected task review"></div>
           <div id="gate-list" class="progress-checklist gate-list" role="list" aria-label="Task readiness checklist"></div>
         </div>
       </section>
@@ -296,5 +297,4 @@ INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
-
 
