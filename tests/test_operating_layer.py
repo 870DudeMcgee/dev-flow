@@ -526,6 +526,9 @@ def test_operating_layer_visual_qa_writes_svg_image_fallbacks(
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    import devflow.control_room.operating_layer_visual_qa as visual_qa
+
+    monkeypatch.setattr(visual_qa, "_browser_target_ready", lambda base_url: False)
 
     assert runner.invoke(app, ["task", "create", "visual image fallback task"]).exit_code == 0
     run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
@@ -536,19 +539,105 @@ def test_operating_layer_visual_qa_writes_svg_image_fallbacks(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["image_fallback"]["status"] == "pass"
-    assert payload["image_fallback"]["format"] == "svg"
+    assert payload["image_fallback"]["format"] == "png+svg"
+    assert payload["image_fallback"]["capture_method"] == "deterministic-snapshot-fallback"
+    assert payload["image_fallback"]["browser_ready"] is False
     for artifact in payload["image_fallback"]["artifacts"]:
         current = tmp_path / artifact["current"]
         baseline = tmp_path / artifact["baseline"]
         current_png = tmp_path / artifact["current_png"]
         baseline_png = tmp_path / artifact["baseline_png"]
+        current_metadata = tmp_path / artifact["current_metadata"]
+        baseline_metadata = tmp_path / artifact["baseline_metadata"]
         assert current.exists(), artifact
         assert baseline.exists(), artifact
         assert current_png.exists(), artifact
         assert baseline_png.exists(), artifact
+        assert current_metadata.exists(), artifact
+        assert baseline_metadata.exists(), artifact
+        assert artifact["capture_method"] == "deterministic-snapshot-fallback"
         assert current.read_text(encoding="utf-8").startswith("<svg")
         assert "Dev-Flow Operating Layer" in current.read_text(encoding="utf-8")
         assert current_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_operating_layer_visual_qa_writes_browser_raster_when_capture_available(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "visual browser capture task"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    import devflow.control_room.operating_layer_visual_qa as visual_qa
+
+    png = b"\x89PNG\r\n\x1a\nbrowser-raster"
+
+    def fake_capture(base_url: str, viewport: dict[str, int | str]) -> visual_qa.BrowserCapture:
+        return visual_qa.BrowserCapture(
+            method="playwright-browser-raster",
+            png=png + str(viewport["name"]).encode("utf-8"),
+            checks={
+                "no_horizontal_overflow": True,
+                "orchestrator_first": True,
+                "mission_feed_contained": True,
+                "worker_progress_rows": True,
+                "action_rail_safety_states": True,
+                "no_mission_feed_action_overlap": True,
+            },
+        )
+
+    monkeypatch.setattr(visual_qa, "_browser_target_ready", lambda base_url: True)
+    monkeypatch.setattr(visual_qa, "_capture_browser_png", fake_capture)
+
+    result = runner.invoke(app, ["operating-layer", "visual-qa", "--write-current", "--update-baseline", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["image_fallback"]["status"] == "pass"
+    assert payload["image_fallback"]["capture_method"] == "playwright-browser-raster"
+    assert payload["image_fallback"]["browser_ready"] is True
+    for artifact in payload["image_fallback"]["artifacts"]:
+        current_png = tmp_path / artifact["current_png"]
+        current_metadata = tmp_path / artifact["current_metadata"]
+        assert artifact["capture_method"] == "playwright-browser-raster"
+        assert current_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\nbrowser-raster")
+        metadata = json.loads(current_metadata.read_text(encoding="utf-8"))
+        assert metadata["capture_method"] == "playwright-browser-raster"
+        assert metadata["checks"]["no_horizontal_overflow"] is True
+
+
+def test_operating_layer_visual_qa_uses_external_appshot_browser_rasters(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    import devflow.control_room.operating_layer_visual_qa as visual_qa
+
+    monkeypatch.setattr(visual_qa, "_browser_target_ready", lambda base_url: False)
+
+    assert runner.invoke(app, ["task", "create", "visual appshot task"]).exit_code == 0
+    drop_dir = tmp_path / ".devflow" / "operating-layer" / "visual-qa" / "appshot"
+    drop_dir.mkdir(parents=True)
+    for viewport in ("desktop", "mobile"):
+        (drop_dir / f"{viewport}.png").write_bytes(b"\x89PNG\r\n\x1a\nappshot-" + viewport.encode("utf-8"))
+        (drop_dir / f"{viewport}.json").write_text(
+            json.dumps({"checks": {"no_horizontal_overflow": True}}) + "\n",
+            encoding="utf-8",
+        )
+
+    result = runner.invoke(app, ["operating-layer", "visual-qa", "--write-current", "--update-baseline", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["external_capture"]["drop_dir"] == ".devflow/operating-layer/visual-qa/appshot"
+    assert payload["image_fallback"]["capture_method"] == "external-browser-raster"
+    for artifact in payload["image_fallback"]["artifacts"]:
+        current_png = tmp_path / artifact["current_png"]
+        assert artifact["capture_method"] == "external-browser-raster"
+        assert current_png.read_bytes().startswith(b"\x89PNG\r\n\x1a\nappshot-")
 
 
 def test_operating_layer_server_runs_supervisor_safe_read_only_action(

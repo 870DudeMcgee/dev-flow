@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 import shutil
 import struct
+import urllib.error
+import urllib.request
 import zlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 from xml.sax.saxutils import escape
 
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
@@ -48,6 +52,12 @@ def build_visual_qa_plan(
         "base_url": base_url,
         "viewports": [dict(viewport) for viewport in VIEWPORTS],
         "screenshots": [_screenshot_spec(viewport["name"], output_dir) for viewport in VIEWPORTS],
+        "external_capture": {
+            "drop_dir": (output_dir / "appshot").as_posix(),
+            "filenames": [f"{viewport['name']}.png" for viewport in VIEWPORTS],
+            "sidecars": [f"{viewport['name']}.json" for viewport in VIEWPORTS],
+            "capture_method": "external-browser-raster",
+        },
         "checks": checks,
         "playwright_assertions": _playwright_assertions(),
     }
@@ -92,13 +102,16 @@ def write_visual_qa_image_fallbacks(
     repo_root: Path | None = None,
     *,
     output_dir: Path = DEFAULT_VISUAL_QA_DIR,
+    base_url: str = DEFAULT_BASE_URL,
     update_baseline: bool = False,
 ) -> dict[str, Any]:
     root = (repo_root or Path.cwd()).resolve()
     output_dir = Path(output_dir)
     snapshot = build_operating_layer_snapshot(root)
+    browser_ready = _browser_target_ready(base_url)
     artifacts: list[dict[str, str]] = []
     statuses: list[str] = []
+    capture_methods: list[str] = []
 
     for viewport in VIEWPORTS:
         name = str(viewport["name"])
@@ -106,9 +119,35 @@ def write_visual_qa_image_fallbacks(
         baseline = output_dir / "baseline" / f"{name}.svg"
         current_png = output_dir / "current" / f"{name}.png"
         baseline_png = output_dir / "baseline" / f"{name}.png"
+        current_json = output_dir / "current" / f"{name}.json"
+        baseline_json = output_dir / "baseline" / f"{name}.json"
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_text(_render_snapshot_svg(snapshot, viewport), encoding="utf-8")
-        _write_snapshot_png(current_png, snapshot, viewport)
+
+        browser_capture = _load_external_browser_png(output_dir, viewport)
+        if browser_capture is None and browser_ready:
+            browser_capture = _capture_browser_png(base_url, viewport)
+        if browser_capture is None:
+            _write_snapshot_png(current_png, snapshot, viewport)
+            capture_metadata: dict[str, Any] = {
+                "capture_method": "deterministic-snapshot-fallback",
+                "browser_ready": browser_ready,
+                "checks": {},
+                "error": None if browser_ready else "operating-layer server is not reachable",
+                "viewport": name,
+            }
+        else:
+            current_png.parent.mkdir(parents=True, exist_ok=True)
+            current_png.write_bytes(browser_capture.png)
+            capture_metadata = {
+                "capture_method": browser_capture.method,
+                "browser_ready": True,
+                "checks": browser_capture.checks,
+                "error": browser_capture.error,
+                "viewport": name,
+            }
+        current_json.write_text(json.dumps(capture_metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        capture_methods.append(str(capture_metadata["capture_method"]))
 
         if update_baseline or not baseline.exists():
             baseline.parent.mkdir(parents=True, exist_ok=True)
@@ -116,15 +155,25 @@ def write_visual_qa_image_fallbacks(
         if update_baseline or not baseline_png.exists():
             baseline_png.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(current_png, baseline_png)
+        if update_baseline or not baseline_json.exists():
+            baseline_json.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(current_json, baseline_json)
 
-        status = (
-            "pass"
-            if baseline.exists()
+        check_values = capture_metadata.get("checks") or {}
+        checks_pass = all(bool(value) for value in check_values.values()) if check_values else True
+        if not checks_pass:
+            status = "fail"
+        elif (
+            baseline.exists()
             and baseline_png.exists()
+            and baseline_json.exists()
             and baseline.read_text(encoding="utf-8") == current.read_text(encoding="utf-8")
             and baseline_png.read_bytes() == current_png.read_bytes()
-            else "changed"
-        )
+            and baseline_json.read_text(encoding="utf-8") == current_json.read_text(encoding="utf-8")
+        ):
+            status = "pass"
+        else:
+            status = "changed"
         statuses.append(status)
         artifacts.append(
             {
@@ -133,14 +182,25 @@ def write_visual_qa_image_fallbacks(
                 "baseline": baseline.as_posix(),
                 "current_png": current_png.as_posix(),
                 "baseline_png": baseline_png.as_posix(),
+                "current_metadata": current_json.as_posix(),
+                "baseline_metadata": baseline_json.as_posix(),
+                "capture_method": str(capture_metadata["capture_method"]),
                 "status": status,
             }
         )
 
+    if any(status == "fail" for status in statuses):
+        overall_status = "fail"
+    elif all(status == "pass" for status in statuses):
+        overall_status = "pass"
+    else:
+        overall_status = "changed"
+
     return {
-        "status": "pass" if all(status == "pass" for status in statuses) else "changed",
-        "format": "svg",
-        "capture_method": "codex-browser-screenshot-fallback",
+        "status": overall_status,
+        "format": "png+svg",
+        "capture_method": _summarize_capture_method(capture_methods),
+        "browser_ready": browser_ready,
         "artifacts": artifacts,
     }
 
@@ -253,6 +313,106 @@ def _index_before(left: str, right: str) -> bool:
     left_index = INDEX_HTML.find(left)
     right_index = INDEX_HTML.find(right)
     return left_index >= 0 and right_index >= 0 and left_index < right_index
+
+
+@dataclass(frozen=True)
+class BrowserCapture:
+    method: str
+    png: bytes
+    checks: dict[str, bool]
+    error: str | None = None
+
+
+def _browser_target_ready(base_url: str) -> bool:
+    health_url = urljoin(base_url.rstrip("/") + "/", "healthz")
+    try:
+        with urllib.request.urlopen(health_url, timeout=0.5) as response:
+            return 200 <= int(response.status) < 500
+    except (OSError, urllib.error.URLError, ValueError):
+        return False
+
+
+def _capture_browser_png(base_url: str, viewport: dict[str, int | str]) -> BrowserCapture | None:
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+
+    width = int(viewport["width"])
+    height = int(viewport["height"])
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            try:
+                page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+                page.goto(base_url, wait_until="networkidle", timeout=15_000)
+                page.locator("#orchestrator").wait_for(state="visible", timeout=10_000)
+                checks = _browser_visual_checks(page)
+                png = page.screenshot(full_page=False, type="png", timeout=15_000)
+            finally:
+                browser.close()
+    except (PlaywrightError, PlaywrightTimeoutError, OSError, RuntimeError, ValueError):
+        return None
+    return BrowserCapture(method="playwright-browser-raster", png=png, checks=checks)
+
+
+def _load_external_browser_png(output_dir: Path, viewport: dict[str, int | str]) -> BrowserCapture | None:
+    name = str(viewport["name"])
+    png_path = output_dir / "appshot" / f"{name}.png"
+    metadata_path = output_dir / "appshot" / f"{name}.json"
+    if not png_path.exists():
+        return None
+    png = png_path.read_bytes()
+    if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    checks: dict[str, bool] = {}
+    error: str | None = None
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            raw_checks = metadata.get("checks") if isinstance(metadata, dict) else None
+            if isinstance(raw_checks, dict):
+                checks = {str(key): bool(value) for key, value in raw_checks.items()}
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            error = f"invalid sidecar metadata: {exc}"
+    return BrowserCapture(method="external-browser-raster", png=png, checks=checks, error=error)
+
+
+def _browser_visual_checks(page: Any) -> dict[str, bool]:
+    return page.evaluate(
+        """() => {
+          const doc = document.documentElement;
+          const orchestrator = document.querySelector('#orchestrator');
+          const feed = document.querySelector('.mission-feed-list');
+          const progressRows = document.querySelectorAll('#orchestrator-agent-progress .agent-progress-row');
+          const actionPreview = document.querySelector('#action-preview');
+          const feedRect = feed ? feed.getBoundingClientRect() : null;
+          const actionRect = actionPreview ? actionPreview.getBoundingClientRect() : null;
+          return {
+            no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
+            orchestrator_first: document.querySelector('main > section')?.id === 'orchestrator',
+            mission_feed_contained: Boolean(feedRect && feedRect.width > 0 && feedRect.height > 0),
+            worker_progress_rows: progressRows.length >= 1,
+            action_rail_safety_states: Boolean(actionPreview && actionPreview.textContent.includes('Approval')),
+            no_mission_feed_action_overlap: Boolean(
+              !feedRect || !actionRect ||
+              feedRect.right <= actionRect.left ||
+              actionRect.right <= feedRect.left ||
+              feedRect.bottom <= actionRect.top ||
+              actionRect.bottom <= feedRect.top
+            ),
+          };
+        }"""
+    )
+
+
+def _summarize_capture_method(capture_methods: list[str]) -> str:
+    unique_methods = sorted(set(capture_methods))
+    if len(unique_methods) == 1:
+        return unique_methods[0]
+    return "mixed:" + ",".join(unique_methods)
 
 
 def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:

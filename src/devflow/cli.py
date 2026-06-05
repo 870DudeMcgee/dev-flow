@@ -747,7 +747,11 @@ def operating_layer_visual_qa_command(
 
     if write_current or update_baseline:
         plan = build_visual_qa_plan(Path.cwd(), base_url=base_url)
-        plan["image_fallback"] = write_visual_qa_image_fallbacks(Path.cwd(), update_baseline=update_baseline)
+        plan["image_fallback"] = write_visual_qa_image_fallbacks(
+            Path.cwd(),
+            base_url=base_url,
+            update_baseline=update_baseline,
+        )
         if json_output:
             import json
 
