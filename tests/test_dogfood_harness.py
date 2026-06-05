@@ -219,6 +219,7 @@ def test_cli_commands_and_report_lookup(tmp_path: Path) -> None:
     assert "threshold:" in score.output
     assert report.exit_code == 0, report.output
     assert "Boundary Confirmation" in report.output
+    assert "devflow release readiness" in report.output
 
 
 def test_harness_avoids_forbidden_surfaces(tmp_path: Path) -> None:

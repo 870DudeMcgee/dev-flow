@@ -112,7 +112,20 @@ Confirm the release can be understood and upgraded safely:
 
 ---
 
-### 8. Release Publication
+### 8. Explicit Release-Readiness Gate
+
+After the full pytest suite, production-readiness dogfood run, operating-layer visual QA, and stale-context scan have all been captured as evidence, render the final read-only milestone gate:
+
+- [ ] Run:
+  ```bash
+  devflow release readiness --pytest-evidence <pytest-log> --stale-context-evidence <stale-context-log>
+  ```
+- [ ] Confirm every gate is `passed`: clean Dev-Flow Git status, full pytest, production-readiness dogfood, operating-layer visual QA evidence, stale-context scan, and standard handoff report.
+- [ ] Confirm the report includes exactly one next safe action before tagging, building, or publishing.
+
+---
+
+### 9. Release Publication
 
 Only after the checks above pass:
 

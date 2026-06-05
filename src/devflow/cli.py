@@ -111,6 +111,7 @@ goal_app = typer.Typer(help="Manage goals and planning scaffolds")
 worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
 dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
+release_app = typer.Typer(help="Inspect milestone release-readiness gates")
 supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
 hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 project_app = typer.Typer(help="Create and manage registered projects")
@@ -126,6 +127,7 @@ app.add_typer(goal_app, name="goal")
 app.add_typer(worker_app, name="worker")
 app.add_typer(knowledge_app, name="knowledge")
 app.add_typer(dogfood_app, name="dogfood")
+app.add_typer(release_app, name="release")
 app.add_typer(supervisor_app, name="supervisor")
 app.add_typer(hermes_app, name="hermes")
 app.add_typer(project_app, name="project")
@@ -3402,6 +3404,41 @@ def worker_validate_outcome(outcome_json: str) -> None:
         raise typer.Exit(code=1) from exc
     typer.echo(render_worker_outcome_validation(result), nl=False)
     if result["status"] != "passed":
+        raise typer.Exit(code=1)
+
+
+@release_app.command("readiness")
+def release_readiness_command(
+    pytest_evidence: Path | None = typer.Option(
+        None,
+        "--pytest-evidence",
+        help="Path to captured full-suite pytest output.",
+    ),
+    stale_context_evidence: Path | None = typer.Option(
+        None,
+        "--stale-context-evidence",
+        help="Path to captured stale-context scan output.",
+    ),
+    dogfood_run: str = typer.Option("latest", "--dogfood-run", help="Dogfood run id to use, or latest."),
+    json_output: bool = typer.Option(False, "--json", help="Print release-readiness report as JSON."),
+) -> None:
+    """Check explicit release-readiness gates without running heavy suites."""
+    from devflow.control_room.release_readiness import (
+        build_release_readiness_report,
+        render_release_readiness_report,
+    )
+
+    report = build_release_readiness_report(
+        Path.cwd(),
+        pytest_evidence=pytest_evidence,
+        stale_context_evidence=stale_context_evidence,
+        dogfood_run_id=dogfood_run,
+    )
+    if json_output:
+        typer.echo(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        typer.echo(render_release_readiness_report(report), nl=False)
+    if report["status"] != "passed":
         raise typer.Exit(code=1)
 
 

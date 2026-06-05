@@ -1567,7 +1567,7 @@ def _threshold_result(
 def _next_safe_action(scorecard: dict[str, Any]) -> str:
     if scorecard["threshold_result"]["silver_met"]:
         if scorecard["threshold_result"]["gold_met"]:
-            return "- Inspect the report warnings, then decide whether to make the harness part of the milestone checklist."
+            return "- Run `devflow release readiness` with full pytest and stale-context evidence before tagging or building a release."
         return "- Improve the lowest-scoring category toward Gold without weakening any safety case."
     category_scores = scorecard["category_scores"]
     lowest = min(
