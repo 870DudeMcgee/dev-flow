@@ -366,6 +366,14 @@ Goal: close the local-first path from human-reviewed idea intake to controlled D
 
 Boundary: creation requires matching prior `idea promote` evidence, writes bidirectional idea-to-goal/task links, and creates Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
+## Milestone 14: Goal Execution Control Loop
+
+Status: planned. Design and next-agent implementation plan are written in [docs/superpowers/specs/2026-06-13-goal-execution-control-loop-design.md](superpowers/specs/2026-06-13-goal-execution-control-loop-design.md) and [docs/superpowers/plans/2026-06-13-goal-execution-control-loop.md](superpowers/plans/2026-06-13-goal-execution-control-loop.md).
+
+Goal: make idea-created and manually created goals executable through explicit lifecycle state, freshness-loop recommendations, task-batch creation, shell worker batches, verification batches, review readiness, and human-controlled closure decisions.
+
+Boundary: goal lifecycle and freshness execution commands must not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
+
 ## Later, Not Now
 
 - Aider adapter

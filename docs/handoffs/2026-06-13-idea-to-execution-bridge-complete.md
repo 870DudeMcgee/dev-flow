@@ -1,5 +1,7 @@
 # Idea-To-Execution Bridge Completion Handoff
 
+Superseded: this handoff's previous push next-action has been completed. Use `docs/handoffs/2026-06-13-goal-execution-control-loop-next.md` for the next active milestone.
+
 ## Status
 
 complete
@@ -27,9 +29,9 @@ complete
 
 ## Risks
 
-- Local `main` is ahead of `origin/main`; the implementation has not been pushed.
+- The implementation has been pushed to `origin/main`; this handoff is retained as completion history.
 - Bridge creation remains explicit and requires prior matching `idea promote` evidence. It does not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
 ## Next Safe Action
 
-- Approve `PYTHONPATH=src:. .venv/bin/devflow push-main`.
+- Use `docs/handoffs/2026-06-13-goal-execution-control-loop-next.md` for the next active milestone.

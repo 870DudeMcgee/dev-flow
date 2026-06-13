@@ -406,7 +406,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 13 idea-to-execution bridge is current behavior. Keep explicit idea creation separate from promotion decisions, worker execution, verification, code promotion, commits, pushes, pull requests, provider calls, and model routing.
+> **Current Priority**: Milestone 14 goal execution control loop is the next planned implementation slice. Milestone 13 idea-to-execution bridge remains current behavior. Keep goal lifecycle and freshness execution separate from provider calls, autonomous routing, auto-promotion, auto-commit, auto-push, pull request creation, and automatic goal completion.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

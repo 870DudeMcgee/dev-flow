@@ -34,7 +34,7 @@ Parallel speed comes from small bounded lanes, not from weakening isolation. A f
 
 Goals live under `.devflow/goals/<goal_id>/` with human-readable artifacts such as `goal.md`, `prd.md`, `task-slices.yaml`, `open-questions.yaml`, and `handoff.md`. Tasks link back to goal slices through `.devflow/tasks/<task_id>/goal-link.yaml`.
 
-A future active-goal runtime should add lifecycle fields without replacing the existing scaffold:
+Milestone 14 is the planned slice that should add canonical lifecycle state without replacing the existing scaffold. The planned lifecycle artifact is `.devflow/goals/<goal_id>/goal-state.yaml` with:
 
 - `active`, `paused`, `blocked`, `complete`, or `archived`
 - verification surface and acceptance criteria
