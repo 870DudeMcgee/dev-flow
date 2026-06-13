@@ -97,6 +97,7 @@ def build_goal_loop_states(
     goal_ids: list[str],
     goal_slices: dict[str, list[dict[str, Any]]],
     linked_tasks: dict[str, dict[str, list[dict[str, Any]]]],
+    lifecycle_by_goal: dict[str, dict[str, Any]] | None = None,
 ) -> list[GoalLoopState]:
     from devflow.control_room.goal_projection import build_goal_status_projection
 
@@ -131,6 +132,68 @@ def build_goal_loop_states(
         verification_batches = _verification_batches(lanes)
         conflicting_ready_lane_count = max(0, ready_parallel_lane_count - len(parallel_batches[0].lane_ids)) if parallel_batches else 0
         blocked_lane_count = sum(1 for lane in lanes if lane.lane_state in {"blocked", "needs_human_review"})
+        lifecycle_info = (lifecycle_by_goal or {}).get(goal_id, {})
+        lifecycle = str(lifecycle_info.get("lifecycle") or goal_state)
+        lifecycle_reason = str(lifecycle_info.get("reason") or "")
+        lifecycle_missing = bool(lifecycle_info.get("missing"))
+        if lifecycle_missing:
+            activate_command = f"devflow goal activate {goal_id} --reason 'ready to execute'"
+            states.append(
+                GoalLoopState(
+                    goal_id=goal_id,
+                    title=title,
+                    goal_state="missing_lifecycle",
+                    loop_state="needs_lifecycle_activation",
+                    total_slices=len(lanes),
+                    linked_task_count=linked_task_count,
+                    active_task_count=active_task_count,
+                    completed_slice_count=completed_slice_count,
+                    ready_parallel_lane_count=0,
+                    ready_parallel_batch_count=0,
+                    conflicting_ready_lane_count=0,
+                    ready_verification_batch_count=0,
+                    verification_command_count=0,
+                    ready_worker_batch_count=0,
+                    worker_command_count=0,
+                    blocked_lane_count=blocked_lane_count,
+                    next_action=f"Activate lifecycle before dispatch: {activate_command}",
+                    lanes=[
+                        lane.model_copy(update={"lane_state": "needs_human_review", "command": activate_command})
+                        for lane in lanes
+                    ],
+                    parallel_batches=[],
+                    worker_batches=[],
+                    verification_batches=[],
+                )
+            )
+            continue
+        if lifecycle in {"paused", "blocked", "complete", "archived"}:
+            states.append(
+                GoalLoopState(
+                    goal_id=goal_id,
+                    title=title,
+                    goal_state=lifecycle,
+                    loop_state=lifecycle,
+                    total_slices=len(lanes),
+                    linked_task_count=linked_task_count,
+                    active_task_count=active_task_count,
+                    completed_slice_count=completed_slice_count,
+                    ready_parallel_lane_count=0,
+                    ready_parallel_batch_count=0,
+                    conflicting_ready_lane_count=0,
+                    ready_verification_batch_count=0,
+                    verification_command_count=0,
+                    ready_worker_batch_count=0,
+                    worker_command_count=0,
+                    blocked_lane_count=blocked_lane_count,
+                    next_action=lifecycle_reason or f"Goal lifecycle is {lifecycle}.",
+                    lanes=lanes,
+                    parallel_batches=[],
+                    worker_batches=[],
+                    verification_batches=[],
+                )
+            )
+            continue
         loop_state = _goal_loop_state(
             goal_state=goal_state,
             total_slices=len(lanes),
@@ -533,7 +596,10 @@ def _goal_loop_next_action(
         commands = [lane.command for lane in ready if lane.command]
         return "Parallel candidates: " + "; ".join(commands)
     if loop_state == "needs_closure_decision":
-        return f"Ask whether {goal_id} is complete or needs another slice."
+        return (
+            "All slices have promoted task evidence. Review goal evidence, then run: "
+            f"devflow goal complete {goal_id} --reason 'all task slices promoted and reviewed'"
+        )
     if loop_state == "active_work_in_progress":
         active = [lane.command for lane in lanes if lane.command and lane.lane_state != "ready_to_create_task"]
         return active[0] if active else f"devflow goal status {goal_id}"

@@ -31,6 +31,9 @@ class GoalStatusProjection(BaseModel):
     afk_slice_count: int = 0
     hitl_slice_count: int = 0
     high_risk_slice_count: int = 0
+    lifecycle: str = "missing"
+    lifecycle_reason: str = ""
+    lifecycle_missing: bool = False
     context_risk: str | None = None
     estimated_context_tokens: int | None = None
     required_context_count: int = 0
@@ -95,7 +98,25 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     else:
         warnings.append("warning: goal.yaml is missing")
 
-    # 2. Parse title & summary from goal.md
+    # 2. Load explicit lifecycle state without creating missing lifecycle artifacts.
+    lifecycle = "missing"
+    lifecycle_reason = ""
+    lifecycle_missing = True
+    try:
+        from devflow.control_room.goal_lifecycle import read_goal_lifecycle
+
+        lifecycle_state = read_goal_lifecycle(root, goal_id)
+        if lifecycle_state is not None:
+            lifecycle = lifecycle_state.lifecycle
+            lifecycle_reason = lifecycle_state.status_reason
+            lifecycle_missing = False
+    except Exception as exc:
+        lifecycle = "unknown"
+        lifecycle_reason = str(exc)
+        lifecycle_missing = False
+        warnings.append(f"warning: goal-state.yaml is unreadable: {exc}")
+
+    # 3. Parse title & summary from goal.md
     title = f"Goal {goal_id}"
     summary = ""
     goal_md_exists = False
@@ -119,7 +140,7 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     else:
         warnings.append("warning: goal.md is missing")
 
-    # 3. Parse open questions safely
+    # 4. Parse open questions safely
     open_questions_data: dict[str, Any] = {}
     open_question_count = 0
     implementation_blocked = False
@@ -134,7 +155,7 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
         open_question_count = len(questions)
     implementation_blocked = bool(open_questions_data.get("implementation_blocked", False))
 
-    # 4. Parse task slices safely
+    # 5. Parse task slices safely
     task_slices_data: dict[str, Any] = {}
     task_slice_count = 0
     blocked_slice_count = 0
@@ -174,7 +195,7 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     elif (g_dir / "task-slices.yaml").exists() and not isinstance(slices, list):
         warnings.append("warning: task-slices.yaml task_slices must be a list")
 
-    # 5. Parse context pointers safely
+    # 6. Parse context pointers safely
     context_data: dict[str, Any] = {}
     context_risk = "medium"
     estimated_context_tokens = None
@@ -207,11 +228,11 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     if isinstance(stale, list):
         stale_or_archived_context_count = len(stale)
 
-    # 6. Check other artifacts
+    # 7. Check other artifacts
     grill_md_exists = (g_dir / "grill.md").exists() and (g_dir / "grill.md").stat().st_size > 0
     prd_md_exists = (g_dir / "prd.md").exists() and (g_dir / "prd.md").stat().st_size > 0
 
-    # 7. Infer Goal State
+    # 8. Infer Goal State
     # Check hierarchy: blocked, ready_for_task_creation, sliced, specced, grilled, draft_goal, unknown
     if any("malformed" in w for w in warnings):
         state = "unknown"
@@ -258,6 +279,9 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
         afk_slice_count=afk_slice_count,
         hitl_slice_count=hitl_slice_count,
         high_risk_slice_count=high_risk_slice_count,
+        lifecycle=lifecycle,
+        lifecycle_reason=lifecycle_reason,
+        lifecycle_missing=lifecycle_missing,
         context_risk=context_risk,
         estimated_context_tokens=estimated_context_tokens,
         required_context_count=required_context_count,
@@ -282,6 +306,31 @@ def choose_goal_next_action(projection: GoalStatusProjection) -> GoalNextAction:
     """Determine the next action for a goal based on its current inferred state."""
     goal_id = projection.goal_id
     state = projection.state
+
+    if projection.lifecycle_missing:
+        return GoalNextAction(
+            label="Activate goal",
+            command=f"devflow goal activate {goal_id} --reason 'ready to execute'",
+            reason="Lifecycle state is missing; activate the goal before execution dispatch.",
+        )
+    if projection.lifecycle == "paused":
+        return GoalNextAction(
+            label="Goal is paused",
+            command=f"devflow goal status {goal_id}",
+            reason=projection.lifecycle_reason or "Goal execution is paused.",
+        )
+    if projection.lifecycle == "blocked":
+        return GoalNextAction(
+            label="Goal is blocked",
+            command=f"devflow goal status {goal_id}",
+            reason=projection.lifecycle_reason or "Goal execution is blocked.",
+        )
+    if projection.lifecycle in {"complete", "archived"}:
+        return GoalNextAction(
+            label=f"Goal is {projection.lifecycle}",
+            command=f"devflow goal status {goal_id}",
+            reason=projection.lifecycle_reason or f"Goal lifecycle is {projection.lifecycle}.",
+        )
 
     if state == "blocked":
         return GoalNextAction(
@@ -341,6 +390,8 @@ def render_goal_status(root: Path, goal_id: str) -> str:
     lines.append(f"{proj.goal_id} — {proj.title}")
     lines.append("")
     lines.append(f"State: {proj.state}")
+    lines.append(f"Lifecycle: {proj.lifecycle}")
+    lines.append(f"Lifecycle reason: {proj.lifecycle_reason or '-'}")
     lines.append(f"Path: .devflow/goals/{proj.goal_id}")
     lines.append("")
     

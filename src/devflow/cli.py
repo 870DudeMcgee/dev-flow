@@ -366,6 +366,70 @@ def goal_list() -> None:
     typer.echo(render_goal_list(Path.cwd()), nl=False)
 
 
+def _set_goal_lifecycle_command(goal_id: str, lifecycle: str, reason: str) -> None:
+    from devflow.control_room.goal_lifecycle import (
+        GoalLifecycleError,
+        lifecycle_result,
+        render_lifecycle_result,
+        set_goal_lifecycle,
+    )
+
+    command = f"devflow goal {lifecycle if lifecycle != 'active' else 'activate'} {goal_id}"
+    if reason:
+        command = f"{command} --reason {reason!r}"
+    try:
+        state = set_goal_lifecycle(Path.cwd(), goal_id, lifecycle=lifecycle, reason=reason, command=command)
+    except GoalLifecycleError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(render_lifecycle_result(lifecycle_result(Path.cwd(), state)), nl=False)
+
+
+@goal_app.command("activate")
+def goal_activate(
+    goal_id: str,
+    reason: str = typer.Option("", "--reason", help="Reason for activating this goal."),
+) -> None:
+    """Mark a goal active for freshness-loop projection."""
+    _set_goal_lifecycle_command(goal_id, "active", reason)
+
+
+@goal_app.command("pause")
+def goal_pause(
+    goal_id: str,
+    reason: str = typer.Option(..., "--reason", help="Reason for pausing this goal."),
+) -> None:
+    """Pause goal execution without deleting evidence."""
+    _set_goal_lifecycle_command(goal_id, "paused", reason)
+
+
+@goal_app.command("block")
+def goal_block(
+    goal_id: str,
+    reason: str = typer.Option(..., "--reason", help="Blocking reason."),
+) -> None:
+    """Block goal execution until a human decision or external repair."""
+    _set_goal_lifecycle_command(goal_id, "blocked", reason)
+
+
+@goal_app.command("complete")
+def goal_complete(
+    goal_id: str,
+    reason: str = typer.Option(..., "--reason", help="Evidence-backed completion reason."),
+) -> None:
+    """Record human-approved goal completion."""
+    _set_goal_lifecycle_command(goal_id, "complete", reason)
+
+
+@goal_app.command("archive")
+def goal_archive(
+    goal_id: str,
+    reason: str = typer.Option(..., "--reason", help="Archive reason."),
+) -> None:
+    """Archive a goal while preserving its evidence."""
+    _set_goal_lifecycle_command(goal_id, "archived", reason)
+
+
 @goal_app.command("status")
 def goal_status(goal_id: str) -> None:
     """Show the status of a specific durable goal."""

@@ -10,6 +10,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer_html import INDEX_HTML as SPLIT_INDEX_HTML
@@ -22,6 +23,13 @@ from devflow.control_room.project_registry import register_project, write_projec
 
 
 runner = CliRunner()
+
+
+def _create_goal(tmp_path: Path) -> None:
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Operating layer goal\n", encoding="utf-8")
+    result = runner.invoke(app, ["goal", "init", "G-0001", "--from", str(brief)])
+    assert result.exit_code == 0, result.output
 
 
 def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
@@ -97,6 +105,19 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
 
     assert not (tmp_path / ".devflow" / "freshness" / "latest.json").exists()
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
+
+
+def test_operating_layer_goal_board_exposes_lifecycle(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_goal(tmp_path)
+    pause = runner.invoke(app, ["goal", "pause", "G-0001", "--reason", "waiting"])
+    assert pause.exit_code == 0, pause.output
+
+    snapshot = build_operating_layer_snapshot(tmp_path)
+
+    assert snapshot.goal_board[0].goal_id == "G-0001"
+    assert snapshot.goal_board[0].lifecycle == "paused"
+    assert snapshot.goal_board[0].lifecycle_reason == "waiting"
 
 
 def test_operating_layer_groups_verification_and_promotion_lanes(
@@ -255,6 +276,7 @@ standards:
         "id: G-0001\ncreated_at: 2026-06-04T00:00:00+00:00\nupdated_at: 2026-06-04T00:00:00+00:00\nsource_brief_path: .devflow/goals/G-0001/goal.md\n",
         encoding="utf-8",
     )
+    ensure_goal_lifecycle(tmp_path, "G-0001")
     (goal_dir / "context").mkdir()
     (goal_dir / "context" / "relevant-files.md").write_text(
         "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n",

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
 
+from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
 from devflow.control_room.paths import goal_dir, goals_dir
 
 
@@ -309,6 +310,7 @@ The following items are strictly out of scope for this goal:
         f"source_brief_path: {source_path.resolve().as_posix()}",
     ]
     (g_dir / "goal.yaml").write_text("\n".join(record_lines) + "\n", encoding="utf-8")
+    ensure_goal_lifecycle(root, resolved_id)
 
     return GoalRecord(
         id=resolved_id,

@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from devflow.control_room.goal_loop import GoalLoopState, build_goal_loop_states
+from devflow.control_room.goal_lifecycle import read_goal_lifecycle
 from devflow.control_room.paths import devflow_dir, goal_dir, goals_dir, relative_path, task_dir
 from devflow.control_room.persistence import atomic_write_text, event_content_hash, list_tasks
 from devflow.control_room.review_readiness import ReviewReadinessSummary, summarize_review_readiness
@@ -73,6 +74,7 @@ def run_freshness_loop(root: Path, *, write_snapshot: bool = True) -> FreshnessR
     linked_tasks = _linked_tasks_by_goal_slice(root, findings)
     goals = _goal_ids(root)
     goal_slices = {goal_id: _load_goal_slices(root, goal_id, findings) for goal_id in goals}
+    lifecycle_by_goal = _goal_lifecycle_by_goal(root, goals, findings)
 
     for goal_id in goals:
         _check_goal_against_linked_tasks(
@@ -84,9 +86,9 @@ def run_freshness_loop(root: Path, *, write_snapshot: bool = True) -> FreshnessR
         )
 
     status = _status_for(findings)
-    goal_loop = build_goal_loop_states(root, goals, goal_slices, linked_tasks)
+    goal_loop = build_goal_loop_states(root, goals, goal_slices, linked_tasks, lifecycle_by_goal)
     review_readiness = summarize_review_readiness(root)
-    state_hash = _state_hash(root, goals, linked_tasks, findings, goal_loop, review_readiness)
+    state_hash = _state_hash(root, goals, linked_tasks, findings, goal_loop, review_readiness, lifecycle_by_goal)
     report = FreshnessReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         status=status,
@@ -431,6 +433,50 @@ def _linked_tasks_by_goal_slice(
     return linked
 
 
+def _goal_lifecycle_by_goal(
+    root: Path,
+    goals: list[str],
+    findings: list[FreshnessFinding],
+) -> dict[str, dict[str, str | bool]]:
+    lifecycle_by_goal: dict[str, dict[str, str | bool]] = {}
+    for goal_id in goals:
+        state_path = goal_dir(root, goal_id) / "goal-state.yaml"
+        try:
+            lifecycle = read_goal_lifecycle(root, goal_id)
+        except Exception as exc:
+            findings.append(
+                FreshnessFinding(
+                    id=f"{goal_id}-lifecycle-unreadable",
+                    severity="needs_human_decision",
+                    scope=goal_id,
+                    path=relative_path(root, state_path),
+                    message=f"Goal lifecycle state is unreadable: {exc}",
+                    suggested_action=f"devflow goal status {goal_id}",
+                )
+            )
+            lifecycle_by_goal[goal_id] = {"lifecycle": "unknown", "reason": str(exc), "missing": False}
+            continue
+        if lifecycle is None:
+            findings.append(
+                FreshnessFinding(
+                    id=f"{goal_id}-lifecycle-missing",
+                    severity="needs_human_decision",
+                    scope=goal_id,
+                    path=relative_path(root, state_path),
+                    message="Goal lifecycle state is missing.",
+                    suggested_action=f"devflow goal activate {goal_id} --reason 'ready to execute'",
+                )
+            )
+            lifecycle_by_goal[goal_id] = {"lifecycle": "missing", "reason": "", "missing": True}
+        else:
+            lifecycle_by_goal[goal_id] = {
+                "lifecycle": lifecycle.lifecycle,
+                "reason": lifecycle.status_reason,
+                "missing": False,
+            }
+    return lifecycle_by_goal
+
+
 def _check_goal_against_linked_tasks(
     root: Path,
     goal_id: str,
@@ -565,10 +611,12 @@ def _state_hash(
     findings: list[FreshnessFinding],
     goal_loop: list[GoalLoopState],
     review_readiness: ReviewReadinessSummary,
+    lifecycle_by_goal: dict[str, dict[str, str | bool]],
 ) -> str:
     payload = {
         "goal_ids": goal_ids,
         "linked_tasks": linked_tasks,
+        "lifecycle_by_goal": lifecycle_by_goal,
         "findings": [finding.model_dump() for finding in findings],
         "goal_loop": [goal.model_dump() for goal in goal_loop],
         "review_readiness": review_readiness.model_dump(),

@@ -112,6 +112,11 @@ APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow init",
     "devflow goal init",
     "devflow goal create-task",
+    "devflow goal activate",
+    "devflow goal pause",
+    "devflow goal block",
+    "devflow goal complete",
+    "devflow goal archive",
     "devflow project create",
     "devflow project import",
     "devflow project archive",
@@ -329,7 +334,7 @@ def _classify_supervisor_command(command: str) -> str:
     if command_group == "goal":
         if subcommand in {"list", "show", "status", "next", "slices"}:
             return PURE_READ_ONLY
-        if subcommand in {"init", "create-task"}:
+        if subcommand in {"init", "create-task", "activate", "pause", "block", "complete", "archive"}:
             return APPROVAL_REQUIRED_TASK_STATE
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "project":
