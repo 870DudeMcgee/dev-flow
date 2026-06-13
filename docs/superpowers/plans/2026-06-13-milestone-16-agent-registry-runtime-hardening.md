@@ -657,7 +657,112 @@ Expected: pass.
 PYTHONPATH=src:. .venv/bin/devflow git checkpoint --message "refactor: centralize agent runtime refusals" --yes
 ```
 
-### Task 5: Dogfood Local Patch Runtime Ladder
+### Task 5: Paused Local Patch Runtime Dogfood
+
+**Status:** Paused after dogfood exposed that the configured local patch worker can point at a model that is not installed on the current machine.
+
+Do not continue the local patch runtime ladder by hard-coding `qwopus:latest`, `gemma4:12b-it-qat`, or any other single model as the universal default. Dev-Flow must support replaceable local agents. The next implementation slice is local agent discovery and deterministic classification, then dogfood can run against an explicitly selected eligible local patch agent.
+
+**Observed evidence from the paused run:**
+- `task-0033` was created for "Milestone 16 local patch runtime dogfood".
+- `devflow task run task-0033 --worker qwopus-implementer` failed because `qwopus:latest` was not installed locally.
+- `ollama list` showed `gemma4:12b-it-qat` installed on this machine.
+- The dogfood task was closed `evidence-only` because no proposal patch was produced.
+
+### Task 5A: Local Agent Discovery And Classification Design Slice
+
+**Files:**
+- Create: `src/devflow/control_room/local_agent_discovery.py`
+- Create: `tests/test_local_agent_discovery.py`
+- Modify: `src/devflow/cli.py`
+- Modify: `docs/architecture/local-model-worker-pool.md`
+- Modify: `docs/architecture/agent-selection-and-context-routing.md`
+- Modify: `docs/control-room-mvp.md`
+
+**Goal:** Add a small, deterministic local-agent discovery and selection-evidence slice before running provider-backed local patch workers. This slice must inventory local Ollama models, classify capability from local manifests and conservative built-in heuristics, rank eligible local agents for a requested role, and write explicit selected-agent evidence before `task run` uses any local model.
+
+**Non-goals:**
+- No autonomous routing.
+- No hidden model fallback inside `task run`.
+- No remote provider calls.
+- No benchmark harness or heavy profiling.
+- No automatic source edits, verification, promotion, merge, or push.
+- No claim that a discovered model is safe for a role without manifest evidence and policy classification.
+
+- [ ] **Step 1: Write discovery tests**
+
+Create `tests/test_local_agent_discovery.py` with focused tests for:
+
+- parsing `ollama list` output into installed local model records
+- parsing `ollama show <model>` manifest facts into a capability profile
+- classifying `gemma4:12b-it-qat` as an installed local Gemma 4 12B QAT model with conservative roles such as `summarizer`, `reviewer`, `bounded_worker`, and `patch_proposer_candidate`
+- ranking eligible local agents for `implementation_worker` without selecting missing models
+- writing selected-agent evidence under `.devflow/tasks/<task_id>/agent-selection.json`
+- refusing to auto-select when no installed candidate satisfies the requested role
+
+- [ ] **Step 2: Run red tests**
+
+Run:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_local_agent_discovery.py -q
+```
+
+Expected: fail because `devflow.control_room.local_agent_discovery` does not exist yet.
+
+- [ ] **Step 3: Implement deterministic discovery module**
+
+Create `src/devflow/control_room/local_agent_discovery.py` with:
+
+- `parse_ollama_list(text: str) -> list[InstalledLocalModel]`
+- `parse_ollama_show(model: str, text: str) -> LocalModelManifest`
+- `classify_local_model(manifest: LocalModelManifest) -> ModelCapabilityProfile`
+- `rank_local_agent_candidates(registry, installed_models, role: str) -> LocalAgentSelection`
+- `write_selected_agent_evidence(root, task_id, selection) -> Path`
+
+Keep classification deterministic and conservative. Prefer actual `ollama show` facts over public model-name assumptions. Treat unknown or partial manifests as lower trust. Missing models must not rank as eligible for execution.
+
+- [ ] **Step 4: Add explicit CLI surface**
+
+Add read-mostly commands:
+
+```bash
+PYTHONPATH=src:. .venv/bin/devflow agent discover-local --json
+PYTHONPATH=src:. .venv/bin/devflow agent select-local <task_id> --role implementation_worker --json
+```
+
+`discover-local` may call local Ollama only. `select-local` writes selection evidence only; it must not run a worker. The output must include installed models, missing registry models, classification, ranked candidates, selected agent if exactly one is policy-eligible, and refusal reasons for rejected candidates.
+
+- [ ] **Step 5: Wire dogfood to explicit selection evidence**
+
+Update the local patch dogfood instructions to run:
+
+```bash
+PYTHONPATH=src:. .venv/bin/devflow agent discover-local --json
+PYTHONPATH=src:. .venv/bin/devflow agent select-local <task_id> --role implementation_worker --json
+```
+
+Then run `devflow task run` only with the selected local patch agent from `.devflow/tasks/<task_id>/agent-selection.json`. Do not let `task run` silently choose a different model if the selected model is unavailable.
+
+- [ ] **Step 6: Run focused verification**
+
+Run:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_local_agent_discovery.py tests/test_agent_registry.py tests/test_agent_runtime.py tests/test_ollama_worker.py -q
+```
+
+Expected: pass.
+
+- [ ] **Step 7: Checkpoint**
+
+Use Dev-Flow checkpoint after focused tests pass:
+
+```bash
+PYTHONPATH=src:. .venv/bin/devflow git checkpoint --message "feat: add local agent discovery selection" --yes
+```
+
+### Task 5B: Dogfood Local Patch Runtime Ladder
 
 **Files:**
 - Modify: docs only if dogfood exposes stale wording
@@ -673,22 +778,31 @@ Expected: creates the next local task id.
 
 - [ ] **Step 2: Run local patch proposal only if local Ollama is available**
 
+First discover and select an eligible local implementation worker:
+
 ```bash
-PYTHONPATH=src:. .venv/bin/devflow task run <task_id> --worker qwopus-implementer
+PYTHONPATH=src:. .venv/bin/devflow agent discover-local --json
+PYTHONPATH=src:. .venv/bin/devflow agent select-local <task_id> --role implementation_worker --json
 ```
 
-Expected when Ollama is available: writes `.devflow/tasks/<task_id>/agents/qwopus-implementer/proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log`.
+Continue only if selection evidence identifies an installed eligible local patch agent. Then run the selected worker explicitly:
 
-Expected when Ollama is unavailable: task records a clear worker failure. In that case, do not fake model evidence; use a narrow manual fixture task or stop and document the blocker.
+```bash
+PYTHONPATH=src:. .venv/bin/devflow task run <task_id> --worker <selected-agent-id>
+```
+
+Expected when a selected local patch agent is available: writes `.devflow/tasks/<task_id>/agents/<selected-agent-id>/proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log`.
+
+Expected when no eligible installed local patch agent is available: selection records a clear refusal. In that case, do not fake model evidence; stop and document the blocker.
 
 - [ ] **Step 3: Review, dry-run, apply, verify**
 
 Run these only if Step 2 produced a proposal patch:
 
 ```bash
-PYTHONPATH=src:. .venv/bin/devflow task review-patch <task_id> --agent qwopus-implementer
-PYTHONPATH=src:. .venv/bin/devflow task patch-dry-run <task_id> --agent qwopus-implementer
-PYTHONPATH=src:. .venv/bin/devflow task apply-patch <task_id> --agent qwopus-implementer
+PYTHONPATH=src:. .venv/bin/devflow task review-patch <task_id> --agent <selected-agent-id>
+PYTHONPATH=src:. .venv/bin/devflow task patch-dry-run <task_id> --agent <selected-agent-id>
+PYTHONPATH=src:. .venv/bin/devflow task apply-patch <task_id> --agent <selected-agent-id>
 PYTHONPATH=src:. .venv/bin/devflow task verify <task_id> --shell "<focused verification command>"
 PYTHONPATH=src:. .venv/bin/devflow task review-ready <task_id> --json
 ```
@@ -715,7 +829,7 @@ Update active docs to say exactly which Milestone 16 surfaces are now current be
 - [ ] **Step 2: Run focused tests**
 
 ```bash
-PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_agent_runtime.py tests/test_context_pack.py tests/test_agent_evidence.py tests/test_worker_adapter_safety.py tests/test_agent_local_worker_pool_cli.py tests/test_ollama_worker.py tests/test_task_packet.py -q
+PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_agent_runtime.py tests/test_context_pack.py tests/test_agent_evidence.py tests/test_worker_adapter_safety.py tests/test_agent_local_worker_pool_cli.py tests/test_local_agent_discovery.py tests/test_ollama_worker.py tests/test_task_packet.py -q
 ```
 
 Expected: pass.
