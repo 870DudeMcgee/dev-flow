@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
 from typer.testing import CliRunner
 
 from devflow.cli import app
@@ -17,10 +18,36 @@ from devflow.control_room.persistence import get_task, save_task, utc_now
 from tests.helpers import setup_temp_git_repo
 
 
+runner = CliRunner()
+
+
 def _devflow_home(tmp_path: Path, monkeypatch) -> Path:
     home = tmp_path / "home" / ".devflow"
     monkeypatch.setenv("DEVFLOW_HOME", home.as_posix())
     return home
+
+
+def _project_parallel_goal(tmp_path: Path, slices: list[tuple[str, str]]) -> None:
+    setup_temp_git_repo(tmp_path)
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement goal loop lanes.", encoding="utf-8")
+    result = runner.invoke(app, ["goal", "init", "G-0001", "--from", str(brief_path)])
+    assert result.exit_code == 0, result.output
+    task_slices = [
+        {
+            "task_id": slice_id,
+            "title": f"Slice {slice_id}",
+            "summary": "Create one linked task.",
+            "blocked_by": [],
+            "parallel_safe": True,
+            "shared_files": [shared_file],
+            "risk": "low",
+            "execution_mode": "AFK",
+        }
+        for slice_id, shared_file in slices
+    ]
+    slices_path = tmp_path / ".devflow" / "goals" / "G-0001" / "task-slices.yaml"
+    slices_path.write_text(yaml.safe_dump({"task_slices": task_slices}, sort_keys=False), encoding="utf-8")
 
 
 def test_freshness_loop_writes_clean_snapshot(tmp_path: Path, monkeypatch) -> None:
@@ -588,3 +615,59 @@ def test_freshness_loop_asks_when_goal_handoff_contradicts_promoted_task(
     assert payload["snapshot_path"] == ".devflow/freshness/latest.json"
     snapshot = json.loads((tmp_path / ".devflow" / "freshness" / "latest.json").read_text(encoding="utf-8"))
     assert snapshot["status"] == "needs_human_decision"
+
+
+def test_freshness_loop_recommends_activation_when_goal_lifecycle_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _project_parallel_goal(tmp_path, [("TS-0001", "src/a.py")])
+    (tmp_path / ".devflow" / "goals" / "G-0001" / "goal-state.yaml").unlink(missing_ok=True)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    goal_loop = payload["goal_loop"][0]
+    assert goal_loop["loop_state"] == "needs_lifecycle_activation"
+    assert "devflow goal activate G-0001" in goal_loop["next_action"]
+    assert goal_loop["ready_parallel_batch_count"] == 0
+
+
+def test_freshness_loop_suppresses_dispatch_for_paused_goal(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _project_parallel_goal(tmp_path, [("TS-0001", "src/a.py")])
+    pause = runner.invoke(app, ["goal", "pause", "G-0001", "--reason", "waiting"])
+    assert pause.exit_code == 0, pause.output
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    goal_loop = payload["goal_loop"][0]
+    assert goal_loop["goal_state"] == "paused"
+    assert goal_loop["loop_state"] == "paused"
+    assert goal_loop["ready_parallel_lane_count"] == 0
+    assert goal_loop["parallel_batches"] == []
+
+
+def test_freshness_loop_recommends_goal_completion_when_all_slices_promoted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _project_parallel_goal(tmp_path, [("TS-0001", "src/a.py")])
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "goal baseline"], cwd=tmp_path, capture_output=True, text=True, check=True)
+    created = runner.invoke(app, ["freshness", "create-batch", "G-0001", "PB-0001"])
+    assert created.exit_code == 0, created.output
+    task = get_task(tmp_path, "task-0001")
+    task.status = "promoted"
+    task.updated_at = utc_now()
+    save_task(tmp_path / ".devflow" / "tasks" / "task-0001", task)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 2, result.output
+    payload = json.loads(result.output)
+    goal_loop = payload["goal_loop"][0]
+    assert goal_loop["loop_state"] == "needs_closure_decision"
+    assert "devflow goal complete G-0001" in goal_loop["next_action"]

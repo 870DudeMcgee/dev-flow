@@ -2,7 +2,7 @@
 
 Status: active, reconciled on 2026-05-30.
 
-This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, passive review-readiness, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
+This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, passive review-readiness, explicit goal lifecycle, bounded freshness dispatch, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
 
 Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The opt-in Git-native worker isolation and promotion slice is described in [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md). The registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md). Pre-conditions, state transitions, and verification invalidation rules for applied patches are documented in [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md).
 
@@ -88,6 +88,17 @@ devflow idea create-goal <idea-id>
 devflow idea create-task <idea-id> --dry-run
 devflow idea create-task <idea-id>
 devflow idea archive <idea-id> --reason "superseded"
+devflow goal init <goal-id> --from <brief.md>
+devflow goal list
+devflow goal show <goal-id>
+devflow goal status <goal-id>
+devflow goal next <goal-id>
+devflow goal slices <goal-id>
+devflow goal activate <goal-id> --reason "ready to execute"
+devflow goal pause <goal-id> --reason "waiting on review"
+devflow goal block <goal-id> --reason "needs human answer"
+devflow goal complete <goal-id> --reason "all task slices promoted and reviewed"
+devflow goal archive <goal-id> --reason "superseded"
 devflow dogfood list
 devflow dogfood show <case-id>
 devflow dogfood run --suite production-readiness
@@ -136,7 +147,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/create-goal/create-task/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/create-goal/create-task/archive`, `goal init/list/show/status/next/slices/activate/pause/block/complete/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -306,6 +317,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Worker outcome validation validates metadata only; it does not treat worker claims as proof of correctness and never mutates canonical task state.
 - Knowledge Foundry capture creates proposed notes only; knowledge promotion is separate from task promotion and never creates tasks/goals automatically.
 - Idea Foundry promotion records decision evidence only and never creates tasks/goals automatically; explicit `idea create-goal` and `idea create-task` commands require that prior promotion evidence and create linked Dev-Flow state only.
+- Goal lifecycle state is canonical under `.devflow/goals/<goal_id>/goal-state.yaml`. `goal activate/pause/block/complete/archive` write lifecycle evidence and hash-chained goal events only; freshness loop recommendations and explicit batch commands remain separate from providers, routing, promotion, commits, pushes, pull requests, and automatic goal completion.
 
 ## Sandbox & Security Boundaries
 
@@ -353,4 +365,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop is the next planned implementation slice. Milestone 13 idea-to-execution bridge remains current behavior. Keep goal lifecycle and freshness execution separate from provider calls, autonomous routing, auto-promotion, auto-commit, auto-push, pull request creation, and automatic goal completion.
+> **Current Priority**: Milestone 14 goal execution control loop is implemented. Goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.

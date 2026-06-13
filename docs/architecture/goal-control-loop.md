@@ -34,14 +34,15 @@ Parallel speed comes from small bounded lanes, not from weakening isolation. A f
 
 Goals live under `.devflow/goals/<goal_id>/` with human-readable artifacts such as `goal.md`, `prd.md`, `task-slices.yaml`, `open-questions.yaml`, and `handoff.md`. Tasks link back to goal slices through `.devflow/tasks/<task_id>/goal-link.yaml`.
 
-Milestone 14 is the planned slice that should add canonical lifecycle state without replacing the existing scaffold. The planned lifecycle artifact is `.devflow/goals/<goal_id>/goal-state.yaml` with:
+Milestone 14 implements canonical lifecycle state without replacing the existing scaffold. The lifecycle artifact is `.devflow/goals/<goal_id>/goal-state.yaml` with:
 
-- `active`, `paused`, `blocked`, `complete`, or `archived`
-- verification surface and acceptance criteria
-- loop budget and last iteration summary
-- linked project id and task slice ids
-- current blockers and next safe action
-- last known Git checkpoint or push recommendation
+- `lifecycle`: `active`, `paused`, `blocked`, `complete`, or `archived`
+- `status_reason`
+- `created_at` and `updated_at`
+- `last_decision`
+- `last_decision_command`
+
+Lifecycle changes are made only through explicit `devflow goal activate/pause/block/complete/archive` commands. Those commands write `goal-state.yaml` and append hash-chained events to `.devflow/goals/<goal_id>/events.jsonl`; they do not create tasks, run workers, verify, promote, checkpoint, push, open pull requests, or call providers.
 
 Completion must remain evidence-based: verified task state, logs, tests, review capsules, promotion evidence, or an explicit blocker report. A goal is not complete just because a worker says it is probably done.
 
@@ -54,7 +55,7 @@ The freshness snapshot includes two loop-control sections:
 - `.devflow/goals/<goal_id>/loop-state.json`: the latest derived state for one goal, including relevant findings and lane recommendations.
 - `.devflow/freshness/events.jsonl`: append-only loop iteration history with event hashes.
 
-Lane states are recommendations, not execution. `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. Ready lanes are grouped into `parallel_batches` using declared `shared_files`; lanes in the same batch have no declared shared-file conflict. `devflow freshness create-batch <goal_id> <batch_id>` can create the tasks for one currently projected safe batch, using existing goal-slice task creation and serial canonical state writes. `devflow freshness run --create-tasks` is the explicit repeated-loop dispatch mode for the first currently projected task batch; it loops again after task creation so the dirty task/workspace artifacts are reported as checkpoint work before more dispatch. When linked tasks exist and their slices declare concrete shell worker commands in `worker_policy` (`shell_commands`, `worker_commands`, `run_commands`, or related command lists), the loop emits conflict-aware `worker_batches`. `devflow freshness worker-batch <goal_id> <batch_id> --max-parallel N` runs one projected shell-worker batch through existing task workspaces, task mutation locks, worker logs, result artifacts, and task events. `devflow freshness run --execute-workers` is the explicit repeated-loop worker dispatch mode; after worker execution it loops again so workspace/task changes are surfaced as checkpoint work before more dispatch. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
+Lane states are recommendations, not execution. A missing lifecycle state recommends `devflow goal activate <goal_id> --reason 'ready to execute'`. Paused, blocked, complete, and archived goals suppress task, worker, and verification batch projection. Active goals keep the existing projection behavior: `ready_to_create_task` means the slice is unblocked, declared `parallel_safe`, not high risk, and has no linked task yet. Ready lanes are grouped into `parallel_batches` using declared `shared_files`; lanes in the same batch have no declared shared-file conflict. `devflow freshness create-batch <goal_id> <batch_id>` can create the tasks for one currently projected safe batch, using existing goal-slice task creation and serial canonical state writes. `devflow freshness run --create-tasks` is the explicit repeated-loop dispatch mode for the first currently projected task batch; it loops again after task creation so the dirty task/workspace artifacts are reported as checkpoint work before more dispatch. When linked tasks exist and their slices declare concrete shell worker commands in `worker_policy` (`shell_commands`, `worker_commands`, `run_commands`, or related command lists), the loop emits conflict-aware `worker_batches`. `devflow freshness worker-batch <goal_id> <batch_id> --max-parallel N` runs one projected shell-worker batch through existing task workspaces, task mutation locks, worker logs, result artifacts, and task events. `devflow freshness run --execute-workers` is the explicit repeated-loop worker dispatch mode; after worker execution it loops again so workspace/task changes are surfaced as checkpoint work before more dispatch. `running`, `ready_to_promote`, `repair_or_verify`, `closed`, `complete`, and `blocked` keep existing work visible so Dev-Flow does not spawn conflicting work for the same slice.
 
 Verification batches are also recommendations, not execution. When a linked task is ready to run or repair verification and its slice declares concrete commands in `verification_policy` (`focused_commands`, `verification_commands`, `test_commands`, `broad_commands`, or related command lists), the loop emits `verification_batches` with `devflow task verify ...` commands grouped by the same declared `shared_files` conflict boundary. This exposes test/process parallelism without starting test processes, rewriting verification evidence, or marking work complete.
 

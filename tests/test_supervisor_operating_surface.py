@@ -571,6 +571,20 @@ def test_project_commands_are_classified_for_operator_approval() -> None:
     assert project_connect["requires_human_approval"] is True
 
 
+def test_goal_lifecycle_commands_are_approval_required_state_changes() -> None:
+    for command in (
+        "devflow goal activate G-0001 --reason ready",
+        "devflow goal pause G-0001 --reason waiting",
+        "devflow goal block G-0001 --reason blocked",
+        "devflow goal complete G-0001 --reason done",
+        "devflow goal archive G-0001 --reason superseded",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+        assert classification["requires_human_approval"] is True
+        assert classification["supervisor_may_auto_run"] is False
+
+
 def test_hermes_docs_and_skill_flag_quarantined_checkout_path() -> None:
     root = Path(__file__).resolve().parents[1]
     docs = [

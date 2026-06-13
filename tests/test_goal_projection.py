@@ -12,6 +12,9 @@ from devflow.control_room.goals import create_goal_from_markdown, goal_dir
 from devflow.control_room.goal_projection import build_goal_status_projection
 
 
+runner = CliRunner()
+
+
 def setup_temp_repo(tmp_path: Path) -> Path:
     """Initialize standard .devflow control room scaffolding in temp path."""
     old_cwd = Path.cwd()
@@ -30,6 +33,14 @@ def setup_temp_repo(tmp_path: Path) -> Path:
     # Restore cwd
     os.chdir(old_cwd)
     return tmp_path
+
+
+def _create_goal(tmp_path: Path) -> None:
+    setup_temp_repo(tmp_path)
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+    result = runner.invoke(app, ["goal", "init", "G-0001", "--from", str(brief_path)])
+    assert result.exit_code == 0, result.output
 
 
 def test_goal_list_shows_scaffolded_goal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,3 +249,37 @@ def test_no_scheduler_or_generation_side_effects(tmp_path: Path, monkeypatch: py
 def test_existing_regression() -> None:
     # Basic baseline validation that imports work and CLI compiles
     assert True
+
+
+def test_goal_status_includes_lifecycle_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_goal(tmp_path)
+
+    result = runner.invoke(app, ["goal", "status", "G-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert "Lifecycle: active" in result.output
+
+
+def test_goal_next_recommends_activation_when_lifecycle_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_goal(tmp_path)
+    (tmp_path / ".devflow" / "goals" / "G-0001" / "goal-state.yaml").unlink()
+
+    result = runner.invoke(app, ["goal", "next", "G-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert "devflow goal activate G-0001" in result.output
+
+
+def test_goal_next_stops_on_paused_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_goal(tmp_path)
+    pause = runner.invoke(app, ["goal", "pause", "G-0001", "--reason", "waiting"])
+    assert pause.exit_code == 0, pause.output
+
+    result = runner.invoke(app, ["goal", "next", "G-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert "Goal is paused" in result.output
+    assert "devflow freshness" not in result.output

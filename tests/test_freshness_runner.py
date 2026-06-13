@@ -134,6 +134,71 @@ def test_freshness_run_all_projects_rejects_dispatch_flags(tmp_path: Path, monke
     assert "read-mostly bounded runs only" in result.output
 
 
+def test_active_goal_runs_through_create_worker_verify_without_auto_completion(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    brief = tmp_path / "brief.md"
+    brief.write_text("# Goal loop smoke\n", encoding="utf-8")
+    init = runner.invoke(app, ["goal", "init", "G-0001", "--from", str(brief)])
+    assert init.exit_code == 0, init.output
+    slices_path = tmp_path / ".devflow" / "goals" / "G-0001" / "task-slices.yaml"
+    slices_path.write_text(
+        """
+task_slices:
+  - task_id: TS-0001
+    title: "Write goal loop output"
+    summary: "Create one output file and verify it."
+    blocked_by: []
+    parallel_safe: true
+    shared_files:
+      - result.txt
+    risk: low
+    execution_mode: AFK
+    workspace_isolation_required: false
+    promotion_allowed: false
+    worker_policy:
+      shell_commands:
+        - "printf goal-loop > result.txt"
+    verification_policy:
+      focused_commands:
+        - "test -f result.txt"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _commit_all(tmp_path, "goal loop baseline")
+
+    created = runner.invoke(app, ["freshness", "run", "--max-iterations", "3", "--create-tasks", "--json"])
+    assert created.exit_code == 0, created.output
+    assert (tmp_path / ".devflow" / "tasks" / "task-0001" / "goal-link.yaml").exists()
+    _commit_all(tmp_path, "created task")
+
+    worker = runner.invoke(
+        app,
+        ["freshness", "worker-batch", "G-0001", "WB-0001", "--max-parallel", "1", "--timeout-seconds", "10", "--json"],
+    )
+    assert worker.exit_code == 0, worker.output
+    assert (tmp_path / ".devflow" / "workspaces" / "task-0001" / "result.txt").read_text(encoding="utf-8") == "goal-loop"
+
+    verified = runner.invoke(
+        app,
+        ["freshness", "verify-batch", "G-0001", "VB-0001", "--max-parallel", "1", "--timeout-seconds", "10", "--json"],
+    )
+    assert verified.exit_code == 0, verified.output
+    verification = yaml.safe_load((tmp_path / ".devflow" / "tasks" / "task-0001" / "verification.json").read_text(encoding="utf-8"))
+    assert verification["status"] == "passed"
+
+    final_loop = runner.invoke(app, ["freshness", "loop", "--json"])
+    assert final_loop.exit_code == 0, final_loop.output
+    payload = json.loads(final_loop.output)
+    assert payload["goal_loop"][0]["loop_state"] in {"active_work_in_progress", "needs_closure_decision"}
+    state = yaml.safe_load((tmp_path / ".devflow" / "goals" / "G-0001" / "goal-state.yaml").read_text(encoding="utf-8"))
+    assert state["lifecycle"] == "active"
+
+
 def _project_goal(root: Path, lanes: list[tuple[str, str, str]]) -> None:
     brief_path = root / "goal.md"
     brief_path.write_text("## Goal Brief\nRun bounded control loop.", encoding="utf-8")

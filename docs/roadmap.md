@@ -368,11 +368,13 @@ Boundary: creation requires matching prior `idea promote` evidence, writes bidir
 
 ## Milestone 14: Goal Execution Control Loop
 
-Status: planned. Design and next-agent implementation plan are written in [docs/superpowers/specs/2026-06-13-goal-execution-control-loop-design.md](superpowers/specs/2026-06-13-goal-execution-control-loop-design.md) and [docs/superpowers/plans/2026-06-13-goal-execution-control-loop.md](superpowers/plans/2026-06-13-goal-execution-control-loop.md).
+Status: implemented. Design and implementation planning history are preserved in [docs/superpowers/specs/2026-06-13-goal-execution-control-loop-design.md](superpowers/specs/2026-06-13-goal-execution-control-loop-design.md) and [docs/superpowers/plans/2026-06-13-goal-execution-control-loop.md](superpowers/plans/2026-06-13-goal-execution-control-loop.md).
 
 Goal: make idea-created and manually created goals executable through explicit lifecycle state, freshness-loop recommendations, task-batch creation, shell worker batches, verification batches, review readiness, and human-controlled closure decisions.
 
-Boundary: goal lifecycle and freshness execution commands must not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
+Implemented: canonical `.devflow/goals/<goal_id>/goal-state.yaml`, hash-chained goal lifecycle events, `goal activate/pause/block/complete/archive`, lifecycle-aware `goal status` and `goal next`, freshness dispatch gating for non-active goals, closure-decision next actions after promoted task evidence, operating-layer lifecycle display, supervisor approval classification, and a dogfood test through task creation, shell worker batch, and verification batch.
+
+Boundary: goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
 
 ## Later, Not Now
 

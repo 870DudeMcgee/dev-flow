@@ -48,6 +48,8 @@ class OperatingLayerGoal(BaseModel):
     goal_id: str
     title: str
     goal_state: str
+    lifecycle: str = "missing"
+    lifecycle_reason: str = ""
     loop_state: str
     total_slices: int
     active_task_count: int
@@ -229,6 +231,8 @@ class OperatingLayerGoalBoardGoal(BaseModel):
     goal_id: str
     title: str
     goal_state: str
+    lifecycle: str = "missing"
+    lifecycle_reason: str = ""
     loop_state: str
     total_slices: int
     completed_slice_count: int
@@ -377,7 +381,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
         project=OperatingLayerProject(**dashboard.project.model_dump(), project_id=project_id),
         health=dashboard.health,
         next_action=dashboard.next_action,
-        goals=_goal_cards(freshness),
+        goals=_goal_cards(root, freshness),
         focus_goal_id=focus_goal_id,
         focus_task_id=focus_task_id,
         lanes=[
@@ -423,27 +427,32 @@ def _try_freshness(root: Path, warnings: list[str]) -> FreshnessReport | None:
         return None
 
 
-def _goal_cards(freshness: FreshnessReport | None) -> list[OperatingLayerGoal]:
+def _goal_cards(root: Path, freshness: FreshnessReport | None) -> list[OperatingLayerGoal]:
     if not freshness:
         return []
-    return [
-        OperatingLayerGoal(
-            goal_id=goal.goal_id,
-            title=goal.title,
-            goal_state=goal.goal_state,
-            loop_state=goal.loop_state,
-            total_slices=goal.total_slices,
-            active_task_count=goal.active_task_count,
-            completed_slice_count=goal.completed_slice_count,
-            ready_parallel_lane_count=goal.ready_parallel_lane_count,
-            ready_parallel_batch_count=goal.ready_parallel_batch_count,
-            ready_worker_batch_count=goal.ready_worker_batch_count,
-            ready_verification_batch_count=goal.ready_verification_batch_count,
-            blocked_lane_count=goal.blocked_lane_count,
-            next_action=goal.next_action,
+    goals: list[OperatingLayerGoal] = []
+    for goal in freshness.goal_loop:
+        lifecycle, lifecycle_reason = _goal_board_lifecycle(root, goal.goal_id, fallback=goal.goal_state)
+        goals.append(
+            OperatingLayerGoal(
+                goal_id=goal.goal_id,
+                title=goal.title,
+                goal_state=goal.goal_state,
+                lifecycle=lifecycle,
+                lifecycle_reason=lifecycle_reason,
+                loop_state=goal.loop_state,
+                total_slices=goal.total_slices,
+                active_task_count=goal.active_task_count,
+                completed_slice_count=goal.completed_slice_count,
+                ready_parallel_lane_count=goal.ready_parallel_lane_count,
+                ready_parallel_batch_count=goal.ready_parallel_batch_count,
+                ready_worker_batch_count=goal.ready_worker_batch_count,
+                ready_verification_batch_count=goal.ready_verification_batch_count,
+                blocked_lane_count=goal.blocked_lane_count,
+                next_action=goal.next_action,
+            )
         )
-        for goal in freshness.goal_loop
-    ]
+    return goals
 
 
 def _focus_task_id(tasks: list[OperatingLayerTask]) -> str | None:
@@ -1227,48 +1236,65 @@ def _goal_board(
 ) -> list[OperatingLayerGoalBoardGoal]:
     if not freshness:
         return []
-    return [
-        OperatingLayerGoalBoardGoal(
-            goal_id=goal.goal_id,
-            title=goal.title,
-            goal_state=goal.goal_state,
-            loop_state=goal.loop_state,
-            total_slices=goal.total_slices,
-            completed_slice_count=goal.completed_slice_count,
-            active_task_count=goal.active_task_count,
-            blocked_lane_count=goal.blocked_lane_count,
-            ready_parallel_lane_count=goal.ready_parallel_lane_count,
-            ready_parallel_batch_count=goal.ready_parallel_batch_count,
-            ready_worker_batch_count=goal.ready_worker_batch_count,
-            ready_verification_batch_count=goal.ready_verification_batch_count,
-            next_action=_safe_goal_command(root, goal.next_action, project_id),
-            actions=_goal_actions(root, goal.goal_id, goal.next_action, project_id=project_id),
-            lanes=[_goal_board_lane(root, lane, project_id=project_id) for lane in goal.lanes],
-            blocked_lanes=[
-                _goal_board_lane(root, lane, project_id=project_id)
-                for lane in goal.lanes
-                if lane.lane_state in {"blocked", "needs_human_review"}
-            ],
-            ready_lanes=[
-                _goal_board_lane(root, lane, project_id=project_id)
-                for lane in goal.lanes
-                if lane.lane_state in {"ready_to_create_task", "ready_to_run_or_verify", "repair_or_verify", "ready_to_promote"}
-            ],
-            parallel_batches=[
-                _goal_board_batch(root, "parallel", batch, project_id=project_id)
-                for batch in goal.parallel_batches
-            ],
-            worker_batches=[
-                _goal_board_batch(root, "worker", batch, project_id=project_id)
-                for batch in goal.worker_batches
-            ],
-            verification_batches=[
-                _goal_board_batch(root, "verification", batch, project_id=project_id)
-                for batch in goal.verification_batches
-            ],
+    goals: list[OperatingLayerGoalBoardGoal] = []
+    for goal in freshness.goal_loop:
+        lifecycle, lifecycle_reason = _goal_board_lifecycle(root, goal.goal_id, fallback=goal.goal_state)
+        goals.append(
+            OperatingLayerGoalBoardGoal(
+                goal_id=goal.goal_id,
+                title=goal.title,
+                goal_state=goal.goal_state,
+                lifecycle=lifecycle,
+                lifecycle_reason=lifecycle_reason,
+                loop_state=goal.loop_state,
+                total_slices=goal.total_slices,
+                completed_slice_count=goal.completed_slice_count,
+                active_task_count=goal.active_task_count,
+                blocked_lane_count=goal.blocked_lane_count,
+                ready_parallel_lane_count=goal.ready_parallel_lane_count,
+                ready_parallel_batch_count=goal.ready_parallel_batch_count,
+                ready_worker_batch_count=goal.ready_worker_batch_count,
+                ready_verification_batch_count=goal.ready_verification_batch_count,
+                next_action=_safe_goal_command(root, goal.next_action, project_id),
+                actions=_goal_actions(root, goal.goal_id, goal.next_action, project_id=project_id),
+                lanes=[_goal_board_lane(root, lane, project_id=project_id) for lane in goal.lanes],
+                blocked_lanes=[
+                    _goal_board_lane(root, lane, project_id=project_id)
+                    for lane in goal.lanes
+                    if lane.lane_state in {"blocked", "needs_human_review"}
+                ],
+                ready_lanes=[
+                    _goal_board_lane(root, lane, project_id=project_id)
+                    for lane in goal.lanes
+                    if lane.lane_state in {"ready_to_create_task", "ready_to_run_or_verify", "repair_or_verify", "ready_to_promote"}
+                ],
+                parallel_batches=[
+                    _goal_board_batch(root, "parallel", batch, project_id=project_id)
+                    for batch in goal.parallel_batches
+                ],
+                worker_batches=[
+                    _goal_board_batch(root, "worker", batch, project_id=project_id)
+                    for batch in goal.worker_batches
+                ],
+                verification_batches=[
+                    _goal_board_batch(root, "verification", batch, project_id=project_id)
+                    for batch in goal.verification_batches
+                ],
+            )
         )
-        for goal in freshness.goal_loop
-    ]
+    return goals
+
+
+def _goal_board_lifecycle(root: Path, goal_id: str, *, fallback: str) -> tuple[str, str]:
+    try:
+        from devflow.control_room.goal_projection import build_goal_status_projection
+
+        projection = build_goal_status_projection(root, goal_id)
+        return projection.lifecycle, projection.lifecycle_reason
+    except Exception:
+        if fallback in {"active", "paused", "blocked", "complete", "archived", "missing_lifecycle"}:
+            return ("missing" if fallback == "missing_lifecycle" else fallback), ""
+        return "unknown", ""
 
 
 def _goal_board_lane(root: Path, lane: Any, *, project_id: str | None) -> OperatingLayerGoalBoardLane:
