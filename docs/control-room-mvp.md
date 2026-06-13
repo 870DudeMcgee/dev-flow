@@ -73,6 +73,14 @@ devflow freshness run --max-iterations 3 --execute-verification --max-parallel 2
 devflow freshness create-batch <goal_id> <batch_id>
 devflow freshness worker-batch <goal_id> <batch_id> --max-parallel 2
 devflow freshness verify-batch <goal_id> <batch_id> --max-parallel 2
+devflow goal init <goal_id> --from <brief.md>
+devflow goal status <goal_id>
+devflow goal next <goal_id>
+devflow goal activate <goal_id> --reason "ready to execute"
+devflow goal pause <goal_id> --reason "waiting on review"
+devflow goal block <goal_id> --reason "needs human answer"
+devflow goal complete <goal_id> --reason "all task slices promoted and reviewed"
+devflow goal archive <goal_id> --reason "superseded"
 devflow dashboard
 devflow status --json
 devflow supervisor policy --json
@@ -391,6 +399,7 @@ Implemented:
 - `devflow worker validate-outcome` for structured guardrail outcome metadata validation
 - Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes
 - Idea Foundry commands for raw idea intake, human classification, decision-only promotion, explicit goal/task creation after prior promotion evidence, and archival evidence
+- canonical goal lifecycle state under `.devflow/goals/<goal_id>/goal-state.yaml`, with explicit `goal activate/pause/block/complete/archive` commands, lifecycle-aware goal status/next output, freshness dispatch gating for paused/blocked/complete/archived goals, operating-layer lifecycle display, and human-controlled closure recommendations after promoted task-slice evidence
 
 Outside the current product contract:
 
@@ -406,7 +415,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop is the next planned implementation slice. Milestone 13 idea-to-execution bridge remains current behavior. Keep goal lifecycle and freshness execution separate from provider calls, autonomous routing, auto-promotion, auto-commit, auto-push, pull request creation, and automatic goal completion.
+> **Current Priority**: Milestone 14 goal execution control loop is implemented. Goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

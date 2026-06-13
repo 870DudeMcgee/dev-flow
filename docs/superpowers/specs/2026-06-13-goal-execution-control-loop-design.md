@@ -1,6 +1,6 @@
 # Goal Execution Control Loop Design
 
-Status: planned Milestone 14 design; implementation is the next milestone.
+Status: historical Milestone 14 design; implemented by task-0024 on 2026-06-13.
 Date: 2026-06-13
 
 ## Purpose

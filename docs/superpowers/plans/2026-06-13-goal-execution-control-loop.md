@@ -1,5 +1,7 @@
 # Goal Execution Control Loop Implementation Plan
 
+Status: historical implementation plan; task-0024 implemented this Milestone 14 slice on 2026-06-13.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement Milestone 14 so goals have explicit lifecycle state and the existing freshness loop can drive a bounded idea-to-goal-to-task execution lane without automatic routing, promotion, or publication.
