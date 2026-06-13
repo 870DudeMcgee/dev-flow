@@ -1673,7 +1673,7 @@ def _multi_project_card(warnings: list[str]) -> OperatingLayerMultiProject | Non
 
 def _project_next_action(project: Any) -> str:
     if project.path_status == "missing":
-        return f"devflow project show {project.project_id}"
+        return f"devflow project doctor {project.project_id}"
     return f"devflow project status {project.project_id}"
 
 

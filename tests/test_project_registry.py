@@ -173,6 +173,63 @@ def test_multi_project_dashboard_reports_registered_and_missing_projects(tmp_pat
     assert "project path is missing" in result.output
 
 
+def test_project_archive_hides_default_list_but_keeps_audit_visibility(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _devflow_home(tmp_path, monkeypatch)
+    projects_root = tmp_path / "projects"
+
+    created = runner.invoke(app, ["project", "create", "Beta App", "--projects-root", projects_root.as_posix()])
+    assert created.exit_code == 0, created.output
+
+    archived = runner.invoke(app, ["project", "archive", "beta-app"])
+    default_list = runner.invoke(app, ["project", "list"])
+    audit_list = runner.invoke(app, ["project", "list", "--include-archived"])
+    task_list = runner.invoke(app, ["task", "list", "--project", "beta-app"])
+
+    assert archived.exit_code == 0, archived.output
+    assert "Archived project beta-app" in archived.output
+    assert default_list.exit_code == 0, default_list.output
+    assert "beta-app" not in default_list.output
+    assert audit_list.exit_code == 0, audit_list.output
+    assert "beta-app" in audit_list.output
+    assert "archived" in audit_list.output
+    assert task_list.exit_code == 1
+    assert "Project is archived: beta-app" in task_list.output
+
+
+def test_project_remove_registry_only_preserves_project_directory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = _devflow_home(tmp_path, monkeypatch)
+    projects_root = tmp_path / "projects"
+
+    created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
+    assert created.exit_code == 0, created.output
+    project_root = projects_root / "alpha-app"
+
+    refused = runner.invoke(app, ["project", "remove", "alpha-app"])
+    removed = runner.invoke(app, ["project", "remove", "alpha-app", "--registry-only"])
+    shown = runner.invoke(app, ["project", "show", "alpha-app"])
+
+    assert refused.exit_code == 1
+    assert "project remove requires --registry-only" in refused.output
+    assert project_root.is_dir()
+    assert removed.exit_code == 0, removed.output
+    assert "Removed project alpha-app from registry" in removed.output
+    assert project_root.is_dir()
+    assert shown.exit_code == 1
+    assert "Project not found: alpha-app" in shown.output
+
+    registry = json.loads((home / "registry" / "projects.json").read_text(encoding="utf-8"))
+    assert registry["projects"] == []
+    events = (home / "events.jsonl").read_text(encoding="utf-8")
+    assert '"event": "project_removed"' in events
+    assert '"project_id": "alpha-app"' in events
+
+
 def test_task_create_project_writes_under_registered_project_root(tmp_path: Path, monkeypatch) -> None:
     _devflow_home(tmp_path, monkeypatch)
     projects_root = tmp_path / "projects"

@@ -391,7 +391,7 @@ def test_operating_layer_includes_multi_project_overview(
     projects = {project.project_id: project for project in snapshot.multi_project.projects}
     assert projects["demo"].next_action == "devflow project status demo"
     assert projects["missing"].path_status == "missing"
-    assert projects["missing"].next_action == "devflow project show missing"
+    assert projects["missing"].next_action == "devflow project doctor missing"
 
 
 def test_operating_layer_server_serves_app_and_snapshot(

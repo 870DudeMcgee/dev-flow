@@ -288,6 +288,12 @@ task_slices:
     assert projects["alpha-app"]["checkpoint_opportunity"] is True
     assert projects["beta-app"]["path_status"] == "missing"
     assert projects["beta-app"]["status"] == "missing"
+    expected_missing_next_action = (
+        "Run `devflow project doctor beta-app`, then explicitly repair/import the real root, "
+        "archive the project, or remove the registry-only junk record."
+    )
+    assert projects["beta-app"]["next_action"] == expected_missing_next_action
+    assert payload["next_action"] == expected_missing_next_action
 
 
 def test_multi_project_freshness_scans_registered_projects_in_parallel(

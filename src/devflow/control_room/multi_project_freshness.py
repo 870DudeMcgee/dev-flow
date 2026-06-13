@@ -118,7 +118,10 @@ def _scan_registered_project(record, *, write_snapshot: bool) -> ProjectFreshnes
             path=root.as_posix(),
             path_status="missing",
             status="missing",
-            next_action=f"Run `devflow project doctor {record.project_id}` and repair or archive the registry entry.",
+            next_action=(
+                f"Run `devflow project doctor {record.project_id}`, then explicitly repair/import the real root, "
+                "archive the project, or remove the registry-only junk record."
+            ),
             error="project path is missing",
         )
     try:
