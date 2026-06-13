@@ -310,7 +310,7 @@ Acceptance:
 - current patch dry-run behavior is documented as evidence only
 - current, planned, and deferred behavior are clearly separated
 - current Project Code Map orientation is documented
-- later Idea Foundry intake is documented separately
+- current Idea Foundry local intake is documented separately
 - no source, test, runtime, provider, dashboard, database, routing, or automation behavior changes are included
 
 ## Milestone 8B: Deterministic Patch Dry-run Preview
@@ -352,14 +352,14 @@ Boundary: `CODE_MAP.md` is human-authored read-only orientation context. `.code-
 
 ## Milestone 12: Idea Foundry MVP
 
-Status: future.
+Status: implemented in the first local intake slice. Capture, list, show, classify, promote-decision, and archive commands are current; automatic goal/task creation remains out of scope.
 
 Goal: capture raw ideas, classify them later, link them to project/goal context, and explicitly promote mature ideas into goals or tasks only after human review.
 
-Boundary: future idea commands such as `devflow idea capture`, `devflow idea classify`, and `devflow idea promote` do not exist yet.
+Boundary: Idea Foundry records intake and promotion decision evidence only. It does not create goals, create tasks, run workers, call providers, verify, commit, push, or promote code.
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 12 Idea Foundry MVP design. Start with a design/spec for human-reviewed idea capture and promotion. Do not implement provider-backed adapters, autonomous routing, databases, or automatic task creation as part of the Idea Foundry design slice.
+> **Next Priority**: Decide whether Idea Foundry should gain explicit `idea create-goal` / `idea create-task` commands or stay as decision evidence only. Do not add automatic creation, provider-backed classification, or routing without a new design.
 
 ## Later, Not Now
 

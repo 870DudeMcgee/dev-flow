@@ -78,6 +78,12 @@ devflow knowledge show <knowledge-id>
 devflow knowledge promote <knowledge-id>
 devflow knowledge reject <knowledge-id>
 devflow knowledge search "<query>"
+devflow idea capture "raw idea"
+devflow idea list
+devflow idea show <idea-id>
+devflow idea classify <idea-id> --maturity goal_ready
+devflow idea promote <idea-id> --to goal --rationale "human reviewed"
+devflow idea archive <idea-id> --reason "superseded"
 devflow dogfood list
 devflow dogfood show <case-id>
 devflow dogfood run --suite production-readiness
@@ -126,7 +132,7 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
@@ -164,6 +170,8 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 `devflow worker validate-outcome <path-to-outcome-json>` validates worker outcome metadata and writes validation evidence under the task folder when possible, otherwise under `.devflow/outcome-validations/`. It rejects malformed JSON, missing fields, unknown source/outcome/tool statuses, unsafe touched paths, task-id mismatches, and outcomes that need human review but do not declare it. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
 
 `devflow knowledge capture`, `knowledge list`, `knowledge show`, `knowledge promote`, `knowledge reject`, and `knowledge search` manage local Knowledge Foundry notes under `.devflow/knowledge/`. Capture creates proposed notes only from existing task or validation evidence; promotion/rejection changes knowledge status only and is separate from task promotion. This is human-reviewed knowledge curation, not ML training, hidden agent memory, vector search, RAG, or automatic task/goal creation.
+
+The Idea Foundry form is `devflow idea capture/list/show/classify/promote/archive`. It stores project-local intake evidence under `.devflow/ideas/<idea-id>/`, keeps raw ideas separate from goals and tasks, and records human classification and promotion decisions. Idea promotion does not create goals, create tasks, run workers, call providers, verify, commit, push, or promote code; it only writes reviewable intake evidence and suggested next manual commands.
 
 `devflow dogfood run --suite production-readiness` runs deterministic local production-readiness cases and writes `.devflow/dogfood/runs/<run-id>/run.yaml`, `scorecard.yaml`, `report.md`, and per-case `case-result.yaml` evidence. The suite measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, operating-layer visual QA, and lightweight behavior. It reuses existing task, orchestration, worker outcome validation, verification, promotion-readiness, knowledge, and operating-layer visual QA surfaces, then closes any task records it created with the `evidence-only` outcome so dogfood evidence does not remain in the active project queue. The visual QA case accepts deterministic fallback PNG/SVG evidence as the minimum, external/Appshot PNG drop-ins when present, and optional Playwright browser rasters when available. It does not execute providers, route autonomously, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models. Silver is the default pass gate for the production-readiness run.
 
@@ -235,6 +243,11 @@ For a created task, the MVP contract is:
 .devflow/knowledge/<knowledge-id>/knowledge.json
 .devflow/knowledge/<knowledge-id>/note.md
 .devflow/knowledge/<knowledge-id>/events.jsonl
+.devflow/ideas/<idea-id>/idea.json
+.devflow/ideas/<idea-id>/raw.md
+.devflow/ideas/<idea-id>/classification.md
+.devflow/ideas/<idea-id>/promotion.md
+.devflow/ideas/<idea-id>/events.jsonl
 .devflow/dogfood/cases/<case-id>.yaml
 .devflow/dogfood/runs/<run-id>/run.yaml
 .devflow/dogfood/runs/<run-id>/scorecard.yaml
@@ -256,7 +269,7 @@ Mutating task operations use a task-local `.lock/` directory with `owner.json` m
 
 `.devflow/tasks/<task-id>/review-capsule.md` may exist only after an explicit `devflow task capsule <task-id> --export-md`. It is a point-in-time export of a rendered review view and is never created by default.
 
-`.devflow/tasks/<task-id>/orchestration-plan.yaml` is plan-only policy evidence. `.devflow/tasks/<task-id>/worker-outcome-validation.json` and `.devflow/outcome-validations/*.json` are metadata validation evidence. `.devflow/knowledge/<knowledge-id>/` stores human-reviewed knowledge curation records. None of these files override canonical task state or promotion readiness.
+`.devflow/tasks/<task-id>/orchestration-plan.yaml` is plan-only policy evidence. `.devflow/tasks/<task-id>/worker-outcome-validation.json` and `.devflow/outcome-validations/*.json` are metadata validation evidence. `.devflow/knowledge/<knowledge-id>/` stores human-reviewed knowledge curation records. `.devflow/ideas/<idea-id>/` stores human-reviewed idea intake records. None of these files override canonical task state or promotion readiness.
 
 Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/` is worker-produced evidence, not canonical task state. Dev-Flow may display `awaiting_human`, `blocked`, `failed`, and `result_present` in `task show` and `dashboard`, but only Dev-Flow updates `task.yaml`, `events.jsonl`, `verification.json`, merge-readiness, and promotion state.
 
@@ -283,6 +296,7 @@ Manual proof-agent evidence under `.devflow/tasks/<task-id>/agents/devflow-manua
 - Orchestration planning is `--plan-only`; it records policy evidence and never schedules providers, runs workers, applies patches, verifies, promotes, or changes main.
 - Worker outcome validation validates metadata only; it does not treat worker claims as proof of correctness and never mutates canonical task state.
 - Knowledge Foundry capture creates proposed notes only; knowledge promotion is separate from task promotion and never creates tasks/goals automatically.
+- Idea Foundry promotion records decision evidence only and never creates tasks/goals automatically.
 
 ## Sandbox & Security Boundaries
 

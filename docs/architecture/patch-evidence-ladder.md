@@ -69,7 +69,7 @@ Current copy-workspace tasks and Git-native worktree tasks are both isolated tas
 ## Ladder Overview
 
 ```text
-Idea Foundry, future
+Idea Foundry intake, current
 -> Goal / task planning
 -> Project Code Map orientation, current
 -> Bounded task packet
@@ -86,7 +86,7 @@ Idea Foundry, future
 
 Patch dry-run is current implemented behavior. Project Code Map is the current upstream orientation layer through `CODE_MAP.md` and `devflow map init/show/check`.
 
-Idea Foundry remains a later intake layer. These layers are not part of Milestone 8B and must not be expanded as part of the patch dry-run milestone.
+Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/promote/archive`. It records raw idea evidence, human classification, and decision-only promotion notes under `.devflow/ideas/`; it does not create goals, create tasks, call providers, route workers, verify, commit, push, or promote code.
 
 ## Stage-by-Stage Contract
 
@@ -474,10 +474,11 @@ Human review boundary: Promotion is human-controlled, readiness-gated, and must 
 | `.devflow/worktrees/<task-id>/shell/` | Current opt-in | Dev-Flow/worker lane | Git-native shell task worktree | Yes, by assigned shell worker | Only for `--git-worktree` tasks |
 | `CODE_MAP.md` | Current | Human/Dev-Flow | Project orientation map | Read-only context | Managed by `devflow map init/show/check` |
 | `.code-map.yaml` | Future | Human/Dev-Flow | Optional machine-readable map companion | Future | No current command |
-| `projects/<project>/01-ideas/<idea-id>/idea.yaml` | Future | Human/Dev-Flow | Idea metadata | Future | Idea Foundry only |
-| `projects/<project>/01-ideas/<idea-id>/raw.md` | Future | Human/Dev-Flow | Raw captured idea | Future | Idea Foundry only |
-| `projects/<project>/01-ideas/<idea-id>/classification.md` | Future | Human/Dev-Flow | Idea classification evidence | Future | Idea Foundry only |
-| `projects/<project>/01-ideas/<idea-id>/promotion.md` | Future | Human/Dev-Flow | Idea promotion decision | Future | Idea Foundry only |
+| `.devflow/ideas/<idea-id>/idea.json` | Current | Human/Dev-Flow | Idea metadata | Intake evidence only | Project-local Idea Foundry |
+| `.devflow/ideas/<idea-id>/raw.md` | Current | Human/Dev-Flow | Raw captured idea | Intake evidence only | Project-local Idea Foundry |
+| `.devflow/ideas/<idea-id>/classification.md` | Current | Human/Dev-Flow | Idea classification evidence | Intake evidence only | Project-local Idea Foundry |
+| `.devflow/ideas/<idea-id>/promotion.md` | Current | Human/Dev-Flow | Idea promotion decision | Decision evidence only | Does not create goals/tasks |
+| `.devflow/ideas/<idea-id>/events.jsonl` | Current | Dev-Flow | Idea event evidence | Append-only evidence | Project-local Idea Foundry |
 
 ## Relationship to Existing task apply-patch
 
@@ -529,50 +530,54 @@ Current behavior:
 
 Boundary: Do not expand Project Code Map as part of patch dry-run work. It remains human-authored read-only orientation context and must not route models, call providers, mutate task state, or make promotion decisions.
 
-### Idea Foundry, Future
+### Idea Foundry, Current Local Intake
 
 Purpose: Capture raw ideas, classify them later, link them to product/project/goal context, and explicitly promote mature ideas into goals or tasks only after human review.
 
-Planned future commands:
+Current commands:
 
 - `devflow idea capture "<text>"`
 - `devflow idea list`
-- `devflow idea show <idea-id>`
-- `devflow idea classify <idea-id>`
-- `devflow idea promote <idea-id> --to goal`
-- `devflow idea archive <idea-id>`
+- `devflow idea show <idea_id>`
+- `devflow idea classify <idea_id> --maturity goal_ready`
+- `devflow idea promote <idea_id> --to goal --rationale "human reviewed"`
+- `devflow idea archive <idea_id> --reason "superseded"`
 
-Planned future filesystem concept:
+Current filesystem:
 
-- `projects/<project>/01-ideas/<idea-id>/idea.yaml`
-- `projects/<project>/01-ideas/<idea-id>/raw.md`
-- `projects/<project>/01-ideas/<idea-id>/classification.md`
-- `projects/<project>/01-ideas/<idea-id>/promotion.md`
-- `projects/<project>/01-ideas/<idea-id>/events.log`
+- `.devflow/ideas/<idea_id>/idea.json`
+- `.devflow/ideas/<idea_id>/raw.md`
+- `.devflow/ideas/<idea_id>/classification.md`
+- `.devflow/ideas/<idea_id>/promotion.md`
+- `.devflow/ideas/<idea_id>/events.jsonl`
 
-Planned `idea.yaml` fields:
+Current `idea.json` fields:
 
+- `schema_version`
 - `id`
 - `title`
-- `created_at`
-- `updated_at`
 - `status`
 - `maturity`
 - `tags`
-- `linked_product`
-- `linked_plan`
-- `linked_goal`
 - `source`
 - `promotion_target`
+- `created_at`
+- `updated_at`
+- `classified_at`
+- `promoted_at`
+- `archived_at`
+- `raw_path`
+- `classification_path`
+- `promotion_path`
 
-Planned statuses:
+Current statuses:
 
 - `inbox`
 - `classified`
 - `promoted`
 - `archived`
 
-Planned maturity values:
+Current maturity values:
 
 - `spark`
 - `concept`
@@ -580,7 +585,7 @@ Planned maturity values:
 - `goal_ready`
 - `task_ready`
 
-Boundary: Do not implement in Milestone 8A. Do not add commands. Do not add tests. Do not create idea folders. Do not integrate with task creation. Document as future work only.
+Boundary: Idea Foundry promotion is decision evidence only. It does not create goals, create tasks, run workers, call providers, route models, verify, commit, push, promote code, or mutate task readiness. Explicit creation commands and provider-backed classification remain deferred until a new design promotes them.
 
 ## Deferred Behavior
 
@@ -607,4 +612,4 @@ The following remain deferred and are not part of the current stable runtime:
 - Milestone 9: Explicit reviewed patch apply to isolated workspace only. Status: implemented; apply-patch now requires fresh acceptable patch review and dry-run evidence before mutating the isolated workspace.
 - Milestone 10: Verification/readiness hardening around applied patches. Status: in progress; applying a patch now invalidates prior verification/readiness evidence, and fresh verification binds `verification.json` to the latest patch application hash.
 - Milestone 11: Project Code Map MVP.
-- Milestone 12: Idea Foundry MVP.
+- Milestone 12: Idea Foundry MVP. Status: implemented in the first local intake slice; automatic goal/task creation remains deferred.

@@ -55,6 +55,10 @@ def knowledge_dir(root: Path) -> Path:
     return devflow_dir(root) / "knowledge"
 
 
+def ideas_dir(root: Path) -> Path:
+    return devflow_dir(root) / "ideas"
+
+
 def outcome_validations_dir(root: Path) -> Path:
     return devflow_dir(root) / "outcome-validations"
 

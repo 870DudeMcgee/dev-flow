@@ -115,6 +115,7 @@ git_app = typer.Typer(help="Inspect guarded Git state")
 goal_app = typer.Typer(help="Manage goals and planning scaffolds")
 worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
+idea_app = typer.Typer(help="Capture and review raw ideas before they become goals or tasks")
 dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
 release_app = typer.Typer(help="Inspect milestone release-readiness gates")
 supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
@@ -131,6 +132,7 @@ app.add_typer(git_app, name="git")
 app.add_typer(goal_app, name="goal")
 app.add_typer(worker_app, name="worker")
 app.add_typer(knowledge_app, name="knowledge")
+app.add_typer(idea_app, name="idea")
 app.add_typer(dogfood_app, name="dogfood")
 app.add_typer(release_app, name="release")
 app.add_typer(supervisor_app, name="supervisor")
@@ -3657,6 +3659,117 @@ def knowledge_search(query: str) -> None:
     from devflow.control_room.knowledge_foundry import render_knowledge_list, search_knowledge
 
     typer.echo(render_knowledge_list(search_knowledge(Path.cwd(), query)), nl=False)
+
+
+@idea_app.command("capture")
+def idea_capture(
+    text: str,
+    title: str | None = typer.Option(None, "--title", help="Optional title override."),
+    source: str = typer.Option("manual", "--source", help="Source label for this idea."),
+    tag: list[str] = typer.Option([], "--tag", help="Repeatable idea tag."),
+) -> None:
+    """Capture a raw idea as local, human-reviewed intake evidence."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, capture_idea
+
+        item = capture_idea(Path.cwd(), text, title=title, source=source, tags=tag)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"idea_id: {item['id']}")
+    typer.echo(f"status: {item['status']}")
+    typer.echo(f"maturity: {item['maturity']}")
+    typer.echo(f"path: .devflow/ideas/{item['id']}/idea.json")
+    typer.echo("created_goal: no")
+    typer.echo("created_task: no")
+
+
+@idea_app.command("list")
+def idea_list(
+    status: str | None = typer.Option(None, "--status", help="Filter by idea status."),
+) -> None:
+    """List local Idea Foundry items."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, list_ideas, render_idea_list
+
+        typer.echo(render_idea_list(list_ideas(Path.cwd(), status=status)), nl=False)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@idea_app.command("show")
+def idea_show(idea_id: str) -> None:
+    """Show one Idea Foundry item and its evidence notes."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, render_idea_show, show_idea
+
+        metadata, raw, classification, promotion = show_idea(Path.cwd(), idea_id)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(render_idea_show(metadata, raw, classification, promotion), nl=False)
+
+
+@idea_app.command("classify")
+def idea_classify(
+    idea_id: str,
+    maturity: str = typer.Option(..., "--maturity", help="spark, concept, candidate, goal_ready, or task_ready."),
+    note: str = typer.Option("", "--note", help="Human classification note."),
+    tag: list[str] = typer.Option([], "--tag", help="Repeatable replacement tag."),
+) -> None:
+    """Classify an idea with human-supplied maturity and tags."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, classify_idea
+
+        item = classify_idea(Path.cwd(), idea_id, maturity=maturity, note=note, tags=tag)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"idea_id: {item['id']}")
+    typer.echo(f"status: {item['status']}")
+    typer.echo(f"maturity: {item['maturity']}")
+    typer.echo("model_called: no")
+
+
+@idea_app.command("promote")
+def idea_promote(
+    idea_id: str,
+    target: str = typer.Option(..., "--to", help="Promotion target: goal or task."),
+    rationale: str = typer.Option(..., "--rationale", help="Human rationale for the promotion decision."),
+    title: str | None = typer.Option(None, "--title", help="Optional suggested goal/task title."),
+) -> None:
+    """Record a human promotion decision without creating goals or tasks."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, promote_idea
+
+        item = promote_idea(Path.cwd(), idea_id, target=target, rationale=rationale, title=title)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"idea_id: {item['id']}")
+    typer.echo(f"status: {item['status']}")
+    typer.echo(f"promotion_target: {item['promotion_target']}")
+    typer.echo("created_goal: no")
+    typer.echo("created_task: no")
+
+
+@idea_app.command("archive")
+def idea_archive(
+    idea_id: str,
+    reason: str = typer.Option("No reason supplied.", "--reason", help="Human archive reason."),
+) -> None:
+    """Archive an idea while preserving its evidence."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, archive_idea
+
+        item = archive_idea(Path.cwd(), idea_id, reason=reason)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"idea_id: {item['id']}")
+    typer.echo(f"status: {item['status']}")
+    typer.echo("evidence_deleted: no")
 
 
 @agent_app.command("list")

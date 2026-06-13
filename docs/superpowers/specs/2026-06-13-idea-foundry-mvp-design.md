@@ -1,7 +1,7 @@
 # Idea Foundry MVP Design
 
 Date: 2026-06-13
-Status: Draft; ready for review and implementation handoff
+Status: Implemented in the first local intake slice; automatic goal/task creation remains deferred
 
 ## Purpose
 
