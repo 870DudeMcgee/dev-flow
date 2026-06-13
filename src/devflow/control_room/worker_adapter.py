@@ -10,13 +10,12 @@ from devflow.control_room.openai_compatible_worker import OpenAICompatibleWorker
 from devflow.control_room.anthropic_worker import AnthropicMessagesWorkerAdapter
 from devflow.control_room.gemini_worker import GeminiWorkerAdapter
 from devflow.control_room.openai_chat_worker import OpenAIChatWorkerAdapter
+from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
 from devflow.control_room.agent_registry import (
     AgentDefinition,
     ProviderDefinition,
     adapter_execution_refusal,
-    is_executable_agent_runtime,
     is_experimental_readonly_adapter,
-    is_local_model_worker_pool_agent,
     is_local_patch_runtime_adapter,
     is_stable_runtime_adapter,
 )
@@ -88,13 +87,10 @@ def get_worker_adapter(
     if agent is None:
         if not is_stable_runtime_adapter(name):
             raise UnsupportedWorkerAdapter(adapter_execution_refusal(name))
-    elif is_local_model_worker_pool_agent(agent, provider=provider):
-        raise UnsupportedWorkerAdapter(
-            f"Agent '{agent.id}' is a read-only local model worker-pool profile. "
-            "Run it with 'devflow agent run --task <task-id> --profile <profile-id>', not task worker adapter execution."
-        )
-    elif not is_executable_agent_runtime(agent, provider=provider):
-        raise UnsupportedWorkerAdapter(adapter_execution_refusal(name, agent_id=agent.id))
+    else:
+        runtime = resolve_agent_runtime_definition(agent, provider)
+        if not runtime.task_run_allowed:
+            raise UnsupportedWorkerAdapter(runtime.refusal_reason or adapter_execution_refusal(name, agent_id=agent.id))
     adapter_cls = _REGISTRY.get(name)
     if adapter_cls is not None:
         return adapter_cls()
