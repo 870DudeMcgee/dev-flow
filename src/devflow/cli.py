@@ -4077,6 +4077,34 @@ def agent_context_pack(
     typer.echo(f"packet_path: {payload['packet_path']}")
 
 
+@agent_app.command("evidence")
+def agent_evidence(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Show a derived summary of task-local agent evidence."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.agent_evidence import summarize_agent_evidence
+
+        summary = summarize_agent_evidence(root, task_id)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = summary.to_dict()
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {payload['task_id']}")
+    typer.echo(f"has_worker_evidence: {str(payload['has_worker_evidence']).lower()}")
+    typer.echo(f"local_model_run_count: {len(payload['local_model_runs'])}")
+    typer.echo(f"local_patch_agent_count: {len(payload['local_patch_agents'])}")
+    typer.echo(f"manual_result_present: {str(payload['manual_result_present']).lower()}")
+    typer.echo(f"next_safe_action: {payload['next_safe_action']}")
+
+
 
 @agent_app.command("ask")
 def agent_ask(

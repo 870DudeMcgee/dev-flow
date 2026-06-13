@@ -14,6 +14,7 @@ from devflow.control_room.dashboard import (
     collect_dashboard_state,
     collect_multi_project_dashboard_state,
 )
+from devflow.control_room.agent_evidence import compact_agent_evidence_summary
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
@@ -122,6 +123,7 @@ class OperatingLayerTask(BaseModel):
     review_blockers: list[str] = Field(default_factory=list)
     review_next_command: str | None = None
     review_evidence: list[str] = Field(default_factory=list)
+    agent_evidence_summary: dict[str, Any] = Field(default_factory=dict)
     actions: list[OperatingLayerAction] = Field(default_factory=list)
     detail: OperatingLayerTaskDetail
 
@@ -829,6 +831,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         review_blockers=review_readiness.blockers,
         review_next_command=review_readiness.next_command,
         review_evidence=review_readiness.evidence,
+        agent_evidence_summary=compact_agent_evidence_summary(root, task.id),
         actions=_task_actions(task.id, next_action.command, project_id=project_id, ready_to_promote=projection.ready_to_promote),
         detail=_task_detail(root, projection),
     )

@@ -20,6 +20,7 @@ from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
 from devflow.control_room.persistence import utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
 from devflow.control_room.project_registry import register_project, write_project_metadata
+from devflow.control_room.worker_evidence import write_worker_evidence
 
 
 runner = CliRunner()
@@ -105,6 +106,44 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
 
     assert not (tmp_path / ".devflow" / "freshness" / "latest.json").exists()
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
+
+
+def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "agent evidence snapshot"]).exit_code == 0
+    write_worker_evidence(
+        root=tmp_path,
+        worker_type="local_model",
+        profile_id="local-qwopus-inspector",
+        worker_id="local-qwopus-inspector",
+        task_id="task-0001",
+        run_id="run-1",
+        packet_text="packet",
+        raw_output="raw",
+        response_text="response",
+        model="qwopus",
+        adapter="ollama_chat",
+        adapter_maturity="local_patch_runtime",
+        permission_mode="read_only",
+        hermes_delegable=False,
+        runtime="ollama",
+        status="succeeded",
+        started_at="2026-06-13T00:00:00Z",
+    )
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    summary = payload["tasks"][0]["agent_evidence_summary"]
+
+    assert summary == {
+        "has_worker_evidence": True,
+        "local_model_run_count": 1,
+        "local_patch_agent_count": 0,
+        "manual_result_present": False,
+        "next_safe_action": "review worker evidence before verification or promotion",
+    }
 
 
 def test_operating_layer_goal_board_exposes_lifecycle(tmp_path: Path, monkeypatch) -> None:
