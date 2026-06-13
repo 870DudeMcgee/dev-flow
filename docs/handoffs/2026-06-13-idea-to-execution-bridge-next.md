@@ -1,4 +1,6 @@
-# Idea-To-Execution Bridge Handoff
+# Idea-To-Execution Bridge Planning Handoff
+
+Superseded: implementation completed in task-0023. This file is retained as planning history and must not be used as the next active implementation handoff.
 
 ## Status
 
@@ -26,10 +28,10 @@ complete
 
 ## Risks
 
-- This is a planning handoff only; `devflow idea create-goal` and `devflow idea create-task` are not implemented yet.
-- The plan intentionally creates goals/tasks only after explicit prior `idea promote` evidence. It does not authorize automatic creation during promotion.
+- This is a superseded planning handoff. The implementation landed in task-0023.
+- Goal/task creation remains explicit after prior `idea promote` evidence. It does not authorize automatic creation during promotion.
 - Provider-backed classification, routing, worker execution, verification, promotion, commits, pushes, and pull requests remain out of scope.
 
 ## Next Safe Action
 
-- Start the next agent from `docs/superpowers/plans/2026-06-13-idea-to-execution-bridge.md`.
+- Use the latest implementation handoff instead of this superseded planning handoff.

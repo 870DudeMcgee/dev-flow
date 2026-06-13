@@ -48,7 +48,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, the registry-backed Qwopus patch-proposal path, a practical registry-backed local model worker-pool evidence slice, a passive review-readiness scorecard, and local Idea Foundry intake evidence. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`, generalized WorkerEvidence from read-only local model profiles, and human-reviewed idea capture/classification/promotion decisions that do not create goals or tasks automatically.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, the registry-backed Qwopus patch-proposal path, a practical registry-backed local model worker-pool evidence slice, a passive review-readiness scorecard, local Idea Foundry intake evidence, and the explicit idea-to-execution bridge. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`, generalized WorkerEvidence from read-only local model profiles, human-reviewed idea capture/classification/promotion decisions, and explicit `idea create-goal` / `idea create-task` commands that require prior promotion evidence.
 
 Stable commands:
 
@@ -157,6 +157,10 @@ devflow idea list
 devflow idea show <idea_id>
 devflow idea classify <idea_id> --maturity goal_ready
 devflow idea promote <idea_id> --to goal --rationale "human reviewed"
+devflow idea create-goal <idea_id> --dry-run
+devflow idea create-goal <idea_id>
+devflow idea create-task <idea_id> --dry-run
+devflow idea create-task <idea_id>
 devflow idea archive <idea_id> --reason "superseded"
 devflow dogfood list
 devflow dogfood show <case_id>
@@ -195,7 +199,7 @@ The freshness loop form is `devflow freshness loop`. It runs one control-loop it
 
 Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
 
-The Idea Foundry form is `devflow idea capture/list/show/classify/promote/archive`. It stores project-local intake evidence under `.devflow/ideas/<idea_id>/`, keeps raw ideas separate from goals and tasks, and records human classification and promotion decisions. Idea promotion does not create goals, create tasks, run workers, call providers, verify, commit, push, or promote code; it only writes reviewable intake evidence and suggested next manual commands.
+The Idea Foundry form is `devflow idea capture/list/show/classify/promote/create-goal/create-task/archive`. It stores project-local intake evidence under `.devflow/ideas/<idea_id>/`, keeps raw ideas separate from goals and tasks until explicit bridge creation, and records human classification and promotion decisions. `devflow idea create-goal` and `devflow idea create-task` require prior matching human promotion evidence, write bidirectional idea-to-goal/task links, and create Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
 The dogfood production-readiness form is `devflow dogfood run --suite production-readiness`. It runs deterministic local cases against existing Dev-Flow control-room surfaces and writes scorecards under `.devflow/dogfood/`. It measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, operating-layer visual QA, and lightweight behavior. The visual QA case requires desktop/mobile current and baseline artifacts for `devflow operating-layer visual-qa`, accepts deterministic fallback PNG/SVG evidence as the minimum, upgrades to external/Appshot PNGs when present, and uses optional Playwright browser rasters when available. Dogfood closes any task records it creates with the `evidence-only` outcome after each case so test evidence does not remain in the active project queue. It is not autonomous model execution: it does not call providers, route workers, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models.
 
@@ -386,7 +390,7 @@ Implemented:
 - `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence
 - `devflow worker validate-outcome` for structured guardrail outcome metadata validation
 - Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes
-- Idea Foundry commands for raw idea intake, human classification, decision-only promotion, and archival evidence
+- Idea Foundry commands for raw idea intake, human classification, decision-only promotion, explicit goal/task creation after prior promotion evidence, and archival evidence
 
 Outside the current product contract:
 
@@ -402,7 +406,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Planning Priority**: Milestone 13, the Idea-To-Execution Bridge. The next planned slice is explicit `idea create-goal` and `idea create-task` behavior after human promotion evidence, with no automatic creation during `idea promote`, provider-backed classification, routing, worker execution, verification, or code promotion.
+> **Current Priority**: Milestone 13 idea-to-execution bridge is current behavior. Keep explicit idea creation separate from promotion decisions, worker execution, verification, code promotion, commits, pushes, pull requests, provider calls, and model routing.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

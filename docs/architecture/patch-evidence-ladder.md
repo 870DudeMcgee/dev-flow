@@ -86,7 +86,7 @@ Idea Foundry intake, current
 
 Patch dry-run is current implemented behavior. Project Code Map is the current upstream orientation layer through `CODE_MAP.md` and `devflow map init/show/check`.
 
-Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/promote/archive`. It records raw idea evidence, human classification, and decision-only promotion notes under `.devflow/ideas/`; it does not create goals, create tasks, call providers, route workers, verify, commit, push, or promote code.
+Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/promote/create-goal/create-task/archive`. It records raw idea evidence, human classification, and decision-only promotion notes under `.devflow/ideas/`; explicit bridge commands can then create linked goal/task state after prior promotion evidence. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
 ## Stage-by-Stage Contract
 
@@ -478,7 +478,12 @@ Human review boundary: Promotion is human-controlled, readiness-gated, and must 
 | `.devflow/ideas/<idea-id>/raw.md` | Current | Human/Dev-Flow | Raw captured idea | Intake evidence only | Project-local Idea Foundry |
 | `.devflow/ideas/<idea-id>/classification.md` | Current | Human/Dev-Flow | Idea classification evidence | Intake evidence only | Project-local Idea Foundry |
 | `.devflow/ideas/<idea-id>/promotion.md` | Current | Human/Dev-Flow | Idea promotion decision | Decision evidence only | Does not create goals/tasks |
+| `.devflow/ideas/<idea-id>/goal-brief.md` | Current | Dev-Flow | Goal source brief from idea | Goal creation input only | Requires prior goal promotion |
+| `.devflow/ideas/<idea-id>/task-brief.md` | Current | Dev-Flow | Task source brief from idea | Task creation input only | Requires prior task promotion |
 | `.devflow/ideas/<idea-id>/events.jsonl` | Current | Dev-Flow | Idea event evidence | Append-only evidence | Project-local Idea Foundry |
+| `.devflow/goals/<goal-id>/idea-link.yaml` | Current | Dev-Flow | Link from goal back to idea | Link evidence only | Created by `idea create-goal` |
+| `.devflow/tasks/<task-id>/idea.md` | Current | Dev-Flow | Task brief copied from idea | Task context only | Created by `idea create-task` |
+| `.devflow/tasks/<task-id>/idea-link.yaml` | Current | Dev-Flow | Link from task back to idea | Link evidence only | Created by `idea create-task` |
 
 ## Relationship to Existing task apply-patch
 
@@ -541,6 +546,10 @@ Current commands:
 - `devflow idea show <idea_id>`
 - `devflow idea classify <idea_id> --maturity goal_ready`
 - `devflow idea promote <idea_id> --to goal --rationale "human reviewed"`
+- `devflow idea create-goal <idea_id> --dry-run`
+- `devflow idea create-goal <idea_id>`
+- `devflow idea create-task <idea_id> --dry-run`
+- `devflow idea create-task <idea_id>`
 - `devflow idea archive <idea_id> --reason "superseded"`
 
 Current filesystem:
@@ -549,7 +558,12 @@ Current filesystem:
 - `.devflow/ideas/<idea_id>/raw.md`
 - `.devflow/ideas/<idea_id>/classification.md`
 - `.devflow/ideas/<idea_id>/promotion.md`
+- `.devflow/ideas/<idea_id>/goal-brief.md`
+- `.devflow/ideas/<idea_id>/task-brief.md`
 - `.devflow/ideas/<idea_id>/events.jsonl`
+- `.devflow/goals/<goal_id>/idea-link.yaml`
+- `.devflow/tasks/<task_id>/idea.md`
+- `.devflow/tasks/<task_id>/idea-link.yaml`
 
 Current `idea.json` fields:
 
@@ -569,6 +583,12 @@ Current `idea.json` fields:
 - `raw_path`
 - `classification_path`
 - `promotion_path`
+- `created_goal_id`
+- `created_goal_path`
+- `created_task_id`
+- `created_task_path`
+- `created_from_idea_at`
+- `creation_command`
 
 Current statuses:
 
@@ -585,7 +605,7 @@ Current maturity values:
 - `goal_ready`
 - `task_ready`
 
-Boundary: Idea Foundry promotion is decision evidence only. It does not create goals, create tasks, run workers, call providers, route models, verify, commit, push, promote code, or mutate task readiness. Explicit creation commands and provider-backed classification remain deferred until a new design promotes them.
+Boundary: Idea Foundry promotion is decision evidence only and never creates tasks/goals automatically. Explicit `idea create-goal` and `idea create-task` commands require prior matching promotion evidence and create linked Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, route models, or mutate task readiness.
 
 ## Deferred Behavior
 
@@ -610,7 +630,7 @@ The following remain deferred and are not part of the current stable runtime:
 - Milestone 8A: Documentation alignment for Patch Evidence Ladder and context-intake roadmap.
 - Milestone 8B: Deterministic patch dry-run preview. Status: implemented in commit `1acc4ce` according to milestone handoff and confirmed by current source/tests. Command: `devflow task patch-dry-run <task-id>` with optional `--run-id <run-id>`. Boundary: no mutation.
 - Milestone 9: Explicit reviewed patch apply to isolated workspace only. Status: implemented; apply-patch now requires fresh acceptable patch review and dry-run evidence before mutating the isolated workspace.
-- Milestone 10: Verification/readiness hardening around applied patches. Status: implemented; applying a patch invalidates prior verification/readiness evidence, and fresh verification binds `verification.json` to the latest patch application hash.
+- Milestone 10: Verification/readiness hardening around applied patches. Status: implemented; applying a patch now invalidates prior verification/readiness evidence, and fresh verification binds `verification.json` to the latest patch application hash.
 - Milestone 11: Project Code Map MVP.
-- Milestone 12: Idea Foundry MVP. Status: implemented in the first local intake slice; automatic goal/task creation remains deferred.
-- Milestone 13: Idea-To-Execution Bridge. Status: planned; explicit idea-to-goal/task creation is designed, but not implemented.
+- Milestone 12: Idea Foundry MVP. Status: implemented in the first local intake slice.
+- Milestone 13: Idea-To-Execution Bridge. Status: implemented; explicit `idea create-goal` and `idea create-task` commands create linked goal/task state after prior promotion evidence without running workers, providers, verification, promotion, commits, pushes, pull requests, or model routing.

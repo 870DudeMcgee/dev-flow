@@ -1,5 +1,7 @@
 # Idea-To-Execution Bridge Implementation Plan
 
+Status: implemented in task-0023; retained as historical implementation evidence. Do not use this as the next active plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add explicit `devflow idea create-goal` and `devflow idea create-task` commands that convert human-promoted ideas into linked Dev-Flow goal or task state without running workers or promotion.

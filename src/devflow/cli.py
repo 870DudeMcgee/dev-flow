@@ -3754,6 +3754,79 @@ def idea_promote(
     typer.echo("created_task: no")
 
 
+@idea_app.command("create-goal")
+def idea_create_goal(
+    idea_id: str,
+    title: str | None = typer.Option(None, "--title", help="Optional goal title override."),
+    goal_id: str | None = typer.Option(None, "--goal-id", help="Optional explicit goal id."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without creating goal artifacts."),
+) -> None:
+    """Create a durable goal scaffold from a promoted goal-ready idea."""
+    try:
+        from devflow.control_room.idea_execution_bridge import (
+            IdeaExecutionBridgeError,
+            create_goal_from_idea,
+            preview_goal_from_idea,
+        )
+
+        result = (
+            preview_goal_from_idea(Path.cwd(), idea_id, title=title, goal_id=goal_id)
+            if dry_run
+            else create_goal_from_idea(Path.cwd(), idea_id, title=title, goal_id=goal_id)
+        )
+    except IdeaExecutionBridgeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if dry_run:
+        typer.echo("would_create_goal: yes")
+    typer.echo(f"idea_id: {result.idea_id}")
+    typer.echo(f"created_goal_id: {result.created_id}")
+    typer.echo(f"created_goal_path: {result.created_path}")
+    typer.echo(f"link_path: {result.link_path}")
+    typer.echo(f"next: {result.next_command}")
+    typer.echo("worker_ran: no")
+    typer.echo("verification_ran: no")
+
+
+@idea_app.command("create-task")
+def idea_create_task(
+    idea_id: str,
+    title: str | None = typer.Option(None, "--title", help="Optional task title override."),
+    git_worktree: bool = typer.Option(
+        False,
+        "--git-worktree",
+        help="Create the task with the existing Git-native worktree lane.",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without creating task artifacts."),
+) -> None:
+    """Create a Dev-Flow task from a promoted task-ready idea."""
+    try:
+        from devflow.control_room.idea_execution_bridge import (
+            IdeaExecutionBridgeError,
+            create_task_from_idea,
+            preview_task_from_idea,
+        )
+
+        result = (
+            preview_task_from_idea(Path.cwd(), idea_id, title=title, git_worktree=git_worktree)
+            if dry_run
+            else create_task_from_idea(Path.cwd(), idea_id, title=title, git_worktree=git_worktree)
+        )
+    except IdeaExecutionBridgeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if dry_run:
+        typer.echo("would_create_task: yes")
+    typer.echo(f"idea_id: {result.idea_id}")
+    typer.echo(f"created_task_id: {result.created_id}")
+    typer.echo(f"created_task_path: {result.created_path}")
+    typer.echo(f"link_path: {result.link_path}")
+    typer.echo(f"git_worktree: {'yes' if result.git_worktree else 'no'}")
+    typer.echo(f"next: {result.next_command}")
+    typer.echo("worker_ran: no")
+    typer.echo("verification_ran: no")
+
+
 @idea_app.command("archive")
 def idea_archive(
     idea_id: str,
