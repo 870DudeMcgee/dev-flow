@@ -365,4 +365,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop is implemented. Goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
+> **Current Priority**: Milestone 14 goal execution control loop is implemented and Milestone 14A hardening is complete. The next planned slice is multi-project control room hardening. Goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.

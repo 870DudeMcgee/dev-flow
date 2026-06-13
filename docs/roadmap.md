@@ -376,6 +376,24 @@ Implemented: canonical `.devflow/goals/<goal_id>/goal-state.yaml`, hash-chained 
 
 Boundary: goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
 
+## Milestone 14A: Goal Loop Hardening And Release Readiness
+
+Status: complete closure slice. The evidence run blocks deferred Hermes goal `G-0001` instead of activating it into the next dispatch lane, runs bounded freshness checks, production-readiness dogfood, full pytest, stale-context scan, operating-layer visual QA, and release-readiness gates.
+
+Goal: dogfood the Milestone 14 goal loop against live Dev-Flow state and close the milestone with explicit release-readiness evidence.
+
+Boundary: this is not a feature expansion. It does not implement provider adapters, autonomous routing, multi-project UI work, Hermes runtime behavior, automatic promotion, automatic commits, automatic pushes, pull requests, or automatic goal completion.
+
+## Milestone 15: Multi-Project Control Room Hardening
+
+Status: next planned slice.
+
+Goal: make the existing multi-project registry, status, freshness, and dashboard surfaces reliable enough for the next control-room workflow.
+
+Initial finding: `DEVFLOW_HOME=/Users/josh/.devflow devflow freshness run --all-projects --max-iterations 1 --json` checked five registered projects and stopped on stale temporary project paths. The next slice should start with registry hygiene and clear archive/repair guidance before adding new surfaces.
+
+Boundary: this slice should not add provider-backed workers, autonomous routing, old workflow machinery, databases, or PR automation. It should preserve project-local `.devflow/` authority and human-controlled publication.
+
 ## Later, Not Now
 
 - Aider adapter
