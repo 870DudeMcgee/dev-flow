@@ -49,6 +49,12 @@ def test_operating_layer_approved_action_result_retention_hooks_are_present() ->
     assert "Last approved command" in APP_JS
 
 
+def test_operating_layer_active_nav_item_scrolls_into_mobile_view() -> None:
+    assert "scrollActiveNavIntoView" in APP_JS
+    assert "scrollIntoView({ block: \"nearest\", inline: \"center\" })" in APP_JS
+    assert "scrollActiveNavIntoView(link)" in APP_JS
+
+
 def test_operating_layer_snapshot_json_is_read_only_contract(
     tmp_path: Path,
     monkeypatch,
@@ -73,6 +79,11 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert payload["tasks"][0]["lane"] == "new"
     assert payload["tasks"][0]["detail"]["events_path"] == ".devflow/tasks/task-0001/events.jsonl"
     assert payload["tasks"][0]["detail"]["recent_events"][-1]["event"] == "task_created"
+    assert payload["tasks"][0]["review_state"] == "not_ready"
+    assert payload["tasks"][0]["review_score"] == 10
+    assert payload["tasks"][0]["review_blockers"] == ["no reviewable task output was found"]
+    assert payload["tasks"][0]["review_next_command"] == "devflow task show task-0001"
+    assert ".devflow/tasks/task-0001/task.yaml" in payload["tasks"][0]["review_evidence"]
     assert payload["action_rail"][0]["command"] == "devflow git status"
     assert payload["action_rail"][0]["supervisor_may_auto_run"] is True
     assert payload["tasks"][0]["actions"][0]["command"] == "devflow task run task-0001 --worker shell -- <command>"
@@ -109,6 +120,10 @@ def test_operating_layer_groups_verification_and_promotion_lanes(
     assert snapshot.mission_feed[0].task_id == "task-0001"
     assert snapshot.mission_feed[0].detail == "3/5 required steps done. Next: verify the task."
     assert snapshot.tasks[0].next_action.command == 'devflow task verify task-0001 --shell "<command>"'
+    assert snapshot.tasks[0].review_state == "needs_verification"
+    assert snapshot.tasks[0].review_score == 60
+    assert snapshot.tasks[0].review_blockers == ["verification has not passed"]
+    assert snapshot.tasks[0].review_next_command == 'devflow task verify task-0001 --shell "<command>"'
     assert snapshot.tasks[0].detail.latest_worker_line is None
     assert snapshot.tasks[0].detail.result_preview is not None
     assert str(tmp_path) not in snapshot.tasks[0].detail.result_preview

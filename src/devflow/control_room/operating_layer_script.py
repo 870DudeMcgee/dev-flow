@@ -2465,12 +2465,22 @@ function currentSection() {
   return currentPage;
 }
 
+function scrollActiveNavIntoView(link) {
+  const nav = link.closest("nav");
+  if (!nav) return;
+  const navRect = nav.getBoundingClientRect();
+  const linkRect = link.getBoundingClientRect();
+  if (linkRect.left >= navRect.left && linkRect.right <= navRect.right) return;
+  link.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
 function updateActiveNav(section) {
   document.querySelectorAll("nav a").forEach((link) => {
     const active = link.getAttribute("href") === `#${section}`;
     link.classList.toggle("active", active);
     if (active) {
       link.setAttribute("aria-current", "page");
+      scrollActiveNavIntoView(link);
     } else {
       link.removeAttribute("aria-current");
     }

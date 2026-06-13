@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from devflow.control_room.goal_loop import GoalLoopState, build_goal_loop_states
 from devflow.control_room.paths import devflow_dir, goal_dir, goals_dir, relative_path, task_dir
 from devflow.control_room.persistence import atomic_write_text, event_content_hash, list_tasks
+from devflow.control_room.review_readiness import ReviewReadinessSummary, summarize_review_readiness
 
 
 FreshnessStatus = Literal["ok", "stale", "needs_human_decision"]
@@ -55,6 +56,9 @@ class FreshnessReport(BaseModel):
     goals_checked: int
     tasks_checked: int
     linked_tasks_checked: int
+    ready_for_review_count: int = 0
+    needs_verification_count: int = 0
+    review_blocked_count: int = 0
     stale_count: int
     needs_human_decision_count: int
     findings: list[FreshnessFinding] = Field(default_factory=list)
@@ -81,7 +85,8 @@ def run_freshness_loop(root: Path, *, write_snapshot: bool = True) -> FreshnessR
 
     status = _status_for(findings)
     goal_loop = build_goal_loop_states(root, goals, goal_slices, linked_tasks)
-    state_hash = _state_hash(root, goals, linked_tasks, findings, goal_loop)
+    review_readiness = summarize_review_readiness(root)
+    state_hash = _state_hash(root, goals, linked_tasks, findings, goal_loop, review_readiness)
     report = FreshnessReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         status=status,
@@ -91,6 +96,9 @@ def run_freshness_loop(root: Path, *, write_snapshot: bool = True) -> FreshnessR
         goals_checked=len(goals),
         tasks_checked=len(list_tasks(root)),
         linked_tasks_checked=sum(len(tasks) for slices in linked_tasks.values() for tasks in slices.values()),
+        ready_for_review_count=review_readiness.ready_for_review_count,
+        needs_verification_count=review_readiness.needs_verification_count,
+        review_blocked_count=review_readiness.review_blocked_count,
         stale_count=sum(1 for finding in findings if finding.severity == "stale"),
         needs_human_decision_count=sum(1 for finding in findings if finding.severity == "needs_human_decision"),
         findings=findings,
@@ -131,6 +139,9 @@ def render_freshness_report(report: FreshnessReport) -> str:
             f"  Goals: {report.goals_checked}",
             f"  Tasks: {report.tasks_checked}",
             f"  Linked tasks: {report.linked_tasks_checked}",
+            f"  Ready for review: {report.ready_for_review_count}",
+            f"  Needs verification: {report.needs_verification_count}",
+            f"  Review blocked: {report.review_blocked_count}",
             f"  Stale findings: {report.stale_count}",
             f"  Human decisions: {report.needs_human_decision_count}",
             "",
@@ -218,6 +229,9 @@ def _append_freshness_event(root: Path, report: FreshnessReport) -> None:
         "goals_checked": report.goals_checked,
         "tasks_checked": report.tasks_checked,
         "linked_tasks_checked": report.linked_tasks_checked,
+        "ready_for_review_count": report.ready_for_review_count,
+        "needs_verification_count": report.needs_verification_count,
+        "review_blocked_count": report.review_blocked_count,
         "stale_count": report.stale_count,
         "needs_human_decision_count": report.needs_human_decision_count,
         "loop_start_git_action": report.loop_start_git.recommended_action,
@@ -550,12 +564,14 @@ def _state_hash(
     linked_tasks: dict[str, dict[str, list[dict[str, Any]]]],
     findings: list[FreshnessFinding],
     goal_loop: list[GoalLoopState],
+    review_readiness: ReviewReadinessSummary,
 ) -> str:
     payload = {
         "goal_ids": goal_ids,
         "linked_tasks": linked_tasks,
         "findings": [finding.model_dump() for finding in findings],
         "goal_loop": [goal.model_dump() for goal in goal_loop],
+        "review_readiness": review_readiness.model_dump(),
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

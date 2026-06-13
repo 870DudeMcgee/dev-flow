@@ -48,7 +48,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, the registry-backed Qwopus patch-proposal path, and a practical registry-backed local model worker-pool evidence slice. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`, and generalized WorkerEvidence from read-only local model profiles.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, the registry-backed Qwopus patch-proposal path, a practical registry-backed local model worker-pool evidence slice, and a passive review-readiness scorecard. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`, and generalized WorkerEvidence from read-only local model profiles.
 
 Stable commands:
 
@@ -120,7 +120,12 @@ devflow task show <task_id>
 devflow task show <task_id> --project factory-scheduler
 devflow task review <task_id> --project factory-scheduler
 devflow task next-action <task_id> --project factory-scheduler
+devflow task review-ready
+devflow task review-ready --json
+devflow task review-ready <task_id> --json
+devflow task review-ready <task_id> --project factory-scheduler --json
 devflow task capsule <task_id>
+devflow task capsule <task_id> --project factory-scheduler
 devflow task packet <task_id>
 devflow task packet <task_id> --project factory-scheduler
 devflow task log <task_id>
@@ -255,7 +260,9 @@ Review Capsules are read-only rendered views over that evidence. After worker ou
 4. The human makes an explicit decision.
 5. The human promotes, rejects/closes, or requests changes.
 
-Capsules do not create review files by default, duplicate canonical evidence, mutate task status, promote, close, or weaken safety gates. `devflow task capsule <task_id>` re-renders the current view manually; `--export-md` writes one explicit markdown export under the task evidence folder only when requested.
+Capsules do not create review files by default, duplicate canonical evidence, mutate task status, promote, close, or weaken safety gates. `devflow task capsule <task_id>` re-renders the current view manually; `--project <project_id>` resolves the registered project root before rendering; `--export-md` writes one explicit markdown export under the task evidence folder only when requested.
+
+`devflow task review-ready [<task_id>] --json` is a read-only scorecard over existing task evidence. It classifies active tasks as `ready_for_review`, `needs_verification`, `verification_failed`, `needs_promotion_preview`, `blocked`, `worker_failed`, `running`, or `not_ready`; includes concrete blockers, evidence paths, a deterministic sorting score, and the safest next command; and refuses to mark a task ready when canonical verification or promotion-readiness evidence is malformed, stale, or missing. It does not run workers, verify, create promotion previews, render or export capsules, promote, close, mutate task state, route models, or call providers. `--project <project_id>` resolves the registered project root before reading task evidence.
 
 Task-local mutation commands (`run`, `local`, `verify`, `apply-patch`, and `promote`) create `.devflow/tasks/<task_id>/.lock/owner.json` while they own the task. Active locks refuse competing mutations with owner details. Stale locks are removed after the configured stale window.
 

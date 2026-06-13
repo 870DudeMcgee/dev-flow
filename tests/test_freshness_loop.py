@@ -55,6 +55,83 @@ def test_freshness_loop_writes_clean_snapshot(tmp_path: Path, monkeypatch) -> No
     assert goal_state["project_snapshot_path"] == ".devflow/freshness/latest.json"
 
 
+def test_freshness_loop_includes_review_readiness_counts(tmp_path: Path, monkeypatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["task", "create", "ready review"]).exit_code == 0
+    assert runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo ready > result.txt"]).exit_code == 0
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
+    assert verify.exit_code == 0, verify.output
+    (tmp_path / ".devflow" / "tasks" / "task-0001" / "promotion-preview.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "task_id": "task-0001",
+                "promotion_readiness": "ready",
+                "human_approval_required": False,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert runner.invoke(app, ["task", "create", "needs verify"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0002", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    assert runner.invoke(app, ["task", "create", "blocked task"]).exit_code == 0
+    blocked = get_task(tmp_path, "task-0003")
+    blocked.status = "blocked"
+    blocked.updated_at = utc_now()
+    save_task(tmp_path / ".devflow" / "tasks" / "task-0003", blocked)
+
+    result = runner.invoke(app, ["freshness", "loop", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["ready_for_review_count"] == 1
+    assert payload["needs_verification_count"] == 1
+    assert payload["review_blocked_count"] == 1
+    snapshot = json.loads((tmp_path / ".devflow" / "freshness" / "latest.json").read_text(encoding="utf-8"))
+    assert snapshot["ready_for_review_count"] == 1
+    assert snapshot["needs_verification_count"] == 1
+    assert snapshot["review_blocked_count"] == 1
+
+
+def test_freshness_loop_state_hash_changes_when_review_readiness_counts_change(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    assert runner.invoke(app, ["task", "create", "hash readiness"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    first = runner.invoke(app, ["freshness", "loop", "--json"])
+    assert first.exit_code == 0, first.output
+    first_payload = json.loads(first.output)
+    assert first_payload["needs_verification_count"] == 1
+    assert first_payload["ready_for_review_count"] == 0
+
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
+    assert verify.exit_code == 0, verify.output
+    preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+    assert preview.exit_code == 0, preview.output
+
+    second = runner.invoke(app, ["freshness", "loop", "--json"])
+    assert second.exit_code == 0, second.output
+    second_payload = json.loads(second.output)
+    assert second_payload["needs_verification_count"] == 0
+    assert second_payload["ready_for_review_count"] == 1
+    assert first_payload["state_hash"] != second_payload["state_hash"]
+
+
 def test_freshness_loop_appends_hash_chained_iteration_history(tmp_path: Path, monkeypatch) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.chdir(tmp_path)

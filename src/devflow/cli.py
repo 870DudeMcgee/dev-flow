@@ -74,6 +74,11 @@ from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_s
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwopus_escalation_packet
 from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
+from devflow.control_room.review_readiness import (
+    build_review_readiness_projection,
+    render_review_readiness,
+    summarize_review_readiness,
+)
 from devflow.control_room.supervisor_surface import (
     render_control_room_status,
     render_supervisor_command_classification,
@@ -1401,9 +1406,11 @@ def task_review_command(
 def task_capsule(
     task_id: str,
     export_md: bool = typer.Option(False, "--export-md", help="Write one explicit markdown export under the task evidence folder."),
+    project: str | None = typer.Option(None, "--project", help="Render a capsule from a registered project root."),
 ) -> None:
     """Render a read-only Review Capsule from existing task evidence."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         capsule = render_review_capsule(root, task_id)
     except (KeyError, ValueError) as exc:
@@ -1413,6 +1420,33 @@ def task_capsule(
     if export_md:
         export_path = export_review_capsule_markdown(root, task_id, capsule)
         typer.echo(f"export_path: {_relative(root, export_path)}")
+
+
+@task_app.command("review-ready")
+def task_review_ready(
+    task_id: str | None = typer.Argument(None, help="Task ID to inspect. Omit to inspect all active tasks."),
+    json_output: bool = typer.Option(False, "--json", help="Print review readiness as JSON."),
+    project: str | None = typer.Option(None, "--project", help="Inspect tasks from a registered project root."),
+) -> None:
+    """Inspect task readiness for human review."""
+    scope = _resolve_task_project_root(project)
+    try:
+        if task_id is not None:
+            projection = build_review_readiness_projection(scope.root, task_id, project_id=scope.project_id)
+            if json_output:
+                typer.echo(json.dumps(projection.model_dump(), indent=2, sort_keys=True))
+            else:
+                typer.echo(render_review_readiness(projection), nl=False)
+            return
+
+        summary = summarize_review_readiness(scope.root, project_id=scope.project_id)
+        if json_output:
+            typer.echo(json.dumps(summary.model_dump(), indent=2, sort_keys=True))
+        else:
+            typer.echo(render_review_readiness(summary), nl=False)
+    except KeyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
 
 @task_app.command("orchestrate")

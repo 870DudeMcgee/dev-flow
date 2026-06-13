@@ -18,6 +18,7 @@ from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
+from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.status_projection import TaskStatusProjection
 from devflow.control_room.supervisor_surface import classify_supervisor_command
 
@@ -114,6 +115,11 @@ class OperatingLayerTask(BaseModel):
     result_path: str | None = None
     verification_log_path: str | None = None
     next_action: DashboardNextAction
+    review_state: str = "not_ready"
+    review_score: int = 0
+    review_blockers: list[str] = Field(default_factory=list)
+    review_next_command: str | None = None
+    review_evidence: list[str] = Field(default_factory=list)
     actions: list[OperatingLayerAction] = Field(default_factory=list)
     detail: OperatingLayerTaskDetail
 
@@ -784,6 +790,13 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
     next_action = DashboardNextAction(**projection.dashboard_next_action.model_dump())
     if next_action.command:
         next_action.command = _scope_task_command(next_action.command, project_id)
+    review_readiness = build_review_readiness_projection(
+        root,
+        task.id,
+        task=task,
+        status_projection=projection,
+        project_id=project_id,
+    )
     return OperatingLayerTask(
         id=task.id,
         title=task.title,
@@ -802,6 +815,11 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         result_path=task.result_path,
         verification_log_path=projection.verification_log_path,
         next_action=next_action,
+        review_state=review_readiness.review_state,
+        review_score=review_readiness.score,
+        review_blockers=review_readiness.blockers,
+        review_next_command=review_readiness.next_command,
+        review_evidence=review_readiness.evidence,
         actions=_task_actions(task.id, next_action.command, project_id=project_id, ready_to_promote=projection.ready_to_promote),
         detail=_task_detail(root, projection),
     )
