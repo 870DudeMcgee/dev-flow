@@ -18,6 +18,8 @@ needs-review
 - `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_goal_lifecycle.py tests/test_goal_projection.py tests/test_freshness_loop.py tests/test_freshness_runner.py tests/test_operating_layer.py tests/test_supervisor_operating_surface.py -v`: pass, 82 passed
 - CLI smoke in a temp directory: pass; `goal init`, `goal status`, `goal pause`, and `freshness loop --json` exited 0 and paused goals projected no dispatch batches
 - `git diff --check`: pass, no output
+- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task verify task-0024 --shell 'PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_goal_lifecycle.py tests/test_goal_projection.py tests/test_freshness_loop.py tests/test_freshness_runner.py tests/test_operating_layer.py tests/test_supervisor_operating_surface.py -v' --timeout-seconds 180`: pass, latest log `82 passed`
+- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task promote-preview task-0024`: pass, promotion readiness `ready`, conflict prediction `clean`
 
 ## Risks
 
