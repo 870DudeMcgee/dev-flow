@@ -1,5 +1,7 @@
 # Idea Foundry MVP Implementation Plan
 
+Status: implemented in the first local intake slice. Retain this as historical execution context only; do not rerun it as the next safe action.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement a local-first Idea Foundry intake queue with capture, list, show, classify, promote-decision, and archive commands.

@@ -84,6 +84,8 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow knowledge list",
     "devflow knowledge show",
     "devflow knowledge search",
+    "devflow idea list",
+    "devflow idea show",
     "devflow dogfood list",
     "devflow dogfood show",
 ]
@@ -98,6 +100,10 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow task capsule --export-md",
     "devflow worker validate-outcome",
     "devflow knowledge capture",
+    "devflow idea capture",
+    "devflow idea classify",
+    "devflow idea promote",
+    "devflow idea archive",
 ]
 
 APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
@@ -237,6 +243,7 @@ def build_supervisor_policy() -> dict[str, Any]:
             "human_approval_required_for": [
                 "task creation",
                 "knowledge capture",
+                "idea capture and review",
                 "bounded worker proposal/review flows",
                 "promotion",
                 "merge",
@@ -344,6 +351,12 @@ def _classify_supervisor_command(command: str) -> str:
             return APPROVAL_REQUIRED_EVIDENCE_WRITING
         if subcommand in {"promote", "reject"}:
             return APPROVAL_REQUIRED_TASK_STATE
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "idea":
+        if subcommand in {"list", "show"}:
+            return PURE_READ_ONLY
+        if subcommand in {"capture", "classify", "promote", "archive"}:
+            return APPROVAL_REQUIRED_EVIDENCE_WRITING
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "dogfood":
         if subcommand in {"list", "show"}:

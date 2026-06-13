@@ -130,6 +130,10 @@ def test_evidence_writing_commands_are_not_pure_read_only() -> None:
         "devflow task patch-dry-run task-0001",
         "devflow task packet task-0001 --save",
         "devflow knowledge capture --from-task task-0001",
+        "devflow idea capture rough idea",
+        "devflow idea classify I-0001 --maturity goal_ready",
+        "devflow idea promote I-0001 --to goal --rationale reviewed",
+        "devflow idea archive I-0001 --reason superseded",
     ):
         classification = classify_supervisor_command(command)
         assert classification["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
@@ -177,6 +181,16 @@ def test_preview_and_dry_run_commands_remain_non_promoting_read_only() -> None:
     ):
         classification = classify_supervisor_command(command)
         assert classification["safety_class"] == PURE_READ_ONLY
+        assert classification["requires_human_approval"] is False
+        assert classification["supervisor_may_auto_run"] is True
+
+
+def test_idea_read_only_commands_are_supervisor_safe() -> None:
+    for command in (
+        "devflow idea list",
+        "devflow idea show I-0001",
+    ):
+        classification = classify_supervisor_command(command)
         assert classification["requires_human_approval"] is False
         assert classification["supervisor_may_auto_run"] is True
 
