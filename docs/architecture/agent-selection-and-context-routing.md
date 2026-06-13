@@ -163,6 +163,8 @@ The builder must keep stale, archived, rejected, and historical material out of 
 
 Agent selection uses capability profiles, not hard-coded vendor names.
 
+Current implemented slice: `devflow agent discover-local --json` inventories installed Ollama models, parses `ollama show` manifests, and derives conservative local capability profiles. `devflow agent select-local <task-id> --role <role> --json` ranks installed registry agents for an explicit role and writes `.devflow/tasks/<task-id>/agent-selection.json`. This is selection evidence only: it does not autonomously route, run workers, create registry entries for unregistered models, apply patches, verify, promote, merge, push, or call remote providers.
+
 ```yaml
 model_capability_profile:
   model_id: qwen3.6-27b-local
@@ -377,4 +379,3 @@ This capability should be implemented only after the current registry and adapte
 10. Add routing-quality scorecards and escalation rules.
 
 Do not enable provider-backed execution, autonomous routing, or self-promotion as part of this design document.
-

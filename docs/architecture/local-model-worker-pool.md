@@ -1,6 +1,6 @@
 # Local Model Worker Pool
 
-Status: active MVP wiring for registry-backed local worker-pool evidence. This is not a profiler, benchmark harness, model-discovery subsystem, second registry, Docker runtime, remote provider runtime, autonomous router, or promotion system.
+Status: active MVP wiring for registry-backed local worker-pool evidence plus small explicit local-model discovery and selection evidence. This is not a profiler, benchmark harness, second registry, Docker runtime, remote provider runtime, autonomous router, or promotion system.
 
 ## Purpose
 
@@ -24,6 +24,7 @@ Dev-Flow owns state, verification, evidence, worker isolation, and promotion. Lo
 - `task_packet.py` is the bounded input mechanism. Worker prompts use rendered task packets rather than unbounded repo context.
 - `local_packet_worker.py` remains the older advisory packet-review helper.
 - `local_model_client.py` is the local model HTTP boundary. Dev-Flow must not load model weights or import heavy ML runtimes.
+- `local_agent_discovery.py` is the explicit Ollama inventory, manifest parsing, deterministic capability classification, and selected-agent evidence boundary.
 - `WorkerEvidence` is the generic bounded output/evidence mechanism for worker-pool runs.
 - `QwopusEvidence` stays intact for the existing `qwopus-implementer` patch proposal path.
 - Human approval controls patch application, verification, promotion, merges, and pushes.
@@ -100,9 +101,15 @@ JSON surfaces for Hermes/supervisor use:
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent discover-local --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent select-local <task-id> --role implementation_worker --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
 ```
+
+`agent discover-local` calls local Ollama only. It parses `ollama list`, calls `ollama show` for installed models, records manifest facts, and derives conservative capability profiles such as summarizer, reviewer, bounded worker, or patch-proposer candidate. Public model-name assumptions are advisory only; actual local manifests win.
+
+`agent select-local <task-id> --role <role> --json` ranks installed registry agents for the requested role and writes `.devflow/tasks/<task-id>/agent-selection.json`. It does not run a worker, edit source, apply patches, verify, promote, or silently fall back to another model. Installed models that are not represented by a registry agent are reported as unregistered local models; they are not executable through `task run` until a registry entry grants the needed permission surface.
 
 Dry-run does not call the model and does not write evidence. It reports task id, profile id, model, adapter, runtime, maturity, permission mode, Hermes delegation, machine class, weight class, packet sizing, expected evidence paths, safety warnings, and mutation refusals.
 

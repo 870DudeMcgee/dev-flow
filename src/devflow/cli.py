@@ -4105,6 +4105,75 @@ def agent_evidence(
     typer.echo(f"next_safe_action: {payload['next_safe_action']}")
 
 
+@agent_app.command("discover-local")
+def agent_discover_local(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Discover installed local Ollama models and classify their capabilities."""
+    try:
+        from devflow.control_room.local_agent_discovery import discover_local_ollama_models
+
+        report = discover_local_ollama_models()
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = report.to_dict()
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"provider: {payload['provider']}")
+    typer.echo(f"installed_model_count: {len(payload['installed_models'])}")
+    for model in payload["installed_models"]:
+        typer.echo(f"- {model['name']} ({model['size']})")
+    if payload["errors"]:
+        typer.echo("errors:")
+        for error in payload["errors"]:
+            typer.echo(f"- {error['model']}: {error['error']}")
+
+
+@agent_app.command("select-local")
+def agent_select_local(
+    task_id: str,
+    role: str = typer.Option("implementation_worker", "--role", help="Role to select a local agent for."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Rank installed local agents for a role and write selection evidence."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.local_agent_discovery import (
+            discover_local_ollama_models,
+            rank_local_agent_candidates,
+            selection_payload_with_path,
+            write_selected_agent_evidence,
+        )
+
+        report = discover_local_ollama_models()
+        registry = load_agent_registry(root)
+        selection = rank_local_agent_candidates(registry, report.installed_models, role=role)
+        selection_path = write_selected_agent_evidence(root, task_id, selection)
+        payload = selection_payload_with_path(root, task_id, selection, selection_path)
+    except (AgentRegistryError, FileNotFoundError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"task_id: {task_id}")
+        typer.echo(f"role: {payload['role']}")
+        typer.echo(f"status: {payload['status']}")
+        typer.echo(f"selected_agent_id: {payload['selected_agent_id'] or 'none'}")
+        typer.echo(f"selected_model: {payload['selected_model'] or 'none'}")
+        typer.echo(f"selection_path: {payload['selection_path']}")
+        if payload["next_command"]:
+            typer.echo(f"next: {payload['next_command']}")
+
+    if payload["status"] != "selected":
+        raise typer.Exit(code=1)
+
+
 
 @agent_app.command("ask")
 def agent_ask(
