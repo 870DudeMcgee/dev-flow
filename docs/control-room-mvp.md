@@ -402,7 +402,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 10, verification/readiness hardening around applied patches. Applying a patch must invalidate earlier verification and promotion readiness until Dev-Flow runs fresh verification. Keep verification and promotion separate from patch application. Future provider-backed worker expansion still waits for the registry sequence: shell alignment, deterministic task-fit/context estimation, context pack building, local adapter, provider adapters, then routing and metrics.
+> **Current Planning Priority**: Milestone 13, the Idea-To-Execution Bridge. The next planned slice is explicit `idea create-goal` and `idea create-task` behavior after human promotion evidence, with no automatic creation during `idea promote`, provider-backed classification, routing, worker execution, verification, or code promotion.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

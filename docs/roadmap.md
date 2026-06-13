@@ -359,7 +359,15 @@ Goal: capture raw ideas, classify them later, link them to project/goal context,
 Boundary: Idea Foundry records intake and promotion decision evidence only. It does not create goals, create tasks, run workers, call providers, verify, commit, push, or promote code.
 
 > [!IMPORTANT]
-> **Next Priority**: Decide whether Idea Foundry should gain explicit `idea create-goal` / `idea create-task` commands or stay as decision evidence only. Do not add automatic creation, provider-backed classification, or routing without a new design.
+> **Next Priority**: Implement Milestone 13 from [docs/superpowers/specs/2026-06-13-idea-to-execution-bridge-design.md](superpowers/specs/2026-06-13-idea-to-execution-bridge-design.md) and [docs/superpowers/plans/2026-06-13-idea-to-execution-bridge.md](superpowers/plans/2026-06-13-idea-to-execution-bridge.md). Keep creation explicit and human-reviewed; do not add automatic creation during `idea promote`, provider-backed classification, or routing.
+
+## Milestone 13: Idea-To-Execution Bridge
+
+Status: planned; design and implementation plan are written, implementation is not started.
+
+Goal: add explicit `devflow idea create-goal` and `devflow idea create-task` commands so a human-promoted idea can create linked Dev-Flow goal or task state.
+
+Boundary: creation commands require prior idea promotion evidence, write bidirectional idea/goal or idea/task links, and stop. They do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
 ## Later, Not Now
 

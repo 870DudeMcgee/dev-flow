@@ -610,6 +610,7 @@ The following remain deferred and are not part of the current stable runtime:
 - Milestone 8A: Documentation alignment for Patch Evidence Ladder and context-intake roadmap.
 - Milestone 8B: Deterministic patch dry-run preview. Status: implemented in commit `1acc4ce` according to milestone handoff and confirmed by current source/tests. Command: `devflow task patch-dry-run <task-id>` with optional `--run-id <run-id>`. Boundary: no mutation.
 - Milestone 9: Explicit reviewed patch apply to isolated workspace only. Status: implemented; apply-patch now requires fresh acceptable patch review and dry-run evidence before mutating the isolated workspace.
-- Milestone 10: Verification/readiness hardening around applied patches. Status: in progress; applying a patch now invalidates prior verification/readiness evidence, and fresh verification binds `verification.json` to the latest patch application hash.
+- Milestone 10: Verification/readiness hardening around applied patches. Status: implemented; applying a patch invalidates prior verification/readiness evidence, and fresh verification binds `verification.json` to the latest patch application hash.
 - Milestone 11: Project Code Map MVP.
 - Milestone 12: Idea Foundry MVP. Status: implemented in the first local intake slice; automatic goal/task creation remains deferred.
+- Milestone 13: Idea-To-Execution Bridge. Status: planned; explicit idea-to-goal/task creation is designed, but not implemented.

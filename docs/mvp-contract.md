@@ -344,4 +344,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 10, verification/readiness hardening around applied patches. Applying a patch invalidates earlier verification/readiness evidence until Dev-Flow runs fresh verification, and provider-backed adapters, autonomous routing, and PR automation remain later layers.
+> **Current Planning Priority**: Milestone 13, the Idea-To-Execution Bridge. The next planned slice is explicit `idea create-goal` and `idea create-task` behavior after human promotion evidence, while automatic creation during `idea promote`, provider-backed classification, routing, worker execution, verification, code promotion, commits, pushes, and pull requests remain out of scope.
