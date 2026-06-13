@@ -410,14 +410,14 @@ Outside the current product contract:
 - task-fit/context routing (Design documented only. It does not select agents, invoke scouts, build runtime context packs, or change shell-worker behavior.)
 - provider-backed non-shell worker adapters
 - Ollama keep-alive/model-stop controls for local resource pressure
-- agent registry and adapter-runtime implementation beyond the stable proof-agent contract
+- agent registry and adapter-runtime implementation beyond the planned Milestone 16 hardening slice
 - SQLite or other databases
 - provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
 - multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop is implemented and Milestone 14A hardening is complete. The next planned slice is multi-project control room hardening. Goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, and Milestone 15/15B multi-project control-room hardening are complete. The next planned slice is Milestone 16 agent registry runtime hardening: centralize current shell/manual/local-patch/local-evidence runtime policy, add role-scoped context-pack evidence, normalize worker evidence projections, and dogfood the existing local patch ladder. It does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

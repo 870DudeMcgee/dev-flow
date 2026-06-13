@@ -2,11 +2,11 @@
 
 ## Status
 
-needs-review
+complete
 
 ## Files Changed
 
-- `docs/roadmap.md` (Milestone 15 set as the next planned multi-project control-room hardening slice)
+- `docs/roadmap.md` (historical Milestone 15 planning handoff; Milestone 15/15B are now implemented and superseded by Milestone 16 planning)
 - `docs/control-room-mvp.md` and `docs/mvp-contract.md` (current-priority callouts point from Milestone 14A closure to multi-project hardening)
 - `docs/handoffs/2026-06-13-multi-project-control-room-next.md` (this handoff)
 
@@ -18,10 +18,9 @@ needs-review
 
 ## Risks
 
-- The real global registry at `/Users/josh/.devflow/registry/projects.json` contains stale `/private/tmp/...` project paths from earlier UI/dogfood work.
-- This shell has `DEVFLOW_HOME=/Users/josh/Desktop/Dev-Flow`; all-projects commands use an empty repo-local home unless the next agent deliberately points at `/Users/josh/.devflow`.
+- Historical only. Do not use this file as the current next-action authority.
 - Multi-project work must preserve project-local `.devflow/` authority and must not introduce provider routing, remote publication, PR automation, or database state.
 
 ## Next Safe Action
 
-- Start the Milestone 15 spec by running `DEVFLOW_HOME=/Users/josh/.devflow PYTHONPATH=src:. .venv/bin/devflow project doctor approval-review-demo-project` and deciding the registry archive/repair policy for stale project paths.
+- Use `docs/handoffs/2026-06-13-agent-registry-runtime-hardening-next.md` as the current next handoff.

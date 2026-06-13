@@ -1,6 +1,6 @@
 ## Status
 
-needs-review
+complete
 
 ## Files Changed
 
@@ -36,9 +36,9 @@ needs-review
 ## Risks
 
 - The durable dogfood project is intentionally local-only with no remote configured.
-- The dogfood project working tree is dirty because project creation and task execution left untracked project/control-room artifacts (`.devflow/`, `.gitignore`, `README.md`); all-project freshness correctly reports a checkpoint opportunity before more tasks are spawned.
-- The Dev-Flow source repo has an intentional uncommitted handoff file after this step; checkpoint and push are approval-gated by the plan.
+- Historical only. The dogfood project evidence was checkpointed, project baseline enforcement was implemented, and source `main` was later pushed through passing CI.
+- Do not use this file as the current next-action authority.
 
 ## Next Safe Action
 
-- Review this handoff and, if approved, run `PYTHONPATH=src:. .venv/bin/devflow git checkpoint --message "docs: hand off milestone 15b dogfood evidence" --yes` followed by `PYTHONPATH=src:. .venv/bin/devflow push-main`.
+- Use `docs/handoffs/2026-06-13-agent-registry-runtime-hardening-next.md` as the current next handoff.

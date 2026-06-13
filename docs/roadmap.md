@@ -19,9 +19,9 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Current production hardening slice: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) and [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md)
+Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), and Milestone 15 multi-project control-room hardening.
 
-Next architecture direction: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing defined in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
+Current planned slice: Milestone 16 agent registry runtime hardening, grounded in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing defined in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -386,13 +386,33 @@ Boundary: this is not a feature expansion. It does not implement provider adapte
 
 ## Milestone 15: Multi-Project Control Room Hardening
 
-Status: next planned slice.
+Status: implemented and dogfooded. Milestone 15 cleaned stale global registry behavior, aligned missing-project diagnostics around `project doctor`, preserved project-local `.devflow/` authority, and improved multi-project freshness/status/dashboard behavior. Milestone 15B then created a durable real project at `/Users/josh/DevFlow Projects/milestone-15b-dogfood-project`, required an explicit local Git baseline before project-scoped task creation, ran a verified project-scoped shell task, promoted it, and pushed CI-fixing evidence through `main`.
 
 Goal: make the existing multi-project registry, status, freshness, and dashboard surfaces reliable enough for the next control-room workflow.
 
-Initial finding: `DEVFLOW_HOME=/Users/josh/.devflow devflow freshness run --all-projects --max-iterations 1 --json` checked five registered projects and stopped on stale temporary project paths. The next slice should start with registry hygiene and clear archive/repair guidance before adding new surfaces.
+Closure evidence:
+
+- `DEVFLOW_HOME=/Users/josh/.devflow PYTHONPATH=src:. .venv/bin/devflow freshness run --all-projects --max-iterations 1 --json` checks the durable project registry without the old stale-path blocker.
+- `task create --project` refuses unborn managed Git projects until a project-local baseline commit exists, so promotion previews and copied workspaces have a real baseline.
+- GitHub Actions CI passed on `301869c86ad566b2728e1e9adaf4206fb08f863c` after the project-baseline review-readiness fixture was made CI-safe.
 
 Boundary: this slice should not add provider-backed workers, autonomous routing, old workflow machinery, databases, or PR automation. It should preserve project-local `.devflow/` authority and human-controlled publication.
+
+## Milestone 16: Agent Registry Runtime Hardening
+
+Status: planned. Design and implementation handoff live in [docs/superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md](superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md) and [docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md](superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md).
+
+Goal: make the existing agent registry and current executable worker paths behave like one permissioned runtime contract before any remote provider execution is promoted.
+
+Scope:
+
+- centralize runtime eligibility, execution-surface, and refusal decisions for shell, manual, registry-backed local patch, and read-only local worker-pool profiles
+- add role-scoped context pack evidence built from canonical task packets
+- normalize current worker evidence summaries so shell, manual, local patch, and local model evidence can be inspected through one derived projection
+- dogfood the current local patch ladder through review, dry-run, apply, verify, and promotion readiness without provider calls
+- update active docs so Milestone 16 is a hardening slice, not a remote-provider or autonomous-routing launch
+
+Boundary: this milestone must not enable OpenAI, Anthropic, Gemini, xAI, LM Studio, or OpenAI-compatible remote execution through stable task runs. It must not add autonomous routing, PR automation, hidden memory, database state, or worker-owned verification/promotion.
 
 ## Later, Not Now
 
@@ -402,6 +422,6 @@ Boundary: this slice should not add provider-backed workers, autonomous routing,
 - dependency scheduler
 - question resume flow
 - protected path gates
-- autonomous routing
+- autonomous routing beyond read-only projections and explicit human commands
 - memory
 - PR automation

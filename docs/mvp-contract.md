@@ -367,4 +367,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop is implemented and Milestone 14A hardening is complete. The next planned slice is multi-project control room hardening. Goal lifecycle and freshness execution commands do not call providers, route models, auto-promote, auto-commit, auto-push, open pull requests, or mark goals complete without explicit human command evidence.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, and Milestone 15/15B multi-project control-room hardening are complete. The next planned slice is Milestone 16 agent registry runtime hardening: centralize current shell/manual/local-patch/local-evidence runtime policy, add role-scoped context-pack evidence, normalize worker evidence projections, and dogfood the existing local patch ladder. It does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.

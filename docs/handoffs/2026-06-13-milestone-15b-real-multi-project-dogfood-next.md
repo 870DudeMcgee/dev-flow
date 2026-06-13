@@ -2,7 +2,7 @@
 
 ## Status
 
-needs-review
+complete
 
 ## Files Changed
 
@@ -17,10 +17,9 @@ needs-review
 
 ## Risks
 
-- The global registry is clean but empty; multi-project behavior is not currently exercising a real active project.
-- The registry `projects_root` still reflects an old `/private/tmp/...` value until the next agent creates or imports a durable project with `--projects-root "/Users/josh/DevFlow Projects"`.
-- Do not use `/private/tmp/...` for the next dogfood project.
+- Historical only. The durable dogfood project was created under `/Users/josh/DevFlow Projects`, project baseline enforcement was implemented, and CI passed after the fixture repair.
+- Do not use this file as the current next-action authority.
 
 ## Next Safe Action
 
-- Start from `docs/superpowers/plans/2026-06-13-milestone-15b-real-multi-project-control-room-dogfood.md` and run the first mutation command: `DEVFLOW_HOME=/Users/josh/.devflow PYTHONPATH=src:. .venv/bin/devflow project create "Milestone 15B Dogfood Project" --projects-root "/Users/josh/DevFlow Projects"`.
+- Use `docs/handoffs/2026-06-13-agent-registry-runtime-hardening-next.md` as the current next handoff.
