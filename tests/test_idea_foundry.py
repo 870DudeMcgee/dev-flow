@@ -173,3 +173,49 @@ def test_idea_cli_capture_list_show_classify_promote_archive(tmp_path: Path) -> 
     assert "created_task: no" in promoted.output
     assert archived.exit_code == 0, archived.output
     assert "status: archived" in archived.output
+
+
+def test_cli_create_goal_from_promoted_idea(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["idea", "capture", "Build release gate", "--title", "Release gate"])
+    runner.invoke(app, ["idea", "classify", "I-0001", "--maturity", "goal_ready", "--note", "Ready"])
+    runner.invoke(app, ["idea", "promote", "I-0001", "--to", "goal", "--rationale", "Goal-sized"])
+
+    result = runner.invoke(app, ["idea", "create-goal", "I-0001"])
+
+    assert result.exit_code == 0
+    assert "created_goal_id: G-0001" in result.output
+    assert "next: devflow goal show G-0001" in result.output
+    assert (tmp_path / ".devflow" / "goals" / "G-0001" / "idea-link.yaml").exists()
+
+
+def test_cli_create_task_from_promoted_idea_and_show_refs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["idea", "capture", "Add release report command", "--title", "Release report command"])
+    runner.invoke(app, ["idea", "classify", "I-0001", "--maturity", "task_ready", "--note", "Task-sized"])
+    runner.invoke(app, ["idea", "promote", "I-0001", "--to", "task", "--rationale", "Task-sized"])
+
+    result = runner.invoke(app, ["idea", "create-task", "I-0001"])
+    shown = runner.invoke(app, ["idea", "show", "I-0001"])
+
+    assert result.exit_code == 0
+    assert "created_task_id: task-0001" in result.output
+    assert "next: devflow task show task-0001" in result.output
+    assert "created_task_id: task-0001" in shown.output
+    assert (tmp_path / ".devflow" / "tasks" / "task-0001" / "idea-link.yaml").exists()
+
+
+def test_cli_create_dry_run_does_not_mutate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["idea", "capture", "Build release gate", "--title", "Release gate"])
+    runner.invoke(app, ["idea", "classify", "I-0001", "--maturity", "goal_ready", "--note", "Ready"])
+    runner.invoke(app, ["idea", "promote", "I-0001", "--to", "goal", "--rationale", "Goal-sized"])
+    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*") if path.is_file())
+
+    result = runner.invoke(app, ["idea", "create-goal", "I-0001", "--dry-run"])
+    after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*") if path.is_file())
+
+    assert result.exit_code == 0
+    assert "would_create_goal: yes" in result.output
+    assert "created_goal_id: G-0001" in result.output
+    assert before == after

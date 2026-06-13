@@ -50,6 +50,12 @@ def capture_idea(
         "classification_path": None,
         "promotion_path": None,
         "archive_reason": None,
+        "created_goal_id": None,
+        "created_goal_path": None,
+        "created_task_id": None,
+        "created_task_path": None,
+        "created_from_idea_at": None,
+        "creation_command": None,
     }
     item_dir = _idea_item_dir(root, idea_id)
     item_dir.mkdir(parents=True, exist_ok=True)
@@ -151,6 +157,38 @@ def archive_idea(root: Path, idea_id: str, *, reason: str) -> dict[str, Any]:
     return metadata
 
 
+def record_idea_creation(
+    root: Path,
+    idea_id: str,
+    *,
+    target: str,
+    created_id: str,
+    created_path: str,
+    command: str,
+) -> dict[str, Any]:
+    if target not in ALLOWED_PROMOTION_TARGETS:
+        raise IdeaFoundryError(f"Unsupported creation target: {target}")
+    metadata = _get_idea(root, idea_id)
+    now = utc_now().isoformat()
+    if target == "goal":
+        metadata["created_goal_id"] = created_id
+        metadata["created_goal_path"] = created_path
+    else:
+        metadata["created_task_id"] = created_id
+        metadata["created_task_path"] = created_path
+    metadata["created_from_idea_at"] = now
+    metadata["creation_command"] = command
+    metadata["updated_at"] = now
+    _write_idea(root, metadata)
+    _append_idea_event(
+        root,
+        idea_id,
+        f"{target}_created",
+        {"created_at": now, "created_id": created_id, "created_path": created_path},
+    )
+    return metadata
+
+
 def render_idea_list(items: list[dict[str, Any]]) -> str:
     if not items:
         return "No ideas found.\n"
@@ -168,6 +206,8 @@ def render_idea_show(metadata: dict[str, Any], raw: str, classification: str, pr
         f"title: {metadata['title']}",
         f"source: {metadata['source']}",
         f"promotion_target: {metadata.get('promotion_target') or ''}",
+        f"created_goal_id: {metadata.get('created_goal_id') or ''}",
+        f"created_task_id: {metadata.get('created_task_id') or ''}",
         f"created_at: {metadata['created_at']}",
         f"updated_at: {metadata['updated_at']}",
         "tags:",

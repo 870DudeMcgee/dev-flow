@@ -86,6 +86,8 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow knowledge search",
     "devflow idea list",
     "devflow idea show",
+    "devflow idea create-goal --dry-run",
+    "devflow idea create-task --dry-run",
     "devflow dogfood list",
     "devflow dogfood show",
 ]
@@ -125,6 +127,8 @@ APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow task apply-patch",
     "devflow knowledge promote",
     "devflow knowledge reject",
+    "devflow idea create-goal",
+    "devflow idea create-task",
 ]
 
 APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS = [
@@ -355,8 +359,12 @@ def _classify_supervisor_command(command: str) -> str:
     if command_group == "idea":
         if subcommand in {"list", "show"}:
             return PURE_READ_ONLY
+        if subcommand in {"create-goal", "create-task"} and "--dry-run" in tokens:
+            return PURE_READ_ONLY
         if subcommand in {"capture", "classify", "promote", "archive"}:
             return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        if subcommand in {"create-goal", "create-task"}:
+            return APPROVAL_REQUIRED_TASK_STATE
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "dogfood":
         if subcommand in {"list", "show"}:

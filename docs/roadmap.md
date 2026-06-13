@@ -356,10 +356,15 @@ Status: implemented in the first local intake slice. Capture, list, show, classi
 
 Goal: capture raw ideas, classify them later, link them to project/goal context, and explicitly promote mature ideas into goals or tasks only after human review.
 
-Boundary: Idea Foundry records intake and promotion decision evidence only. It does not create goals, create tasks, run workers, call providers, verify, commit, push, or promote code.
+Boundary: Idea Foundry promotion records intake and decision evidence only. Explicit goal/task creation is a separate Milestone 13 bridge command after prior promotion evidence. No Idea Foundry command runs workers, calls providers, verifies, commits, pushes, opens pull requests, routes models, or promotes code.
 
-> [!IMPORTANT]
-> **Next Priority**: Decide whether Idea Foundry should gain explicit `idea create-goal` / `idea create-task` commands or stay as decision evidence only. Do not add automatic creation, provider-backed classification, or routing without a new design.
+## Milestone 13: Idea-To-Execution Bridge
+
+Status: implemented. Explicit `devflow idea create-goal` and `devflow idea create-task` commands now convert human-promoted ideas into linked goal or task state.
+
+Goal: close the local-first path from human-reviewed idea intake to controlled Dev-Flow goal/task artifacts without making idea promotion automatic.
+
+Boundary: creation requires matching prior `idea promote` evidence, writes bidirectional idea-to-goal/task links, and creates Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
 ## Later, Not Now
 

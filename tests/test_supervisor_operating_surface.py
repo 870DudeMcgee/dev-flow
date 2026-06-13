@@ -195,6 +195,28 @@ def test_idea_read_only_commands_are_supervisor_safe() -> None:
         assert classification["supervisor_may_auto_run"] is True
 
 
+def test_idea_bridge_dry_run_commands_are_supervisor_safe() -> None:
+    for command in (
+        "devflow idea create-goal I-0001 --dry-run",
+        "devflow idea create-task I-0001 --dry-run",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == PURE_READ_ONLY
+        assert classification["requires_human_approval"] is False
+        assert classification["supervisor_may_auto_run"] is True
+
+
+def test_idea_bridge_creation_commands_are_task_state_mutations() -> None:
+    for command in (
+        "devflow idea create-goal I-0001",
+        "devflow idea create-task I-0001",
+    ):
+        classification = classify_supervisor_command(command)
+        assert classification["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+        assert classification["requires_human_approval"] is True
+        assert classification["supervisor_may_auto_run"] is False
+
+
 def test_git_and_promotion_commands_are_approval_required_or_forbidden() -> None:
     for command in (
         "devflow task promote task-0001",

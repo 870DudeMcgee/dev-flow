@@ -12,7 +12,7 @@ Workers are replaceable. The stable code-changing runtime supports shell workers
 
 The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md).
 
-The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and human-controlled promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts. Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/promote/archive`.
+The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and human-controlled promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts. Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/promote/create-goal/create-task/archive`.
 
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`, `devflow freshness loop`
@@ -21,7 +21,7 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Policy & Evidence**: `devflow task orchestrate --plan-only`, `devflow worker validate-outcome`
 - **Knowledge Foundry**: `devflow knowledge capture`, `devflow knowledge list`, `devflow knowledge show`, `devflow knowledge promote`, `devflow knowledge reject`, `devflow knowledge search`
-- **Idea Foundry**: `devflow idea capture`, `devflow idea list`, `devflow idea show`, `devflow idea classify`, `devflow idea promote`, `devflow idea archive`
+- **Idea Foundry**: `devflow idea capture`, `devflow idea list`, `devflow idea show`, `devflow idea classify`, `devflow idea promote`, `devflow idea create-goal --dry-run`, `devflow idea create-goal`, `devflow idea create-task --dry-run`, `devflow idea create-task`, `devflow idea archive`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`, `devflow task finalize` (dry-run & `--commit`)
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
@@ -70,6 +70,8 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     logs/
       worker.log
       verify.log
+    idea.md
+    idea-link.yaml
     patch-application.json
     patches/<patch-hash>.json
   workspaces/<task-id>/
@@ -79,6 +81,7 @@ Dev-Flow stores durable task state as local filesystem artifacts:
     local-workers/<worker-name>/run.json
     local-workers/<worker-name>/stderr.log
   worktrees/<task-id>/shell/                    # only for --git-worktree tasks
+  goals/<goal-id>/idea-link.yaml                # only for goals created from ideas
   tasks/<task-id>/workers/shell/git.json        # only for --git-worktree tasks
   tasks/<task-id>/workers/shell/diff.patch      # only for --git-worktree tasks
   tasks/<task-id>/workers/shell/diff-summary.json
@@ -92,6 +95,8 @@ Dev-Flow stores durable task state as local filesystem artifacts:
   ideas/<idea-id>/raw.md
   ideas/<idea-id>/classification.md
   ideas/<idea-id>/promotion.md
+  ideas/<idea-id>/goal-brief.md
+  ideas/<idea-id>/task-brief.md
   ideas/<idea-id>/events.jsonl
 ```
 
@@ -109,7 +114,7 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - `devflow task orchestrate <task-id> --plan-only` writes orchestration policy evidence only. It records Git/DevMode guardrails, worker roles, permissions, stop conditions, and human-promotion requirements; it does not execute workers, call providers, apply patches, verify, promote, or mutate main.
 - `devflow worker validate-outcome <outcome.json>` validates worker outcome metadata only and writes validation evidence. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
 - Knowledge Foundry commands store proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never converts ideas into tasks or goals and is not ML training, hidden memory, vector search, or RAG.
-- Idea Foundry commands store local intake evidence under `.devflow/ideas/`. Idea promotion records a human decision and suggested next manual command, but it never creates goals, creates tasks, runs workers, calls providers, verifies, commits, pushes, or promotes code.
+- Idea Foundry commands store local intake evidence under `.devflow/ideas/`. Idea promotion records a human decision only; explicit `devflow idea create-goal` and `devflow idea create-task` commands require that prior promotion evidence and create linked Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 - `devflow dogfood run --suite production-readiness` runs a deterministic local production-readiness harness and writes scorecards under `.devflow/dogfood/`. It exercises existing task, orchestration, worker outcome, verification, knowledge, and operating-layer visual QA surfaces; it does not call providers, route models, promote, push, create a dashboard, create a database, or train anything.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple and is the default mode, but it can be slow for large repositories, does not use git merge machinery inside the workspace, and is recommended only for simple/experimental work.
@@ -209,7 +214,7 @@ Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-e
 
 Canonical Qwopus artifacts are written under `.devflow/tasks/<task-id>/agents/qwopus-implementer/` as `packet.json`, `raw_output.md`, `proposal.patch`, `result.md`, `run.json`, and `logs/worker.log`. Local advisory artifacts are written under `.devflow/workspaces/<task-id>/local-workers/<worker-name>/` as prompt, raw response, normalized response copy, stderr, and run metadata. Even when the legacy advisory worker name is `qwopus-implementer`, this path is not the canonical patch worker; use `devflow task run <task-id> --worker qwopus-implementer` to produce `proposal.patch`.
 
-Capture policy, validation, and knowledge evidence without executing workers or promotion:
+Capture policy, validation, knowledge, and idea evidence without executing workers or promotion:
 
 ```bash
 .venv/bin/python -m devflow.cli task orchestrate "$TASK_ID" --plan-only
@@ -218,6 +223,8 @@ Capture policy, validation, and knowledge evidence without executing workers or 
 .venv/bin/python -m devflow.cli knowledge list
 .venv/bin/python -m devflow.cli idea capture "raw idea"
 .venv/bin/python -m devflow.cli idea list
+.venv/bin/python -m devflow.cli idea create-goal <idea-id> --dry-run
+.venv/bin/python -m devflow.cli idea create-task <idea-id> --dry-run
 ```
 
 Promotion is explicit and human-controlled:
