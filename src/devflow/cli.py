@@ -4035,6 +4035,48 @@ def agent_packet(task_id: str, agent_id: str) -> None:
     typer.echo(packet_json)
 
 
+@agent_app.command("context-pack")
+def agent_context_pack(
+    task_id: str,
+    agent_id: str,
+    role: str = typer.Option("implementation_worker", "--role", help="Role label for the context pack."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Write a role-scoped context pack derived from a task packet."""
+    root = Path.cwd()
+    try:
+        from devflow.control_room.context_pack import write_context_pack
+
+        result = write_context_pack(root, task_id, agent_id=agent_id, role=role)
+    except (KeyError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = {
+        "task_id": result.pack.task_id,
+        "agent_id": result.pack.agent_id,
+        "role": result.pack.role,
+        "permission_mode": result.pack.permission_mode,
+        "estimated_chars": result.pack.estimated_chars,
+        "estimated_tokens": result.pack.estimated_tokens,
+        "json_path": _relative(root, result.json_path),
+        "markdown_path": _relative(root, result.markdown_path),
+        "packet_path": _relative(root, result.packet_path),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {payload['task_id']}")
+    typer.echo(f"agent_id: {payload['agent_id']}")
+    typer.echo(f"role: {payload['role']}")
+    typer.echo(f"permission_mode: {payload['permission_mode']}")
+    typer.echo(f"estimated_tokens: {payload['estimated_tokens']}")
+    typer.echo(f"json_path: {payload['json_path']}")
+    typer.echo(f"markdown_path: {payload['markdown_path']}")
+    typer.echo(f"packet_path: {payload['packet_path']}")
+
+
 
 @agent_app.command("ask")
 def agent_ask(

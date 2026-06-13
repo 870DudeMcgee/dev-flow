@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from devflow.control_room.persistence import save_task, get_task
 from devflow.control_room.service import create_task
-from devflow.control_room.context_pack import build_context_pack, save_context_pack
+from devflow.control_room.context_pack import build_context_pack, save_context_pack, write_context_pack
 from devflow.cli import app
 
 
@@ -82,3 +82,63 @@ def test_context_pack_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     # Check file exists
     yaml_file = task_dir_path / "context-pack-planner.yaml"
     assert yaml_file.exists()
+
+
+def test_build_context_pack_is_role_scoped_and_derived(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "Implement context pack")
+
+    pack = build_context_pack(
+        tmp_path,
+        task.id,
+        agent_id="qwopus-implementer",
+        role="implementation_worker",
+    )
+
+    assert pack.task_id == task.id
+    assert pack.agent_id == "qwopus-implementer"
+    assert pack.role == "implementation_worker"
+    assert (
+        pack.source_packet_path
+        == f".devflow/tasks/{task.id}/context-packs/implementation_worker-qwopus-implementer.packet.json"
+    )
+    assert "<task>/task.yaml" in pack.included_sources
+    assert ".env" in "\n".join(pack.excluded_sources)
+    assert pack.estimated_chars > 0
+    assert pack.estimated_tokens >= 1
+
+
+def test_write_context_pack_writes_json_and_markdown_without_mutating_task(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "Write context pack")
+    task_yaml = tmp_path / ".devflow" / "tasks" / task.id / "task.yaml"
+    before = task_yaml.read_text(encoding="utf-8")
+
+    result = write_context_pack(
+        tmp_path,
+        task.id,
+        agent_id="qwopus-implementer",
+        role="reviewer",
+    )
+
+    assert result.json_path.is_file()
+    assert result.markdown_path.is_file()
+    payload = json.loads(result.json_path.read_text(encoding="utf-8"))
+    assert payload["role"] == "reviewer"
+    assert payload["agent_id"] == "qwopus-implementer"
+    assert task_yaml.read_text(encoding="utf-8") == before
+
+
+def test_agent_context_pack_cli_writes_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    assert runner.invoke(app, ["task", "create", "Context CLI"]).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["agent", "context-pack", "task-0001", "qwopus-implementer", "--role", "implementation_worker", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["task_id"] == "task-0001"
+    assert payload["agent_id"] == "qwopus-implementer"
+    assert payload["json_path"].endswith("implementation_worker-qwopus-implementer.json")

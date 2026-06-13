@@ -4,12 +4,39 @@ import re
 import subprocess
 import hashlib
 import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.persistence import get_task
+from devflow.control_room.persistence import atomic_write_text, get_task, utc_now
 from devflow.control_room.paths import task_dir
 from devflow.control_room.estimator import estimate_task_fit, save_task_fit
+from devflow.control_room.agent_registry import load_agent_registry
+from devflow.control_room.task_packet import build_agent_packet, render_task_packet_text
+
+
+@dataclass(frozen=True)
+class ContextPack:
+    schema_version: int
+    task_id: str
+    agent_id: str
+    role: str
+    permission_mode: str
+    source_packet_path: str
+    included_sources: list[str]
+    excluded_sources: list[str]
+    estimated_chars: int
+    estimated_tokens: int
+    truncation_notes: list[str] = field(default_factory=list)
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class WrittenContextPack:
+    pack: ContextPack
+    json_path: Path
+    markdown_path: Path
+    packet_path: Path
 
 
 def _get_authority(path_rel: str) -> str:
@@ -43,7 +70,95 @@ def _get_sha256(path: Path) -> str:
         return "null"
 
 
-def build_context_pack(root: Path, task_id: str, role: str, *, persist_task_fit: bool = True) -> dict[str, Any]:
+def build_context_pack(
+    root: Path,
+    task_id: str,
+    role: str | None = None,
+    *,
+    agent_id: str | None = None,
+    persist_task_fit: bool = True,
+) -> ContextPack | dict[str, Any]:
+    if agent_id is not None:
+        if role is None:
+            raise ValueError("role is required when building an agent context pack")
+        return _build_agent_context_pack(root, task_id, agent_id=agent_id, role=role)
+    if role is None:
+        raise ValueError("role is required")
+    return _build_legacy_context_pack(root, task_id, role, persist_task_fit=persist_task_fit)
+
+
+def write_context_pack(root: Path, task_id: str, *, agent_id: str, role: str) -> WrittenContextPack:
+    pack = _build_agent_context_pack(root, task_id, agent_id=agent_id, role=role)
+    agent = load_agent_registry(root).require_agent(agent_id)
+    packet = build_agent_packet(task_id, agent, root=root)
+    base = root / ".devflow" / "tasks" / task_id / "context-packs"
+    json_path = base / f"{role}-{agent_id}.json"
+    markdown_path = base / f"{role}-{agent_id}.md"
+    packet_path = base / f"{role}-{agent_id}.packet.json"
+
+    atomic_write_text(json_path, json.dumps(asdict(pack), indent=2, sort_keys=True) + "\n")
+    atomic_write_text(markdown_path, _render_markdown(pack))
+    atomic_write_text(packet_path, json.dumps(packet.model_dump(mode="json"), indent=2, sort_keys=True) + "\n")
+    return WrittenContextPack(pack=pack, json_path=json_path, markdown_path=markdown_path, packet_path=packet_path)
+
+
+def _build_agent_context_pack(root: Path, task_id: str, *, agent_id: str, role: str) -> ContextPack:
+    agent = load_agent_registry(root).require_agent(agent_id)
+    packet = build_agent_packet(task_id, agent, root=root)
+    text = render_task_packet_text(packet)
+    source_packet_path = f".devflow/tasks/{task_id}/context-packs/{role}-{agent_id}.packet.json"
+    included_sources = sorted(
+        {
+            *packet.allowed_artifacts,
+            packet.logs["worker"].path,
+            packet.logs["verify"].path,
+            "<task>/task.yaml",
+        }
+    )
+    excluded_sources = sorted(
+        {
+            *agent.forbidden_writes,
+            *agent.cannot_touch,
+            ".env",
+            ".env*",
+            ".git/**",
+            "<main_checkout>/**",
+        }
+    )
+    estimated_chars = len(text)
+    return ContextPack(
+        schema_version=1,
+        task_id=task_id,
+        agent_id=agent_id,
+        role=role,
+        permission_mode=agent.default_mode,
+        source_packet_path=source_packet_path,
+        included_sources=included_sources,
+        excluded_sources=excluded_sources,
+        estimated_chars=estimated_chars,
+        estimated_tokens=max(1, estimated_chars // 4),
+        truncation_notes=list(packet.truncation_notes),
+        created_at=utc_now().isoformat(),
+    )
+
+
+def _render_markdown(pack: ContextPack) -> str:
+    included = "\n".join(f"- {source}" for source in pack.included_sources)
+    excluded = "\n".join(f"- {source}" for source in pack.excluded_sources)
+    return (
+        f"# Context Pack: {pack.task_id} / {pack.agent_id}\n\n"
+        f"Role: {pack.role}\n"
+        f"Permission mode: {pack.permission_mode}\n"
+        f"Source packet: {pack.source_packet_path}\n"
+        f"Estimated tokens: {pack.estimated_tokens}\n\n"
+        "## Included Sources\n"
+        f"{included}\n\n"
+        "## Excluded Sources\n"
+        f"{excluded}\n"
+    )
+
+
+def _build_legacy_context_pack(root: Path, task_id: str, role: str, *, persist_task_fit: bool = True) -> dict[str, Any]:
     """Deterministic role-based context pack builder and physical packet generator."""
     from devflow.control_room.scout import RepoScout
 
