@@ -147,6 +147,7 @@ def render_gitignore(*, private_context: bool = False) -> str:
             ".devflow/worktrees/",
             ".devflow/system/",
             ".devflow/reports/",
+            ".devflow/freshness/",
             ".devflow/dogfood/runs/",
             ".devflow/outcome-validations/",
         ]

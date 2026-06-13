@@ -46,6 +46,14 @@ Default `devflow project create "Name"` behavior:
 7. Write project metadata with remote publication disabled.
 8. Register the project in the global registry.
 
+For managed projects with local Git enabled, `project create` does not create a hidden initial commit. Before creating project-scoped tasks, the human must establish an explicit local baseline from the project root, for example:
+
+```bash
+devflow git checkpoint --message "chore: initialize project baseline" --yes
+```
+
+Until that baseline exists, `devflow task create --project <project_id> ...` refuses to create a task so copied workspaces and promotion previews have a real `HEAD` to compare against.
+
 Supported project source-control modes:
 
 - `none`: no local Git repo.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 import json
 import hashlib
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ from devflow.control_room.promotion import (
     main_checkout_has_uncommitted_changes,
     promotion_baseline,
 )
+from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
 from devflow.control_room.seed import initialize_seed, validate_seed_contract
 from devflow.control_room.task_lifecycle import (
@@ -137,6 +139,7 @@ def init_control_room(root: Path, project_seed: Any | None = None) -> None:
 
 def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: str = "shell") -> TaskRecord:
     init_control_room(root)
+    _require_managed_project_git_baseline(root)
 
     # Concurrency Lock: Retryatomic directory creation to prevent task creation races
     lock_dir = devflow_dir(root) / ".lock"
@@ -209,6 +212,32 @@ def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: s
         event_position="before_save",
     )
     return record
+
+
+def _require_managed_project_git_baseline(root: Path) -> None:
+    try:
+        metadata = load_project_metadata(root)
+    except ProjectRegistryError:
+        return
+    if not metadata.source_control.local_repo:
+        return
+
+    head = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if head.returncode == 0:
+        return
+
+    raise ValueError(
+        "Project local Git baseline is missing. "
+        f"Run `devflow git checkpoint --message \"chore: initialize project baseline\" --yes` from {root} "
+        "before creating tasks."
+    )
 
 
 

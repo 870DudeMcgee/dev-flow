@@ -87,12 +87,36 @@ def test_project_create_defaults_to_separate_local_git_without_remote(tmp_path: 
     gitignore = (project_root / ".gitignore").read_text(encoding="utf-8")
     assert ".devflow/tasks/" in gitignore
     assert ".devflow/workspaces/" in gitignore
+    assert ".devflow/freshness/" in gitignore
     assert ".devflow/project/" not in gitignore
 
     doctor = runner.invoke(app, ["project", "doctor", "factory-scheduler"])
     assert doctor.exit_code == 0, doctor.output
     assert "ok: project metadata" in doctor.output
     assert "ok: no remote" in doctor.output
+
+
+def test_project_task_create_requires_initial_git_baseline(tmp_path: Path, monkeypatch) -> None:
+    _devflow_home(tmp_path, monkeypatch)
+    projects_root = tmp_path / "projects"
+
+    created = runner.invoke(app, ["project", "create", "Baseline Required", "--projects-root", projects_root.as_posix()])
+    assert created.exit_code == 0, created.output
+    project_root = projects_root / "baseline-required"
+
+    no_baseline = runner.invoke(app, ["task", "create", "--project", "baseline-required", "first task"])
+    assert no_baseline.exit_code == 1, no_baseline.output
+    assert "Project local Git baseline is missing" in no_baseline.output
+    assert "devflow git checkpoint --message \"chore: initialize project baseline\" --yes" in no_baseline.output
+    assert not (project_root / ".devflow" / "tasks" / "task-0001").exists()
+
+    baseline = _commit_all(project_root, "project baseline")
+    with_baseline = runner.invoke(app, ["task", "create", "--project", "baseline-required", "first task"])
+    assert with_baseline.exit_code == 0, with_baseline.output
+
+    task = yaml.safe_load((project_root / ".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8"))
+    assert task["workspace_commit"] == baseline
+    assert task["workspace_dirty"] is False
 
 
 def test_project_create_source_control_none_and_private_context(tmp_path: Path, monkeypatch) -> None:
@@ -159,7 +183,9 @@ def test_multi_project_dashboard_reports_registered_and_missing_projects(tmp_pat
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output
 
-    create_task(projects_root / "alpha-app", "dashboard task")
+    alpha_root = projects_root / "alpha-app"
+    _commit_all(alpha_root, "project baseline")
+    create_task(alpha_root, "dashboard task")
     shutil.rmtree(projects_root / "beta-app")
 
     result = runner.invoke(app, ["dashboard", "--all-projects"])
@@ -238,6 +264,7 @@ def test_task_create_project_writes_under_registered_project_root(tmp_path: Path
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
 
     old_cwd = Path.cwd()
     try:
@@ -263,6 +290,8 @@ def test_task_list_and_show_project_read_registered_project_root(tmp_path: Path,
     beta = runner.invoke(app, ["project", "create", "Beta App", "--projects-root", projects_root.as_posix()])
     assert alpha.exit_code == 0, alpha.output
     assert beta.exit_code == 0, beta.output
+    _commit_all(projects_root / "alpha-app", "alpha baseline")
+    _commit_all(projects_root / "beta-app", "beta baseline")
     create_task(projects_root / "alpha-app", "alpha task")
     create_task(projects_root / "beta-app", "beta task")
 
@@ -293,6 +322,7 @@ def test_task_commands_from_nested_project_directory_use_project_local_state(
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
     project_root = projects_root / "alpha-app"
+    _commit_all(project_root, "project baseline")
     nested = project_root / "src" / "feature" / "deep"
     nested.mkdir(parents=True)
     create_task(project_root, "root task")
@@ -327,6 +357,7 @@ def test_project_local_task_state_survives_missing_registry_entry(
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
     project_root = projects_root / "alpha-app"
+    _commit_all(project_root, "project baseline")
     nested = project_root / "docs" / "notes"
     nested.mkdir(parents=True)
     create_task(project_root, "local authoritative task")
@@ -358,6 +389,7 @@ def test_task_run_and_verify_project_use_registered_project_root(tmp_path: Path,
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha task")
 
     old_cwd = Path.cwd()
@@ -413,6 +445,7 @@ def test_task_log_project_reads_registered_project_root_not_cwd(tmp_path: Path, 
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha task")
     create_task(control_root, "cwd task")
     (projects_root / "alpha-app" / ".devflow" / "tasks" / "task-0001" / "logs" / "worker.log").write_text(
@@ -440,6 +473,7 @@ def test_task_packet_project_reads_registered_project_root_not_cwd(tmp_path: Pat
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha packet task")
     create_task(control_root, "cwd packet task")
 
@@ -463,6 +497,7 @@ def test_task_review_and_next_action_project_read_registered_project_root(tmp_pa
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha review task")
     create_task(control_root, "cwd review task")
     agent_dir = projects_root / "alpha-app" / ".devflow" / "tasks" / "task-0001" / "agents" / "qwopus-implementer"
@@ -502,6 +537,7 @@ def test_task_review_patch_project_writes_registered_project_evidence(tmp_path: 
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha patch task")
     create_task(control_root, "cwd patch task")
 
@@ -560,6 +596,7 @@ def test_task_patch_dry_run_project_writes_registered_project_evidence(tmp_path:
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha dry-run task")
     create_task(control_root, "cwd dry-run task")
 
@@ -624,6 +661,7 @@ def test_task_apply_patch_project_mutates_registered_project_workspace(tmp_path:
 
     created = runner.invoke(app, ["project", "create", "Alpha App", "--projects-root", projects_root.as_posix()])
     assert created.exit_code == 0, created.output
+    _commit_all(projects_root / "alpha-app", "project baseline")
     create_task(projects_root / "alpha-app", "alpha apply task")
     create_task(control_root, "cwd apply task")
 
@@ -699,6 +737,7 @@ def test_task_promote_preview_project_reads_registered_project_root_not_cwd(tmp_
     project_root = projects_root / "alpha-app"
     (project_root / "promote.txt").write_text("project-main\n", encoding="utf-8")
     (control_root / "promote.txt").write_text("cwd-main\n", encoding="utf-8")
+    _commit_all(project_root, "project baseline")
     create_task(project_root, "alpha promote task")
     create_task(control_root, "cwd promote task")
 
