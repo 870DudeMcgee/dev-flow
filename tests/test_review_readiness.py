@@ -298,6 +298,10 @@ def test_review_ready_project_scope_and_capsule_project_option_are_runnable(
     assert created.exit_code == 0, created.output
     project_root = projects_root / "demo-app"
     assert project_root.exists()
+    monkeypatch.chdir(project_root)
+    baseline = runner.invoke(app, ["git", "checkpoint", "--message", "project baseline", "--yes"])
+    assert baseline.exit_code == 0, baseline.output
+    monkeypatch.chdir(tmp_path)
 
     task_created = runner.invoke(app, ["task", "create", "--project", "demo-app", "project ready"])
     assert task_created.exit_code == 0, task_created.output
