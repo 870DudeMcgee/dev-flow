@@ -1,8 +1,8 @@
 # Project Code Map MVP Contract
 
-**Milestone**: 11A (contract definition slice)  
-**Status**: draft — docs-only, no runtime behavior  
-**Boundary**: this document defines the contract. No source, test, CLI, provider, routing, or automation changes are included in this slice.
+**Milestone**: 11 (Project Code Map MVP)
+**Status**: implemented; Dev-Flow root dogfood added in closure slice
+**Boundary**: `CODE_MAP.md` is human-authored read-only orientation context. `.code-map.yaml` remains reserved future metadata.
 
 ---
 
@@ -43,7 +43,7 @@ The Project Code Map is a compact, human-maintained orientation file that worker
 
 Placed at the repository root. Human-authored. Optional but recommended.
 
-Sections (all optional):
+Required sections for `devflow map check`:
 
 ```markdown
 # Code Map
@@ -81,7 +81,7 @@ YYYY-MM-DD
 
 ### Companion: `.code-map.yaml` (optional, future)
 
-Machine-readable metadata companion. Reserved for future `devflow map` commands. Not active in this milestone.
+Machine-readable metadata companion. Reserved for future metadata-aware map behavior. Not active at runtime.
 
 ```yaml
 version: 1
@@ -97,7 +97,7 @@ last_reviewed: YYYY-MM-DD
 
 ---
 
-## CLI Commands (future, not active)
+## CLI Commands
 
 | Command | Description |
 |---|---|
@@ -105,7 +105,7 @@ last_reviewed: YYYY-MM-DD
 | `devflow map show` | Print the current `CODE_MAP.md` to stdout |
 | `devflow map check` | Lint the map for stale entry-point paths and missing sections |
 
-These commands **do not exist yet**. They are reserved identifiers for a future implementation slice.
+These commands are current stable orientation helpers. They do not call providers, route workers, mutate task state, or generate maps from source.
 
 ---
 
@@ -119,23 +119,25 @@ The token-context artifact at `.devflow/token-context/current.md` may reference 
 
 ## Acceptance Criteria (Milestone 11 full implementation)
 
-- [ ] `CODE_MAP.md` schema documented and stable
-- [ ] `.code-map.yaml` schema documented (reserved, no runtime)
-- [ ] `devflow map init` scaffolds `CODE_MAP.md`
-- [ ] `devflow map show` prints the map
-- [ ] `devflow map check` lints for broken entry-point paths
-- [ ] `devflow task packet` includes a bounded map excerpt when `CODE_MAP.md` is present
-- [ ] No provider API, routing, database, or autonomous behavior introduced
+- [x] `CODE_MAP.md` schema documented and stable
+- [x] `.code-map.yaml` schema documented as reserved future metadata
+- [x] `devflow map init` scaffolds `CODE_MAP.md`
+- [x] `devflow map show` prints the map
+- [x] `devflow map check` lints for broken entry-point paths
+- [x] `devflow task packet` includes a bounded map excerpt when `CODE_MAP.md` is present
+- [x] No provider API, routing, database, or autonomous behavior introduced
 
 ---
 
-## This Slice (11A — docs contract only)
+## Implementation Closure
 
 Deliverables:
-- This contract document at `docs/architecture/project-code-map-mvp.md`
-- Stale `Next Priority` callout in `docs/roadmap.md` corrected to Milestone 11
+- Root `CODE_MAP.md` dogfooded in Dev-Flow
+- Current `devflow map init/show/check` command behavior documented
+- Bounded `CODE_MAP.md` task-packet excerpt documented
+- Stale `Next Priority` callout in `docs/roadmap.md` corrected to Milestone 12 Idea Foundry design
 
-No source, CLI, or test changes.
+No new provider, routing, database, dashboard, or autonomous behavior is part of this closure.
 
 ---
 

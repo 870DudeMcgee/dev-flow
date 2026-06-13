@@ -71,7 +71,7 @@ Current copy-workspace tasks and Git-native worktree tasks are both isolated tas
 ```text
 Idea Foundry, future
 -> Goal / task planning
--> Project Code Map orientation, future
+-> Project Code Map orientation, current
 -> Bounded task packet
 -> Worker/model evidence
 -> Normalized proposal evidence
@@ -84,7 +84,9 @@ Idea Foundry, future
 -> Human-controlled promotion
 ```
 
-Patch dry-run is current implemented behavior. Idea Foundry and Project Code Map are future upstream context/intake layers. They are not part of Milestone 8B and must not be implemented as part of this documentation milestone.
+Patch dry-run is current implemented behavior. Project Code Map is the current upstream orientation layer through `CODE_MAP.md` and `devflow map init/show/check`.
+
+Idea Foundry remains a later intake layer. These layers are not part of Milestone 8B and must not be expanded as part of the patch dry-run milestone.
 
 ## Stage-by-Stage Contract
 
@@ -115,30 +117,30 @@ Type: Planning and task-state creation.
 
 Human review boundary: A human chooses the work and controls when planning becomes execution.
 
-### B. Project Code Map Orientation, Future
+### B. Project Code Map Orientation, Current
 
 Purpose: Give workers a compact project orientation before scanning the repo.
 
-Status: Future roadmap only.
+Status: Current orientation layer.
 
-Planned files:
+Current files:
 
 - `CODE_MAP.md`
 - optionally `.code-map.yaml`
 
-Planned CLI, future only:
+Current CLI:
 
 - `devflow map init`
 - `devflow map show`
 - `devflow map check`
 
-Mutation and state: Future map commands may create or inspect map files, but no current command exists.
+Mutation and state: Map commands create or inspect map files only. The map is read-only context for task packets and does not mutate task state.
 
-Type: Future context/intake.
+Type: Current orientation context.
 
-Human review boundary: Workers should eventually read `CODE_MAP.md` before scanning the repo. Workers should eventually propose map updates through task evidence instead of directly editing `CODE_MAP.md` unless explicitly authorized.
+Human review boundary: Workers should read `CODE_MAP.md` before scanning the repo. Workers should propose map updates through task evidence instead of directly editing `CODE_MAP.md` unless explicitly authorized.
 
-Boundary: Do not implement this now. Do not claim these commands exist.
+Boundary: Do not expand this layer here. Do not add provider calls, routing, autonomous execution, or promotion decisions to map behavior.
 
 ### C. Bounded Task Packet
 
@@ -470,7 +472,7 @@ Human review boundary: Promotion is human-controlled, readiness-gated, and must 
 | `.devflow/tasks/<task-id>/local-model-runs/<run-id>/patch-dry-run.json` | Current | Dev-Flow evidence | Structured dry-run preview | No source mutation | Evidence only |
 | `.devflow/workspaces/<task-id>/` | Current | Dev-Flow/worker lane | Default isolated task workspace | Yes, by assigned workers/apply/verify artifacts | Main checkout remains separate until promotion |
 | `.devflow/worktrees/<task-id>/shell/` | Current opt-in | Dev-Flow/worker lane | Git-native shell task worktree | Yes, by assigned shell worker | Only for `--git-worktree` tasks |
-| `CODE_MAP.md` | Future | Human/Dev-Flow | Project orientation map | Future | No current command |
+| `CODE_MAP.md` | Current | Human/Dev-Flow | Project orientation map | Read-only context | Managed by `devflow map init/show/check` |
 | `.code-map.yaml` | Future | Human/Dev-Flow | Optional machine-readable map companion | Future | No current command |
 | `projects/<project>/01-ideas/<idea-id>/idea.yaml` | Future | Human/Dev-Flow | Idea metadata | Future | Idea Foundry only |
 | `projects/<project>/01-ideas/<idea-id>/raw.md` | Future | Human/Dev-Flow | Raw captured idea | Future | Idea Foundry only |
@@ -491,7 +493,7 @@ Patch review, patch dry-run, patch application, and verification do not automati
 
 ## Future Context Intake Roadmap
 
-### Project Code Map, Future
+### Project Code Map, Current
 
 Purpose: Give every worker a fast orientation layer before task execution so agents waste fewer tokens rediscovering the repo and are less likely to edit the wrong files.
 
@@ -511,21 +513,21 @@ Suggested `CODE_MAP.md` sections:
 - Verification Commands
 - Map Maintenance Rules
 
-Planned future commands:
+Current commands:
 
 - `devflow map init`
 - `devflow map show`
 - `devflow map check`
 
-Planned future behavior:
+Current behavior:
 
-- task open should surface `CODE_MAP.md` if it exists
+- `devflow task packet` includes a bounded `CODE_MAP.md` excerpt if it exists
 - worker instructions should tell the worker to read `CODE_MAP.md` before broad repo scanning
-- if `CODE_MAP.md` is missing, Dev-Flow should continue safely and clearly say no code map exists
+- if `CODE_MAP.md` is missing, Dev-Flow continues safely and `devflow map check` clearly says no code map exists
 - workers should propose map updates inside task evidence rather than silently editing the map
 - agents must not directly edit `CODE_MAP.md` unless the task explicitly grants that permission
 
-Boundary: Do not implement in Milestone 8A. Do not add commands. Do not add tests. Do not change task-open behavior. Document as future work only.
+Boundary: Do not expand Project Code Map as part of patch dry-run work. It remains human-authored read-only orientation context and must not route models, call providers, mutate task state, or make promotion decisions.
 
 ### Idea Foundry, Future
 
@@ -600,7 +602,7 @@ The following remain deferred and are not part of the current stable runtime:
 
 ## Suggested Roadmap Placement
 
-- Milestone 8A: Documentation alignment for Patch Evidence Ladder and future context intake roadmap.
+- Milestone 8A: Documentation alignment for Patch Evidence Ladder and context-intake roadmap.
 - Milestone 8B: Deterministic patch dry-run preview. Status: implemented in commit `1acc4ce` according to milestone handoff and confirmed by current source/tests. Command: `devflow task patch-dry-run <task-id>` with optional `--run-id <run-id>`. Boundary: no mutation.
 - Milestone 9: Explicit reviewed patch apply to isolated workspace only. Status: implemented; apply-patch now requires fresh acceptable patch review and dry-run evidence before mutating the isolated workspace.
 - Milestone 10: Verification/readiness hardening around applied patches. Status: in progress; applying a patch now invalidates prior verification/readiness evidence, and fresh verification binds `verification.json` to the latest patch application hash.

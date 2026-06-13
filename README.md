@@ -12,11 +12,14 @@ Workers are replaceable. The stable code-changing runtime supports shell workers
 
 The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md).
 
-The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and human-controlled promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Future context intake layers such as Project Code Map and Idea Foundry are documented there as roadmap concepts, not current stable commands.
+The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and human-controlled promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts.
+
+Idea Foundry remains a later roadmap concept.
 
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`, `devflow freshness loop`
 - **Dashboard**: `devflow dashboard`
+- **Project Orientation**: `devflow map init`, `devflow map show`, `devflow map check`
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Policy & Evidence**: `devflow task orchestrate --plan-only`, `devflow worker validate-outcome`
 - **Knowledge Foundry**: `devflow knowledge capture`, `devflow knowledge list`, `devflow knowledge show`, `devflow knowledge promote`, `devflow knowledge reject`, `devflow knowledge search`

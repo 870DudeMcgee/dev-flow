@@ -79,6 +79,9 @@ devflow supervisor policy --json
 devflow supervisor packet --json
 devflow supervisor route-message "raw Telegram text" --json
 devflow hermes imessage-check --json
+devflow map init
+devflow map show
+devflow map check
 devflow project create "Factory Scheduler"
 devflow project create "Local Experiment" --source-control none
 devflow project import /path/to/existing/repo
@@ -173,6 +176,8 @@ Project task state is project-local. Without `--project`, task commands resolve 
 When `--project` is omitted, task commands walk upward from the current directory to the nearest ancestor containing `.devflow/`. This keeps project-local state authoritative when commands are run from nested subdirectories and avoids accidental nested `.devflow/` split-brain state. If no ancestor contains `.devflow/`, bootstrap-compatible commands use the current directory.
 
 The proof-agent form is `devflow task run <task_id> --worker devflow-manual-codex-worker`. It creates a Codex-ready manual handoff and bounded packet for a human-launched worker. The worker may edit only `.devflow/workspaces/<task_id>/` and may write evidence only under `.devflow/tasks/<task_id>/agents/devflow-manual-codex-worker/`. Dev-Flow remains responsible for verification, merge readiness, and human-controlled promotion.
+
+The Project Code Map form is `CODE_MAP.md` plus `devflow map init`, `devflow map show`, and `devflow map check`. The map is a human-authored orientation artifact. When present, `devflow task packet <task_id>` includes a bounded excerpt so workers can orient before broad repo scans. The map is read-only context, not canonical task state, and it does not route models, call providers, or generate itself from source.
 
 The registry-backed local Qwopus form is `devflow task run <task_id> --worker qwopus-implementer`. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/qwopus-implementer/`, and stops. Dev-Flow remains responsible for explicit patch review, dry-run preview, application to the isolated workspace, verification, merge readiness, and human-controlled promotion. The `review-patch --agent` and `patch-dry-run --agent` forms normalize agent patch evidence into `.devflow/tasks/<task_id>/local-model-runs/<run_id>/`; apply-patch refuses mutation unless matching fresh acceptable review and dry-run evidence exists in the resolved project root. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
 

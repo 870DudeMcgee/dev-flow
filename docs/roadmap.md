@@ -309,7 +309,8 @@ Acceptance:
 
 - current patch dry-run behavior is documented as evidence only
 - current, planned, and deferred behavior are clearly separated
-- Project Code Map and Idea Foundry are documented as future context intake layers only
+- current Project Code Map orientation is documented
+- later Idea Foundry intake is documented separately
 - no source, test, runtime, provider, dashboard, database, routing, or automation behavior changes are included
 
 ## Milestone 8B: Deterministic Patch Dry-run Preview
@@ -343,11 +344,11 @@ Initial hardening slice: applying a reviewed patch invalidates prior verificatio
 
 ## Milestone 11: Project Code Map MVP
 
-Status: 11E active (implementation). Contract: [docs/architecture/project-code-map-mvp.md](architecture/project-code-map-mvp.md). 11A (contract), 11B (`map init`), 11C (`map show`), and 11D (`map check`) are complete.
+Status: implemented and dogfooded in Dev-Flow. The 11A contract, 11B `map init`, 11C `map show`, 11D `map check`, and 11E bounded `CODE_MAP.md` task-packet excerpt are complete.
 
 Goal: introduce a compact project orientation layer, likely `CODE_MAP.md` with an optional `.code-map.yaml` companion, so workers can orient before broad repo scans.
 
-Boundary: `devflow map init`, `devflow map show`, and `devflow map check` are implemented. The current narrow slice is bounded `CODE_MAP.md` excerpt integration into `devflow task packet`; routing and provider behavior remain out of scope.
+Boundary: `CODE_MAP.md` is human-authored read-only orientation context. `.code-map.yaml` remains reserved future metadata. Routing and provider behavior remain out of scope.
 
 ## Milestone 12: Idea Foundry MVP
 
@@ -358,7 +359,7 @@ Goal: capture raw ideas, classify them later, link them to project/goal context,
 Boundary: future idea commands such as `devflow idea capture`, `devflow idea classify`, and `devflow idea promote` do not exist yet.
 
 > [!IMPORTANT]
-> **Next Priority**: Milestone 11E, bounded `CODE_MAP.md` task-packet excerpt. The 11A contract, 11B `map init`, 11C `map show`, and 11D `map check` slices are complete. The 11E slice adds an optional bounded `CODE_MAP.md` excerpt to `devflow task packet` and focused tests. Keep provider-backed adapters, routing, databases, web dashboards, and autonomous behavior out of this slice.
+> **Next Priority**: Milestone 12 Idea Foundry MVP design. Start with a design/spec for human-reviewed idea capture and promotion. Do not implement provider-backed adapters, autonomous routing, databases, or automatic task creation as part of the Idea Foundry design slice.
 
 ## Later, Not Now
 
