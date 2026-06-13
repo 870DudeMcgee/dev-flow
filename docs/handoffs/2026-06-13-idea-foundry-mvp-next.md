@@ -1,5 +1,7 @@
 # Idea Foundry MVP Handoff
 
+Superseded by [2026-06-13-idea-to-execution-bridge-next.md](2026-06-13-idea-to-execution-bridge-next.md). The Idea Foundry MVP was promoted and pushed to `origin/main` at commit `0518546`; this file is retained as historical evidence.
+
 ## Status
 
 complete
@@ -30,14 +32,14 @@ complete
 - stale-context `rg`: pass, no future-only matches in active docs
 - `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow task verify task-0022 --shell 'PYTHONPATH=src:. <repo-root>/.venv/bin/python -m pytest tests/test_idea_foundry.py tests/test_supervisor_operating_surface.py -v' --timeout-seconds 120`: pass, verification log reports 23 passed
 - `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow task promote task-0022 --force-stale-baseline`: pass after human approval, promoted to local main
-- `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow git status`: pass, clean local `main`, ahead of `origin/main`
+- `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow git status`: pass after push, clean `main`, synced with `origin/main` at `0518546`
 
 ## Risks
 
 - `idea promote` records decision evidence only; it still creates no goals or tasks.
 - The worker branch was fast-forwarded to local `main` checkpoint `4bba74b` before implementation because `task create --git-worktree` started from `origin/main`.
-- The promoted main commits are local until Josh approves push.
+- The promoted main commits were pushed after Josh approved `devflow push-main`.
 
 ## Next Safe Action
 
-- Ask Josh before running `devflow push-main`.
+- Use the superseding Idea-To-Execution Bridge handoff for the next task.
