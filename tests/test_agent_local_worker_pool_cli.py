@@ -93,6 +93,69 @@ def test_agent_run_dry_run_json_does_not_call_model_or_write_evidence(
     assert _git_status(tmp_path) == before_status
 
 
+def test_task_run_read_only_local_profile_reports_agent_run_next_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "Read-only profile misuse"]).exit_code == 0
+
+    result = runner.invoke(app, ["task", "run", "task-0001", "--worker", "local-qwopus-inspector"])
+
+    assert result.exit_code != 0
+    assert "read-only local model worker-pool profile" in result.output
+    assert "devflow agent run --task <task-id> --profile local-qwopus-inspector" in result.output
+
+
+def test_task_run_remote_provider_agent_still_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "Remote refusal"]).exit_code == 0
+    agents_dir = tmp_path / ".devflow" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "registry.yaml").write_text(
+        "version: 1\n"
+        "agents:\n"
+        "  remote-worker:\n"
+        "    provider: openai\n"
+        "    model: gpt-5\n"
+        "    adapter: openai_chat\n"
+        "    role: frontier_planner_architect_reviewer\n"
+        "    tier: frontier\n"
+        "    default_mode: frontier_read_only\n"
+        "    execution_mode: automated\n"
+        "    workspace: isolated_task_workspace\n"
+        "    can_use_network: true\n"
+        "    can_promote: false\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["task", "run", "task-0001", "--worker", "remote-worker"])
+
+    assert result.exit_code != 0
+    assert "cannot execute" in result.output
+    assert "experimental_readonly" in result.output
+
+
+def test_agent_run_local_patch_profile_reports_task_run_next_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "Patch profile misuse"]).exit_code == 0
+
+    result = runner.invoke(app, ["agent", "run", "--task", "task-0001", "--profile", "qwopus-implementer", "--dry-run"])
+
+    assert result.exit_code != 0
+    assert "devflow task run <task-id> --worker qwopus-implementer" in result.output
+
+
 def test_agent_run_fake_local_worker_writes_worker_evidence_without_proposal_patch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -250,11 +250,10 @@ def run_shell_task(
     env: dict[str, str] | None = None,
 ) -> TaskRecord:
     from devflow.control_room.agent_registry import (
-        adapter_execution_refusal,
-        is_executable_agent_runtime,
         load_agent_registry,
         load_provider_registry,
     )
+    from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
     registry = load_agent_registry(root)
     providers = load_provider_registry(root)
 
@@ -268,8 +267,9 @@ def run_shell_task(
             raise ValueError(f"Agent '{worker_adapter}' is disabled.")
         resolved_adapter_name = agent.adapter
         provider = providers.providers.get(agent.provider)
-        if not is_executable_agent_runtime(agent, provider=provider):
-            raise ValueError(adapter_execution_refusal(agent.adapter, agent_id=agent.id))
+        runtime = resolve_agent_runtime_definition(agent, provider)
+        if not runtime.task_run_allowed:
+            raise ValueError(runtime.refusal_reason or f"Agent '{agent.id}' cannot execute through task run.")
 
     adapter = get_worker_adapter(resolved_adapter_name, agent=agent, provider=provider)
     if not command and resolved_adapter_name not in {"manual", "ollama_chat"}:
@@ -569,13 +569,15 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
 
         # 1. No experimental provider adapters enabled in loaded registry
         try:
-            from devflow.control_room.agent_registry import is_executable_agent_runtime, load_agent_registry, load_provider_registry
+            from devflow.control_room.agent_registry import load_agent_registry, load_provider_registry
+            from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
             registry = load_agent_registry(root)
             providers = load_provider_registry(root)
             unstable_agents = []
             for agent in registry.enabled_agents():
                 provider = providers.providers.get(agent.provider)
-                if not is_executable_agent_runtime(agent, provider=provider):
+                runtime = resolve_agent_runtime_definition(agent, provider)
+                if not (runtime.task_run_allowed or runtime.agent_run_allowed or runtime.packet_allowed):
                     unstable_agents.append(f"{agent.id} ({agent.adapter})")
             if unstable_agents:
                 checks.append(("strict: only executable runtime agents enabled", False, f"unstable: {', '.join(unstable_agents)}"))

@@ -9,12 +9,12 @@ from typing import Any
 from devflow.control_room.agent_registry import (
     AgentDefinition,
     AgentRegistryError,
-    adapter_execution_refusal,
     adapter_maturity,
     is_local_model_worker_pool_agent,
     load_agent_registry,
     load_provider_registry,
 )
+from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
 from devflow.control_room.local_model_client import LocalModelClient, LocalModelClientError
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import get_task, utc_now
@@ -295,10 +295,13 @@ def _load_runnable_profile(root: Path, profile_id: str) -> tuple[AgentDefinition
 
     if profile.adapter_maturity is None:
         profile.adapter_maturity = adapter_maturity(profile.adapter)
-    if not is_local_model_worker_pool_agent(profile, provider=provider):
-        refusal = adapter_execution_refusal(profile.adapter, agent_id=profile.id)
+    runtime = resolve_agent_runtime_definition(profile, provider)
+    if not runtime.agent_run_allowed:
+        next_action = f" Use '{runtime.next_command}' instead." if runtime.next_command else ""
+        refusal = f" {runtime.refusal_reason}" if runtime.refusal_reason else ""
         raise LocalModelWorkerPoolError(
-            f"Profile '{profile.id}' is not approved for the local model worker pool. {refusal}"
+            f"Profile '{profile.id}' is not approved for the local model worker pool. "
+            f"Execution surface: {runtime.execution_surface}.{next_action}{refusal}"
         )
     return profile, provider.base_url if provider else None, provider.default_timeout_seconds if provider else None
 
