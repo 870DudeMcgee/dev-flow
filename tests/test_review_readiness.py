@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -10,6 +11,11 @@ from devflow.control_room.persistence import get_task, save_task, utc_now
 
 
 runner = CliRunner()
+
+
+def _configure_git_identity(root: Path) -> None:
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True)
 
 
 def _write_promotion_preview(
@@ -299,6 +305,7 @@ def test_review_ready_project_scope_and_capsule_project_option_are_runnable(
     project_root = projects_root / "demo-app"
     assert project_root.exists()
     monkeypatch.chdir(project_root)
+    _configure_git_identity(project_root)
     baseline = runner.invoke(app, ["git", "checkpoint", "--message", "project baseline", "--yes"])
     assert baseline.exit_code == 0, baseline.output
     monkeypatch.chdir(tmp_path)
