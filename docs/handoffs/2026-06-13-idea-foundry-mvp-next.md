@@ -29,13 +29,15 @@ complete
 - `git diff --check`: pass, no output
 - stale-context `rg`: pass, no future-only matches in active docs
 - `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow task verify task-0022 --shell 'PYTHONPATH=src:. <repo-root>/.venv/bin/python -m pytest tests/test_idea_foundry.py tests/test_supervisor_operating_surface.py -v' --timeout-seconds 120`: pass, verification log reports 23 passed
+- `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow task promote task-0022 --force-stale-baseline`: pass after human approval, promoted to local main
+- `PYTHONPATH=src:. <repo-root>/.venv/bin/devflow git status`: pass, clean local `main`, ahead of `origin/main`
 
 ## Risks
 
 - `idea promote` records decision evidence only; it still creates no goals or tasks.
 - The worker branch was fast-forwarded to local `main` checkpoint `4bba74b` before implementation because `task create --git-worktree` started from `origin/main`.
-- The branch is local until Josh approves promotion and push.
+- The promoted main commits are local until Josh approves push.
 
 ## Next Safe Action
 
-- Run `devflow task promote-preview task-0022` from the main checkout and review readiness before any promotion or push.
+- Ask Josh before running `devflow push-main`.
