@@ -1,10 +1,12 @@
 # Agent Selection And Context Requirement Routing
 
-Status: planning architecture. This document does not implement runtime behavior, enable non-shell workers, or change the current shell-worker MVP.
+Status: active architecture with Milestone 17 evidence-only routing implementation. This document does not enable autonomous routing, provider-backed worker execution, worker-owned verification, or promotion.
 
 Dev-Flow should not choose agents by name first. It should classify the work, estimate the required context, ability, and risk, then route each role to the cheapest capable agent that can safely complete that role. This keeps Dev-Flow a control system: big-picture models decide direction, local and narrow models gather facts or execute bounded work, and Dev-Flow owns durable state, routing, isolation, evidence, verification, and promotion.
 
-This design extends [agent-registry-and-adapter-runtime.md](agent-registry-and-adapter-runtime.md). It becomes active only after the registry/manual/shell-alignment sequence has a stable implementation.
+This design extends [agent-registry-and-adapter-runtime.md](agent-registry-and-adapter-runtime.md). Execution adapters remain bounded by the registry/manual/shell-alignment sequence and explicit human or dogfood invocation.
+
+Milestone 17 promotes deterministic task-fit, scout, route, and routing-quality artifacts as derived evidence. The stable commands write evidence and recommend next commands only; humans or explicit dogfood lanes still invoke worker execution, verification, promotion, commit, push, and publication.
 
 ## 1. Core Loop
 

@@ -351,9 +351,11 @@ Future provider lifecycle:
 
 ## 8. Task Fit And Context Routing Boundary
 
-Dev-Flow should route by task fit and capability, not by agent name first. The current local selector is intentionally narrower: it ranks installed registry agents for an explicit role and records selected-agent evidence, but it does not infer task fit or run workers. The future routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
+Dev-Flow should route by task fit and capability, not by agent name first. The current local selector is intentionally narrower: it ranks installed registry agents for an explicit role and records selected-agent evidence, but it does not infer task fit or run workers. The broader routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
 
-Minimum future artifacts:
+Milestone 17 implements the first evidence-only task-fit/context-routing slice: task-fit, scout, routing-decision, and routing-quality artifacts are stable derived evidence, while autonomous worker assignment and provider-backed execution remain excluded.
+
+Minimum routing artifacts:
 
 - `task-fit.yaml`: task type, repo scope, context requirement, reasoning requirement, edit risk, architectural risk, verification complexity, context layer, and recommended tiers.
 - `context-estimate.yaml`: relevant files, relevant lines, estimated tokens, tests needed, docs needed, task history tokens, and total context estimate.

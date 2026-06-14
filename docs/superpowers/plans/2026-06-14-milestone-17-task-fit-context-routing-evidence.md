@@ -1105,19 +1105,9 @@ In `CODE_MAP.md`, update the routing boundary bullet to say:
 
 - [ ] **Step 5: Run stale-context scan**
 
-Run:
+Run the Task 6 stale-context scan for obsolete routing phrases across `docs`, `CODE_MAP.md`, `README.md`, and `PRODUCT_NORTH_STAR.md`.
 
-```bash
-rg -n "task-fit/context routing runtime \\(Design documented only|fully automatic best-model-for-any-task routing remains future|future task-fit/context-routing work" docs CODE_MAP.md README.md PRODUCT_NORTH_STAR.md
-```
-
-Expected: no matches. If matches remain in superseded handoff files, update the search to exclude `docs/handoffs/` and confirm active docs are clean:
-
-```bash
-rg -n "task-fit/context routing runtime \\(Design documented only|fully automatic best-model-for-any-task routing remains future|future task-fit/context-routing work" docs CODE_MAP.md README.md PRODUCT_NORTH_STAR.md -g '!docs/handoffs/**'
-```
-
-Expected: no matches.
+Expected: no matches. If matches remain in superseded handoff files, update the search to exclude `docs/handoffs/` and confirm active docs are clean.
 
 - [ ] **Step 6: Commit Task 6**
 
@@ -1165,8 +1155,9 @@ Run:
 
 ```bash
 git diff --check
-rg -n "task-fit/context routing runtime \\(Design documented only|fully automatic best-model-for-any-task routing remains future|future task-fit/context-routing work" docs CODE_MAP.md README.md PRODUCT_NORTH_STAR.md -g '!docs/handoffs/**'
 ```
+
+Then run the Task 6 stale-context scan excluding `docs/handoffs/**`.
 
 Expected: `git diff --check` exits `0` with no output. The stale-context scan exits `1` with no matches.
 
