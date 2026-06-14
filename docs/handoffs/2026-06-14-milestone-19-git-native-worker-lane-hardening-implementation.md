@@ -24,7 +24,7 @@ needs-review
 - `PYTHONPATH=/Users/josh/Desktop/Dev-Flow/.devflow/worktrees/task-0037/shell/src:. .venv/bin/devflow task promote-preview task-0037`: pass, `promotion_readiness: ready`, `lane_readiness: ready`
 - `PATH=/Users/josh/Desktop/Dev-Flow/.venv/bin:$PATH ./scripts/release-check.sh`: pass, `1000 passed, 6 skipped`, CLI smoke passed, distribution build passed, twine check passed, wheel smoke install passed
 - `PYTHONPATH=src:. .venv/bin/devflow git status`: pass, main clean at `d0cc430`, ahead `0`, behind `0`
-- `PYTHONPATH=/Users/josh/Desktop/Dev-Flow/.devflow/worktrees/task-0037/shell/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow git status`: pass, worker branch clean at `9e0350b`, ahead origin/main `3`
+- `PYTHONPATH=/Users/josh/Desktop/Dev-Flow/.devflow/worktrees/task-0037/shell/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow git status`: pass, worker branch clean at finalized branch head
 
 ## Risks
 
