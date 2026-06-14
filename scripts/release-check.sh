@@ -95,13 +95,20 @@ for cmd in "supervise" "context"; do
   fi
 done
 
-for cmd in "fit" "pack" "scout" "route" "scorecard"; do
+for cmd in "fit" "scout" "route" "scorecard"; do
+  if ! help_contains_command "$STANDARD_TASK_HELP" "$cmd"; then
+    echo "❌ Error: Stable task subcommand '$cmd' is NOT shown in standard 'task --help'." >&2
+    exit 1
+  fi
+done
+
+for cmd in "pack"; do
   if help_contains_command "$STANDARD_TASK_HELP" "$cmd"; then
     echo "❌ Error: Experimental task subcommand '$cmd' is exposed in standard 'task --help'." >&2
     exit 1
   fi
 done
-echo "✓ Experimental commands are hidden in standard help"
+echo "✓ Stable routing evidence commands are shown and experimental commands are hidden in standard help"
 
 # Assert experimental commands are shown when DEVFLOW_EXPERIMENTAL=1
 EXP_HELP=$(DEVFLOW_EXPERIMENTAL=1 "${RUN_CLI[@]}" --help)
@@ -114,7 +121,7 @@ for cmd in "supervise" "context"; do
   fi
 done
 
-for cmd in "fit" "pack" "scout" "route" "scorecard"; do
+for cmd in "pack"; do
   if ! help_contains_command "$EXP_TASK_HELP" "$cmd"; then
     echo "❌ Error: Experimental task subcommand '$cmd' is NOT shown under DEVFLOW_EXPERIMENTAL=1." >&2
     exit 1

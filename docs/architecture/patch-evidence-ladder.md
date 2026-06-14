@@ -94,13 +94,14 @@ Idea Foundry is the current local intake layer through `devflow idea capture/lis
 
 Purpose: Turn selected work into a bounded task.
 
-Status: Current for task creation and current experimental-read-only for planning, scouting, routing, and scorecard helpers documented in the current contract.
+Status: Current for task creation and current stable evidence-only planning, scouting, routing, and scorecard helpers documented in the current contract. `devflow task pack` remains experimental-read-only.
 
 Command surface:
 
 - Current: `devflow task create`
 - Current: `devflow task create --git-worktree`
-- Experimental-read-only/manual planning aids: `devflow task fit`, `devflow task pack`, `devflow task scout`, `devflow task route`, `devflow task scorecard`
+- Stable evidence-only/manual planning aids: `devflow task fit`, `devflow task scout`, `devflow task route`, `devflow task scorecard`
+- Experimental-read-only/manual planning aid: `devflow task pack`
 
 Artifact surface:
 
