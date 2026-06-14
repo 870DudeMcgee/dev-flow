@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -23,14 +24,31 @@ def _line_and_token_estimate(paths: list[Path]) -> tuple[int, int]:
     token_count = 0
     for path in paths:
         try:
+            size = path.stat().st_size
             with path.open("rb") as handle:
                 sample = handle.read(_FILE_ESTIMATE_SAMPLE_BYTES)
         except Exception:
             continue
         content = sample.decode("utf-8", errors="ignore")
-        line_count += len(content.splitlines())
-        token_count += len(content) // 4
+        sample_lines = len(content.splitlines())
+        sample_size = len(sample)
+        if sample_size and size > sample_size:
+            estimated_lines = (sample_lines * size + sample_size - 1) // sample_size
+        else:
+            estimated_lines = sample_lines
+        line_count += estimated_lines
+        token_count += max(1, size // 4)
     return line_count, token_count
+
+
+def _yaml_scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if value is None:
+        return "null"
+    return json.dumps(str(value))
 
 
 def _tier_for_summarizer(context_requirement: str) -> str:
@@ -323,15 +341,9 @@ def save_task_fit(root: Path, task_id: str, fit_data: dict[str, Any]) -> None:
                 return
             lines.append(f"  {key}:")
             for item in val:
-                lines.append(f"    - {item}")
+                lines.append(f"    - {_yaml_scalar(item)}")
             return
-        if isinstance(val, bool):
-            val_str = "true" if val else "false"
-        elif isinstance(val, (int, float)):
-            val_str = str(val)
-        else:
-            val_str = str(val)
-        lines.append(f"  {key}: {val_str}")
+        lines.append(f"  {key}: {_yaml_scalar(val)}")
 
     # task_fit block
     lines.append("task_fit:")

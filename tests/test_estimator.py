@@ -70,7 +70,7 @@ def test_estimator_heuristics_and_saving(tmp_path: Path) -> None:
     yaml_content = yaml_file.read_text(encoding="utf-8")
     assert "task_fit:" in yaml_content
     assert "repo_scan:" in yaml_content
-    assert "task_type: test_repair" in yaml_content
+    assert 'task_type: "test_repair"' in yaml_content
 
 
 def test_estimator_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,7 +97,7 @@ def test_estimator_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     # Check that task-fit.yaml actually exists
     yaml_file = task_dir_path / "task-fit.yaml"
     assert yaml_file.exists()
-    assert "task_type: documentation_cleanup" in yaml_file.read_text(encoding="utf-8")
+    assert 'task_type: "documentation_cleanup"' in yaml_file.read_text(encoding="utf-8")
 
 
 def test_estimator_records_policy_fields_and_evidence_inputs(tmp_path: Path) -> None:
@@ -144,11 +144,47 @@ def test_estimator_cli_json_is_stable_without_experimental_env(tmp_path: Path, m
     assert payload["artifact_path"] == f".devflow/tasks/{task.id}/task-fit.yaml"
 
 
-def test_line_and_token_estimate_caps_large_file_samples(tmp_path: Path) -> None:
+def test_line_and_token_estimate_uses_file_size_for_large_files(tmp_path: Path) -> None:
     large_file = tmp_path / "large.py"
     large_file.write_text(("x\n" * 80_000), encoding="utf-8")
 
     lines, tokens = _line_and_token_estimate([large_file])
 
-    assert lines < 40_000
-    assert tokens < 20_000
+    assert lines == 80_000
+    assert tokens >= large_file.stat().st_size // 4
+
+
+def test_estimator_uses_file_size_for_large_referenced_file_tokens(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    large_file = tmp_path / "large_feature.py"
+    large_file.write_text(("x = 1\n" * 50_000), encoding="utf-8")
+
+    task = create_task(tmp_path, "Update large_feature.py routing behavior")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
+    fit_data = estimate_task_fit(tmp_path, task.id)
+
+    assert fit_data["repo_scan"]["relevant_tokens_estimate"] >= large_file.stat().st_size // 4
+
+
+def test_save_task_fit_quotes_yaml_strings_and_list_items(tmp_path: Path) -> None:
+    fit_data = {
+        "task_fit": {
+            "task_type": "docs: cleanup #1",
+            "recommended_scout_tier": "*local",
+        },
+        "repo_scan": {
+            "evidence_inputs": ["CODE_MAP.md", "docs: design.md", "notes # current", "*alias"],
+            "missing_inputs": ["explicit referenced files # none"],
+        },
+    }
+
+    save_task_fit(tmp_path, "T-quoted", fit_data)
+
+    yaml_content = (tmp_path / ".devflow/tasks/T-quoted/task-fit.yaml").read_text(encoding="utf-8")
+    assert 'task_type: "docs: cleanup #1"' in yaml_content
+    assert 'recommended_scout_tier: "*local"' in yaml_content
+    assert '    - "docs: design.md"' in yaml_content
+    assert '    - "notes # current"' in yaml_content
+    assert '    - "*alias"' in yaml_content
