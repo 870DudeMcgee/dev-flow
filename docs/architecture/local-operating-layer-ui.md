@@ -227,15 +227,12 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 
 ## Next Safe Slice
 
-Prepare the next implementation slice around operational controls and maintainability:
+Milestone 18 Operating-Layer Beta is implemented on the feature branch. The next safe slice is closure:
 
-1. Preserve approved Action Rail command results after snapshot refresh using [docs/superpowers/plans/2026-06-05-operating-layer-approved-action-result-retention.md](../superpowers/plans/2026-06-05-operating-layer-approved-action-result-retention.md).
-2. Seed real desktop/mobile browser baselines when the environment can provide rendered screenshots reliably.
-3. Keep the dogfood production-readiness visual QA case passing with deterministic fallback, external/Appshot, or optional Playwright evidence.
-4. Review the full operating-layer diff for accidental scope creep.
-5. Keep all active docs aligned with the guarded control-layer contract.
-6. Run focused and broader verification.
-7. Stage/commit only after human approval.
+1. Review the `milestone-18-operating-layer-beta` branch and merge it to `main` only after explicit human approval.
+2. Push `main` through the DevMode git bridge.
+3. Remove the feature worktree and local branch after the pushed mainline is clean.
+4. Pick the next milestone from current product needs; do not treat archived factory workflow material as authority.
 
 Do not add worker execution, task creation, patch application, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
 

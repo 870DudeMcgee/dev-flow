@@ -861,6 +861,36 @@ button:focus-visible {
   padding: 12px;
 }
 
+.review-loop-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-2);
+  display: grid;
+  gap: 8px;
+}
+
+.review-loop-card.ready_to_promote {
+  border-color: var(--teal);
+}
+
+.review-loop-card.needs_human_decision {
+  border-color: var(--red);
+}
+
+.review-loop-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-loop-metrics span {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--panel);
+}
+
 .action-preview-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

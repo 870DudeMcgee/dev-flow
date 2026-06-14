@@ -1,6 +1,6 @@
-# Milestone 18 Operating-Layer Beta Implementation Plan
+# Milestone 18 Operating-Layer Beta Completed Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status:** Completed on branch `milestone-18-operating-layer-beta`. This file is now an execution record, not an active task queue.
 
 **Goal:** Make the local browser operating layer reliable enough to use as Dev-Flow's daily review and approval surface.
 
@@ -17,16 +17,17 @@
 - Modify `src/devflow/control_room/operating_layer_styles.py`: add compact review-loop UI styles without changing the page structure or broad visual system.
 - Modify `tests/test_operating_layer.py`: lock the review-loop snapshot contract, UI asset hooks, approved-action result retention hooks, and mutation boundary.
 - Modify `docs/architecture/local-operating-layer-ui.md`: mark result retention as implemented and make the next safe slice review-loop beta hardening.
-- Modify `docs/agent-handoff.md`: remove stale wording that says result retention is the next pending UI action.
+- Modify `docs/agent-handoff.md`: remove stale wording that says result retention is still future work.
 - Modify `docs/control-room-mvp.md`: note Milestone 18 operating-layer beta as the current UI hardening direction after Milestone 17.
 - Modify `docs/superpowers/specs/2026-06-14-milestone-18-operating-layer-beta-design.md`: keep the design aligned with final implementation evidence if scope changes during execution.
+- Modify `docs/superpowers/plans/2026-06-14-milestone-18-operating-layer-beta.md`: keep this implementation plan from reintroducing stale future-tense result-retention wording.
 
 ## Task 1: Lock Current Result-Retention Baseline
 
 **Files:**
 - Test: `tests/test_operating_layer.py`
 
-- [ ] **Step 1: Run focused hook test**
+- [x] **Step 1: Run focused hook test**
 
 Run:
 
@@ -36,7 +37,7 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py::test_
 
 Expected: pass. Current main already has `lastApprovedActionResult`, `rememberApprovedActionResult`, `refreshSnapshotAfterApprovedAction`, `preservedActionResultForSelectedTask`, and `Last approved command` in `APP_JS`.
 
-- [ ] **Step 2: Run server approval behavior tests**
+- [x] **Step 2: Run server approval behavior tests**
 
 Run:
 
@@ -50,7 +51,7 @@ PYTHONPATH=src:. .venv/bin/python -m pytest \
 
 Expected: pass. Approved verification and promotion execute only with exact approval evidence; broad worker-runtime actions stay blocked.
 
-- [ ] **Step 3: Record baseline if tests fail**
+- [x] **Step 3: Record baseline if tests fail**
 
 If either command fails, stop and repair the existing result-retention or approval-gate behavior before continuing. Do not add review-loop UI on top of a broken approval baseline.
 
@@ -60,7 +61,7 @@ If either command fails, stop and repair the existing result-retention or approv
 - Modify: `src/devflow/control_room/operating_layer.py`
 - Modify: `tests/test_operating_layer.py`
 
-- [ ] **Step 1: Write failing snapshot contract test**
+- [x] **Step 1: Write failing snapshot contract test**
 
 Append this test near the existing snapshot tests in `tests/test_operating_layer.py`:
 
@@ -103,7 +104,7 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     assert review_loop["ready_to_promote_count"] == 1
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -113,7 +114,7 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py::test_
 
 Expected: fail with `KeyError: 'review_loop'`.
 
-- [ ] **Step 3: Add the Pydantic model**
+- [x] **Step 3: Add the Pydantic model**
 
 In `src/devflow/control_room/operating_layer.py`, add this class after `OperatingLayerMissionFeedItem`:
 
@@ -137,7 +138,7 @@ Add this field to `OperatingLayerSnapshot` after `mission_feed`:
     review_loop: OperatingLayerReviewLoop
 ```
 
-- [ ] **Step 4: Wire the helper into snapshot construction**
+- [x] **Step 4: Wire the helper into snapshot construction**
 
 In `build_operating_layer_snapshot()`, add `review_loop` to the returned `OperatingLayerSnapshot` after `mission_feed`:
 
@@ -220,7 +221,7 @@ def _review_loop_summary(
     )
 ```
 
-- [ ] **Step 5: Run focused snapshot test**
+- [x] **Step 5: Run focused snapshot test**
 
 Run:
 
@@ -237,7 +238,7 @@ Expected: pass.
 - Modify: `src/devflow/control_room/operating_layer_styles.py`
 - Modify: `tests/test_operating_layer.py`
 
-- [ ] **Step 1: Add failing asset hook assertions**
+- [x] **Step 1: Add failing asset hook assertions**
 
 In `tests/test_operating_layer.py`, add these assertions to `test_operating_layer_static_server_serves_split_assets` after the existing Action Rail assertions:
 
@@ -257,7 +258,7 @@ Add these assertions after the CSS response is read in the same test:
 
 If that test does not currently hold CSS and JS in separate variables, keep the existing request pattern and add the CSS assertions where `css` is already decoded.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 
@@ -267,7 +268,7 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py::test_
 
 Expected: fail because the review-loop UI hooks are not present yet.
 
-- [ ] **Step 3: Call the renderer**
+- [x] **Step 3: Call the renderer**
 
 In `src/devflow/control_room/operating_layer_script.py`, inside `render()`, add this call immediately after `renderActions();`:
 
@@ -275,7 +276,7 @@ In `src/devflow/control_room/operating_layer_script.py`, inside `render()`, add 
   renderReviewLoopSummary();
 ```
 
-- [ ] **Step 4: Add the renderer**
+- [x] **Step 4: Add the renderer**
 
 In `src/devflow/control_room/operating_layer_script.py`, add this function immediately before `renderActions()`:
 
@@ -308,7 +309,7 @@ function renderReviewLoopSummary() {
 }
 ```
 
-- [ ] **Step 5: Keep preview rendering from erasing the summary**
+- [x] **Step 5: Keep preview rendering from erasing the summary**
 
 In `renderActionPreview(action)`, replace the line:
 
@@ -358,7 +359,7 @@ with:
   `);
 ```
 
-- [ ] **Step 6: Add styles**
+- [x] **Step 6: Add styles**
 
 In `src/devflow/control_room/operating_layer_styles.py`, add this CSS near the existing Action Rail styles:
 
@@ -394,7 +395,7 @@ In `src/devflow/control_room/operating_layer_styles.py`, add this CSS near the e
 }
 ```
 
-- [ ] **Step 7: Run asset test**
+- [x] **Step 7: Run asset test**
 
 Run:
 
@@ -412,60 +413,108 @@ Expected: pass.
 - Modify: `docs/control-room-mvp.md`
 - Modify: `docs/superpowers/specs/2026-06-14-milestone-18-operating-layer-beta-design.md`
 
-- [ ] **Step 1: Search stale result-retention wording**
+- [x] **Step 1: Search stale result-retention wording**
 
 Run:
 
 ```bash
-rg -n "preserve approved|result retention|result-retention|pending UI action|Next Safe Slice|Last approved command" docs PRODUCT_NORTH_STAR.md README.md
+PYTHONPATH=src:. python - <<'PY'
+from pathlib import Path
+
+needles = [
+    "preserve approved",
+    "result retention",
+    "result-retention",
+    "pending " + "UI action",
+    "Next Safe Slice",
+    "Last approved command",
+]
+roots = [Path("docs"), Path("PRODUCT_NORTH_STAR.md"), Path("README.md")]
+for root in roots:
+    paths = [root] if root.is_file() else sorted(root.rglob("*"))
+    for path in paths:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for needle in needles:
+            if needle in text:
+                print(f"{path}: contains {needle}")
+PY
 ```
 
 Expected: identify active docs that still call result retention future or pending.
 
-- [ ] **Step 2: Update architecture doc**
+- [x] **Step 2: Update architecture doc**
 
 In `docs/architecture/local-operating-layer-ui.md`, replace the `## Next Safe Slice` numbered list with:
 
 ```markdown
 ## Next Safe Slice
 
-Prepare the operating-layer beta review loop:
+Milestone 18 Operating-Layer Beta is implemented on the feature branch. The next safe slice is closure:
 
-1. Verify approved Action Rail command-result retention through focused tests and browser QA.
-2. Add a derived review-loop summary to the snapshot so the browser can explain verification, promotion, and human-decision pressure without raw logs.
-3. Keep the dogfood production-readiness visual QA case passing with deterministic fallback, external/Appshot, or optional Playwright evidence.
-4. Review the full operating-layer diff for accidental scope creep.
-5. Keep all active docs aligned with the guarded control-layer contract.
-6. Run focused and broader verification.
-7. Stage/commit only after human approval.
+1. Review the `milestone-18-operating-layer-beta` branch and merge it to `main` only after explicit human approval.
+2. Push `main` through the DevMode git bridge.
+3. Remove the feature worktree and local branch after the pushed mainline is clean.
+4. Pick the next milestone from current product needs; do not treat archived factory workflow material as authority.
 
 Do not add worker execution, task creation, patch application, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
 ```
 
-- [ ] **Step 3: Update agent handoff**
+- [x] **Step 3: Update agent handoff**
 
-In `docs/agent-handoff.md`, replace the `## Pending Operating-Layer Plan` section with:
+In `docs/agent-handoff.md`, replace the old operating-layer planning section with:
 
 ```markdown
-## Pending Operating-Layer Plan
+## Operating-Layer Beta State
 
-The next safe UI milestone is Milestone 18 Operating-Layer Beta: verify approved Action Rail result retention, remove stale pending-result-retention wording, add a derived browser review-loop summary, and dogfood exact browser verification and promotion without expanding browser mutations beyond the current guarded approval path.
+Milestone 18 Operating-Layer Beta is implemented on the feature branch: approved Action Rail result retention is covered, the snapshot includes a derived browser review-loop summary, active result-retention wording is no longer future-tense, and browser dogfood covers exact task verification plus exact task promotion without expanding browser mutations beyond the guarded approval path. The next safe action is human-approved merge and push.
 ```
 
-- [ ] **Step 4: Update MVP current-priority line**
+- [x] **Step 4: Update MVP current-priority line**
 
 In `docs/control-room-mvp.md`, replace the current-priority paragraph that ends with Milestone 17 with:
 
 ```markdown
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, and Milestone 17 task-fit/context-routing evidence are complete. Milestone 18 Operating-Layer Beta is the next browser review-loop hardening direction: verify approved Action Rail result retention, improve browser review-loop visibility, and keep exact verification/promotion as the only browser-approved mutations. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 17 task-fit/context-routing evidence, and Milestone 18 Operating-Layer Beta are complete on the feature branch. Milestone 18 keeps exact verification/promotion as the only browser-approved mutations, adds derived review-loop visibility, and preserves browser-session result retention after snapshot refresh. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
 ```
 
-- [ ] **Step 5: Re-run stale wording search**
+- [x] **Step 5: Re-run stale wording search**
 
 Run:
 
 ```bash
-rg -n "pending UI action|preserve approved Action Rail command results after snapshot refresh using|result retention as future|result-retention.*pending" docs PRODUCT_NORTH_STAR.md README.md
+PYTHONPATH=src:. python - <<'PY'
+import re
+from pathlib import Path
+
+patterns = [
+    re.compile("pending " + "UI action"),
+    re.compile("preserve approved Action Rail command results after snapshot refresh " + "using"),
+    re.compile("result retention as " + "future"),
+    re.compile("result-retention" + ".*pen" + "ding"),
+]
+roots = [Path("docs"), Path("PRODUCT_NORTH_STAR.md"), Path("README.md")]
+matches = []
+for root in roots:
+    paths = [root] if root.is_file() else sorted(root.rglob("*"))
+    for path in paths:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for pattern in patterns:
+            if pattern.search(text):
+                matches.append(f"{path}: matches {pattern.pattern}")
+if matches:
+    print("\n".join(matches))
+    raise SystemExit(1)
+PY
 ```
 
 Expected: no matches.
@@ -475,7 +524,7 @@ Expected: no matches.
 **Files:**
 - No new file modifications expected unless tests expose a gap.
 
-- [ ] **Step 1: Run focused operating-layer tests**
+- [x] **Step 1: Run focused operating-layer tests**
 
 Run:
 
@@ -485,7 +534,7 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py -q
 
 Expected: pass.
 
-- [ ] **Step 2: Run visual QA plan**
+- [x] **Step 2: Run visual QA plan**
 
 Run:
 
@@ -495,7 +544,7 @@ PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json
 
 Expected: pass JSON with `surface` or `visual_flow` describing the operating layer, desktop/mobile viewports, no-horizontal-overflow coverage, Orchestrator-first coverage, worker progress rows, and Action Rail safety states.
 
-- [ ] **Step 3: Run production-readiness dogfood**
+- [x] **Step 3: Run production-readiness dogfood**
 
 Run:
 
@@ -505,7 +554,7 @@ PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness
 
 Expected: pass with Silver-or-better readiness. If it fails below Silver, fix the smallest real operating-layer regression instead of weakening dogfood.
 
-- [ ] **Step 4: Run release companion gate**
+- [x] **Step 4: Run release companion gate**
 
 Run:
 
@@ -515,7 +564,7 @@ Run:
 
 Expected: pass with packaging build, `twine check`, and wheel smoke install enabled.
 
-- [ ] **Step 5: Confirm repo state**
+- [x] **Step 5: Confirm repo state**
 
 Run:
 
@@ -531,7 +580,7 @@ Expected: `git diff --check` has no output. `devflow git status` reports the exp
 **Files:**
 - No source changes expected unless browser QA finds a defect.
 
-- [ ] **Step 1: Create temporary dogfood project**
+- [x] **Step 1: Create temporary dogfood project**
 
 Run:
 
@@ -544,24 +593,24 @@ git init
 git config user.email devflow@example.test
 git config user.name "DevFlow Test"
 git commit --allow-empty -m "initial"
-PYTHONPATH=/Users/josh/Desktop/Dev-Flow/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow init
-PYTHONPATH=/Users/josh/Desktop/Dev-Flow/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task create "Milestone 18 browser review loop"
-PYTHONPATH=/Users/josh/Desktop/Dev-Flow/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task run task-0001 --worker shell -- /bin/sh -c 'printf "browser review evidence\n" > result.txt'
+PYTHONPATH=<repo-root>/src:<repo-root> <repo-root>/.venv/bin/devflow init
+PYTHONPATH=<repo-root>/src:<repo-root> <repo-root>/.venv/bin/devflow task create "Milestone 18 browser review loop"
+PYTHONPATH=<repo-root>/src:<repo-root> <repo-root>/.venv/bin/devflow task run task-0001 --worker shell -- /bin/sh -c 'printf "browser review evidence\n" > result.txt'
 ```
 
 Expected: task `task-0001` has worker output and needs verification.
 
-- [ ] **Step 2: Start local operating-layer server**
+- [x] **Step 2: Start local operating-layer server**
 
 Run from `$PROJECT_ROOT`:
 
 ```bash
-PYTHONPATH=/Users/josh/Desktop/Dev-Flow/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow operating-layer serve --host 127.0.0.1 --port 8765
+PYTHONPATH=<repo-root>/src:<repo-root> <repo-root>/.venv/bin/devflow operating-layer serve --host 127.0.0.1 --port 8765
 ```
 
 Expected: server prints a local URL and stays running.
 
-- [ ] **Step 3: Browser-check verification**
+- [x] **Step 3: Browser-check verification**
 
 Open `http://127.0.0.1:8765`, select `task-0001`, enter verification command:
 
@@ -581,7 +630,7 @@ Last approved command
 
 The review-loop summary should show one promotion-ready item or the correct promotion next action.
 
-- [ ] **Step 4: Browser-check promotion**
+- [x] **Step 4: Browser-check promotion**
 
 In the browser, approve promotion for the exact task promotion command and add this context note:
 
@@ -599,12 +648,12 @@ Last approved command
 
 The task state should be `promoted`, and the browser should not offer broad worker execution, task creation, patch application, git publication, provider calls, or autonomous routing as approved browser mutations.
 
-- [ ] **Step 5: Stop server and inspect canonical evidence**
+- [x] **Step 5: Stop server and inspect canonical evidence**
 
 Stop the server with `Ctrl-C`, then run:
 
 ```bash
-PYTHONPATH=/Users/josh/Desktop/Dev-Flow/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task show task-0001
+PYTHONPATH=<repo-root>/src:<repo-root> <repo-root>/.venv/bin/devflow task show task-0001
 test -f .devflow/tasks/task-0001/verification.json
 test -f .devflow/tasks/task-0001/promotion-context.md
 ```
@@ -616,7 +665,7 @@ Expected: task show agrees with the browser state, and both evidence files exist
 **Files:**
 - Review all modified files.
 
-- [ ] **Step 1: Review final diff**
+- [x] **Step 1: Review final diff**
 
 Run:
 
@@ -626,7 +675,7 @@ git diff -- src/devflow/control_room/operating_layer.py src/devflow/control_room
 
 Expected: diff only covers Milestone 18 operating-layer beta scope.
 
-- [ ] **Step 2: Confirm boundary self-check**
+- [x] **Step 2: Confirm boundary self-check**
 
 Check the diff against these constraints:
 
@@ -643,7 +692,7 @@ No hidden memory/vector/RAG/embedding/training surface.
 
 Expected: all statements remain true.
 
-- [ ] **Step 3: Create checkpoint only after approval**
+- [x] **Step 3: Create checkpoint only after approval**
 
 After verification passes and the human approves committing, run:
 

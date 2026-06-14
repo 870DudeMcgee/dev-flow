@@ -322,6 +322,19 @@ class OperatingLayerMissionFeedItem(BaseModel):
     timestamp: str | None = None
 
 
+class OperatingLayerReviewLoop(BaseModel):
+    status: str
+    headline: str
+    next_safe_action: str
+    browser_allowed_mutations: list[str] = Field(default_factory=list)
+    browser_blocked_mutations: list[str] = Field(default_factory=list)
+    needs_verification_count: int = 0
+    ready_to_promote_count: int = 0
+    blocked_decision_count: int = 0
+    last_result_retention: str = "browser-session"
+    evidence_summary: str = ""
+
+
 class OperatingLayerSnapshot(BaseModel):
     schema_version: int = OPERATING_LAYER_SCHEMA_VERSION
     generated_at: str
@@ -344,6 +357,7 @@ class OperatingLayerSnapshot(BaseModel):
     multi_project: OperatingLayerMultiProject | None = None
     worker_activity: list[OperatingLayerWorkerActivity] = Field(default_factory=list)
     mission_feed: list[OperatingLayerMissionFeedItem] = Field(default_factory=list)
+    review_loop: OperatingLayerReviewLoop
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -358,7 +372,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(dashboard.tasks)
     inbox = _inbox_items(dashboard.tasks, freshness, project_id=project_id)
-    promotion_desk = _promotion_candidates(dashboard.ready_to_promote)
+    promotion_desk = _promotion_candidates(dashboard.ready_to_promote, project_id=project_id)
     evidence = _evidence(dashboard.tasks)
     goal_board = _goal_board(root, freshness, project_id=project_id)
     gate_receipts = _gate_receipts(root, dashboard.tasks)
@@ -378,11 +392,15 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
         lane_lookup.setdefault(task.lane, []).append(task.id)
     focus_task_id = _focus_task_id(tasks)
 
+    dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
+    if dashboard_next_action.command:
+        dashboard_next_action.command = _scope_task_command(dashboard_next_action.command, project_id)
+
     return OperatingLayerSnapshot(
         generated_at=datetime.now(timezone.utc).isoformat(),
         project=OperatingLayerProject(**dashboard.project.model_dump(), project_id=project_id),
         health=dashboard.health,
-        next_action=dashboard.next_action,
+        next_action=dashboard_next_action,
         goals=_goal_cards(root, freshness),
         focus_goal_id=focus_goal_id,
         focus_task_id=focus_task_id,
@@ -410,6 +428,13 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
             evidence=evidence,
             goal_board=goal_board,
             focus_goal_id=focus_goal_id,
+        ),
+        review_loop=_review_loop_summary(
+            tasks,
+            inbox=inbox,
+            gate_receipts=gate_receipts,
+            promotion_desk=promotion_desk,
+            next_action=dashboard_next_action,
         ),
         action_rail=_project_actions(project_id),
         warnings=warnings,
@@ -508,6 +533,79 @@ def _worker_activity(tasks: list[OperatingLayerTask]) -> list[OperatingLayerWork
             row.worker,
         ),
     )[:6]
+
+
+def _review_loop_summary(
+    tasks: list[OperatingLayerTask],
+    *,
+    inbox: list[OperatingLayerInboxItem],
+    gate_receipts: list[OperatingLayerGateReceipt],
+    promotion_desk: list[OperatingLayerPromotionCandidate],
+    next_action: DashboardNextAction,
+) -> OperatingLayerReviewLoop:
+    needs_verification = [task for task in tasks if task.lane == "needs_verification"]
+    ready_to_promote = [task for task in tasks if task.lane == "ready_to_promote"]
+    blocked_decisions = [
+        item for item in inbox if item.kind in {"question", "blocked_task", "task_attention", "human_decision"}
+    ]
+    verified_count = sum(1 for gate in gate_receipts if gate.verification)
+    worker_output_count = sum(1 for gate in gate_receipts if gate.worker_evidence)
+
+    if blocked_decisions:
+        status = "needs_human_decision"
+        decision_count = len(blocked_decisions)
+        headline = (
+            f"{decision_count} decision item{'s' if decision_count != 1 else ''} "
+            f"{'need' if decision_count != 1 else 'needs'} attention"
+        )
+    elif ready_to_promote:
+        status = "ready_to_promote"
+        headline = f"{len(ready_to_promote)} task{'s' if len(ready_to_promote) != 1 else ''} ready for browser approval"
+    elif needs_verification:
+        status = "needs_verification"
+        headline = f"{len(needs_verification)} task{'s' if len(needs_verification) != 1 else ''} need{'s' if len(needs_verification) == 1 else ''} verification"
+    else:
+        status = "watching"
+        headline = "No browser approval items are waiting"
+
+    promotion_command = promotion_desk[0].command if promotion_desk else None
+    blocked_command = blocked_decisions[0].command if status == "needs_human_decision" and blocked_decisions else None
+    ready_command = ready_to_promote[0].next_action.command if ready_to_promote else None
+    verification_command = needs_verification[0].next_action.command if needs_verification else None
+    command = blocked_command
+    if not command and status == "ready_to_promote":
+        command = promotion_command or ready_command
+    if not command and status == "needs_verification":
+        command = verification_command
+    if not command:
+        command = next_action.command or promotion_command or ready_command or verification_command or "devflow dashboard"
+
+    return OperatingLayerReviewLoop(
+        status=status,
+        headline=headline,
+        next_safe_action=command,
+        browser_allowed_mutations=["task verification", "task promotion"],
+        browser_blocked_mutations=[
+            "task creation",
+            "worker execution",
+            "patch application",
+            "git publication",
+            "provider-backed model calls",
+            "autonomous routing execution",
+        ],
+        needs_verification_count=len(needs_verification),
+        ready_to_promote_count=len(ready_to_promote),
+        blocked_decision_count=len(blocked_decisions),
+        last_result_retention="browser-session",
+        evidence_summary=(
+            f"{worker_output_count} task{'s' if worker_output_count != 1 else ''} "
+            f"{'have' if worker_output_count != 1 else 'has'} worker output; "
+            f"{verified_count} task{'s' if verified_count != 1 else ''} "
+            f"{'have' if verified_count != 1 else 'has'} passed verification; "
+            f"{len(ready_to_promote)} task{'s' if len(ready_to_promote) != 1 else ''} "
+            f"{'are' if len(ready_to_promote) != 1 else 'is'} ready for promotion."
+        ),
+    )
 
 
 def _mission_feed(
@@ -957,12 +1055,16 @@ def _inbox_items(
     return sorted(items, key=lambda item: (item.priority, item.id))
 
 
-def _promotion_candidates(projections: list[TaskStatusProjection]) -> list[OperatingLayerPromotionCandidate]:
+def _promotion_candidates(
+    projections: list[TaskStatusProjection],
+    *,
+    project_id: str | None,
+) -> list[OperatingLayerPromotionCandidate]:
     return [
         OperatingLayerPromotionCandidate(
             task_id=projection.task.id,
             title=projection.task.title,
-            command=f"devflow task promote-preview {projection.task.id}",
+            command=_scope_task_command(f"devflow task promote-preview {projection.task.id}", project_id),
             merge_ready=projection.merge_ready,
             blockers=projection.promotion_blockers,
         )

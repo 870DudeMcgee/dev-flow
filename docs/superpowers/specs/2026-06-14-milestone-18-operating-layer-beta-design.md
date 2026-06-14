@@ -21,7 +21,7 @@ The active operating-layer architecture already has:
 - exact approval-gated task verification
 - exact approval-gated task promotion
 
-Current main already contains client-side approved Action Rail result-retention hooks. Active docs still describe that issue as the pending UI action, so Milestone 18 must start by verifying the hook behavior end to end and cleaning stale operating-layer guidance before broadening the browser review loop.
+Current main already contains client-side approved Action Rail result-retention hooks. Milestone 18 starts by verifying that hook behavior end to end, cleaning stale operating-layer guidance, and broadening the browser review loop with a derived summary.
 
 ## Product Decision
 
@@ -30,7 +30,7 @@ Milestone 18 is an operating-layer beta hardening milestone, not a new automatio
 Promote these pieces:
 
 1. Verify approved verification and promotion command result retention after snapshot refresh.
-2. Remove active-doc wording that still frames result retention as future work.
+2. Remove active-doc wording that still treats approved Action Rail retention as unfinished work.
 3. Tighten Action Rail rendering around exact safe next actions, explicit approval gates, command previews, and bounded command output.
 4. Improve task, goal, evidence, and review drilldowns so readiness can be understood without opening raw logs.
 5. Dogfood a real browser review loop: create a task, run a worker through the CLI, verify from the browser, promote from the browser, and confirm evidence stays visible.

@@ -244,6 +244,7 @@ function render() {
   renderLanes();
   renderInspector();
   renderActions();
+  renderReviewLoopSummary();
   renderGoalBoard();
   renderSpecs();
   renderGates();
@@ -1354,6 +1355,38 @@ function verificationLabel(verification) {
   return `${verification.status} / exit ${verification.exit_code}`;
 }
 
+function reviewLoopCount(value) {
+  const count = value === null || value === undefined ? 0 : value;
+  return escapeHtml(String(count));
+}
+
+function renderReviewLoopSummary() {
+  const container = byId("action-preview");
+  const loop = snapshot.review_loop;
+  if (!container || !loop || !sectionExpanded("actions")) return;
+  const existing = container.querySelector("[data-review-loop-summary]");
+  if (existing) existing.remove();
+  const card = document.createElement("div");
+  const statusClass = String(loop.status || "watching").replace(/[^a-z0-9_-]/gi, "");
+  card.className = `review-loop-card ${statusClass}`;
+  card.setAttribute("data-review-loop-summary", "true");
+  card.innerHTML = `
+    <div class="section-heading">
+      <span>Browser approvals</span>
+      <strong>${escapeHtml(loop.status || "watching")}</strong>
+    </div>
+    <p>${escapeHtml(loop.headline || "No browser approval items are waiting")}</p>
+    <div class="review-loop-metrics">
+      <span><strong>${reviewLoopCount(loop.needs_verification_count)}</strong> verify</span>
+      <span><strong>${reviewLoopCount(loop.ready_to_promote_count)}</strong> promote</span>
+      <span><strong>${reviewLoopCount(loop.blocked_decision_count)}</strong> decisions</span>
+    </div>
+    <code>${escapeHtml(loop.next_safe_action || "devflow dashboard")}</code>
+    <p class="label">${escapeHtml(loop.evidence_summary || "No review evidence yet.")}</p>
+  `;
+  container.prepend(card);
+}
+
 function renderActions() {
   const task = taskById(selectedTaskId);
   const selection = goalSelectionPayload();
@@ -1369,7 +1402,7 @@ function renderActions() {
   const list = byId("action-list");
   const preview = byId("action-preview");
   list.innerHTML = "";
-  preview.innerHTML = "";
+  preview.querySelectorAll(":scope > *:not([data-review-loop-summary])").forEach((node) => node.remove());
   if (!sectionExpanded("actions")) return;
   if (!actions.length) {
     list.innerHTML = `<div class="empty">None</div>`;
@@ -1406,9 +1439,9 @@ function renderActions() {
 
 function renderActionPreview(action) {
   const preview = byId("action-preview");
-  preview.innerHTML = "";
+  preview.querySelectorAll(":scope > *:not([data-review-loop-summary])").forEach((node) => node.remove());
   if (!action) {
-    preview.innerHTML = `<div class="empty">Select an action to inspect command safety</div>`;
+    preview.insertAdjacentHTML("beforeend", `<div class="empty">Select an action to inspect command safety</div>`);
     return;
   }
   const mayAutoRun = action.supervisor_may_auto_run ? "Supervisor read-only safe" : "Human approval required";
@@ -1456,7 +1489,7 @@ function renderActionPreview(action) {
   const resultMarkup = actionResult && actionResult.status !== "running"
     ? renderActionResult(actionResult)
     : "";
-  preview.innerHTML = `
+  preview.insertAdjacentHTML("beforeend", `
     <div class="section-heading">
       <span>Command Preview</span>
       <strong>${escapeHtml(action.scope || "scope")}</strong>
@@ -1490,7 +1523,7 @@ function renderActionPreview(action) {
       <span class="label">${escapeHtml(controlLabel)}</span>
     </div>
     ${isRunning ? '<div class="action-result"><strong>Running command...</strong></div>' : resultMarkup}
-  `;
+  `);
   const verificationInput = preview.querySelector("[data-verification-command]");
   if (verificationInput) {
     verificationInput.addEventListener("input", (event) => {

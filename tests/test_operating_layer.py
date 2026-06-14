@@ -108,6 +108,75 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
 
 
+def test_operating_layer_snapshot_includes_browser_review_loop_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "browser review task"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+
+    snapshot = build_operating_layer_snapshot(tmp_path)
+    payload = snapshot.model_dump(mode="json")
+
+    review_loop = payload["review_loop"]
+    assert review_loop["status"] == "needs_verification"
+    assert review_loop["headline"] == "1 task needs verification"
+    assert review_loop["next_safe_action"] == 'devflow task verify task-0001 --shell "<command>"'
+    assert review_loop["browser_allowed_mutations"] == ["task verification", "task promotion"]
+    assert "worker execution" in review_loop["browser_blocked_mutations"]
+    assert "task creation" in review_loop["browser_blocked_mutations"]
+    assert review_loop["needs_verification_count"] == 1
+    assert review_loop["ready_to_promote_count"] == 0
+    assert review_loop["blocked_decision_count"] == 0
+    assert review_loop["last_result_retention"] == "browser-session"
+    assert (
+        review_loop["evidence_summary"]
+        == "1 task has worker output; 0 tasks have passed verification; 0 tasks are ready for promotion."
+    )
+
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
+    assert verify.exit_code == 0, verify.output
+
+    promoted_snapshot = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    review_loop = promoted_snapshot["review_loop"]
+    assert review_loop["status"] == "ready_to_promote"
+    assert review_loop["headline"] == "1 task ready for browser approval"
+    assert review_loop["next_safe_action"] == "devflow task promote-preview task-0001"
+    assert review_loop["needs_verification_count"] == 0
+    assert review_loop["ready_to_promote_count"] == 1
+
+
+def test_operating_layer_review_loop_flags_failed_verification_decision_pressure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "failed browser review task"]).exit_code == 0
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f missing.txt"])
+    assert verify.exit_code != 0, verify.output
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    review_loop = payload["review_loop"]
+
+    assert review_loop["status"] == "needs_human_decision"
+    assert review_loop["headline"] == "1 decision item needs attention"
+    assert review_loop["blocked_decision_count"] == 1
+    assert any(
+        expected in review_loop["next_safe_action"]
+        for expected in (
+            'devflow task verify task-0001 --shell "<command>"',
+            "devflow task log task-0001 --verify --tail 80",
+        )
+    )
+    assert any(item["kind"] == "task_attention" for item in payload["inbox"])
+
+
 def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
     tmp_path: Path,
     monkeypatch,
@@ -423,6 +492,8 @@ def test_operating_layer_includes_multi_project_overview(
     assert snapshot.multi_project.total_tasks == 1
     assert snapshot.project.project_id == "demo"
     assert snapshot.action_rail[0].command == "devflow project status demo"
+    assert snapshot.next_action.command == "devflow task run task-0001 --worker shell --project demo -- <command>"
+    assert snapshot.review_loop.next_safe_action == "devflow task run task-0001 --worker shell --project demo -- <command>"
     assert snapshot.tasks[0].next_action.command == (
         "devflow task run task-0001 --worker shell --project demo -- <command>"
     )
@@ -431,6 +502,21 @@ def test_operating_layer_includes_multi_project_overview(
     assert projects["demo"].next_action == "devflow project status demo"
     assert projects["missing"].path_status == "missing"
     assert projects["missing"].next_action == "devflow project doctor missing"
+
+    run = runner.invoke(app, ["task", "run", "task-0001", "--shell", "echo done > result.txt"])
+    assert run.exit_code == 0, run.output
+    needs_verification = build_operating_layer_snapshot(project_root)
+    assert needs_verification.review_loop.status == "needs_verification"
+    assert needs_verification.review_loop.next_safe_action == (
+        'devflow task verify task-0001 --shell "<command>" --project demo'
+    )
+
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
+    assert verify.exit_code == 0, verify.output
+    ready_to_promote = build_operating_layer_snapshot(project_root)
+    assert ready_to_promote.review_loop.status == "ready_to_promote"
+    assert ready_to_promote.review_loop.next_safe_action == "devflow task promote-preview task-0001 --project demo"
+    assert ready_to_promote.promotion_desk[0].command == "devflow task promote-preview task-0001 --project demo"
 
 
 def test_operating_layer_server_serves_app_and_snapshot(
@@ -492,6 +578,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "work-status-card" in css
         assert "event-status-card" in css
         assert "action-preview-grid" in css
+        assert ".review-loop-card" in css
+        assert ".review-loop-metrics" in css
         assert "filter-control" in css
         assert "page-hidden" in css
 
@@ -523,6 +611,13 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "plainEventLabel" in js
         assert "plainFeedDetail" in js
         assert "renderActionPreview" in js
+        assert "renderReviewLoopSummary" in js
+        assert "reviewLoopCount" in js
+        assert "escapeHtml(String(count))" in js or "String(count)" in js
+        assert "reviewLoopCount(loop.ready_to_promote_count)" in js
+        assert "review-loop-card" in js
+        assert "Browser approvals" in js
+        assert "snapshot.review_loop" in js
         assert "selectedActionCommand" in js
         assert "globalFilter" in js
         assert "taskMatchesFilter" in js

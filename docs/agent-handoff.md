@@ -190,9 +190,9 @@ Current verification covers the command/filesystem/safety contract, copied works
 
 Goal `G-0001` integration notes live in [docs/architecture/control-room-refactoring-integration.md](architecture/control-room-refactoring-integration.md).
 
-## Pending Operating-Layer Plan
+## Operating-Layer Beta State
 
-The next safe UI action is [docs/superpowers/plans/2026-06-05-operating-layer-approved-action-result-retention.md](superpowers/plans/2026-06-05-operating-layer-approved-action-result-retention.md): preserve the visible result of browser-approved verification/promotion commands after `/api/snapshot` refresh while keeping server-side approval guardrails authoritative.
+Milestone 18 Operating-Layer Beta is implemented on the feature branch: approved Action Rail result retention is covered, the snapshot includes a derived browser review-loop summary, active result-retention wording is no longer future-tense, and browser dogfood covers exact task verification plus exact task promotion without expanding browser mutations beyond the guarded approval path. The next safe action is human-approved merge and push.
 
 ## Known Worktree State At Handoff
 

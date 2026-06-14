@@ -442,7 +442,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, and Milestone 17 task-fit/context-routing evidence are complete. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 17 task-fit/context-routing evidence, and Milestone 18 Operating-Layer Beta are complete on the feature branch. Milestone 18 keeps exact verification/promotion as the only browser-approved mutations, adds derived review-loop visibility, and preserves browser-session result retention after snapshot refresh. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
