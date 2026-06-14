@@ -6,11 +6,16 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.persistence import get_task
+import yaml
+
+from devflow.control_room.persistence import atomic_write_text, get_task
 from devflow.control_room.paths import task_dir
 from devflow.control_room.estimator import estimate_task_fit, save_task_fit
 from devflow.control_room.router import route_task, save_routing_decision
 from devflow.control_room.agent_registry import load_agent_registry
+
+
+SCORECARD_FILENAME = "routing-quality-scorecard.yaml"
 
 
 def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
@@ -29,8 +34,7 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
         decision_data = route_task(root, task_id)
         save_routing_decision(root, task_id, decision_data)
     else:
-        # Re-run router to match actual registry
-        decision_data = route_task(root, task_id)
+        decision_data = _read_routing_decision(routing_file) or route_task(root, task_id)
 
     task = get_task(root, task_id)
     rd = decision_data.get("routing_decision", {})
@@ -38,8 +42,12 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
     rs = fit_data.get("repo_scan", {})
 
     selected = rd.get("selected", {})
+    if not isinstance(selected, dict):
+        selected = {}
     planner_agent_id = selected.get("planner", "deterministic-shell")
     worker_agent_id = selected.get("worker", "deterministic-shell")
+    verification_passed = _json_bool_from_task_artifact(root, task_id, "verification.json", "passed")
+    promotion_ready = _promotion_ready_from_task_artifact(root, task_id)
 
     # Read events from events.jsonl
     events: list[dict[str, Any]] = []
@@ -170,6 +178,12 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
     return {
         "scorecard": {
             "task_id": task_id,
+            "decision_mode": rd.get("decision_mode") or "evidence_only",
+            "verification_passed": verification_passed,
+            "promotion_ready": promotion_ready,
+            "selected_roles": sorted(str(role) for role in selected.keys()),
+            "unresolved_roles": _unresolved_roles(rd.get("unresolved", [])),
+            "state_mutation": "none",
             "first_run_pass": first_run_pass,
             "boundary_violations": boundary_violations,
             "frontier_escalation_needed": frontier_escalation_needed,
@@ -185,37 +199,75 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
     }
 
 
-def save_scorecard(root: Path, task_id: str, scorecard_data: dict[str, Any]) -> None:
-    """Save the quality scorecard data to scorecard.yaml inside the task directory."""
+def save_scorecard(root: Path, task_id: str, scorecard_data: dict[str, Any]) -> Path:
+    """Save the routing quality scorecard data inside the task directory."""
     task_directory = task_dir(root, task_id)
     task_directory.mkdir(parents=True, exist_ok=True)
-    yaml_file = task_directory / "scorecard.yaml"
+    yaml_file = scorecard_path(root, task_id)
+    atomic_write_text(yaml_file, yaml.safe_dump(scorecard_data, sort_keys=False))
+    return yaml_file
 
-    lines = []
-    lines.append("scorecard:")
-    
-    sc = scorecard_data.get("scorecard", {})
-    lines.append(f"  task_id: {sc.get('task_id', '')}")
 
-    for key in sorted(sc.keys()):
-        if key == "task_id":
-            continue
-        val = sc[key]
-        if isinstance(val, bool):
-            val_str = "true" if val else "false"
-            lines.append(f"  {key}: {val_str}")
-        elif isinstance(val, (int, float)):
-            lines.append(f"  {key}: {val}")
-        elif val is None:
-            lines.append(f"  {key}: null")
-        elif isinstance(val, list):
-            lines.append(f"  {key}:")
-            if not val:
-                lines.append("    - none")
-            else:
-                for item in val:
-                    lines.append(f"    - {item}")
-        else:
-            lines.append(f"  {key}: {val}")
+def scorecard_path(root: Path, task_id: str) -> Path:
+    return task_dir(root, task_id) / SCORECARD_FILENAME
 
-    yaml_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+def _read_routing_decision(path: Path) -> dict[str, Any] | None:
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    routing_decision = payload.get("routing_decision")
+    if not isinstance(routing_decision, dict):
+        return None
+    return {"routing_decision": routing_decision}
+
+
+def _json_bool_from_task_artifact(root: Path, task_id: str, filename: str, key: str) -> bool | str:
+    path = task_dir(root, task_id) / filename
+    payload = _read_json_object(path)
+    if payload is None:
+        return "unknown"
+    if key not in payload:
+        return "unknown"
+    value = payload[key]
+    return value if isinstance(value, bool) else bool(value)
+
+
+def _promotion_ready_from_task_artifact(root: Path, task_id: str) -> bool | str:
+    path = task_dir(root, task_id) / "merge-readiness.json"
+    payload = _read_json_object(path)
+    if payload is None:
+        return "unknown"
+    if payload.get("verification_status") == "not_run" and payload.get("verification_finished_at") is None:
+        return "unknown"
+    if "ready" not in payload:
+        return "unknown"
+    value = payload["ready"]
+    return value if isinstance(value, bool) else bool(value)
+
+
+def _read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _unresolved_roles(unresolved: object) -> list[str]:
+    if not isinstance(unresolved, list):
+        return []
+    roles: list[str] = []
+    for item in unresolved:
+        if isinstance(item, dict):
+            role = item.get("role")
+            if isinstance(role, str) and role:
+                roles.append(role)
+    return roles

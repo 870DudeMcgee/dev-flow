@@ -1783,35 +1783,57 @@ def task_route_command(
 
 
 @task_app.command("scorecard")
-def task_scorecard_command(task_id: str) -> None:
+def task_scorecard_command(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Print routing-quality scorecard as JSON."),
+) -> None:
     """Compile and display a task's post-run routing quality scorecard."""
     root = Path.cwd()
     try:
         from devflow.control_room.scorecard import generate_scorecard, save_scorecard
         scorecard_data = generate_scorecard(root, task_id)
-        save_scorecard(root, task_id, scorecard_data)
+        saved_path = save_scorecard(root, task_id, scorecard_data)
     except Exception as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+
+    artifact_path = _relative(root, saved_path)
+    sc = scorecard_data["scorecard"]
+    if json_output:
+        typer.echo(json.dumps(
+            {
+                "task_id": task_id,
+                "artifact_path": artifact_path,
+                "scorecard": sc,
+            },
+            indent=2,
+            sort_keys=True,
+        ))
+        return
 
     # Render beautiful scorecard breakdown
     typer.echo(f"Compiled routing-quality scorecard for task: {task_id}")
     typer.echo("-" * 50)
 
-    sc = scorecard_data["scorecard"]
-    typer.echo(f"Overall Quality Rating:     {_format_scorecard_rating(sc['overall_quality_rating'])}")
-    typer.echo(f"First-Run Verification Pass: {_format_scorecard_flag(sc['first_run_pass'])}")
-    typer.echo(f"Boundary Violations:        {_format_scorecard_flag(sc['boundary_violations'])}")
-    typer.echo(f"Frontier Escalation Needed: {_format_scorecard_flag(sc['frontier_escalation_needed'])}")
+    typer.echo(f"Decision Mode:              {sc.get('decision_mode', 'unknown')}")
+    typer.echo(f"Verification Passed:        {_format_scorecard_flag(sc.get('verification_passed'))}")
+    typer.echo(f"Promotion Ready:            {_format_scorecard_flag(sc.get('promotion_ready'))}")
+    typer.echo(f"Selected Roles:             {_format_scorecard_list(sc.get('selected_roles'))}")
+    typer.echo(f"Unresolved Roles:           {_format_scorecard_list(sc.get('unresolved_roles'))}")
+    typer.echo(f"State Mutation:             {sc.get('state_mutation', 'unknown')}")
+    typer.echo(f"Overall Quality Rating:     {_format_scorecard_rating(sc.get('overall_quality_rating'))}")
+    typer.echo(f"First-Run Verification Pass: {_format_scorecard_flag(sc.get('first_run_pass'))}")
+    typer.echo(f"Boundary Violations:        {_format_scorecard_flag(sc.get('boundary_violations'))}")
+    typer.echo(f"Frontier Escalation Needed: {_format_scorecard_flag(sc.get('frontier_escalation_needed'))}")
     if "frontier_escalation_avoided" in sc:
-        typer.echo(f"Frontier Escalation Avoided: {_format_scorecard_flag(sc['frontier_escalation_avoided'])}")
-    typer.echo(f"Context Ceiling Exceeded:   {_format_scorecard_flag(sc['context_limit_exceeded'])}")
-    typer.echo(f"Review Mistakes Found:      {_format_scorecard_flag(sc['review_mistakes_found'])}")
-    typer.echo(f"Latency:                    {sc['latency_seconds']} seconds")
-    typer.echo(f"Cost Avoided:               {_format_scorecard_cost(sc['cost_avoided_usd'])}")
+        typer.echo(f"Frontier Escalation Avoided: {_format_scorecard_flag(sc.get('frontier_escalation_avoided'))}")
+    typer.echo(f"Context Ceiling Exceeded:   {_format_scorecard_flag(sc.get('context_limit_exceeded'))}")
+    typer.echo(f"Review Mistakes Found:      {_format_scorecard_flag(sc.get('review_mistakes_found'))}")
+    typer.echo(f"Latency:                    {sc.get('latency_seconds', 'unknown')} seconds")
+    typer.echo(f"Cost Avoided:               {_format_scorecard_cost(sc.get('cost_avoided_usd'))}")
 
     typer.echo("-" * 50)
-    typer.echo(f"Wrote scorecard.yaml under .devflow/tasks/{task_id}/")
+    typer.echo(f"Wrote routing-quality-scorecard.yaml under .devflow/tasks/{task_id}/")
 
 
 @task_app.command("packet")
@@ -3382,6 +3404,14 @@ def _format_scorecard_cost(value: object) -> str:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f"${value:.2f} USD"
     return "unknown" if value is None or value == "unknown" else str(value)
+
+
+def _format_scorecard_list(value: object) -> str:
+    if value is None or value == "unknown":
+        return "unknown"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value) if value else "none"
+    return str(value)
 
 
 def _echo_result_summary(path: Path, summary: str | None = None) -> None:
