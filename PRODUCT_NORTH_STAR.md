@@ -386,7 +386,7 @@ The current shell-worker control-room contract is documented in [docs/mvp-contra
 
 The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker evidence, verification, questions, and promotion readiness without reading huge logs, and can execute supervisor-classified read-only commands from the Action Rail. Mutating commands still stop at explicit human approval and trusted CLI execution. This slice does not add a database, autonomous routing, provider-backed worker calls, hidden memory, or direct merge/push/PR automation.
 
-The next architecture direction is [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md). It defines agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md) extends that direction with task-fit scoring, context estimation, layered context packs, scout roles, and routing-quality feedback. These documents are design-only until implementation explicitly starts with registry loading, manual packets, shell alignment, task-fit/context estimation, context pack building, and conservative routing.
+The active registry and routing architecture is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md). Registry/runtime guardrails define agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. Milestone 17 implements evidence-only task-fit scoring, context estimation, scout signals, route decisions, and routing-quality scorecards. Autonomous worker assignment, provider-backed execution, worker-owned verification, promotion, commit, push, and publication remain excluded.
 
 Required commands:
 
@@ -611,14 +611,15 @@ Build in this order:
 - `agent list`, `agent show`, and `agent packet`
 - manual adapter
 - shell adapter alignment
-- deterministic task-fit and context-size estimator
-- role-based context pack builder
+- deterministic task-fit and context-size estimator (implemented as Milestone 17 evidence through `devflow task fit`)
+- role-based context pack builder (implemented as derived evidence through `devflow agent context-pack`)
 - Ollama/Qwen local adapter
 - OpenAI-compatible local or remote adapter
 - native provider adapters
-- local scout reports as optional evidence
-- routing engine
-- metrics
+- local scout reports (implemented as Milestone 17 evidence through `devflow task scout`)
+- evidence-only route decisions and next-command recommendations (implemented through `devflow task route`)
+- routing-quality scorecards (implemented through `devflow task scorecard`)
+- autonomous routing engine, provider-backed execution, and metrics-driven policy changes remain later autonomy/provider work
 
 Success check:
 

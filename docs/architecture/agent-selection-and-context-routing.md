@@ -258,7 +258,7 @@ routing_rules:
     verifier: deterministic_plus_human
 ```
 
-`model_routing_change` is high leverage and high risk because it controls future work assignment. It must require frontier planning and review until Dev-Flow has enough routing-quality evidence to relax the policy.
+`model_routing_change` is high leverage and high risk because it controls later work assignment. It must require frontier planning and review until Dev-Flow has enough scorecard evidence to relax the policy.
 
 Routing output must be recorded:
 
