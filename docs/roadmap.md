@@ -19,9 +19,9 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), and Milestone 15 multi-project control-room hardening.
+Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, and Milestone 16 agent registry runtime hardening.
 
-Current planned slice: Milestone 16 agent registry runtime hardening, grounded in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing defined in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
+Current follow-on boundary: future model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role today; fully automatic best-model-for-any-task routing remains deferred to the task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) until a future slice promotes it.
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -264,7 +264,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A legacy local Ollama advisory wrapper is implemented as `devflow task local` for Qwen/Qwopus/Gemma planning, scouting, and review evidence; it captures prompt, raw response, stderr, and run metadata under the task workspace without writing `proposal.patch` or applying model output. The registry-backed `devflow task run <task-id> --worker qwopus-implementer` path is active as the canonical local patch-proposal runtime: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Context packing and conservative routing remain experimental planning aids. Remote provider-backed execution is not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A legacy local Ollama advisory wrapper is implemented as `devflow task local` for Qwen/Qwopus/Gemma planning, scouting, and review evidence; it captures prompt, raw response, stderr, and run metadata under the task workspace without writing `proposal.patch` or applying model output. The registry-backed local patch runtime is active for explicit patch agents such as `qwopus-implementer` and, when installed and selected by evidence, `gemma4-12b-qat-implementer`: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Milestone 16 added centralized runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, explicit local Ollama discovery/selection evidence, and local patch ladder dogfood. Remote provider-backed execution is not active.
 
 Sequence:
 - architecture document only
@@ -272,14 +272,14 @@ Sequence:
 - `agent list`, `agent show`, and `agent packet` commands
 - manual proof-agent adapter
 - shell adapter alignment
-- deterministic task-fit and context-size estimation
-- role-based context pack builder
+- deterministic task-fit and context-size estimation (future routing work)
+- role-based context pack builder (implemented as derived evidence through `agent context-pack`)
 - local Ollama advisory evidence wrapper for Qwen/Qwopus/Gemma (implemented as `task local`, not the canonical patch adapter)
-- registry-backed Ollama patch adapter for `task run --worker qwopus-implementer`
-- OpenAI-compatible adapter for LM Studio and Grok-style APIs
-- native OpenAI, Anthropic, and Gemini adapters
-- local scout reports as optional evidence
-- routing engine
+- registry-backed Ollama patch adapter for explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`
+- OpenAI-compatible adapter for LM Studio and Grok-style APIs (future provider work)
+- native OpenAI, Anthropic, and Gemini adapters (future provider work)
+- local scout reports as optional evidence (future routing work)
+- routing engine (future routing work)
 - metrics for local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided
 
 Acceptance:
@@ -287,7 +287,7 @@ Acceptance:
 - no provider secrets are stored in repo files
 - manual and local paths work before remote provider calls
 - routing records task-fit profile, context estimate, selected agents by role, rejected agents, reasons, mode, packet path, and policy version
-- model selection uses capability profiles and useful context estimates instead of hard-coded agent names
+- model selection uses capability profiles, installed-model evidence, useful context estimates, and explicit role policy instead of hard-coded agent names
 - planners, workers, reviewers, verifiers, summarizers, and scouts receive role-specific context packs
 - verification and promotion remain explicit Dev-Flow/human-controlled steps
 - future local resource controls may add Ollama keep-alive or model-stop behavior, but the first local wrapper does not manage model memory
@@ -400,17 +400,18 @@ Boundary: this slice should not add provider-backed workers, autonomous routing,
 
 ## Milestone 16: Agent Registry Runtime Hardening
 
-Status: planned. Design and implementation handoff live in [docs/superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md](superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md) and [docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md](superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md).
+Status: implemented and dogfooded. Design, implementation plan, and repair-plan evidence live in [docs/superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md](superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md), [docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md](superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md), and [docs/superpowers/plans/2026-06-14-gemma-native-patch-output-reliability.md](superpowers/plans/2026-06-14-gemma-native-patch-output-reliability.md).
 
 Goal: make the existing agent registry and current executable worker paths behave like one permissioned runtime contract before any remote provider execution is promoted.
 
-Scope:
+Implemented:
 
 - centralize runtime eligibility, execution-surface, and refusal decisions for shell, manual, registry-backed local patch, and read-only local worker-pool profiles
 - add role-scoped context pack evidence built from canonical task packets
 - normalize current worker evidence summaries so shell, manual, local patch, and local model evidence can be inspected through one derived projection
-- dogfood the current local patch ladder through review, dry-run, apply, verify, and promotion readiness without provider calls
-- update active docs so Milestone 16 is a hardening slice, not a remote-provider or autonomous-routing launch
+- dogfood the current local patch ladder through explicit local-agent selection, patch proposal generation, review, dry-run, and refusal-safe application gates without provider calls
+- document that local model selection is model-agnostic: installed-model discovery and selected-agent evidence choose eligible profiles by role, while fully automatic best-model-for-any-task routing remains future task-fit/context-routing work
+- update active docs so Milestone 16 is a completed hardening slice, not a remote-provider or autonomous-routing launch
 
 Boundary: this milestone must not enable OpenAI, Anthropic, Gemini, xAI, LM Studio, or OpenAI-compatible remote execution through stable task runs. It must not add autonomous routing, PR automation, hidden memory, database state, or worker-owned verification/promotion.
 

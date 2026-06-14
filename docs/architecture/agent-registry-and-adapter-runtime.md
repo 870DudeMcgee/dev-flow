@@ -1,14 +1,16 @@
 # Agent Registry And Adapter Runtime
 
-Status: planning architecture with current registry/adapter guardrails. This document does not expand the shell-worker MVP or enable remote provider execution.
+Status: active architecture with current registry/adapter guardrails plus deferred provider-routing sequence. This document does not expand the shell-worker MVP or enable remote provider execution.
 
-Dev-Flow is a local-first control room for replaceable coding workers. The shell worker is the only current runtime contract, but future worker types need one stable layer for registration, invocation, permissions, routing, and evidence. This document defines that target architecture without making agents the source of truth.
+Dev-Flow is a local-first control room for replaceable coding workers. Shell remains the stable direct-edit runtime, while manual proof-agent handoffs, local patch workers, and local WorkerEvidence profiles are permissioned evidence surfaces. Future worker types need one stable layer for registration, invocation, permissions, routing, and evidence. This document defines that target architecture without making agents the source of truth.
 
 Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents are replaceable runtimes. Workers propose. Dev-Flow records. Verification verifies. Humans promote.
 
 Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are experimental read-only in normal worker lookup. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
 
-Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the future task-fit profile, context estimator, model capability profile, context pack builder, scout roles, and routing-quality feedback loop. It is planning architecture only until the registry/manual/shell-alignment sequence is active.
+Milestone 16 implemented the current model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Selection ranks installed registry agents for an explicit role from manifest and policy evidence. It is not autonomous routing and does not claim to choose the best model for arbitrary tasks without the future task-fit layer.
+
+Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the future task-fit profile, context estimator, model capability profile, scout roles, and routing-quality feedback loop needed to choose the best available model for each task and role. That broader routing remains planning architecture until a future implementation explicitly promotes it.
 
 ## 1. Problem
 
@@ -324,7 +326,17 @@ class AgentAdapter(Protocol):
 - `usage`
 - `provider_metadata`
 
-Runtime lifecycle:
+Current local lifecycle:
+
+1. Resolve `agent_id` from the registry and provider metadata.
+2. Project runtime maturity, execution surface, next command, and refusal reason through `agent_runtime`.
+3. Build role-scoped context-pack evidence when `devflow agent context-pack` is invoked.
+4. Summarize existing shell/manual/local-patch/local-model evidence when `devflow agent evidence` or operating-layer projections need it.
+5. Discover installed local Ollama models and write selected-agent evidence only when the human or dogfood ladder invokes `agent discover-local` / `agent select-local`.
+6. Run explicit shell/manual/local-patch/local-evidence commands only when the command itself is invoked; no selector runs a worker by itself.
+7. Leave verification and promotion to separate Dev-Flow commands.
+
+Future provider lifecycle:
 
 1. Resolve `agent_id` from the registry.
 2. Resolve provider config and adapter type.
@@ -339,7 +351,7 @@ Runtime lifecycle:
 
 ## 8. Task Fit And Context Routing Boundary
 
-Dev-Flow should route by task fit and capability, not by agent name first. The future routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
+Dev-Flow should route by task fit and capability, not by agent name first. The current local selector is intentionally narrower: it ranks installed registry agents for an explicit role and records selected-agent evidence, but it does not infer task fit or run workers. The future routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
 
 Minimum future artifacts:
 
@@ -372,19 +384,28 @@ Routing inputs can include task type, allowed files, failure count, verification
 
 Build this layer incrementally. Do not jump directly to a general-purpose agent framework.
 
-1. Architecture document only.
+Implemented through Milestone 16:
+
+1. Architecture document.
 2. Agent registry loading.
 3. `agent list`, `agent show`, and `agent packet` commands.
 4. Manual adapter.
 5. Shell adapter alignment.
-6. Deterministic task-fit and context-size estimation.
-7. Role-based context pack builder.
-8. Ollama adapter for Qwen.
-9. OpenAI-compatible adapter for LM Studio and Grok-style APIs.
-10. Native OpenAI, Anthropic, and Gemini adapters.
-11. Local scout reports as optional evidence.
-12. Routing engine.
-13. Metrics: local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided.
+6. Runtime eligibility/refusal projection for shell, manual, local patch, and local WorkerEvidence profiles.
+7. Role-based context-pack evidence through `agent context-pack`.
+8. Derived task-local evidence summary through `agent evidence`.
+9. Local Ollama discovery and explicit role-based selected-agent evidence through `agent discover-local` and `agent select-local`.
+10. Explicit local patch runtime profiles for approved Ollama agents, currently including Qwopus and Gemma evidence paths.
+
+Deferred until future specs promote them:
+
+1. Deterministic task-fit and full context-size estimation for arbitrary tasks.
+2. Best-available model routing by task and role.
+3. OpenAI-compatible adapter execution for LM Studio and Grok-style APIs.
+4. Native OpenAI, Anthropic, and Gemini execution adapters.
+5. Local scout reports as optional evidence.
+6. Routing engine.
+7. Metrics: local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided.
 
 Each step should preserve the shell-worker control-room contract and add evidence before automation. A future implementation step is acceptable only when it makes task execution more visible, isolated, recoverable, or reviewable.
 

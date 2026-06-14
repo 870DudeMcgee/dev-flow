@@ -13,7 +13,7 @@ For details on the project's design and boundaries:
 - [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
-- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the next provider/agent/role registry and adapter-runtime direction. [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the later task-fit, context-estimation, capability-profile, context-pack, scout, and routing feedback design. Both are design-only until implementation work explicitly promotes a slice.
+- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the implemented registry/runtime guardrails plus the future provider/adapter sequence. [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the later task-fit, context-estimation, capability-profile, scout, and routing feedback design. Fully automatic best-model-for-any-task routing is design-only until a future implementation explicitly promotes it.
 - [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees, commit-bound verification, Git-native promotion preview, and human-controlled promotion slice.
 - [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md) defines the explicit patch application gating and verification/readiness invalidation gating (Milestones 9 & 10).
 - [docs/architecture/multi-project-registry.md](architecture/multi-project-registry.md) defines the first-class multi-project registry, project creation/import commands, and local-first Git/GitHub publication policy.
@@ -36,7 +36,7 @@ The product is not a coding agent, model provider, memory framework, IDE workflo
 - verification evidence
 - merge readiness
 
-Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, manual packets, or future tools later. The current runtime intentionally implements shell workers only. Future worker types must be introduced through the registry and adapter-runtime sequence, not wired directly into task execution.
+Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, manual packets, or future tools later. The current code-changing runtime intentionally keeps shell workers as the stable direct editor, with manual proof-agent handoffs and registry-backed local patch workers producing bounded evidence that Dev-Flow reviews, applies, verifies, and promotes separately. Future worker types must be introduced through the registry and adapter-runtime sequence, not wired directly into task execution.
 
 ## Non-Negotiable Principles
 
@@ -48,7 +48,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, the registry-backed Qwopus patch-proposal path, a practical registry-backed local model worker-pool evidence slice, explicit local Ollama discovery/selection evidence, a passive review-readiness scorecard, local Idea Foundry intake evidence, and the explicit idea-to-execution bridge. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from `task run --worker qwopus-implementer`, generalized WorkerEvidence from read-only local model profiles, local manifest-backed capability classification, selected-agent evidence under task state, human-reviewed idea capture/classification/promotion decisions, and explicit `idea create-goal` / `idea create-task` commands that require prior promotion evidence.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, registry-backed Qwopus/Gemma patch-proposal paths, a practical registry-backed local model worker-pool evidence slice, explicit local Ollama discovery/selection evidence, role-scoped context-pack evidence, derived agent evidence summaries, centralized runtime eligibility/refusal projection, a passive review-readiness scorecard, local Idea Foundry intake evidence, and the explicit idea-to-execution bridge. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`, generalized WorkerEvidence from read-only local model profiles, local manifest-backed capability classification, selected-agent evidence under task state, human-reviewed idea capture/classification/promotion decisions, and explicit `idea create-goal` / `idea create-task` commands that require prior promotion evidence.
 
 Stable commands:
 
@@ -109,13 +109,17 @@ devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt
 devflow task run <task_id> --project factory-scheduler --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
 devflow task run <task_id> --worker qwopus-implementer
+devflow task run <task_id> --worker gemma4-12b-qat-implementer
 devflow task review-patch <task_id>
 devflow task review-patch <task_id> --project factory-scheduler
 devflow task review-patch <task_id> --agent qwopus-implementer
+devflow task review-patch <task_id> --agent gemma4-12b-qat-implementer
 devflow task patch-dry-run <task_id>
 devflow task patch-dry-run <task_id> --project factory-scheduler
 devflow task patch-dry-run <task_id> --agent qwopus-implementer
+devflow task patch-dry-run <task_id> --agent gemma4-12b-qat-implementer
 devflow task apply-patch <task_id> --agent qwopus-implementer
+devflow task apply-patch <task_id> --agent gemma4-12b-qat-implementer
 devflow task apply-patch <task_id> --project factory-scheduler --agent qwopus-implementer
 devflow task apply-patch <task_id> --run-id <run_id>
 devflow task verify <task_id> --shell "test -f result.txt"
@@ -180,9 +184,12 @@ devflow agent show devflow-manual-codex-worker
 devflow agent list --json
 devflow agent show local-qwopus-inspector --json
 devflow agent policy --json
+devflow agent context-pack <task_id> qwopus-implementer --role implementation_worker --json
+devflow agent evidence <task_id> --json
 devflow agent discover-local --json
 devflow agent select-local <task_id> --role implementation_worker --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json
+devflow agent run --task <task_id> --profile local-qwopus-inspector --json
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-manual-codex-worker
 ```
@@ -203,7 +210,9 @@ The Project Code Map form is `CODE_MAP.md` plus `devflow map init`, `devflow map
 
 The registry-backed local patch form is `devflow task run <task_id> --worker qwopus-implementer` or `devflow task run <task_id> --worker gemma4-12b-qat-implementer` when that model is installed and selected by explicit local-agent evidence. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/<worker_id>/`, and stops. Dev-Flow remains responsible for explicit patch review, dry-run preview, application to the isolated workspace, verification, merge readiness, and human-controlled promotion. The `review-patch --agent` and `patch-dry-run --agent` forms normalize agent patch evidence into `.devflow/tasks/<task_id>/local-model-runs/<run_id>/`; apply-patch refuses mutation unless matching fresh acceptable review and dry-run evidence exists in the resolved project root. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
 
-The local agent discovery form is `devflow agent discover-local --json` and `devflow agent select-local <task_id> --role implementation_worker --json`. Discovery calls only local Ollama, parses installed model manifests, and derives conservative capability profiles. Selection ranks installed registry agents for the requested role and writes `.devflow/tasks/<task_id>/agent-selection.json`. It does not run a worker, silently substitute a model, create registry entries for unregistered models, apply patches, verify, promote, merge, push, or call remote providers. `task run` remains explicit and uses the selected worker only when the human or dogfood ladder invokes it.
+The local agent discovery form is `devflow agent discover-local --json` and `devflow agent select-local <task_id> --role implementation_worker --json`. Discovery calls only local Ollama, parses installed model manifests, and derives conservative capability profiles. Selection ranks installed registry agents for the requested role and writes `.devflow/tasks/<task_id>/agent-selection.json`. This is the current model-agnostic selection boundary: Dev-Flow should choose the best eligible installed profile for the explicit role from registry and manifest evidence, not from hard-coded model names. It does not run a worker, silently substitute a model, create registry entries for unregistered models, apply patches, verify, promote, merge, push, or call remote providers. `task run` remains explicit and uses the selected worker only when the human or dogfood ladder invokes it.
+
+The role-scoped context-pack form is `devflow agent context-pack <task_id> <agent_id> --role <role> --json`. It writes derived context-pack evidence under `.devflow/tasks/<task_id>/context-packs/` from canonical TaskPacket data, without becoming canonical task state or routing authority. The derived agent-evidence form is `devflow agent evidence <task_id> --json`; it summarizes shell, manual proof-agent, local patch, and local model WorkerEvidence paths for inspection and operating-layer projection without mutating task state.
 
 The orchestration policy form is `devflow task orchestrate <task_id> --plan-only`. It writes task-local policy evidence with Git/DevMode baseline, allowed roles, context layers, write boundaries, stop conditions, and human promotion requirements. It does not execute workers, call provider APIs, route autonomously, apply patches, verify, promote, or mutate main.
 
@@ -400,7 +409,9 @@ Implemented:
 - preview-first cleanup for closed tasks that removes only conservative task-owned `.devflow` runtime artifacts on `--apply`
 - preview-first pruning for old closed-task evidence that deletes only safe `.devflow/tasks/<task_id>/` evidence on explicit `--apply` and records `.devflow/prune-runs/<run-id>.json`
 - `devflow task local` for local Qwen/Qwopus/Gemma advisory evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
-- `devflow task run --worker qwopus-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
+- `devflow task run --worker qwopus-implementer` and `devflow task run --worker gemma4-12b-qat-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
+- `devflow agent context-pack` and `devflow agent evidence` for derived, non-canonical role context and task-local worker evidence summaries
+- `devflow agent discover-local` and `devflow agent select-local` for model-agnostic installed local agent ranking by explicit role
 - `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence
 - `devflow worker validate-outcome` for structured guardrail outcome metadata validation
 - Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes
@@ -411,17 +422,17 @@ Outside the current product contract:
 
 - autonomous browser/web dashboard mutation surface
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
-- task-fit/context routing (Design documented only. It does not select agents, invoke scouts, build runtime context packs, or change shell-worker behavior.)
+- task-fit/context routing runtime (Design documented only. The current local selector ranks eligible installed agents for an explicit role; it does not autonomously pick the best model for arbitrary tasks, invoke scouts, or change shell-worker behavior.)
 - provider-backed non-shell worker adapters
 - Ollama keep-alive/model-stop controls for local resource pressure
-- agent registry and adapter-runtime implementation beyond the planned Milestone 16 hardening slice
+- remote provider-backed registry and adapter-runtime execution beyond the current shell/manual/local-patch/local-evidence guardrails
 - SQLite or other databases
 - provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
 - multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, and Milestone 15/15B multi-project control-room hardening are complete. The next planned slice is Milestone 16 agent registry runtime hardening: centralize current shell/manual/local-patch/local-evidence runtime policy, add role-scoped context-pack evidence, normalize worker evidence projections, and dogfood the existing local patch ladder. It does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, and Milestone 16 agent registry runtime hardening are complete. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery and selected-agent evidence. Fully automatic best-model-for-any-task routing remains future task-fit/context-routing work and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

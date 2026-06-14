@@ -623,7 +623,7 @@ The following remain deferred and are not part of the current stable runtime:
 - automatic verification
 - automatic promotion
 - automatic PR creation
-- remote provider execution in stable runtime
+- remote model execution through stable task runs
 
 ## Suggested Roadmap Placement
 

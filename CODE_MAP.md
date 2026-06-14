@@ -40,7 +40,7 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 - `src/devflow/_legacy/` - quarantined legacy code; do not modify or treat as authority.
 - Archived workflow docs or stale plans that conflict with the control-room MVP.
 - `.devflow/workspaces/`, `.devflow/worktrees/`, `.devflow/dogfood/`, and `.devflow/release-readiness/` unless the current task explicitly needs local evidence.
-- Provider-backed adapters, autonomous routing, memory, or dashboard expansion unless an approved current spec promotes that slice. The current Milestone 16 plan promotes registry runtime hardening only; remote provider execution and autonomous routing remain excluded.
+- Provider-backed adapters, autonomous route selection, memory, or dashboard expansion unless an approved active spec promotes that slice. Milestone 16 completed registry runtime hardening only; remote model execution and autonomous route selection remain excluded.
 
 ## Owners / contacts
 

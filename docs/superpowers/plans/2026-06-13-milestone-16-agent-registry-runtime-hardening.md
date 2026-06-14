@@ -824,11 +824,11 @@ Record the dogfood command outputs in the final handoff. If the dogfood task is 
 - Modify: `docs/architecture/agent-registry-and-adapter-runtime.md`
 - Create or modify: `docs/handoffs/<date>-milestone-16-agent-registry-runtime-complete.md`
 
-- [ ] **Step 1: Align docs with implemented behavior**
+- [x] **Step 1: Align docs with implemented behavior**
 
 Update active docs to say exactly which Milestone 16 surfaces are now current behavior and which remain deferred. Keep remote providers, autonomous routing, provider-backed worktrees, PR automation, databases, and memory out of stable runtime.
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 ```bash
 PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_agent_runtime.py tests/test_context_pack.py tests/test_agent_evidence.py tests/test_worker_adapter_safety.py tests/test_agent_local_worker_pool_cli.py tests/test_local_agent_discovery.py tests/test_ollama_worker.py tests/test_task_packet.py -q
@@ -844,7 +844,7 @@ Expected: pass.
 
 Expected: pass on a clean tree after checkpointing any dirty work.
 
-- [ ] **Step 4: Stale-context scan**
+- [x] **Step 4: Stale-context scan**
 
 ```bash
 rg -n "Milestone 15.*next planned|multi-project control room hardening.*next planned|agent registry.*future-only|remote provider.*stable runtime|autonomous routing.*current" README.md PRODUCT_NORTH_STAR.md CODE_MAP.md docs/control-room-mvp.md docs/mvp-contract.md docs/roadmap.md docs/architecture docs/handoffs

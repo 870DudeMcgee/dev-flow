@@ -2,11 +2,11 @@
 
 Status: active, reconciled on 2026-05-30.
 
-This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, passive review-readiness, explicit goal lifecycle, bounded freshness dispatch, and human-controlled promotion behavior that docs and tests should agree on. Implemented but experimental transition layers are allowed only as read-only/manual planning aids until promoted.
+This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, passive review-readiness, explicit goal lifecycle, bounded freshness dispatch, and human-controlled promotion behavior that docs and tests should agree on. Implemented transition layers are allowed only as explicit read-only, local-evidence, or manual planning aids until promoted.
 
 Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The opt-in Git-native worker isolation and promotion slice is described in [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md). The registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md). Pre-conditions, state transitions, and verification invalidation rules for applied patches are documented in [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md).
 
-The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning, scouting, and review output; it is not a router, auto-editor, patch-applier, verification runner, or promotion path. The narrow registry-backed local patch runtime is `devflow task run <task-id> --worker qwopus-implementer`, which is the canonical local implementation route and writes patch evidence for Dev-Flow to apply and verify.
+The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning, scouting, and review output; it is not a router, auto-editor, patch-applier, verification runner, or promotion path. The narrow registry-backed local patch runtime is `devflow task run <task-id> --worker qwopus-implementer` or `devflow task run <task-id> --worker gemma4-12b-qat-implementer` when explicit local-agent selection evidence identifies an installed eligible Gemma profile. These routes write patch evidence for Dev-Flow to review, dry-run, apply, and verify.
 
 ## Stable Commands
 
@@ -33,13 +33,17 @@ devflow task run <task-id> --worker shell -- /bin/sh -c "echo hello > result.txt
 devflow task run <task-id> --project factory-scheduler --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task-id> --shell "echo hello > result.txt"
 devflow task run <task-id> --worker qwopus-implementer
+devflow task run <task-id> --worker gemma4-12b-qat-implementer
 devflow task review-patch <task-id>
 devflow task review-patch <task-id> --project factory-scheduler
 devflow task review-patch <task-id> --agent qwopus-implementer
+devflow task review-patch <task-id> --agent gemma4-12b-qat-implementer
 devflow task patch-dry-run <task-id>
 devflow task patch-dry-run <task-id> --project factory-scheduler
 devflow task patch-dry-run <task-id> --agent qwopus-implementer
+devflow task patch-dry-run <task-id> --agent gemma4-12b-qat-implementer
 devflow task apply-patch <task-id> --agent qwopus-implementer
+devflow task apply-patch <task-id> --agent gemma4-12b-qat-implementer
 devflow task apply-patch <task-id> --project factory-scheduler --agent qwopus-implementer
 devflow task apply-patch <task-id> --run-id <run-id>
 devflow task verify <task-id> --shell "test -f result.txt"
@@ -122,19 +126,20 @@ devflow agent show devflow-manual-codex-worker
 devflow agent list --json
 devflow agent show local-qwopus-inspector --json
 devflow agent policy --json
+devflow agent context-pack <task-id> qwopus-implementer --role implementation_worker --json
+devflow agent evidence <task-id> --json
+devflow agent discover-local --json
+devflow agent select-local <task-id> --role implementation_worker --json
 devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
+devflow agent run --task <task-id> --profile local-qwopus-inspector --json
 devflow agent packet <task-id> devflow-manual-codex-worker
 devflow task run <task-id> --worker devflow-manual-codex-worker
 ```
 
 ## Implemented But Experimental Transition Commands
-The following CLI commands represent the transition layer. They are fully implemented but are classified as experimental and restricted to read-only/manual planning/auditing aids, except for the stable proof-agent forms listed above:
+The following CLI commands remain experimental and restricted to read-only/manual planning/auditing aids:
 
 ```bash
-devflow agent list
-devflow agent show <non-proof-agent-id>
-devflow agent policy
-devflow agent run --task <task-id> --profile local-qwopus-inspector --json
 devflow agent packet <task-id> <non-proof-agent-id>
 devflow task fit <task-id>
 devflow task pack <task-id> <role>
@@ -147,12 +152,12 @@ devflow task scorecard <task-id>
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/create-goal/create-task/archive`, `goal init/list/show/status/next/slices/activate/pause/block/complete/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/create-goal/create-task/archive`, `goal init/list/show/status/next/slices/activate/pause/block/complete/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent context-pack`, `agent evidence`, `agent discover-local --json`, `agent select-local <task-id> --role <role> --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent run --task <task-id> --profile <profile-id> --json`, `agent packet <task-id> devflow-manual-codex-worker`).
 - **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task fit`, `task pack`, `task scout`, `task route`, `task scorecard`, non-proof-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
-Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable as a safe `local_patch_runtime` patch agent such as `qwopus-implementer` or as a read-only local worker-pool evidence profile such as `local-qwopus-inspector`: provider `ollama`, loopback base URL, no shell, no arbitrary network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
+Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable as a safe `local_patch_runtime` patch agent such as `qwopus-implementer` or `gemma4-12b-qat-implementer`, or as a read-only local worker-pool evidence profile such as `local-qwopus-inspector`: provider `ollama`, loopback base URL, no shell, no arbitrary network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
 
 Experimental task-fit, scout, route, scorecard, context, and the legacy `supervise` loop are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The read-only `supervisor policy` and `supervisor packet` surfaces are visible because they are part of this stable milestone. The proof-agent registry commands are visible for the same reason.
 
@@ -166,7 +171,11 @@ Experimental task-fit, scout, route, scorecard, context, and the legacy `supervi
 
 `devflow task local <task-id> --agent qwen-planner`, `devflow task local <task-id> --agent qwopus-implementer`, and `devflow task local <task-id> --agent gemma-reviewer --input-worker qwopus-implementer` compose prompts from `task.yaml`, Dev-Flow rules, workspace/context listings, and selected prior local-worker output, then call `ollama run <model>` through a local subprocess with a 600-second default timeout. Raw output is captured as advisory evidence only; Dev-Flow does not parse it as truth, write `proposal.patch`, apply it, verify it, commit it, merge it, route automatically, or call remote provider APIs.
 
-`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch` when a unified diff is present, and records inspectable `run.json` plus `result.md` summaries. This is the canonical local implementation path. The model does not edit main, promote, or verify. The human-controlled path is `devflow task show <task-id>`, `devflow task review-patch <task-id> --agent qwopus-implementer`, `devflow task patch-dry-run <task-id> --agent qwopus-implementer`, `devflow task apply-patch <task-id> --agent qwopus-implementer`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`. If Qwopus fails or produces no usable patch, `devflow task escalation-packet <task-id> --agent qwopus-implementer` writes a compact copy-paste packet from local evidence only; it does not call remote providers.
+`devflow task run <task-id> --worker qwopus-implementer` builds a bounded agent packet, calls local Ollama through `/api/generate` with `qwopus:latest`, preserves raw output under `.devflow/tasks/<task-id>/agents/qwopus-implementer/raw_output.md`, writes `.devflow/tasks/<task-id>/agents/qwopus-implementer/proposal.patch` when a unified diff is present, and records inspectable `run.json` plus `result.md` summaries. `devflow task run <task-id> --worker gemma4-12b-qat-implementer` uses the same evidence-only local patch contract with native Ollama `/api/chat`, thinking disabled, and explicit bounded generation settings when local selection evidence identifies that installed profile. These are canonical local patch proposal paths, not proof of correctness. The model does not edit main, promote, or verify. The human-controlled path is `devflow task show <task-id>`, `devflow task review-patch <task-id> --agent <agent-id>`, `devflow task patch-dry-run <task-id> --agent <agent-id>`, `devflow task apply-patch <task-id> --agent <agent-id>`, then `devflow task verify`, `devflow task promote-preview`, and `devflow task promote`. If a local patch worker fails or produces no usable patch, `devflow task escalation-packet <task-id> --agent <agent-id>` writes a compact copy-paste packet from local evidence only; it does not call remote providers.
+
+`devflow agent context-pack <task-id> <agent-id> --role <role> --json` writes role-scoped context-pack evidence under `.devflow/tasks/<task-id>/context-packs/` from canonical TaskPacket data. It is derived, disposable context evidence, not canonical task state and not routing authority. `devflow agent evidence <task-id> --json` reads existing shell, manual proof-agent, local patch, and local model evidence and returns a compact derived summary without mutating task state.
+
+`devflow agent discover-local --json` inventories installed local Ollama models and derives conservative capability profiles from local manifests. `devflow agent select-local <task-id> --role <role> --json` ranks installed registry agents for the explicit role and writes `.devflow/tasks/<task-id>/agent-selection.json`. This is the current model-agnostic selection boundary: Dev-Flow chooses the best eligible installed profile for the requested role from registry policy and manifest evidence. It does not autonomously pick a model for arbitrary tasks, run the selected worker, create registry entries for unregistered models, verify, promote, merge, push, or call remote providers.
 
 `devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json` previews the read-only local model worker-pool path without calling a model or writing evidence. `devflow agent run --task <task-id> --profile local-qwopus-inspector --json` is the first real WorkerEvidence slice: it builds a bounded task packet, calls the configured local OpenAI-compatible/Ollama endpoint through `local_model_client.py`, writes `.devflow/tasks/<task-id>/local-model-runs/<run-id>/run.json`, `packet.md`, `response.md`, `raw_output.txt`, and optional `error.txt`, then stops. Gemma summarizer profiles may use native Ollama `/api/chat` with explicit context and thinking disabled when the manifest/template requires it. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state.
 
@@ -236,6 +245,17 @@ For a created task, the MVP contract is:
 .devflow/tasks/<task-id>/agents/qwopus-implementer/result.md
 .devflow/tasks/<task-id>/agents/qwopus-implementer/run.json
 .devflow/tasks/<task-id>/agents/qwopus-implementer/logs/worker.log
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/packet.json
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/raw_output.md
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/proposal.patch
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/result.md
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/run.json
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/logs/worker.log
+.devflow/tasks/<task-id>/agents/<local-patch-agent-id>/logs/worker.log
+.devflow/tasks/<task-id>/agent-selection.json
+.devflow/tasks/<task-id>/context-packs/<role>-<agent-id>.json
+.devflow/tasks/<task-id>/context-packs/<role>-<agent-id>.md
+.devflow/tasks/<task-id>/context-packs/<role>-<agent-id>.packet.json
 .devflow/tasks/<task-id>/local-model-runs/<run-id>/proposal.md
 .devflow/tasks/<task-id>/local-model-runs/<run-id>/proposal.json
 .devflow/tasks/<task-id>/local-model-runs/<run-id>/proposal.patch
@@ -359,7 +379,7 @@ Future production hardening items:
 - Browser or web dashboards.
 - Token-context helper as runtime authority. The helper may exist as visible planning guidance, but it does not execute token tools, route models, install hooks, or change shell-worker, verification, or promotion behavior.
 - Task-fit/context routing runtime.
-- Provider-backed worker adapters. The stable non-shell model path is limited to local `ollama run` evidence capture through `devflow task local`; it does not use remote provider APIs, own canonical task state, or apply model output.
+- Provider-backed worker adapters. The stable non-shell model paths are limited to local `ollama run` evidence capture through `devflow task local`, explicit local patch proposal evidence through approved `ollama_chat` patch agents, and read-only local WorkerEvidence profiles. They do not use remote provider APIs, own canonical task state, verify, promote, or apply model output without explicit patch gates.
 - Provider-backed Git worktree orchestration beyond the opt-in shell-worker lane.
 - SQLite or any other database.
 - Vector databases, RAG, ML training, hidden memory, or automatic self-training.
@@ -367,4 +387,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, and Milestone 15/15B multi-project control-room hardening are complete. The next planned slice is Milestone 16 agent registry runtime hardening: centralize current shell/manual/local-patch/local-evidence runtime policy, add role-scoped context-pack evidence, normalize worker evidence projections, and dogfood the existing local patch ladder. It does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, and Milestone 16 agent registry runtime hardening are complete. Dev-Flow is model-agnostic at the registry/role-selection boundary: local discovery and selected-agent evidence rank eligible installed profiles for explicit roles. Fully automatic best-model-for-any-task routing remains future task-fit/context-routing work and does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
