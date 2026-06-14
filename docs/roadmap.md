@@ -288,9 +288,9 @@ Acceptance:
 - no agent owns canonical task state
 - no provider secrets are stored in repo files
 - manual and local paths work before remote provider calls
-- routing records task-fit profile, context estimate, selected agents by role, rejected agents, reasons, mode, packet path, and policy version
+- routing records task-fit profile, context estimate, selected or unresolved roles, rejected agents, reasons, mode, packet path, and policy version
 - model selection uses capability profiles, installed-model evidence, useful context estimates, and explicit role policy instead of hard-coded agent names
-- planners, workers, reviewers, verifiers, summarizers, and scouts receive role-specific context packs
+- planners, workers, reviewers, verifiers, summarizers, and scouts can receive role-specific context packs through explicit evidence commands
 - verification and promotion remain explicit Dev-Flow/human-controlled steps
 - future local resource controls may add Ollama keep-alive or model-stop behavior, but the first local wrapper does not manage model memory
 

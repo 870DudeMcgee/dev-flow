@@ -193,6 +193,20 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
                 status="human_escalation_required",
                 reason="frontier or high-risk planning/review remains a human escalation decision in evidence-only routing",
             )
+    else:
+        for role in ("planner", "reviewer"):
+            next_command = f"devflow agent context-pack {task_id} <agent-id> --role {role} --json"
+            _add_unresolved(
+                unresolved,
+                role=role,
+                status="not_selected_evidence_only",
+                reason=(
+                    f"evidence-only routing did not select a {role}; build role-scoped context evidence "
+                    "for an explicit agent before execution"
+                ),
+                next_command=next_command,
+            )
+            recommended_next_commands.setdefault(role, next_command)
 
     return {
         "routing_decision": {

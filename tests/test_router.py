@@ -130,6 +130,28 @@ def test_route_cli_json_is_stable_without_experimental_env(tmp_path: Path, monke
     assert payload["artifact_path"] == f".devflow/tasks/{task.id}/routing-decision.yaml"
 
 
+def test_router_marks_planner_and_reviewer_unresolved_when_not_selected(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up documentation")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    unresolved_by_role = {item["role"]: item for item in rd["unresolved"]}
+    assert unresolved_by_role["planner"]["status"] == "not_selected_evidence_only"
+    assert unresolved_by_role["reviewer"]["status"] == "not_selected_evidence_only"
+    assert unresolved_by_role["planner"]["next_command"] == (
+        f"devflow agent context-pack {task.id} <agent-id> --role planner --json"
+    )
+    assert unresolved_by_role["reviewer"]["next_command"] == (
+        f"devflow agent context-pack {task.id} <agent-id> --role reviewer --json"
+    )
+    assert rd["recommended_next_commands"]["planner"] == unresolved_by_role["planner"]["next_command"]
+    assert rd["recommended_next_commands"]["reviewer"] == unresolved_by_role["reviewer"]["next_command"]
+
+
 def test_high_risk_tasks_require_human_escalation_without_worker_selection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. Initialize structures
     (tmp_path / ".devflow/tasks").mkdir(parents=True)

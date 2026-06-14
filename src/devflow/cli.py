@@ -1542,9 +1542,11 @@ def task_orchestrate(
 def task_fit_command(
     task_id: str,
     json_output: bool = typer.Option(False, "--json", help="Emit stable JSON evidence."),
+    project: str | None = typer.Option(None, "--project", help="Estimate task fit from a registered project root."),
 ) -> None:
     """Deterministic task-fit and context-size estimation."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.estimator import estimate_task_fit, save_task_fit
         fit_data = estimate_task_fit(root, task_id)
@@ -1563,7 +1565,7 @@ def task_fit_command(
         return
 
     # Render a beautiful terminal breakdown
-    typer.echo(f"Estimated task-fit profile for task: {task_id}")
+    typer.echo(f"Estimated task-fit profile for task: {_task_ref(task_id, scope.project_id)}")
     typer.echo("-" * 50)
 
     tf = fit_data["task_fit"]
@@ -1643,9 +1645,11 @@ def task_scout_command(
     task_id: str,
     role: str = typer.Option("all", "--role", help="Scout role to run, or 'all'."),
     json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+    project: str | None = typer.Option(None, "--project", help="Run scout evidence from a registered project root."),
 ) -> None:
     """Run local scout roles to gather routing evidence and analyze risks."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
 
     try:
         from devflow.control_room.scout import run_scout_reports, save_scout_report
@@ -1669,7 +1673,7 @@ def task_scout_command(
         return
 
     # Render beautiful breakdown
-    typer.echo(f"Executed scout evaluation for task: {task_id}")
+    typer.echo(f"Executed scout evaluation for task: {_task_ref(task_id, scope.project_id)}")
     for scout_role, data in reports.items():
         sr = data["scout_report"]
         typer.echo("-" * 50)
@@ -1693,9 +1697,11 @@ def task_scout_command(
 def task_route_command(
     task_id: str,
     json_output: bool = typer.Option(False, "--json", help="Emit stable JSON evidence."),
+    project: str | None = typer.Option(None, "--project", help="Run routing evidence from a registered project root."),
 ) -> None:
     """Run conservative evidence-only routing matching for a task."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.router import route_task, save_routing_decision
         decision_data = route_task(root, task_id)
@@ -1715,7 +1721,7 @@ def task_route_command(
         return
 
     # Render beautiful breakdown
-    typer.echo(f"Executed routing mapping for task: {task_id}")
+    typer.echo(f"Executed routing mapping for task: {_task_ref(task_id, scope.project_id)}")
     typer.echo("-" * 50)
 
     rd = decision_data["routing_decision"]
@@ -1786,9 +1792,11 @@ def task_route_command(
 def task_scorecard_command(
     task_id: str,
     json_output: bool = typer.Option(False, "--json", help="Print routing-quality scorecard as JSON."),
+    project: str | None = typer.Option(None, "--project", help="Compile scorecard from a registered project root."),
 ) -> None:
     """Compile and display a task's post-run routing quality scorecard."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.scorecard import generate_scorecard, save_scorecard
         scorecard_data = generate_scorecard(root, task_id)
@@ -1812,7 +1820,7 @@ def task_scorecard_command(
         return
 
     # Render beautiful scorecard breakdown
-    typer.echo(f"Compiled routing-quality scorecard for task: {task_id}")
+    typer.echo(f"Compiled routing-quality scorecard for task: {_task_ref(task_id, scope.project_id)}")
     typer.echo("-" * 50)
 
     typer.echo(f"Decision Mode:              {sc.get('decision_mode', 'unknown')}")
