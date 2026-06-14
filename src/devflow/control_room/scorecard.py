@@ -241,8 +241,6 @@ def _promotion_ready_from_task_artifact(root: Path, task_id: str) -> bool | str:
     payload = _read_json_object(path)
     if payload is None:
         return "unknown"
-    if payload.get("verification_status") == "not_run" and payload.get("verification_finished_at") is None:
-        return "unknown"
     if "ready" not in payload:
         return "unknown"
     value = payload["ready"]

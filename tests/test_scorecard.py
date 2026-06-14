@@ -87,8 +87,24 @@ def test_scorecard_reports_measurement_only_without_verification(tmp_path: Path)
     assert scorecard["task_id"] == task.id
     assert scorecard["decision_mode"] == "evidence_only"
     assert scorecard["verification_passed"] == "unknown"
-    assert scorecard["promotion_ready"] == "unknown"
+    assert scorecard["promotion_ready"] is False
     assert scorecard["state_mutation"] == "none"
+
+
+def test_scorecard_reads_promotion_ready_from_merge_readiness_without_verification(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up docs")
+    task_path = tmp_path / ".devflow/tasks" / task.id
+    save_task(task_path, task)
+    (task_path / "merge-readiness.json").write_text(
+        json.dumps({"ready": True, "verification_status": "not_run", "verification_finished_at": None}) + "\n",
+        encoding="utf-8",
+    )
+
+    scorecard = generate_scorecard(tmp_path, task.id)["scorecard"]
+
+    assert scorecard["promotion_ready"] is True
 
 
 def test_scorecard_cli_json_is_stable_without_experimental_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
