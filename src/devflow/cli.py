@@ -4232,9 +4232,11 @@ def agent_select_local(
     task_id: str,
     role: str = typer.Option("implementation_worker", "--role", help="Role to select a local agent for."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    project: str | None = typer.Option(None, "--project", help="Write selection evidence under a registered project root."),
 ) -> None:
     """Rank installed local agents for a role and write selection evidence."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.local_agent_discovery import (
             discover_local_ollama_models,
@@ -4246,8 +4248,8 @@ def agent_select_local(
         report = discover_local_ollama_models()
         registry = load_agent_registry(root)
         selection = rank_local_agent_candidates(registry, report.installed_models, role=role)
-        selection_path = write_selected_agent_evidence(root, task_id, selection)
-        payload = selection_payload_with_path(root, task_id, selection, selection_path)
+        selection_path = write_selected_agent_evidence(root, task_id, selection, project_id=scope.project_id)
+        payload = selection_payload_with_path(root, task_id, selection, selection_path, project_id=scope.project_id)
     except (AgentRegistryError, FileNotFoundError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -4255,7 +4257,9 @@ def agent_select_local(
     if json_output:
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        typer.echo(f"task_id: {task_id}")
+        typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+        if scope.project_id:
+            typer.echo(f"project_root: {root}")
         typer.echo(f"role: {payload['role']}")
         typer.echo(f"status: {payload['status']}")
         typer.echo(f"selected_agent_id: {payload['selected_agent_id'] or 'none'}")

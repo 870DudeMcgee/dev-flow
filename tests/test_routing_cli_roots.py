@@ -66,6 +66,7 @@ def test_stable_routing_evidence_commands_resolve_registered_project_root(
     )
     assert created_project.exit_code == 0, created_project.output
     project_root = projects_root / "alpha-app"
+    _write_local_worker_registry(project_root)
     task = create_task(project_root, "Clean up documentation")
     save_task(project_root / ".devflow/tasks" / task.id, task)
     monkeypatch.chdir(control_root)
@@ -126,6 +127,16 @@ def test_stable_routing_evidence_commands_resolve_registered_project_root(
     assert rd["recommended_next_commands"]["reviewer"] == (
         f"devflow agent context-pack {task.id} <agent-id> --project alpha-app --role reviewer --json"
     )
+    unresolved_by_role = {item["role"]: item for item in rd["unresolved"]}
+    assert unresolved_by_role["worker"]["next_command"] == (
+        f"devflow agent select-local {task.id} --project alpha-app --role implementation_worker --json"
+    )
+    assert any(
+        f"run devflow agent select-local {task.id} --project alpha-app --role implementation_worker --json"
+        in item["reason"]
+        for item in rd["rejected"]
+        if item.get("role") == "worker"
+    )
 
     task_dir = project_root / ".devflow/tasks" / task.id
     assert (task_dir / "task-fit.yaml").exists()
@@ -134,3 +145,26 @@ def test_stable_routing_evidence_commands_resolve_registered_project_root(
     assert (task_dir / "routing-quality-scorecard.yaml").exists()
     assert (task_dir / "context-packs" / "reviewer-qwopus-implementer.json").exists()
     assert not (control_root / ".devflow").exists()
+
+
+def _write_local_worker_registry(root: Path) -> None:
+    agents_dir = root / ".devflow" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "registry.yaml").write_text(
+        """version: 1
+agents:
+  qwopus-implementer:
+    provider: ollama
+    model: qwopus:latest
+    adapter: ollama_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    execution_mode: automated
+    workspace: isolated_task_workspace
+    allowed_writes:
+      - "<task>/agents/qwopus-implementer/proposal.patch"
+    enabled: true
+""",
+        encoding="utf-8",
+    )

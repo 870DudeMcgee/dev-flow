@@ -153,6 +153,7 @@ def route_task(root: Path, task_id: str, *, project_id: str | None = None) -> di
             total_context_estimate=total_context_estimate,
             task_fit=task_fit,
             requires_escalation=requires_escalation,
+            project_option=project_option,
         )
         if rejection_reason is not None:
             rejected.append({"role": "worker", "agent": agent.id, "reason": rejection_reason})
@@ -171,7 +172,7 @@ def route_task(root: Path, task_id: str, *, project_id: str | None = None) -> di
                 role="worker",
                 status="human_escalation_required",
                 reason="task risk or model-routing scope requires human selection before worker execution",
-                next_command=f"devflow agent select-local {task_id} --role implementation_worker --json",
+                next_command=f"devflow agent select-local {task_id}{project_option} --role implementation_worker --json",
             )
         elif any("no selected-agent evidence" in item["reason"] for item in rejected if item.get("role") == "worker"):
             _add_unresolved(
@@ -179,7 +180,7 @@ def route_task(root: Path, task_id: str, *, project_id: str | None = None) -> di
                 role="worker",
                 status="needs_human_agent_selection",
                 reason="eligible local model workers require explicit selected-agent evidence",
-                next_command=f"devflow agent select-local {task_id} --role implementation_worker --json",
+                next_command=f"devflow agent select-local {task_id}{project_option} --role implementation_worker --json",
             )
         else:
             _add_unresolved(
@@ -301,6 +302,7 @@ def _worker_rejection_reason(
     total_context_estimate: int,
     task_fit: dict[str, Any],
     requires_escalation: bool,
+    project_option: str,
 ) -> str | None:
     provider_error = _provider_registry_block_reason(agent, provider_registry_error)
     if provider_error is not None:
@@ -347,7 +349,7 @@ def _worker_rejection_reason(
         if selected_agent_id is None:
             return (
                 "no selected-agent evidence for local model worker; "
-                f"run devflow agent select-local {task_id} --role implementation_worker --json"
+                f"run devflow agent select-local {task_id}{project_option} --role implementation_worker --json"
             )
         if selected_agent_id != agent.id:
             return f"selected-agent evidence chose {selected_agent_id}, not {agent.id}"

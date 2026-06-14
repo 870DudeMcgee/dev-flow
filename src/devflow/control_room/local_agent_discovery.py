@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
+import shlex
 import subprocess
 from typing import Any
 
@@ -144,10 +145,10 @@ class LocalAgentSelection:
     installed_models: list[str]
     unregistered_installed_models: list[str]
 
-    def to_dict(self, *, task_id: str | None = None) -> dict[str, Any]:
+    def to_dict(self, *, task_id: str | None = None, project_id: str | None = None) -> dict[str, Any]:
         next_command = None
         if task_id and self.selected_agent_id:
-            next_command = f"devflow task run {task_id} --worker {self.selected_agent_id}"
+            next_command = f"devflow task run {task_id}{_project_option(project_id)} --worker {self.selected_agent_id}"
         return {
             "schema_version": 1,
             "role": self.role,
@@ -323,13 +324,19 @@ def rank_local_agent_candidates(
     )
 
 
-def write_selected_agent_evidence(root: Path, task_id: str, selection: LocalAgentSelection) -> Path:
+def write_selected_agent_evidence(
+    root: Path,
+    task_id: str,
+    selection: LocalAgentSelection,
+    *,
+    project_id: str | None = None,
+) -> Path:
     root = root.resolve()
     path = task_dir(root, task_id)
     if not path.exists():
         raise FileNotFoundError(f"Unknown task '{task_id}'.")
     selection_path = path / "agent-selection.json"
-    payload = selection.to_dict(task_id=task_id)
+    payload = selection.to_dict(task_id=task_id, project_id=project_id)
     payload["task_id"] = task_id
     payload["selected_at"] = utc_now().isoformat()
     payload["selection_path"] = relative_path(root, selection_path)
@@ -337,11 +344,24 @@ def write_selected_agent_evidence(root: Path, task_id: str, selection: LocalAgen
     return selection_path
 
 
-def selection_payload_with_path(root: Path, task_id: str, selection: LocalAgentSelection, path: Path) -> dict[str, Any]:
-    payload = selection.to_dict(task_id=task_id)
+def selection_payload_with_path(
+    root: Path,
+    task_id: str,
+    selection: LocalAgentSelection,
+    path: Path,
+    *,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    payload = selection.to_dict(task_id=task_id, project_id=project_id)
     payload["task_id"] = task_id
     payload["selection_path"] = relative_path(root, path)
     return payload
+
+
+def _project_option(project_id: str | None) -> str:
+    if not project_id:
+        return ""
+    return f" --project {shlex.quote(project_id)}"
 
 
 def _candidate_for_agent(agent: AgentDefinition, installed_names: set[str], *, role: str) -> LocalAgentCandidate:

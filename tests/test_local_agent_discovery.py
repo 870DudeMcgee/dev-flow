@@ -16,6 +16,7 @@ from devflow.control_room.local_agent_discovery import (
     rank_local_agent_candidates,
     write_selected_agent_evidence,
 )
+from devflow.control_room.service import create_task
 from tests.helpers import setup_temp_git_repo
 
 
@@ -151,6 +152,51 @@ def test_cli_discovers_and_selects_local_agent_with_mocked_ollama(
     assert select_payload["selected_agent_id"] == "gemma4-12b-qat-implementer"
     assert select_payload["selection_path"] == ".devflow/tasks/task-0001/agent-selection.json"
     assert (tmp_path / ".devflow/tasks/task-0001/agent-selection.json").exists()
+
+
+def test_select_local_project_scopes_selection_evidence_and_next_command(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv("DEVFLOW_HOME", (tmp_path / "home" / ".devflow").as_posix())
+    projects_root = tmp_path / "projects"
+    control_root = tmp_path / "control-room"
+    control_root.mkdir()
+    project = runner.invoke(
+        app,
+        [
+            "project",
+            "create",
+            "Alpha App",
+            "--projects-root",
+            projects_root.as_posix(),
+            "--source-control",
+            "none",
+        ],
+    )
+    assert project.exit_code == 0, project.output
+    project_root = projects_root / "alpha-app"
+    _write_gemma_patch_agent_registry(project_root)
+    task = create_task(project_root, "select project local agent")
+
+    monkeypatch.setattr(subprocess, "run", _fake_ollama_run)
+    monkeypatch.chdir(control_root)
+
+    select = runner.invoke(
+        app,
+        ["agent", "select-local", task.id, "--project", "alpha-app", "--role", "implementation_worker", "--json"],
+    )
+
+    assert select.exit_code == 0, select.output
+    payload = json.loads(select.output)
+    assert payload["selected_agent_id"] == "gemma4-12b-qat-implementer"
+    assert payload["selection_path"] == f".devflow/tasks/{task.id}/agent-selection.json"
+    assert payload["next_command"] == (
+        f"devflow task run {task.id} --project alpha-app --worker gemma4-12b-qat-implementer"
+    )
+    saved = json.loads((project_root / ".devflow/tasks" / task.id / "agent-selection.json").read_text(encoding="utf-8"))
+    assert saved["next_command"] == payload["next_command"]
+    assert not (control_root / ".devflow").exists()
 
 
 def _fake_ollama_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
