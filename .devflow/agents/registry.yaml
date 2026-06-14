@@ -129,6 +129,86 @@ agents:
     can_promote: false
     enabled: true
 
+  gemma4-12b-qat-implementer:
+    provider: ollama
+    model: gemma4:12b-it-qat
+    adapter: ollama_chat
+    role: implementation_worker
+    tier: strong_local
+    default_mode: workspace_write
+    execution_mode: automated
+    purpose: "Local Gemma 4 12B QAT patch proposal worker for this checkout; Dev-Flow applies, verifies, and promotes separately."
+    model_role_name: gemma4-12b-qat-patch-proposer
+    machine_class: either
+    weight_class: medium
+    secondary_roles:
+      - bounded_worker
+      - patch_proposer_candidate
+    use_caution:
+      - "Patch proposal still requires review, dry-run, apply, and verification gates."
+    required_verification_command: "ollama show gemma4:12b-it-qat"
+    manifest_notes:
+      - "Local manifest: architecture gemma4, 11.9B, context 262144, embedding 3840, Q4_0, completion/vision/audio/tools/thinking."
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+      - verification_summary
+    can_touch:
+      - "<workspace>/**"
+      - "<task>/agents/gemma4-12b-qat-implementer/proposal.patch"
+      - "<task>/agents/gemma4-12b-qat-implementer/raw_output.md"
+      - "<task>/agents/gemma4-12b-qat-implementer/result.md"
+      - "<task>/agents/gemma4-12b-qat-implementer/run.json"
+      - "<task>/agents/gemma4-12b-qat-implementer/logs/**"
+      - "<task>/agents/gemma4-12b-qat-implementer/questions.jsonl"
+      - "<task>/agents/gemma4-12b-qat-implementer/worker_failed.json"
+    cannot_touch:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    allowed_reads:
+      - "<task>/packet.json"
+      - "<task>/events.jsonl"
+      - "<task>/questions.jsonl"
+      - "<workspace>/**"
+    allowed_writes:
+      - "<workspace>/**"
+      - "<task>/agents/gemma4-12b-qat-implementer/proposal.patch"
+      - "<task>/agents/gemma4-12b-qat-implementer/raw_output.md"
+      - "<task>/agents/gemma4-12b-qat-implementer/result.md"
+      - "<task>/agents/gemma4-12b-qat-implementer/run.json"
+      - "<task>/agents/gemma4-12b-qat-implementer/logs/**"
+      - "<task>/agents/gemma4-12b-qat-implementer/questions.jsonl"
+      - "<task>/agents/gemma4-12b-qat-implementer/worker_failed.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - "<task>/packet.json"
+      - ".git/**"
+    required_outputs:
+      - "On completion, write <task>/agents/gemma4-12b-qat-implementer/proposal.patch and <task>/agents/gemma4-12b-qat-implementer/result.md with status, summary, changed files, and suggested verification."
+      - "Always preserve raw model output in <task>/agents/gemma4-12b-qat-implementer/raw_output.md and run metadata in <task>/agents/gemma4-12b-qat-implementer/run.json."
+      - "When blocked, append one blocked_question JSON object to <task>/agents/gemma4-12b-qat-implementer/questions.jsonl."
+      - "When failed, write <task>/agents/gemma4-12b-qat-implementer/worker_failed.json with summary, error_type, evidence, and next_safe_action."
+    completion_rules:
+      - "Propose changes only as a unified diff in proposal.patch; do not directly edit the main checkout."
+      - "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts."
+      - "Dev-Flow must apply proposal.patch to the isolated workspace and run verification after this worker completes."
+      - "Worker completion is not promotion readiness."
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    enabled: true
+
   devflow-ollama-worker:
     provider: ollama
     model: qwen2.5-coder:14b
