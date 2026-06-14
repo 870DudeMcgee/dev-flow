@@ -367,17 +367,17 @@ Metrics should update a model scorecard without granting autonomy automatically.
 
 ## 11. Activation Sequence
 
-This capability should be implemented only after the current registry and adapter-runtime sequence reaches the right point:
+Milestone 17 activates this capability as evidence-only routing after the registry and adapter-runtime foundations:
 
 1. Keep the shell-worker control-room contract stable.
 2. Load declarative agent and model capability registries.
 3. Add read-only `agent list`, `agent show`, and `agent packet`.
 4. Add manual packet adapter.
 5. Align shell adapter with the registry contract.
-6. Add deterministic context estimates and task-fit profiles.
-7. Add role-based context pack builder.
-8. Add local scout reports as optional evidence.
-9. Add conservative routing decisions with recorded reasons.
-10. Add routing-quality scorecards and escalation rules.
+6. Implement deterministic context estimates and task-fit profiles as derived `task fit` artifacts.
+7. Implement role-based context pack evidence through `agent context-pack`.
+8. Implement local scout reports as derived `task scout` artifacts.
+9. Implement conservative routing decisions through `task route`, recording selected/rejected candidates, unresolved roles, and recommended next commands without invoking workers.
+10. Implement routing-quality scorecards and escalation signals through `task scorecard`.
 
-Do not enable provider-backed execution, autonomous routing, or self-promotion as part of this design document.
+Deferred autonomy remains explicit: do not enable provider-backed execution, autonomous worker assignment, worker-owned verification, promotion, commit, push, publication, or self-promotion as part of the Milestone 17 evidence-only design.

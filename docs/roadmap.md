@@ -264,7 +264,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A legacy local Ollama advisory wrapper is implemented as `devflow task local` for Qwen/Qwopus/Gemma planning, scouting, and review evidence; it captures prompt, raw response, stderr, and run metadata under the task workspace without writing `proposal.patch` or applying model output. The registry-backed local patch runtime is active for explicit patch agents such as `qwopus-implementer` and, when installed and selected by evidence, `gemma4-12b-qat-implementer`: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Milestone 16 added centralized runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, explicit local Ollama discovery/selection evidence, and local patch ladder dogfood. Remote provider-backed execution is not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A legacy local Ollama advisory wrapper is implemented as `devflow task local` for Qwen/Qwopus/Gemma planning, scouting, and review evidence; it captures prompt, raw response, stderr, and run metadata under the task workspace without writing `proposal.patch` or applying model output. The registry-backed local patch runtime is active for explicit patch agents such as `qwopus-implementer` and, when installed and selected by evidence, `gemma4-12b-qat-implementer`: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Milestone 16 added centralized runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, explicit local Ollama discovery/selection evidence, and local patch ladder dogfood. Milestone 17 added evidence-only task-fit, scout, route, and scorecard commands that write derived artifacts and recommended next commands only. Autonomous routing and remote provider-backed execution are not active.
 
 Sequence:
 - architecture document only
@@ -272,15 +272,17 @@ Sequence:
 - `agent list`, `agent show`, and `agent packet` commands
 - manual proof-agent adapter
 - shell adapter alignment
-- deterministic task-fit and context-size estimation (future routing work)
+- deterministic task-fit and context-size estimation (implemented as derived evidence through `task fit`)
 - role-based context pack builder (implemented as derived evidence through `agent context-pack`)
 - local Ollama advisory evidence wrapper for Qwen/Qwopus/Gemma (implemented as `task local`, not the canonical patch adapter)
 - registry-backed Ollama patch adapter for explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`
+- local scout reports as derived evidence (implemented through `task scout`)
+- evidence-only routing decisions with candidate eligibility, rejections, unresolved roles, and recommended next commands (implemented through `task route`)
+- routing-quality scorecards and escalation signals (implemented through `task scorecard`)
 - OpenAI-compatible adapter for LM Studio and Grok-style APIs (future provider work)
 - native OpenAI, Anthropic, and Gemini adapters (future provider work)
-- local scout reports as optional evidence (future routing work)
-- routing engine (future routing work)
-- metrics for local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided
+- autonomous routing engine that assigns or invokes workers (future autonomy work)
+- metrics that drive autonomous policy, provider selection, or cost optimization beyond scorecard evidence (future autonomy work)
 
 Acceptance:
 - no agent owns canonical task state
