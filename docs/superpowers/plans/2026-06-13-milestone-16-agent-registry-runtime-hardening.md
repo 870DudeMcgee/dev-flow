@@ -836,7 +836,7 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_agent_runtime.py tests/te
 
 Expected: pass.
 
-- [ ] **Step 3: Run broader release check**
+- [x] **Step 3: Run broader release check**
 
 ```bash
 ./scripts/release-check.sh
@@ -852,7 +852,7 @@ rg -n "Milestone 15.*next planned|multi-project control room hardening.*next pla
 
 Expected: no active-doc matches claiming Milestone 15 is still the next planned slice or remote/autonomous provider behavior is stable. Historical specs/plans may match only when clearly historical.
 
-- [ ] **Step 5: Final status and push**
+- [x] **Step 5: Final status and push**
 
 ```bash
 PYTHONPATH=src:. .venv/bin/devflow git status
