@@ -12,22 +12,25 @@ needs-review
 - `src/devflow/control_room/operating_layer_script.py` / `operating_layer_styles.py` (rendered compact lane block in the task review panel)
 - `src/devflow/control_room/readiness.py` (included lane recovery command in promotion refusal output)
 - `src/devflow/control_room/dogfood.py` (added scratch-repo Git-native two-lane dogfood case)
-- `tests/` (added focused coverage for lane summary, surfaces, refusal recovery, operating-layer snapshot/UI markers, and dogfood)
+- `src/devflow/control_room/finalizer.py` (stages verified tracked worktree modifications and refreshes merge-readiness after finalization)
+- `tests/` (added focused coverage for lane summary, surfaces, refusal recovery, operating-layer snapshot/UI markers, finalizer staging/readiness, and dogfood)
 - `docs/` (aligned active Milestone 19 Git-native lane hardening docs)
 
 ## Verification
 
-- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_git_worktree_promotion.py tests/test_task_finalize.py -q`: pass, `21 passed in 39.22s`
-- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_supervisor_operating_surface.py -q`: pass, `21 passed in 5.80s`
-- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_operating_layer.py -q`: pass, `26 passed in 12.66s`
-- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests -k dogfood -q`: pass, `12 passed, 2 skipped, 991 deselected in 48.05s`
-- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow dogfood run --suite production-readiness`: pass, `score: 108/110`, `silver_met: yes`; warning: conservative parallelism blocked by current dirty implementation lane guardrails
+- `git diff --check`: pass, no output
+- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_git_worktree_promotion.py tests/test_task_finalize.py tests/test_operating_layer.py tests/test_supervisor_operating_surface.py -q`: pass, `69 passed in 58.99s`
+- `PYTHONPATH=/Users/josh/Desktop/Dev-Flow/.devflow/worktrees/task-0037/shell/src:. .venv/bin/devflow task verify task-0037 --shell "PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_git_worktree_promotion.py tests/test_task_finalize.py tests/test_operating_layer.py tests/test_supervisor_operating_surface.py -q"`: pass, `69 passed in 60.52s`
+- `PYTHONPATH=/Users/josh/Desktop/Dev-Flow/.devflow/worktrees/task-0037/shell/src:. .venv/bin/devflow task promote-preview task-0037`: pass, `promotion_readiness: ready`, `lane_readiness: ready`
+- `PATH=/Users/josh/Desktop/Dev-Flow/.venv/bin:$PATH ./scripts/release-check.sh`: pass, `1000 passed, 6 skipped`, CLI smoke passed, distribution build passed, twine check passed, wheel smoke install passed
+- `PYTHONPATH=src:. .venv/bin/devflow git status`: pass, main clean at `d0cc430`, ahead `0`, behind `0`
+- `PYTHONPATH=/Users/josh/Desktop/Dev-Flow/.devflow/worktrees/task-0037/shell/src:/Users/josh/Desktop/Dev-Flow /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow git status`: pass, worker branch clean at `9e0350b`, ahead origin/main `3`
 
 ## Risks
 
-- Full final focused suite, release gate, whitespace check, and checkpoint are still pending.
-- Production-readiness dogfood was run from a dirty implementation lane, so the parallelism case reported its existing conservative guardrail warning.
+- Implementation is finalized in task lane `task-0037`; `main` is not promoted yet.
+- Release check needed the project virtualenv first in `PATH` because the worker worktree does not contain its own `.venv`.
 
 ## Next Safe Action
 
-- Run Task 9 final verification and create the Dev-Flow checkpoint if verification passes.
+- Promote task lane `task-0037` after human review: `PYTHONPATH=src:. .venv/bin/devflow task promote task-0037`
