@@ -152,6 +152,27 @@ def test_router_marks_planner_and_reviewer_unresolved_when_not_selected(tmp_path
     assert rd["recommended_next_commands"]["reviewer"] == unresolved_by_role["reviewer"]["next_command"]
 
 
+def test_router_project_scopes_recommended_commands(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up documentation")
+    task.verification_command = "pytest tests/test_docs.py"
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
+    routing_res = route_task(tmp_path, task.id, project_id="alpha-app")
+    rd = routing_res["routing_decision"]
+
+    assert rd["recommended_next_commands"]["verifier"] == (
+        f'devflow task verify {task.id} --project alpha-app --shell "pytest tests/test_docs.py"'
+    )
+    assert rd["recommended_next_commands"]["planner"] == (
+        f"devflow agent context-pack {task.id} <agent-id> --project alpha-app --role planner --json"
+    )
+    assert rd["recommended_next_commands"]["reviewer"] == (
+        f"devflow agent context-pack {task.id} <agent-id> --project alpha-app --role reviewer --json"
+    )
+
+
 def test_high_risk_tasks_require_human_escalation_without_worker_selection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. Initialize structures
     (tmp_path / ".devflow/tasks").mkdir(parents=True)

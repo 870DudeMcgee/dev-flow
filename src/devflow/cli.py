@@ -1704,7 +1704,7 @@ def task_route_command(
     root = scope.root
     try:
         from devflow.control_room.router import route_task, save_routing_decision
-        decision_data = route_task(root, task_id)
+        decision_data = route_task(root, task_id, project_id=scope.project_id)
         save_routing_decision(root, task_id, decision_data)
     except Exception as exc:
         typer.echo(str(exc), err=True)
@@ -4133,9 +4133,11 @@ def agent_context_pack(
     agent_id: str,
     role: str = typer.Option("implementation_worker", "--role", help="Role label for the context pack."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    project: str | None = typer.Option(None, "--project", help="Write a context pack from a registered project root."),
 ) -> None:
     """Write a role-scoped context pack derived from a task packet."""
-    root = Path.cwd()
+    scope = _resolve_task_project_root(project)
+    root = scope.root
     try:
         from devflow.control_room.context_pack import write_context_pack
 

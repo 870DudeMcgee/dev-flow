@@ -360,7 +360,7 @@ Minimum routing artifacts:
 - `task-fit.yaml`: task type, repo scope, context requirement, reasoning requirement, edit risk, architectural risk, verification complexity, context layer, and recommended tiers.
 - `context-estimate.yaml`: relevant files, relevant lines, estimated tokens, tests needed, docs needed, task history tokens, and total context estimate.
 - `context-pack.yaml`: role, context layer, included sources, excluded sources, estimated tokens, and truncation notes.
-- `routing-decision.yaml`: selected planner, worker, reviewer, verifier, reasons, rejected agents, and policy version.
+- `routing-decision.yaml`: selected or unresolved planner, worker, reviewer, verifier roles, reasons, rejected agents, recommended next commands, and policy version.
 - `model-scorecard.jsonl`: post-run evidence about useful context, success rate, verification failures, rework, escalation, cost, and latency.
 
 The planner may receive broad L4/L5 context. The worker should usually receive a bounded L1/L2 pack. The reviewer receives the diff, task contract, acceptance criteria, and targeted architecture notes. The verifier receives commands, logs, expected outputs, and verification history.

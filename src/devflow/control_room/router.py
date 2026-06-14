@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -86,7 +87,7 @@ def _selected_local_agent_id(root: Path, task_id: str) -> str | None:
     return selected_agent_id
 
 
-def route_task(root: Path, task_id: str) -> dict[str, Any]:
+def route_task(root: Path, task_id: str, *, project_id: str | None = None) -> dict[str, Any]:
     """Build an evidence-only routing decision without running workers or providers."""
     task_fit_file = task_dir(root, task_id) / "task-fit.yaml"
     fit_data = estimate_task_fit(root, task_id)
@@ -111,8 +112,9 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
     rejected: list[dict[str, Any]] = []
     blocked: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
+    project_option = _project_option(project_id)
     recommended_next_commands: dict[str, str] = {
-        "verifier": f"devflow task verify {task_id} --shell \"<verification command>\"",
+        "verifier": f"devflow task verify {task_id}{project_option} --shell \"<verification command>\"",
     }
     reasons = [
         "evidence-only routing records recommendations and next commands but never runs workers or providers",
@@ -121,7 +123,9 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
         f"code edit risk is {task_fit.get('code_edit_risk', 'medium')}",
     ]
     if task.verification_command:
-        recommended_next_commands["verifier"] = f"devflow task verify {task_id} --shell {json.dumps(task.verification_command)}"
+        recommended_next_commands["verifier"] = (
+            f"devflow task verify {task_id}{project_option} --shell {json.dumps(task.verification_command)}"
+        )
 
     selected_agent_id = _selected_local_agent_id(root, task_id)
     selected_agent_evidence = _read_selected_agent_evidence(root, task_id)
@@ -156,7 +160,7 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
                 blocked.append({"role": "worker", "agent": agent.id, "status": "blocked_runtime", "reason": rejection_reason})
             continue
         selected["worker"] = agent.id
-        recommended_next_commands["worker"] = f"devflow task run {task_id} --worker {agent.id}"
+        recommended_next_commands["worker"] = f"devflow task run {task_id}{project_option} --worker {agent.id}"
         reasons.append(f"worker selected from matching selected-agent evidence: {agent.id}")
         break
 
@@ -195,7 +199,7 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
             )
     else:
         for role in ("planner", "reviewer"):
-            next_command = f"devflow agent context-pack {task_id} <agent-id> --role {role} --json"
+            next_command = f"devflow agent context-pack {task_id} <agent-id>{project_option} --role {role} --json"
             _add_unresolved(
                 unresolved,
                 role=role,
@@ -368,6 +372,12 @@ def _load_provider_registry(root: Path) -> tuple[dict[str, ProviderDefinition], 
         return load_provider_registry(root).providers, None
     except Exception as exc:
         return {}, f"provider registry failed to load: {exc}"
+
+
+def _project_option(project_id: str | None) -> str:
+    if not project_id:
+        return ""
+    return f" --project {shlex.quote(project_id)}"
 
 
 def _provider_registry_block_reason(agent: AgentDefinition, provider_registry_error: str | None) -> str | None:
