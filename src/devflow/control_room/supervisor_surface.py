@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from devflow.control_room.git_state import inspect_git_state
-from devflow.control_room.git_worktree import is_git_worktree_task, worker_id_for_task
+from devflow.control_room.git_worktree import git_worker_lane_summary, is_git_worktree_task, worker_id_for_task
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.patch_dry_run import latest_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review
@@ -729,6 +729,7 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         },
         "active_tasks": [task for task in tasks if task["active"]],
         "active_task_count": status["active_task_count"],
+        "tasks": tasks,
         "review_queue": needing_review,
         "tasks_needing_review": needing_review,
         "tasks_blocked": blocked,
@@ -798,6 +799,7 @@ def _compact_task_record(
     include_evidence_paths: bool = False,
 ) -> dict[str, Any]:
     evidence = _task_evidence(root, task)
+    worker_lane = git_worker_lane_summary(root, task)
     next_action = build_task_next_action(root, task.id)
     active = _is_active_task(task)
     blocked_reason = _blocked_reason(projection, evidence) if active else None
@@ -827,8 +829,11 @@ def _compact_task_record(
         "commands_requiring_human_approval": next_action["commands_requiring_human_approval"],
         "approval_required_commands": next_action["approval_required_commands"],
     }
+    if worker_lane:
+        record["worker_lane"] = worker_lane
     if include_evidence_paths:
-        record["evidence_paths"] = evidence["evidence_paths"]
+        lane_evidence = list(worker_lane.get("evidence_paths") or []) if worker_lane else []
+        record["evidence_paths"] = _dedupe_preserve_order(evidence["evidence_paths"] + lane_evidence)
     return record
 
 

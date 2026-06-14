@@ -509,9 +509,19 @@ def test_git_native_promotion_ready_task_is_reported_without_mutating_refs(tmp_p
     assert task_record["safety_class"] == APPROVAL_REQUIRED_GIT
     assert task_record["requires_human_approval"] is True
     assert task_record["commands_requiring_human_approval"] == ["devflow task promote task-0001"]
+    assert task_record["worker_lane"]["workspace_mode"] == "git-worktree"
+    assert task_record["worker_lane"]["worker_branch"] == "devflow/task-0001/shell"
+    assert task_record["worker_lane"]["readiness_status"] == "ready"
+    assert task_record["worker_lane"]["next_safe_action"] == "devflow task promote task-0001"
 
     packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
     assert packet["tasks_promotion_ready"][0]["id"] == "task-0001"
+    packet_task = packet["tasks"][0]
+    assert packet_task["worker_lane"]["workspace_mode"] == "git-worktree"
+    assert packet_task["worker_lane"]["worker_branch"] == "devflow/task-0001/shell"
+    assert packet_task["worker_lane"]["readiness_status"] == "ready"
+    assert packet_task["worker_lane"]["next_safe_action"] == "devflow task promote task-0001"
+    assert ".devflow/tasks/task-0001/workers/shell/git.json" in packet_task["evidence_paths"]
     assert ".devflow/tasks/task-0001/workers/shell/promotion-preview.json" in packet["evidence_paths"]
 
 

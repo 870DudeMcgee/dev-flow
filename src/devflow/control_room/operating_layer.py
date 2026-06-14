@@ -16,6 +16,7 @@ from devflow.control_room.dashboard import (
 )
 from devflow.control_room.agent_evidence import compact_agent_evidence_summary
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
+from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
@@ -100,6 +101,32 @@ class OperatingLayerTaskDetail(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class OperatingLayerWorkerLane(BaseModel):
+    workspace_mode: str
+    worker_id: str
+    worker_branch: str
+    worktree_path: str
+    base_branch: str | None = None
+    base_commit: str | None = None
+    base_current_commit: str | None = None
+    base_stale: bool = False
+    origin_base_commit: str | None = None
+    origin_base_stale: bool = False
+    head_commit: str | None = None
+    dirty: bool = False
+    verification_status: str = "missing"
+    verified_commit: str | None = None
+    head_matches_verified: bool = False
+    promotion_readiness: str = "unknown"
+    conflict_prediction: str = "unknown"
+    changed_files: list[str] = Field(default_factory=list)
+    readiness_status: str
+    readiness_errors: list[str] = Field(default_factory=list)
+    readiness_warnings: list[str] = Field(default_factory=list)
+    evidence_paths: list[str] = Field(default_factory=list)
+    next_safe_action: str
+
+
 class OperatingLayerTask(BaseModel):
     id: str
     title: str
@@ -124,6 +151,7 @@ class OperatingLayerTask(BaseModel):
     review_next_command: str | None = None
     review_evidence: list[str] = Field(default_factory=list)
     agent_evidence_summary: dict[str, Any] = Field(default_factory=dict)
+    worker_lane: OperatingLayerWorkerLane | None = None
     actions: list[OperatingLayerAction] = Field(default_factory=list)
     detail: OperatingLayerTaskDetail
 
@@ -899,6 +927,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
     next_action = DashboardNextAction(**projection.dashboard_next_action.model_dump())
     if next_action.command:
         next_action.command = _scope_task_command(next_action.command, project_id)
+    worker_lane = git_worker_lane_summary(root, task)
     review_readiness = build_review_readiness_projection(
         root,
         task.id,
@@ -930,6 +959,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         review_next_command=review_readiness.next_command,
         review_evidence=review_readiness.evidence,
         agent_evidence_summary=compact_agent_evidence_summary(root, task.id),
+        worker_lane=OperatingLayerWorkerLane(**worker_lane) if worker_lane else None,
         actions=_task_actions(task.id, next_action.command, project_id=project_id, ready_to_promote=projection.ready_to_promote),
         detail=_task_detail(root, projection),
     )
@@ -1106,6 +1136,9 @@ def _task_detail(root: Path, projection: TaskStatusProjection) -> OperatingLayer
     ]
     if (base / "verification.json").exists():
         evidence_paths.append(relative_path(root, base / "verification.json"))
+    worker_lane = git_worker_lane_summary(root, task)
+    if worker_lane:
+        evidence_paths.extend(str(path) for path in worker_lane.get("evidence_paths") or [])
     return OperatingLayerTaskDetail(
         events_path=relative_path(root, base / "events.jsonl"),
         verification_path=relative_path(root, base / "verification.json"),
@@ -1126,9 +1159,10 @@ def _task_review_summary(
     notes: list[str],
 ) -> list[OperatingLayerReviewItem]:
     task = projection.task
+    worker_lane = git_worker_lane_summary(root, task)
     changed_files = _changed_workspace_files(root, task.workspace, notes)
     task_contents = _changed_file_contents(root, task.workspace, changed_files, notes)
-    return [
+    items = [
         OperatingLayerReviewItem(label="Task", value=f"{task.id} - {task.title}"),
         OperatingLayerReviewItem(label="Status", value=task.status),
         OperatingLayerReviewItem(label="Verification", value=projection.verification_status or "not_run"),
@@ -1142,6 +1176,10 @@ def _task_review_summary(
             value=projection.dashboard_next_action.command or f"devflow task show {task.id}",
         ),
     ]
+    if worker_lane:
+        items.insert(3, OperatingLayerReviewItem(label="Worker lane", value=str(worker_lane["workspace_mode"])))
+        items.insert(4, OperatingLayerReviewItem(label="Lane readiness", value=str(worker_lane["readiness_status"])))
+    return items
 
 
 def _changed_workspace_files(root: Path, workspace_value: str, notes: list[str], *, limit: int = 20) -> list[str]:

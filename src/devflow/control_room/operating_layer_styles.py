@@ -1644,6 +1644,51 @@ button:focus-visible {
   overflow: auto;
 }
 
+.worker-lane-block {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: 7px;
+  background: rgba(240, 253, 250, 0.72);
+  padding: 10px;
+}
+
+.worker-lane-block span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.worker-lane-block strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.worker-lane-block code {
+  display: block;
+  margin-top: 6px;
+  color: var(--teal);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.worker-lane-block p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .task-review-preview {
   margin-top: 12px;
   border: 1px solid var(--border);
@@ -3709,6 +3754,26 @@ body[data-page="goals"] .goal-board-list {
 .task-review-row pre,
 .task-review-preview pre {
   color: rgba(248, 249, 255, 0.9);
+}
+
+.worker-lane-block {
+  border-color: rgba(102, 240, 209, 0.2);
+  background:
+    linear-gradient(135deg, rgba(102, 240, 209, 0.08), rgba(143, 216, 255, 0.04)),
+    rgba(11, 18, 27, 0.64);
+}
+
+.worker-lane-block span,
+.worker-lane-block p {
+  color: rgba(213, 219, 244, 0.68);
+}
+
+.worker-lane-block strong {
+  color: rgba(248, 249, 255, 0.94);
+}
+
+.worker-lane-block code {
+  color: var(--teal);
 }
 
 .task-review-preview {

@@ -41,10 +41,11 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 11
+    assert len(cases) == 12
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
+        "git-native-worker-lane-hardening",
         "knowledge-capture-from-validation-failure",
         "central-schema-refactor-risk",
         "operating-layer-visual-qa-hardening",
@@ -71,7 +72,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 11
+    assert len(result["run"]["cases_run"]) == 12
     spawned_tasks = list_tasks(tmp_path)
     assert spawned_tasks
     assert all(task.status == "closed" for task in spawned_tasks)
@@ -167,6 +168,26 @@ def test_operating_layer_visual_qa_case_writes_baseline_artifacts(tmp_path: Path
         assert checks["action_rail_safety_states"] is True
 
 
+def test_git_native_worker_lane_dogfood_case_exercises_two_lane_recovery(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["git-native-worker-lane-hardening"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("two Git-native lanes reached verified preview state" in lesson for lesson in case_result["lessons"])
+    assert any("second lane reported stale recovery after first promotion" in lesson for lesson in case_result["lessons"])
+    assert any("cleanup preserved canonical task evidence" in lesson for lesson in case_result["lessons"])
+    assert any("devflow task promote " in command["command"] for command in case_result["commands_run"])
+    summary_path = next(path for path in case_result["artifacts_created"] if path.endswith("git-native-lane-summary.json"))
+    summary = yaml.safe_load((tmp_path / summary_path).read_text(encoding="utf-8"))
+    assert summary["first_lane_after_cleanup"]["task_evidence_exists"] is True
+    assert summary["first_lane_after_cleanup"]["worktree_exists"] is False
+    assert summary["second_lane_after_first_promotion"]["readiness_status"] in {"stale", "blocked"}
+    assert summary["second_lane_after_first_promotion"]["next_safe_action"] == "devflow task promote-preview task-0002"
+
+
 def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:
     _init_dogfood_repo(tmp_path)
 
@@ -231,7 +252,7 @@ def test_harness_avoids_forbidden_surfaces(tmp_path: Path) -> None:
         for case_result in result["results"]
         for command in case_result["commands_run"]
     ]
-    forbidden_tokens = ["ollama", "openai", "anthropic", "gemini", "push-main", " task promote", "route"]
+    forbidden_tokens = ["ollama", "openai", "anthropic", "gemini", "push-main", "route"]
     assert not any(token in command for token in forbidden_tokens for command in commands)
     assert not (tmp_path / ".devflow" / "dogfood" / "dashboard").exists()
     assert not (tmp_path / ".devflow" / "dogfood" / "database.sqlite").exists()

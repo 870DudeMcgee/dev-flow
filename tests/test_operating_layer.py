@@ -41,7 +41,9 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert '<script src="/app.js"></script>' in INDEX_HTML
     assert ".approved-verification-control" in APP_CSS
     assert ".task-review-panel" in APP_CSS
+    assert ".worker-lane-block" in APP_CSS
     assert "refreshSnapshotAfterApprovedAction" in APP_JS
+    assert "renderWorkerLaneBlock" in APP_JS
     assert "isTaskPromotionAction" in APP_JS
     assert "Approve & promote" in APP_JS
     assert "data-promotion-context" in APP_JS
@@ -147,6 +149,52 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     assert review_loop["next_safe_action"] == "devflow task promote-preview task-0001"
     assert review_loop["needs_verification_count"] == 0
     assert review_loop["ready_to_promote_count"] == 1
+
+
+def test_operating_layer_snapshot_includes_git_worker_lane_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
+    (tmp_path / "base.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "base.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True)
+
+    created = runner.invoke(app, ["task", "create", "--git-worktree", "operating lane"])
+    assert created.exit_code == 0, created.output
+    run = runner.invoke(
+        app,
+        [
+            "task",
+            "run",
+            "task-0001",
+            "--worker",
+            "shell",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf 'ready\\n' > ready.txt && git add ready.txt && git commit -m ready",
+        ],
+    )
+    assert run.exit_code == 0, run.output
+    verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f ready.txt"])
+    assert verify.exit_code == 0, verify.output
+    preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+    assert preview.exit_code == 0, preview.output
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    lane = payload["tasks"][0]["worker_lane"]
+    assert lane["workspace_mode"] == "git-worktree"
+    assert lane["worker_branch"] == "devflow/task-0001/shell"
+    assert lane["worktree_path"] == ".devflow/worktrees/task-0001/shell"
+    assert lane["readiness_status"] == "ready"
+    assert lane["next_safe_action"] == "devflow task promote task-0001"
+    review = {item["label"]: item["value"] for item in payload["tasks"][0]["detail"]["review_summary"]}
+    assert review["Worker lane"] == "git-worktree"
+    assert review["Lane readiness"] == "ready"
 
 
 def test_operating_layer_review_loop_flags_failed_verification_decision_pressure(

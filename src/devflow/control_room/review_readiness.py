@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from devflow.control_room.git_worktree import is_git_worktree_task, worker_id_for_task
+from devflow.control_room.git_worktree import git_worker_lane_summary, is_git_worktree_task, worker_id_for_task
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
 from devflow.control_room.persistence import get_task, list_tasks
@@ -52,6 +52,11 @@ class ReviewReadinessProjection(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     next_command: str
     promotion_preview_path: str | None = None
+    worker_lane: str | None = None
+    worker_branch: str | None = None
+    worktree_path: str | None = None
+    lane_readiness: str | None = None
+    lane_next_action: str | None = None
 
 
 class ReviewReadinessSummary(BaseModel):
@@ -76,6 +81,9 @@ def build_review_readiness_projection(
     projection = status_projection or build_task_status_projection(root, record.id, task=record)
     preview = _promotion_preview_state(root, record)
     evidence = _evidence_paths(root, projection, preview.path)
+    lane = git_worker_lane_summary(root, record)
+    if lane:
+        evidence = _dedupe(evidence + list(lane.get("evidence_paths") or []))
     state, score, blockers, next_command = _classify_review_readiness(
         projection,
         preview,
@@ -94,6 +102,11 @@ def build_review_readiness_projection(
         evidence=evidence,
         next_command=next_command,
         promotion_preview_path=preview.path,
+        worker_lane=lane.get("workspace_mode") if lane else None,
+        worker_branch=lane.get("worker_branch") if lane else None,
+        worktree_path=lane.get("worktree_path") if lane else None,
+        lane_readiness=lane.get("readiness_status") if lane else None,
+        lane_next_action=lane.get("next_safe_action") if lane else None,
     )
 
 
@@ -143,6 +156,9 @@ def render_review_readiness(projection_or_summary: ReviewReadinessProjection | R
         for task in projection_or_summary.tasks:
             lines.append(f"  - {task.task_id}: {task.review_state} (score={task.score})")
             lines.append(f"    next: {task.next_command}")
+            if task.worker_lane:
+                lines.append(f"    worker_lane: {task.worker_lane}")
+                lines.append(f"    lane_readiness: {task.lane_readiness or 'unknown'}")
             if task.blockers:
                 lines.append(f"    blockers: {'; '.join(task.blockers)}")
         return "\n".join(lines) + "\n"
@@ -156,8 +172,18 @@ def render_review_readiness(projection_or_summary: ReviewReadinessProjection | R
         f"review_state: {projection_or_summary.review_state}",
         f"score: {projection_or_summary.score}",
         f"next_command: {projection_or_summary.next_command}",
-        "blockers:",
     ]
+    if projection_or_summary.worker_lane:
+        lines.extend(
+            [
+                f"worker_lane: {projection_or_summary.worker_lane}",
+                f"worker_branch: {projection_or_summary.worker_branch or ''}",
+                f"worktree_path: {projection_or_summary.worktree_path or ''}",
+                f"lane_readiness: {projection_or_summary.lane_readiness or 'unknown'}",
+                f"lane_next_action: {projection_or_summary.lane_next_action or ''}",
+            ]
+        )
+    lines.append("blockers:")
     if projection_or_summary.blockers:
         lines.extend(f"  - {blocker}" for blocker in projection_or_summary.blockers)
     else:
