@@ -13,7 +13,7 @@ agent_registry.py
 -> local_model_client.py
 -> WorkerEvidence
 -> Hermes-readable CLI/status output
--> real task evidence improves future routing
+-> real task evidence improves later route-quality analysis
 ```
 
 Dev-Flow owns state, verification, evidence, worker isolation, and promotion. Local workers produce evidence, not truth. Hermes may request eligible workers through the operator layer, but Hermes must not own worker state, bypass Dev-Flow, or mutate the repo directly.
@@ -155,7 +155,7 @@ No separate benchmark harness is required for this milestone. Refinement should 
 1. Run workers on actual tasks.
 2. Inspect WorkerEvidence, task outcome, verification, and human review.
 3. Adjust profile roles, prompts, machine assignments, and permissions.
-4. Record good/bad output as future routing evidence.
+4. Record good/bad output as route-quality evidence.
 5. Keep human approval in front of patch application and promotion.
 
 ## Manifest Capture Workflow

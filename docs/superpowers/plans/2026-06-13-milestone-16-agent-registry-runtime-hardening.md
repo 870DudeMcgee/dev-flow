@@ -847,7 +847,7 @@ Expected: pass on a clean tree after checkpointing any dirty work.
 - [x] **Step 4: Stale-context scan**
 
 ```bash
-rg -n "Milestone 15.*next planned|multi-project control room hardening.*next planned|agent registry.*future-only|remote provider.*stable runtime|autonomous routing.*current" README.md PRODUCT_NORTH_STAR.md CODE_MAP.md docs/control-room-mvp.md docs/mvp-contract.md docs/roadmap.md docs/architecture docs/handoffs
+rg -n "Milestone 15.*next planned|multi-project control room hardening.*next planned|agent registry.*deferred-only|remote provider.*stable runtime|autonomous assignment.*current" README.md PRODUCT_NORTH_STAR.md CODE_MAP.md docs/control-room-mvp.md docs/mvp-contract.md docs/roadmap.md docs/architecture docs/handoffs
 ```
 
 Expected: no active-doc matches claiming Milestone 15 is still the next planned slice or remote/autonomous provider behavior is stable. Historical specs/plans may match only when clearly historical.

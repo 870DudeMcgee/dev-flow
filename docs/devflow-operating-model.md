@@ -236,7 +236,7 @@ It proves:
 * CLI visibility
 * canonical filesystem state
 
-Enabled non-shell worker adapters, browser/web dashboard mutation surfaces, scheduling, automatic commits, automatic pull requests, and automated promotion are future layers unless explicitly promoted into the active contract. Git-native shell-worker isolation and promotion is opt-in; default task creation remains copy-workspace. The current text-only terminal dashboard, read-only local operating layer, and human-controlled promotion commands are active contract surfaces. Non-shell adapter work must start with registry loading, manual packets, and shell alignment before provider-backed execution or routing.
+Enabled non-shell worker adapters, browser/web dashboard mutation surfaces, scheduling, automatic commits, automatic pull requests, and automated promotion are deferred layers unless explicitly promoted into the active contract. Git-native shell-worker isolation and promotion is opt-in; default task creation remains copy-workspace. The current text-only terminal dashboard, read-only local operating layer, and human-controlled promotion commands are active contract surfaces. Non-shell adapter work must start with registry loading, manual packets, and shell alignment before provider-backed execution or autonomous assignment.
 
 ## Future Direction
 

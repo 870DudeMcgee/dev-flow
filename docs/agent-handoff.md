@@ -34,7 +34,7 @@ Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, and human-controlled promotion.
+The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, and human-controlled promotion.
 
 The initial Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, and humans promote through Git-aware mechanics rather than blind copy-back.
 
@@ -145,6 +145,14 @@ devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
 devflow task list
 devflow task packet <task_id>
+devflow task fit <task_id>
+devflow task fit <task_id> --json
+devflow task scout <task_id> --role all
+devflow task scout <task_id> --role risk --json
+devflow task route <task_id>
+devflow task route <task_id> --json
+devflow task scorecard <task_id>
+devflow task scorecard <task_id> --json
 devflow task log <task_id>
 devflow task orchestrate <task_id> --plan-only
 devflow worker validate-outcome <path-to-outcome-json>

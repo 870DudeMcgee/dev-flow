@@ -7,7 +7,7 @@ Status: Approved; ready for implementation handoff
 
 Milestone 11 has drifted between docs and implementation state. The roadmap still names `11E` as the active next priority, but the runtime already includes `devflow map init`, `devflow map show`, `devflow map check`, and bounded `CODE_MAP.md` excerpt support in `devflow task packet`.
 
-The missing closure step is to dogfood the feature in Dev-Flow itself and align active docs so future agents do not keep treating Project Code Map as planned work. This milestone should make the orientation layer real without starting Idea Foundry, provider routing, autonomous model selection, or a new worker runtime.
+The missing closure step is to dogfood the feature in Dev-Flow itself and align active docs so later agents do not keep treating Project Code Map as planned work. This milestone should make the orientation layer real without starting Idea Foundry, provider-backed assignment, autonomous model selection, or a new worker runtime.
 
 ## Scope
 

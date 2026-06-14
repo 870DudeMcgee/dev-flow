@@ -1,5 +1,7 @@
 # Milestone 16 Agent Registry Runtime Hardening Complete Handoff
 
+Superseded by Milestone 17 evidence-only task-fit/context-routing implementation. Treat this handoff as historical Milestone 16 closure evidence only; use active docs for current routing status, where `devflow task fit`, `devflow task scout`, `devflow task route`, and `devflow task scorecard` are implemented derived-evidence commands while autonomous routing and provider-backed execution remain excluded.
+
 ## Status
 
 complete
@@ -27,9 +29,9 @@ complete
 
 ## Risks
 
-- Dev-Flow is model-agnostic at the explicit role-selection boundary, but fully automatic best-model-for-any-task routing is still deferred task-fit/context-routing work.
+- Historical Milestone 16 risk: Dev-Flow was model-agnostic at the explicit role-selection boundary. Current active docs supersede this with Milestone 17 evidence-only fit/scout/route/scorecard commands while autonomous worker assignment remains deferred.
 - Local model patch output remains proposal evidence only; Dev-Flow still owns review, dry-run, apply, verification, and promotion.
 
 ## Next Safe Action
 
-- Start a future task-fit/context-routing slice only after a new approved spec promotes best-available model routing by task and role.
+- Use the active Milestone 17 routing evidence contract. Any later autonomous worker-assignment or provider-backed execution slice needs a new human-reviewed spec.

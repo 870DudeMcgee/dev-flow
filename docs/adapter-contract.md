@@ -2,9 +2,9 @@
 
 Status: post-MVP design document.
 
-This document defines the contract future worker adapters must follow. It uses the existing shell worker as the reference implementation and does not add runtime behavior beyond the current shell-worker control-room contract.
+This document defines the contract later worker adapters must follow. It uses the existing shell worker as the reference implementation and does not add runtime behavior beyond the current shell-worker control-room contract.
 
-The broader future registry, provider, role, permission, adapter runtime, and routing architecture is defined in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md). That document is the next design direction; this file remains the adapter safety contract.
+The broader registry, provider, role, permission, adapter runtime, and routing architecture is defined in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md). That document defines the adapter-runtime direction; this file remains the adapter safety contract.
 
 Dev-Flow owns task state, workspace boundaries, verification evidence, and merge readiness. Worker adapters are replaceable execution engines that operate inside those boundaries.
 
