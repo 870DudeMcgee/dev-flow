@@ -139,8 +139,9 @@ def test_estimator_cli_json_is_stable_without_experimental_env(tmp_path: Path, m
 
     assert result.exit_code == 0
     payload = json.loads(result.output)
+    assert set(payload) == {"task_id", "artifact_path", "fit_data"}
     assert payload["task_id"] == task.id
-    assert payload["task_fit"]["task_type"] == "documentation_cleanup"
+    assert payload["fit_data"]["task_fit"]["task_type"] == "documentation_cleanup"
     assert payload["artifact_path"] == f".devflow/tasks/{task.id}/task-fit.yaml"
 
 

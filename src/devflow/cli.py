@@ -1557,8 +1557,6 @@ def task_fit_command(
         payload = {
             "artifact_path": f".devflow/tasks/{task_id}/task-fit.yaml",
             "fit_data": fit_data,
-            "repo_scan": fit_data["repo_scan"],
-            "task_fit": fit_data["task_fit"],
             "task_id": task_id,
         }
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
