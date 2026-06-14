@@ -9,6 +9,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.git_worktree import git_worker_lane_summary
+from devflow.control_room.persistence import get_task
 
 
 runner = CliRunner()
@@ -137,6 +139,139 @@ def test_git_worktree_task_runs_verifies_previews_and_promotes() -> None:
             os.chdir(old_cwd)
 
 
+def test_git_worker_lane_summary_reports_ready_and_stale_states() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+
+            created = runner.invoke(app, ["task", "create", "--git-worktree", "lane summary"])
+            assert created.exit_code == 0, created.output
+
+            worktree = Path(".devflow/worktrees/task-0001/shell")
+            subprocess.run(
+                [
+                    "/bin/sh",
+                    "-c",
+                    "printf 'ready\\n' > ready.txt && git add ready.txt && git commit -m ready",
+                ],
+                cwd=worktree,
+                check=True,
+            )
+            worker_head = _git(worktree, "rev-parse", "HEAD")
+
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f ready.txt"])
+            assert verify.exit_code == 0, verify.output
+
+            preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert preview.exit_code == 0, preview.output
+
+            task = get_task(Path.cwd(), "task-0001")
+            summary = git_worker_lane_summary(Path.cwd(), task)
+            assert summary is not None
+            assert summary["workspace_mode"] == "git-worktree"
+            assert summary["worker_id"] == "shell"
+            assert summary["worker_branch"] == "devflow/task-0001/shell"
+            assert summary["worktree_path"] == ".devflow/worktrees/task-0001/shell"
+            assert summary["head_commit"] == worker_head
+            assert summary["verified_commit"] == worker_head
+            assert summary["head_matches_verified"] is True
+            assert summary["dirty"] is False
+            assert summary["promotion_readiness"] == "ready"
+            assert summary["conflict_prediction"] == "clean"
+            assert summary["readiness_status"] == "ready"
+            assert summary["next_safe_action"] == "devflow task promote task-0001"
+
+            Path("main.txt").write_text("main moved\n", encoding="utf-8")
+            subprocess.run(["git", "add", "main.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "main moved"], check=True)
+
+            stale_summary = git_worker_lane_summary(Path.cwd(), task)
+            assert stale_summary is not None
+            assert stale_summary["base_stale"] is True
+            assert stale_summary["readiness_status"] in {"stale", "blocked"}
+            assert stale_summary["next_safe_action"] == "devflow task promote-preview task-0001"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_task_show_and_review_ready_include_worker_lane_summary() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+
+            created = runner.invoke(app, ["task", "create", "--git-worktree", "lane summary cli"])
+            assert created.exit_code == 0, created.output
+            worktree = Path(".devflow/worktrees/task-0001/shell")
+            subprocess.run(
+                [
+                    "/bin/sh",
+                    "-c",
+                    "printf 'ready\\n' > ready.txt && git add ready.txt && git commit -m ready",
+                ],
+                cwd=worktree,
+                check=True,
+            )
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f ready.txt"])
+            assert verify.exit_code == 0, verify.output
+            preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert preview.exit_code == 0, preview.output
+
+            show = runner.invoke(app, ["task", "show", "task-0001"])
+            assert show.exit_code == 0, show.output
+            assert "worker_lane: git-worktree" in show.output
+            assert "worker_branch: devflow/task-0001/shell" in show.output
+            assert "worktree_path: .devflow/worktrees/task-0001/shell" in show.output
+            assert "lane_readiness: ready" in show.output
+            assert "lane_next_action: devflow task promote task-0001" in show.output
+
+            review_ready = runner.invoke(app, ["task", "review-ready", "task-0001"])
+            assert review_ready.exit_code == 0, review_ready.output
+            assert "worker_lane: git-worktree" in review_ready.output
+            assert "lane_readiness: ready" in review_ready.output
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_git_worker_lane_summary_reports_dirty_and_head_changed_recovery() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+            assert runner.invoke(app, ["task", "create", "--git-worktree", "dirty lane"]).exit_code == 0
+            worktree = Path(".devflow/worktrees/task-0001/shell")
+            subprocess.run(
+                ["/bin/sh", "-c", "printf 'one\\n' > file.txt && git add file.txt && git commit -m one"],
+                cwd=worktree,
+                check=True,
+            )
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f file.txt"])
+            assert verify.exit_code == 0, verify.output
+            preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert preview.exit_code == 0, preview.output
+
+            (worktree / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+            dirty_summary = git_worker_lane_summary(Path.cwd(), get_task(Path.cwd(), "task-0001"))
+            assert dirty_summary is not None
+            assert dirty_summary["dirty"] is True
+            assert dirty_summary["readiness_status"] == "dirty"
+            assert dirty_summary["next_safe_action"] == 'devflow task verify task-0001 --shell "<command>"'
+
+            subprocess.run(["git", "add", "dirty.txt"], cwd=worktree, check=True)
+            subprocess.run(["git", "commit", "-m", "dirty-commit"], cwd=worktree, check=True)
+            head_changed_summary = git_worker_lane_summary(Path.cwd(), get_task(Path.cwd(), "task-0001"))
+            assert head_changed_summary is not None
+            assert head_changed_summary["head_matches_verified"] is False
+            assert head_changed_summary["readiness_status"] == "dirty"
+            assert head_changed_summary["next_safe_action"] == 'devflow task verify task-0001 --shell "<command>"'
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_git_worktree_promote_preview_prompts_for_hitl_goal_approval() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -221,8 +356,38 @@ def test_git_worktree_promotion_refuses_when_head_changed_after_verification() -
             promoted = runner.invoke(app, ["task", "promote", "task-0001"], input="y\n")
             assert promoted.exit_code == 1, promoted.output
             assert "worker HEAD differs from verified commit" in promoted.output
+            assert 'next_safe_action: devflow task verify task-0001 --shell "<command>"' in promoted.output
             assert not Path("file.txt").exists()
             assert not Path("second.txt").exists()
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_promote_preview_stale_baseline_includes_lane_next_action() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            _init_git_repo()
+            assert runner.invoke(app, ["task", "create", "--git-worktree", "stale preview"]).exit_code == 0
+            worktree = Path(".devflow/worktrees/task-0001/shell")
+            subprocess.run(
+                ["/bin/sh", "-c", "printf 'one\\n' > file.txt && git add file.txt && git commit -m one"],
+                cwd=worktree,
+                check=True,
+            )
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "test -f file.txt"])
+            assert verify.exit_code == 0, verify.output
+
+            Path("main.txt").write_text("main moved\n", encoding="utf-8")
+            subprocess.run(["git", "add", "main.txt"], check=True)
+            subprocess.run(["git", "commit", "-m", "main moved"], check=True)
+
+            preview = runner.invoke(app, ["task", "promote-preview", "task-0001"])
+            assert preview.exit_code == 0, preview.output
+            assert "baseline_stale: yes" in preview.output
+            assert "promotion_readiness: not_ready" in preview.output
+            assert "next_safe_action: devflow task promote-preview task-0001" in preview.output
         finally:
             os.chdir(old_cwd)
 

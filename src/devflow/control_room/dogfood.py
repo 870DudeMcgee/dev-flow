@@ -12,7 +12,14 @@ from typing import Any
 import yaml
 
 from devflow.control_room.git_state import inspect_git_state
+from devflow.control_room.git_worktree import (
+    cleanup_task_git_resources,
+    git_worker_lane_summary,
+    list_devflow_branches,
+    list_devflow_worktrees,
+)
 from devflow.control_room.knowledge_foundry import capture_from_validation, search_knowledge
+from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_visual_qa import (
     build_visual_qa_plan,
     write_visual_qa_image_fallbacks,
@@ -25,7 +32,16 @@ from devflow.control_room.paths import (
 )
 from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
 from devflow.control_room.readiness import promotion_readiness_errors
-from devflow.control_room.service import create_task, init_control_room, run_shell_task, verify_task
+from devflow.control_room.service import (
+    create_task,
+    doctor,
+    init_control_room,
+    preview_task_promotion,
+    promote_task,
+    run_shell_task,
+    verify_task,
+)
+from devflow.control_room.supervisor_surface import build_control_room_status
 from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
 from devflow.control_room.worker_outcome import validate_worker_outcome, validate_worker_outcome_file
@@ -59,6 +75,7 @@ CATEGORY_LABELS: dict[str, str] = {
 
 CRITICAL_CASES = {
     "unsafe-worker-outcome",
+    "git-native-worker-lane-hardening",
     "plan-only-unsafe-git-state",
     "failed-verification-recovery",
     "central-schema-refactor-risk",
@@ -98,7 +115,7 @@ def production_readiness_cases() -> list[dict[str, Any]]:
             ],
             scoring={
                 "A_safety_git_discipline": 0,
-                "B_pipeline_correctness": 6,
+                "B_pipeline_correctness": 4,
                 "C_context_efficiency": 7,
                 "G_performance_lightweight": 2,
             },
@@ -155,8 +172,44 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "human review error is explicit",
             ],
             scoring={
-                "A_safety_git_discipline": 8,
+                "A_safety_git_discipline": 4,
                 "D_worker_artifact_quality": 5,
+            },
+        ),
+        _case_definition(
+            case_id="git-native-worker-lane-hardening",
+            title="Git-native worker lane hardening",
+            category="A_safety_git_discipline",
+            task_type="git_native_two_lane_recovery",
+            risk_level="high",
+            purpose="Prove opt-in Git worktree lanes are visible, recoverable, promotable, and cleanup-safe.",
+            expected_behavior=[
+                "create two Git-native shell-worker lanes in a scratch repo",
+                "verify each lane against its worker branch commit",
+                "preview both lanes and project lane readiness across supervisor and operating-layer surfaces",
+                "promote one lane in the scratch repo",
+                "confirm the second lane reports stale recovery after main advances",
+                "dry-run and apply cleanup for the promoted lane while preserving task evidence",
+            ],
+            command_sequence=[
+                "devflow task create --git-worktree 'Dogfood Git lane one' (scratch repo)",
+                "devflow task create --git-worktree 'Dogfood Git lane two' (scratch repo)",
+                "devflow task run <task-id> --worker shell -- commit disjoint file",
+                "devflow task verify <task-id> --shell 'test -f <file>'",
+                "devflow task promote-preview <task-id>",
+                "devflow task promote <first-task-id> (scratch repo only)",
+                "devflow task cleanup <first-task-id> --dry-run/--apply (scratch repo only)",
+            ],
+            success_criteria=[
+                "both lanes are ready before promotion",
+                "supervisor status and operating-layer snapshot expose lane summaries",
+                "second lane reports stale recovery after first promotion",
+                "cleanup removes the promoted worktree and preserves canonical task evidence",
+            ],
+            scoring={
+                "A_safety_git_discipline": 4,
+                "B_pipeline_correctness": 2,
+                "E_recovery_failure_handling": 2,
             },
         ),
         _case_definition(
@@ -299,7 +352,7 @@ def production_readiness_cases() -> list[dict[str, Any]]:
             scoring={
                 "B_pipeline_correctness": 3,
                 "C_context_efficiency": 2,
-                "E_recovery_failure_handling": 4,
+                "E_recovery_failure_handling": 2,
             },
         ),
         _case_definition(
@@ -658,7 +711,7 @@ def _case_tiny_docs(
 
     scores: dict[str, int] = {}
     failures: list[str] = []
-    _award(state, scores, failures, "B_pipeline_correctness", 6, reloaded.status == "verified", "task reached verified state")
+    _award(state, scores, failures, "B_pipeline_correctness", 4, reloaded.status == "verified", "task reached verified state")
     _award(state, scores, failures, "C_context_efficiency", 4, state["context_packet_size"] <= 50000, "task packet stayed bounded")
     _award(state, scores, failures, "C_context_efficiency", 3, source_count <= 12, "tiny task did not require whole-repo context")
     _award(state, scores, failures, "G_performance_lightweight", 2, len(state["commands_run"]) <= 4, "docs-only case used a short command sequence")
@@ -754,13 +807,13 @@ def _case_unsafe_worker_outcome(
     errors_text = "\n".join(result["errors"])
     scores: dict[str, int] = {}
     failures: list[str] = []
-    _award(state, scores, failures, "A_safety_git_discipline", 3, result["status"] == "failed", "unsafe outcome was rejected")
+    _award(state, scores, failures, "A_safety_git_discipline", 2, result["status"] == "failed", "unsafe outcome was rejected")
     _award(
         state,
         scores,
         failures,
         "A_safety_git_discipline",
-        3,
+        1,
         "parent traversal is rejected" in errors_text and ".git paths are rejected" in errors_text,
         "path traversal and .git writes were blocked",
     )
@@ -769,7 +822,7 @@ def _case_unsafe_worker_outcome(
         scores,
         failures,
         "A_safety_git_discipline",
-        2,
+        1,
         "human_review_required must be true" in errors_text,
         "unsafe metadata requires human review",
     )
@@ -781,6 +834,148 @@ def _case_unsafe_worker_outcome(
         5,
         Path(root / result["output_path"]).exists(),
         "validation evidence artifact was written",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
+def _case_git_native_worker_lane(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "git-native-lane-repo"
+    _init_git_native_dogfood_repo(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_command(state, "git init scratch Git-native dogfood repo", status="passed", output=relative_path(root, scratch))
+
+    init_control_room(scratch)
+    first = create_task(scratch, "Dogfood Git lane one", git_worktree=True)
+    second = create_task(scratch, "Dogfood Git lane two", git_worktree=True)
+    _record_command(state, "devflow task create --git-worktree 'Dogfood Git lane one' (scratch)", status="passed", output=first.id)
+    _record_command(state, "devflow task create --git-worktree 'Dogfood Git lane two' (scratch)", status="passed", output=second.id)
+
+    run_shell_task(
+        scratch,
+        first.id,
+        ["/bin/sh", "-c", "printf 'lane one\n' > lane-one.txt && git add lane-one.txt && git commit -m lane-one"],
+        timeout_seconds=20,
+    )
+    _record_command(state, f"devflow task run {first.id} --worker shell -- commit lane-one.txt (scratch)", status="passed")
+    run_shell_task(
+        scratch,
+        second.id,
+        ["/bin/sh", "-c", "printf 'lane two\n' > lane-two.txt && git add lane-two.txt && git commit -m lane-two"],
+        timeout_seconds=20,
+    )
+    _record_command(state, f"devflow task run {second.id} --worker shell -- commit lane-two.txt (scratch)", status="passed")
+
+    first_verified = verify_task(scratch, first.id, ["/bin/sh", "-c", "test -f lane-one.txt"], timeout_seconds=20)
+    second_verified = verify_task(scratch, second.id, ["/bin/sh", "-c", "test -f lane-two.txt"], timeout_seconds=20)
+    _record_command(state, f"devflow task verify {first.id} --shell lane-one check (scratch)", status=first_verified.verification_status)
+    _record_command(state, f"devflow task verify {second.id} --shell lane-two check (scratch)", status=second_verified.verification_status)
+
+    first_preview = preview_task_promotion(scratch, first.id)
+    second_preview = preview_task_promotion(scratch, second.id)
+    _record_command(state, f"devflow task promote-preview {first.id} (scratch)", status=first_preview["git"]["promotion_readiness"])
+    _record_command(state, f"devflow task promote-preview {second.id} (scratch)", status=second_preview["git"]["promotion_readiness"])
+
+    first_lane_ready = git_worker_lane_summary(scratch, get_task(scratch, first.id)) or {}
+    second_lane_ready = git_worker_lane_summary(scratch, get_task(scratch, second.id)) or {}
+    status = build_control_room_status(scratch)
+    operating = build_operating_layer_snapshot(scratch).model_dump(mode="json")
+    doctor_checks = doctor(scratch, strict=True)
+    worktrees_before = list_devflow_worktrees(scratch)
+    branches_before = list_devflow_branches(scratch)
+
+    promote_task(scratch, first.id)
+    _record_command(state, f"devflow task promote {first.id} (scratch approval-gated dogfood)", status="passed")
+    second_lane_after_promotion = git_worker_lane_summary(scratch, get_task(scratch, second.id)) or {}
+
+    cleanup_dry_run = cleanup_task_git_resources(scratch, first.id, dry_run=True)
+    _record_command(state, f"devflow task cleanup {first.id} --dry-run (scratch)", status="passed")
+    cleanup_apply = cleanup_task_git_resources(scratch, first.id, dry_run=False)
+    _record_command(state, f"devflow task cleanup {first.id} --apply (scratch)", status="passed")
+
+    first_evidence = scratch / ".devflow" / "tasks" / first.id
+    first_worktree = scratch / ".devflow" / "worktrees" / first.id / "shell"
+    summary = {
+        "scratch_repo": relative_path(root, scratch),
+        "doctor_strict": [
+            {"name": name, "ok": ok, "detail": detail}
+            for name, ok, detail in doctor_checks
+        ],
+        "worktrees_before_cleanup": worktrees_before,
+        "branches_before_cleanup": branches_before,
+        "first_lane_ready": first_lane_ready,
+        "second_lane_ready": second_lane_ready,
+        "supervisor_worker_lanes": [
+            task.get("worker_lane")
+            for task in status["tasks"]
+            if task.get("worker_lane")
+        ],
+        "operating_layer_worker_lanes": [
+            task.get("worker_lane")
+            for task in operating["tasks"]
+            if task.get("worker_lane")
+        ],
+        "second_lane_after_first_promotion": second_lane_after_promotion,
+        "cleanup_dry_run": cleanup_dry_run,
+        "cleanup_apply": cleanup_apply,
+        "first_lane_after_cleanup": {
+            "task_evidence_exists": first_evidence.exists(),
+            "worktree_exists": first_worktree.exists(),
+        },
+    }
+    summary_path = case_dir / "artifacts" / "git-native-lane-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+
+    status_lanes = [task.get("worker_lane") for task in status["tasks"] if task.get("worker_lane")]
+    operating_lanes = [task.get("worker_lane") for task in operating["tasks"] if task.get("worker_lane")]
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "A_safety_git_discipline",
+        2,
+        all(ok for _, ok, _ in doctor_checks)
+        and len(worktrees_before) == 2
+        and len(branches_before) == 2,
+        "strict doctor and owned resource inventory agreed before promotion",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "A_safety_git_discipline",
+        2,
+        first_evidence.exists()
+        and not first_worktree.exists()
+        and any(action.get("action") == "archive_branch" and action.get("applied") for action in cleanup_apply),
+        "cleanup preserved canonical task evidence",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        first_lane_ready.get("readiness_status") == "ready"
+        and second_lane_ready.get("readiness_status") == "ready"
+        and len(status_lanes) == 2
+        and len(operating_lanes) == 2,
+        "two Git-native lanes reached verified preview state",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        2,
+        second_lane_after_promotion.get("readiness_status") in {"stale", "blocked"}
+        and second_lane_after_promotion.get("next_safe_action") == f"devflow task promote-preview {second.id}",
+        "second lane reported stale recovery after first promotion",
     )
     return _finalize_case(root, case, state, scores, failures)
 
@@ -831,7 +1026,7 @@ def _case_success_empty(
         scores,
         failures,
         "D_worker_artifact_quality",
-        4,
+        2,
         empty["tool_results"][0]["status"] == "success_empty" and empty["outcome"] == "no_useful_result",
         "success_empty stayed no_useful_result",
     )
@@ -1041,7 +1236,7 @@ def _case_handoff_resume(
         scores,
         failures,
         "E_recovery_failure_handling",
-        4,
+        2,
         all(token in handoff_text for token in ("task_id:", "task_artifacts:", "next_safe_action:")),
         "handoff includes task, artifacts, state, and next action",
     )
@@ -1255,6 +1450,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "tiny-deterministic-docs-task": _case_tiny_docs,
     "cli-help-bounded-feature-task": _case_cli_help,
     "unsafe-worker-outcome": _case_unsafe_worker_outcome,
+    "git-native-worker-lane-hardening": _case_git_native_worker_lane,
     "success-empty-worker-outcome": _case_success_empty,
     "plan-only-unsafe-git-state": _case_plan_only_unsafe_git,
     "failed-verification-recovery": _case_failed_verification,
@@ -1631,6 +1827,17 @@ def _resolve_run_id(root: Path, run_id: str) -> str:
     if not candidates:
         raise KeyError("No dogfood runs found.")
     return candidates[-1]
+
+
+def _init_git_native_dogfood_repo(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
+    subprocess.run(["git", "config", "user.email", "dogfood@example.com"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
+    subprocess.run(["git", "config", "user.name", "Dogfood Test"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
+    (root / ".gitignore").write_text(".devflow/\n", encoding="utf-8")
+    (root / "README.md").write_text("# Git-native Dogfood Repo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True, text=True, timeout=20)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
 
 
 def _run_devflow_help(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:

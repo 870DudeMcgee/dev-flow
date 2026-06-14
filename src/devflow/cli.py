@@ -66,6 +66,7 @@ from devflow.control_room.git_worktree import (
     branch_head,
     cleanup_task_git_resources,
     current_head,
+    git_worker_lane_summary,
     list_devflow_branches,
     list_devflow_worktrees,
     prune_orphan_worktrees,
@@ -1271,6 +1272,13 @@ def task_show(
     typer.echo(f"status: {task.status}")
     typer.echo(f"worker: {task.worker}")
     typer.echo(f"workspace: {task.workspace}")
+    worker_lane = git_worker_lane_summary(root, task)
+    if worker_lane:
+        typer.echo(f"worker_lane: {worker_lane['workspace_mode']}")
+        typer.echo(f"worker_branch: {worker_lane['worker_branch']}")
+        typer.echo(f"worktree_path: {worker_lane['worktree_path']}")
+        typer.echo(f"lane_readiness: {worker_lane['readiness_status']}")
+        typer.echo(f"lane_next_action: {worker_lane['next_safe_action']}")
     if task.branch_name:
         typer.echo(f"branch_name: {task.branch_name}")
     if task.workspace_commit:
@@ -2501,6 +2509,9 @@ def task_promote_preview(
     diffs = res["diffs"]
     baseline = res["baseline"]
     git_preview = res.get("git")
+    lane_summary = None
+    if git_preview:
+        lane_summary = git_worker_lane_summary(root, get_task(root, task_id))
     human_approval = res.get("human_approval") or {}
     human_approval_required = bool(human_approval.get("required"))
     if scope.project_id:
@@ -2515,6 +2526,8 @@ def task_promote_preview(
         )
     else:
         next_action = f"devflow task promote {task_id}"
+    if lane_summary and lane_summary.get("readiness_status") != "ready":
+        next_action = str(lane_summary.get("next_safe_action") or next_action)
 
     typer.echo("preview_only: yes")
     typer.echo("main_changed: no")
@@ -2549,6 +2562,9 @@ def task_promote_preview(
         typer.echo(f"conflict_prediction: {git_preview['conflict_prediction']}")
         typer.echo(f"verification_status: {git_preview['verification_status']}")
         typer.echo(f"promotion_readiness: {git_preview['promotion_readiness']}")
+        if lane_summary:
+            typer.echo(f"lane_readiness: {lane_summary['readiness_status']}")
+            typer.echo(f"next_safe_action: {lane_summary['next_safe_action']}")
 
     if not added and not modified and not deleted and not renamed and not untracked and not binary:
         typer.echo("No changes to promote")

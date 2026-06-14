@@ -1,6 +1,6 @@
 # Git-Native Worker Isolation And Promotion
 
-Status: initial opt-in vertical slice implemented. Milestone 19 hardening is planned. The default task path remains copy-workspace unless `devflow task create --git-worktree` is used.
+Status: opt-in Git-native shell-worker isolation and promotion are implemented. Milestone 19 lane hardening adds read-only lane summaries across CLI, supervisor, operating-layer, refusal, and dogfood surfaces. The default task path remains copy-workspace unless `devflow task create --git-worktree` is used.
 
 ## Thesis
 
@@ -206,11 +206,11 @@ The initial implementation proves this sequence:
 9. Refuse promotion if main moved and the conflict or stale baseline is unresolved.
 10. Promote with Git-aware mechanics instead of blind copy-back.
 
-## Milestone 19 Hardening Direction
+## Milestone 19 Lane Summary Contract
 
-The next hardening milestone makes the opt-in Git-native lane first-class across control-room surfaces without making it the default runtime.
+Milestone 19 makes the opt-in Git-native lane first-class across control-room surfaces without making it the default runtime.
 
-Milestone 19 adds a read-only worker lane projection derived from existing Git evidence, verification evidence, promotion-preview evidence, and live read-only Git state. The projection should answer:
+The read-only worker lane projection is derived from existing Git evidence, verification evidence, promotion-preview evidence, and live read-only Git state. The projection answers:
 
 - which worktree and branch belongs to the task;
 - which base commit the lane forked from;
@@ -219,13 +219,12 @@ Milestone 19 adds a read-only worker lane projection derived from existing Git e
 - whether the worktree is dirty;
 - which commit was verified;
 - whether the worker head still matches the verified commit;
-- whether promotion preview is ready, stale, conflicted, missing, or blocked;
-- which cleanup resources are owned by the task;
+- whether promotion preview is ready, stale, conflicted, dirty, unverified, missing, or blocked;
 - which exact command is the next safe action.
 
-The lane projection is a derived read model. It should not replace canonical task evidence, write promotion previews, refresh diffs, mutate refs, or create a database. Mutation remains limited to existing explicit commands: worker execution, verification, finalize, promote-preview evidence writing, human-confirmed promotion, dry-run-first cleanup, and explicit archive/prune apply.
+The lane projection is a derived read model returned by `git_worker_lane_summary()`. It does not replace canonical task evidence, write promotion previews, refresh diffs, mutate refs, or create a database. Mutation remains limited to existing explicit commands: worker execution, verification, finalize, promote-preview evidence writing, human-confirmed promotion, dry-run-first cleanup, and explicit archive/prune apply.
 
-Milestone 19 should expose the same vocabulary in CLI, supervisor, and operating-layer UI:
+The same vocabulary is exposed in CLI, supervisor, and operating-layer UI:
 
 ```text
 ready

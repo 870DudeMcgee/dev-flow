@@ -286,7 +286,7 @@ PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness
 - [ ] Run stale-context scans over active docs:
 
 ```bash
-rg -n "Milestone 18.*feature branch|feature branch.*Milestone 18|human-approved merge and push|Pending Operating-Layer Plan|next safe UI milestone" docs README.md AGENTS.md -S
+rg -n "Milestone 18.*feature[ -]branch|feature[ -]branch.*Milestone 18|human-approved merge.*push|Pending Operating-Layer|next safe UI" docs README.md AGENTS.md -S
 ```
 
 ## Task 9: Verification and Checkpoint

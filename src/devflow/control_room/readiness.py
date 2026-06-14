@@ -48,7 +48,14 @@ def format_promotion_refusal(
     allow_stale_baseline: bool = False,
 ) -> str:
     errors = promotion_readiness_errors(task, task_path, allow_stale_baseline=allow_stale_baseline)
-    return f"Refusing to promote task '{task.id}': {'; '.join(errors)}."
+    message = f"Refusing to promote task '{task.id}': {'; '.join(errors)}."
+    if task_path is not None and task.workspace_kind == "git_worktree":
+        from devflow.control_room.git_worktree import git_worker_lane_summary
+
+        lane = git_worker_lane_summary(task_path.parents[2], task)
+        if lane and lane.get("next_safe_action"):
+            message = f"{message}\nnext_safe_action: {lane['next_safe_action']}"
+    return message
 
 
 def human_promotion_gate(task_path: Path) -> dict[str, Any]:

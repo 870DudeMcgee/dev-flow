@@ -449,38 +449,17 @@ Expected: identify active docs that still call result retention future or pendin
 
 - [x] **Step 2: Update architecture doc**
 
-In `docs/architecture/local-operating-layer-ui.md`, replace the `## Next Safe Slice` numbered list with:
+Historical note: this plan step was completed and is no longer authoritative for current product direction. The active operating-layer architecture document now points to the current Git-native lane visibility work instead of Milestone 18 closure mechanics.
 
-```markdown
-## Next Safe Slice
-
-Milestone 18 Operating-Layer Beta is implemented on the feature branch. The next safe slice is closure:
-
-1. Review the `milestone-18-operating-layer-beta` branch and merge it to `main` only after explicit human approval.
-2. Push `main` through the DevMode git bridge.
-3. Remove the feature worktree and local branch after the pushed mainline is clean.
-4. Pick the next milestone from current product needs; do not treat archived factory workflow material as authority.
-
-Do not add worker execution, task creation, patch application, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
-```
 
 - [x] **Step 3: Update agent handoff**
 
-In `docs/agent-handoff.md`, replace the old operating-layer planning section with:
+Historical note: this plan step was completed and is no longer authoritative for current product direction. The active handoff now records Milestone 18 as merged and Milestone 19 as the Git-native lane hardening implementation.
 
-```markdown
-## Operating-Layer Beta State
-
-Milestone 18 Operating-Layer Beta is implemented on the feature branch: approved Action Rail result retention is covered, the snapshot includes a derived browser review-loop summary, active result-retention wording is no longer future-tense, and browser dogfood covers exact task verification plus exact task promotion without expanding browser mutations beyond the guarded approval path. The next safe action is human-approved merge and push.
-```
 
 - [x] **Step 4: Update MVP current-priority line**
 
-In `docs/control-room-mvp.md`, replace the current-priority paragraph that ends with Milestone 17 with:
-
-```markdown
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 17 task-fit/context-routing evidence, and Milestone 18 Operating-Layer Beta are complete on the feature branch. Milestone 18 keeps exact verification/promotion as the only browser-approved mutations, adds derived review-loop visibility, and preserves browser-session result retention after snapshot refresh. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
-```
+Historical note: this plan step was completed and is no longer authoritative for current product direction. The active MVP current-priority block now points to Milestone 19 Git-native lane hardening.
 
 - [x] **Step 5: Re-run stale wording search**
 

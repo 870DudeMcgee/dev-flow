@@ -248,6 +248,40 @@ def test_finalize_preview_and_commit_behavior() -> None:
             os.chdir(old_cwd)
 
 
+def test_finalize_commit_stages_tracked_worktree_modifications() -> None:
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            baseline = _init_git_repo()
+
+            created = runner.invoke(app, ["task", "create", "--git-worktree", "tracked file task"])
+            assert created.exit_code == 0, created.output
+
+            worktree_dir = Path(".devflow/worktrees/task-0001/shell")
+            run = runner.invoke(
+                app,
+                ["task", "run", "task-0001", "--", "/bin/sh", "-c", "printf 'updated\\n' > base.txt"],
+            )
+            assert run.exit_code == 0, run.output
+
+            verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "grep -q updated base.txt"])
+            assert verify.exit_code == 0, verify.output
+
+            finalize_preview = runner.invoke(app, ["task", "finalize", "task-0001"])
+            assert finalize_preview.exit_code == 0, finalize_preview.output
+            assert "  - base.txt" in finalize_preview.output
+
+            finalize_commit = runner.invoke(app, ["task", "finalize", "task-0001", "--commit"])
+            assert finalize_commit.exit_code == 0, finalize_commit.output
+            new_head = _git(worktree_dir, "rev-parse", "HEAD")
+            assert new_head != baseline
+            assert _git(worktree_dir, "status", "--porcelain") == ""
+            assert _git(worktree_dir, "show", "--pretty=", "--name-only", "HEAD").splitlines() == ["base.txt"]
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_git_worktree_finalize_to_promote_workflow_is_explicit_and_clean() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:

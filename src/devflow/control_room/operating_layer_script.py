@@ -2071,7 +2071,12 @@ function renderTaskReviewPanel(target) {
   const reviewByLabel = Object.fromEntries(summaryItems.map((item) => [item.label, item.value || "None"]));
   const changedFiles = reviewByLabel["Changed files"] || "No file changes detected";
   const taskContents = reviewByLabel["Task contents"] || "No changed file preview available";
-  const metaItems = summaryItems.filter((item) => !["Task", "Changed files", "Task contents"].includes(item.label));
+  const laneLabels = ["Worker lane", "Lane readiness"];
+  const metaItems = summaryItems.filter((item) => {
+    if (["Task", "Changed files", "Task contents"].includes(item.label)) return false;
+    if (task.worker_lane && laneLabels.includes(item.label)) return false;
+    return true;
+  });
   target.innerHTML = `
     <div class="task-review-head">
       <div>
@@ -2093,6 +2098,7 @@ function renderTaskReviewPanel(target) {
           <span>Changed files</span>
           <pre>${escapeHtml(changedFiles)}</pre>
         </div>
+        ${renderWorkerLaneBlock(task.worker_lane)}
       </div>
       ${promoteAction ? `
         <div class="review-approval-card">
@@ -2133,6 +2139,28 @@ function renderTaskReviewPanel(target) {
   if (promoteButton && promoteAction && !isPromoting) {
     promoteButton.addEventListener("click", () => executeAction(promoteAction, { approvedPromotion: true }));
   }
+}
+
+function renderWorkerLaneBlock(lane) {
+  if (!lane) return "";
+  const warnings = (lane.readiness_warnings || []).join("; ");
+  const errors = (lane.readiness_errors || []).join("; ");
+  const detail = errors || warnings || lane.next_safe_action || "No lane action recorded.";
+  return `
+    <div class="worker-lane-block ${escapeHtml(lane.readiness_status || "unknown")}">
+      <div>
+        <span>Worker lane</span>
+        <strong>${escapeHtml(lane.workspace_mode || "git-worktree")}</strong>
+        <code>${escapeHtml(lane.worker_branch || "unknown branch")}</code>
+      </div>
+      <div>
+        <span>Readiness</span>
+        <strong>${escapeHtml(lane.readiness_status || "unknown")}</strong>
+        <code>${escapeHtml(lane.worktree_path || "missing worktree")}</code>
+      </div>
+      <p>${escapeHtml(detail)}</p>
+    </div>
+  `;
 }
 
 function renderProgressTask(gate) {

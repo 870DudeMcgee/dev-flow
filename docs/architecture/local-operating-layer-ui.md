@@ -225,14 +225,14 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 26. [x] Add exact approval-gated task promotion with server-side classifier recheck, exact approval echo, optional context capture, and existing promotion safety gates.
 27. [x] Refresh the browser snapshot after approved task verification or promotion so lane/status/evidence changes are visible immediately from `/api/snapshot`.
 
-## Next Safe Slice
+## Git-Native Lane Visibility
 
-Milestone 18 Operating-Layer Beta is merged and pushed on `main`. The next safe slice is Milestone 19 Git-Native Worker Lane Hardening:
+Milestone 19 adds Git-native worker lane visibility to the operating layer without expanding browser mutation scope:
 
-1. Add a read-only Git worker lane summary for opt-in `--git-worktree` tasks.
-2. Surface the same lane state in CLI, supervisor, and operating-layer projections: worktree path, worker branch, base commit, head commit, dirty state, verified commit, promotion readiness, conflict prediction, stale baseline state, cleanup status, and next safe action.
-3. Make stale, dirty, head-changed, missing, and conflict states refuse promotion with deterministic recovery commands.
-4. Dogfood two Git-native shell lanes from the same clean main baseline, promote one lane, and cleanup/archive owned resources without removing canonical task evidence.
+1. The snapshot includes a read-only `worker_lane` object for opt-in `--git-worktree` tasks.
+2. The selected task review panel renders branch, worktree, readiness, and recovery details from that derived lane summary.
+3. Stale, dirty, head-changed, missing, and conflict states use the same readiness vocabulary as CLI and supervisor surfaces.
+4. Production-readiness dogfood exercises two Git-native shell lanes in a scratch repository, promotes one lane, and cleanup/archives owned resources while preserving canonical task evidence.
 
 Do not add worker execution, task creation, patch application, git publication, provider execution, autonomous routing, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
 

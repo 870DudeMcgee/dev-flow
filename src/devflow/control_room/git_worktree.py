@@ -7,7 +7,7 @@ from typing import Any
 
 from devflow.control_room.git_state import origin_main_sha
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
-from devflow.control_room.paths import absolute_path, relative_path, task_worker_dir, worktree_path, worktrees_dir
+from devflow.control_room.paths import absolute_path, relative_path, task_dir, task_worker_dir, worktree_path, worktrees_dir
 from devflow.control_room.persistence import append_event, atomic_write_text, get_task, list_tasks, utc_now
 from devflow.control_room.readiness import human_promotion_gate
 from devflow.control_room.workspace import Workspace
@@ -99,12 +99,92 @@ def git_worker_state(root: Path, task: TaskRecord, worker_id: str | None = None)
     }
 
 
+def git_worker_lane_summary(root: Path, task: TaskRecord, worker_id: str | None = None) -> dict[str, Any] | None:
+    if not is_git_worktree_task(task):
+        return None
+
+    worker_id = worker_id or worker_id_for_task(task)
+    branch = task.branch_name or worker_branch_name(task.id, worker_id)
+    worker_path = task_worker_dir(root, task.id, worker_id)
+    git_path = worker_path / "git.json"
+    preview_path = worker_path / "promotion-preview.json"
+    fallback_preview_path = task_dir(root, task.id) / "promotion-preview.json"
+    verification_path = task_dir(root, task.id) / "verification.json"
+
+    git_evidence = _read_json_object(git_path)
+    preview_evidence, used_preview_path = _read_lane_preview(preview_path, fallback_preview_path)
+    verification = _read_json_object(verification_path)
+
+    workspace = absolute_path(root, task.workspace).resolve()
+    worktree_exists = workspace.is_dir()
+    branch_exists_now = branch_exists(root, branch)
+    base_commit = _string_or_none(git_evidence.get("base_commit")) or task.workspace_commit
+    base_branch = _string_or_none(git_evidence.get("base_branch")) or DEFAULT_BASE_BRANCH
+    base_current_commit = branch_head(root, DEFAULT_BASE_BRANCH)
+    origin_base_commit = origin_main_sha(root)
+    head_commit = branch_head(root, branch) if branch_exists_now else None
+    if not head_commit and worktree_exists:
+        head_commit = current_head(workspace)
+    dirty = _worktree_dirty(workspace) if worktree_exists else True
+
+    verified_commit = _string_or_none(verification.get("verified_commit"))
+    verification_status = _string_or_none(verification.get("status")) or task.verification_status or "missing"
+    promotion_readiness = _string_or_none(preview_evidence.get("promotion_readiness")) or "unknown"
+    conflict_prediction = _string_or_none(preview_evidence.get("conflict_prediction")) or "unknown"
+    base_stale = bool(base_commit and base_current_commit and base_commit != base_current_commit)
+    origin_base_stale = bool(base_commit and origin_base_commit and base_commit != origin_base_commit)
+    head_matches_verified = bool(head_commit and verified_commit and head_commit == verified_commit)
+    readiness_status, readiness_errors, readiness_warnings = _lane_readiness(
+        branch_exists_now=branch_exists_now,
+        worktree_exists=worktree_exists,
+        base_commit=base_commit,
+        dirty=dirty,
+        verification_status=verification_status,
+        verified_commit=verified_commit,
+        head_commit=head_commit,
+        head_matches_verified=head_matches_verified,
+        promotion_preview_exists=bool(preview_evidence),
+        promotion_readiness=promotion_readiness,
+        conflict_prediction=conflict_prediction,
+        base_stale=base_stale,
+        origin_base_stale=origin_base_stale,
+    )
+
+    return {
+        "schema": 1,
+        "task_id": task.id,
+        "worker_id": worker_id,
+        "workspace_mode": "git-worktree",
+        "worktree_path": relative_path(root, workspace),
+        "worker_branch": branch,
+        "base_branch": base_branch,
+        "base_commit": base_commit,
+        "base_current_commit": base_current_commit,
+        "base_stale": base_stale,
+        "origin_base_commit": origin_base_commit,
+        "origin_base_stale": origin_base_stale,
+        "head_commit": head_commit,
+        "dirty": dirty,
+        "verification_status": verification_status,
+        "verified_commit": verified_commit,
+        "head_matches_verified": head_matches_verified,
+        "promotion_readiness": promotion_readiness,
+        "conflict_prediction": conflict_prediction,
+        "changed_files": _lane_changed_files(preview_evidence),
+        "readiness_status": readiness_status,
+        "readiness_errors": readiness_errors,
+        "readiness_warnings": readiness_warnings,
+        "evidence_paths": _existing_lane_evidence_paths(root, [git_path, used_preview_path, verification_path]),
+        "next_safe_action": _lane_next_safe_action(task.id, readiness_status),
+    }
+
+
 def build_git_promotion_preview(root: Path, task: TaskRecord) -> dict[str, Any]:
     worker_id = worker_id_for_task(task)
     state = refresh_git_worker_evidence(root, task, worker_id)
     branch = state["worker_branch"]
     base_commit = state["base_commit"]
-    main_head = current_head(root)
+    main_head = branch_head(root, DEFAULT_BASE_BRANCH) or current_head(root)
     origin_main_head = origin_main_sha(root)
     worker_head = branch_head(root, branch)
     merge_base = merge_base_commit(root, branch)
@@ -698,8 +778,26 @@ def _diff_summary(root: Path, task: TaskRecord, state: dict[str, Any]) -> dict[s
     untracked = []
     if status.returncode == 0:
         for raw_line in status.stdout.splitlines():
-            if raw_line.startswith("?? "):
-                untracked.append(raw_line[3:])
+            if len(raw_line) < 4:
+                continue
+            status_code = raw_line[:2]
+            path = raw_line[3:]
+            if " -> " in path:
+                old_path, new_path = path.split(" -> ", 1)
+            else:
+                old_path, new_path = "", path
+
+            index_status, worktree_status = status_code[0], status_code[1]
+            if status_code == "??":
+                untracked.append(path)
+            elif index_status == "R":
+                renamed.append({"from": old_path, "to": new_path})
+            elif "D" in {index_status, worktree_status}:
+                deleted.append(new_path)
+            elif index_status == "A":
+                added.append(new_path)
+            elif index_status in {"M", "T"} or worktree_status in {"M", "T"}:
+                modified.append(new_path)
     changed = sorted(set(added + modified + [item["to"] for item in renamed]))
     return {
         "schema_version": TASK_SCHEMA_VERSION,
@@ -739,6 +837,9 @@ def _git_preview_readiness(
         return "not_ready"
     if conflict_prediction != "clean":
         return "not_ready"
+    main_head = branch_head(root, DEFAULT_BASE_BRANCH)
+    if state.get("base_commit") and main_head and state["base_commit"] != main_head:
+        return "not_ready"
     origin_head = origin_main_sha(root)
     if state.get("base_commit") and origin_head and state["base_commit"] != origin_head:
         return "not_ready"
@@ -770,6 +871,109 @@ def _write_conflict_report(root: Path, task: TaskRecord, git_preview: dict[str, 
 
 def _merge_base_is_ancestor(root: Path, base_commit: str, branch: str) -> bool:
     return _run_git(root, ["merge-base", "--is-ancestor", base_commit, branch], check=False).returncode == 0
+
+
+def _read_lane_preview(primary: Path, fallback: Path) -> tuple[dict[str, Any], Path]:
+    primary_payload = _read_json_object(primary)
+    if primary_payload:
+        return primary_payload, primary
+    return _read_json_object(fallback), fallback
+
+
+def _lane_readiness(
+    *,
+    branch_exists_now: bool,
+    worktree_exists: bool,
+    base_commit: str | None,
+    dirty: bool,
+    verification_status: str,
+    verified_commit: str | None,
+    head_commit: str | None,
+    head_matches_verified: bool,
+    promotion_preview_exists: bool,
+    promotion_readiness: str,
+    conflict_prediction: str,
+    base_stale: bool,
+    origin_base_stale: bool,
+) -> tuple[str, list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not branch_exists_now:
+        errors.append("worker branch is missing")
+    if not worktree_exists:
+        errors.append("worker worktree is missing")
+    if not base_commit:
+        errors.append("base commit is missing")
+    if errors:
+        return "missing", errors, warnings
+
+    if dirty:
+        return "dirty", ["worker worktree is dirty after verification"], warnings
+
+    if verification_status != "passed" or not verified_commit:
+        return "unverified", ["worker HEAD has not been verified"], warnings
+
+    if not head_commit or not head_matches_verified:
+        return "dirty", ["worker HEAD differs from verified commit"], warnings
+
+    if not promotion_preview_exists:
+        return "missing", ["promotion-preview.json is missing"], warnings
+
+    if conflict_prediction not in {"clean", "unknown"}:
+        return "conflict", [f"promotion preview conflict prediction is {conflict_prediction}"], warnings
+
+    if base_stale:
+        warnings.append("base branch has advanced since lane creation")
+    if origin_base_stale:
+        warnings.append("origin/main has advanced since lane creation")
+    if warnings:
+        return "stale", errors, warnings
+
+    if promotion_readiness == "ready":
+        return "ready", errors, warnings
+
+    if promotion_readiness != "unknown":
+        errors.append(f"promotion preview is not ready: {promotion_readiness}")
+    else:
+        errors.append("promotion readiness is unknown")
+    return "blocked", errors, warnings
+
+
+def _lane_next_safe_action(task_id: str, readiness_status: str) -> str:
+    if readiness_status == "missing":
+        return f"devflow task show {task_id}"
+    if readiness_status in {"dirty", "unverified"}:
+        return f'devflow task verify {task_id} --shell "<command>"'
+    if readiness_status in {"conflict", "stale"}:
+        return f"devflow task promote-preview {task_id}"
+    if readiness_status == "ready":
+        return f"devflow task promote {task_id}"
+    return f"devflow task show {task_id}"
+
+
+def _lane_changed_files(preview: dict[str, Any]) -> list[str]:
+    files: list[str] = []
+    for key in ("changed_files", "added", "modified", "deleted", "untracked", "binary"):
+        value = preview.get(key)
+        if isinstance(value, list):
+            files.extend(str(item) for item in value if isinstance(item, str))
+    renamed = preview.get("renamed")
+    if isinstance(renamed, list):
+        for item in renamed:
+            if isinstance(item, dict) and isinstance(item.get("to"), str):
+                files.append(item["to"])
+            elif isinstance(item, str):
+                files.append(item)
+    return sorted(set(files))
+
+
+def _existing_lane_evidence_paths(root: Path, paths: list[Path]) -> list[str]:
+    return sorted({relative_path(root, path) for path in paths if path.exists()})
+
+
+def _string_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:
