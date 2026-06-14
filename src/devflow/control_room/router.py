@@ -310,7 +310,7 @@ def _worker_rejection_reason(
         if selected_model and selected_model != agent.model:
             return f"selected-agent evidence model mismatch (selected {selected_model}, registry model {agent.model})"
 
-    if not runtime.task_run_allowed and agent.provider != "local":
+    if runtime.execution_surface == "blocked" or not runtime.task_run_allowed:
         return _runtime_block_reason(runtime)
 
     return None

@@ -333,3 +333,53 @@ def test_router_blocks_remote_provider_candidates(tmp_path: Path, monkeypatch: p
     assert rd["requires_escalation"] is True
     assert any(item["agent"] == "openai-architect" and "provider is experimental-readonly" in item["reason"] for item in rd["rejected"])
     assert any(item["status"] == "human_escalation_required" for item in rd["unresolved"])
+
+
+def test_router_blocks_local_provider_candidates_with_non_executable_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    agent = AgentDefinition(
+        id="legacy-local-implementer",
+        provider="local",
+        model="legacy-local",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        enabled=True,
+    )
+    registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Implement a small worker feature")
+    selection_path = tmp_path / ".devflow/tasks" / task.id / "agent-selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "role": "implementation_worker",
+                "status": "selected",
+                "selected_agent_id": "legacy-local-implementer",
+                "selected_model": "legacy-local",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert "worker" not in rd["selected"]
+    assert any(
+        item["agent"] == "legacy-local-implementer" and "cannot execute" in item["reason"]
+        for item in rd["rejected"]
+    )
+    assert any(
+        item["agent"] == "legacy-local-implementer" and item["status"] == "blocked_runtime"
+        for item in rd["blocked"]
+    )
