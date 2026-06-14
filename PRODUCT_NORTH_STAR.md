@@ -402,6 +402,14 @@ devflow task verify <task_id> --shell "test -f result.txt"
 devflow task show <task_id>
 devflow task list
 devflow task packet <task_id>
+devflow task fit <task_id>
+devflow task fit <task_id> --json
+devflow task scout <task_id> --role all
+devflow task scout <task_id> --role risk --json
+devflow task route <task_id>
+devflow task route <task_id> --json
+devflow task scorecard <task_id>
+devflow task scorecard <task_id> --json
 devflow task log <task_id>
 devflow task promote-preview <task_id>
 devflow task promote <task_id>
