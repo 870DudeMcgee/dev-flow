@@ -1542,9 +1542,13 @@ def task_orchestrate(
     "fit",
     hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
 )
-def task_fit_command(task_id: str) -> None:
+def task_fit_command(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Emit stable JSON evidence."),
+) -> None:
     """[EXPERIMENTAL-READONLY] Deterministic task-fit and context-size estimation."""
-    _enforce_experimental("task fit")
+    if not json_output:
+        _enforce_experimental("task fit")
     root = Path.cwd()
     try:
         from devflow.control_room.estimator import estimate_task_fit, save_task_fit
@@ -1553,6 +1557,16 @@ def task_fit_command(task_id: str) -> None:
     except Exception as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
+
+    if json_output:
+        payload = {
+            "artifact_path": f".devflow/tasks/{task_id}/task-fit.yaml",
+            "repo_scan": fit_data["repo_scan"],
+            "task_fit": fit_data["task_fit"],
+            "task_id": task_id,
+        }
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
 
     # Render a beautiful terminal breakdown
     typer.echo(f"Estimated task-fit profile for task: {task_id}")

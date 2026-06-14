@@ -98,3 +98,47 @@ def test_estimator_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     yaml_file = task_dir_path / "task-fit.yaml"
     assert yaml_file.exists()
     assert "task_type: documentation_cleanup" in yaml_file.read_text(encoding="utf-8")
+
+
+def test_estimator_records_policy_fields_and_evidence_inputs(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    (tmp_path / "CODE_MAP.md").write_text("# Code Map\n\n## Layout\n- `src/devflow/control_room/` active core\n", encoding="utf-8")
+
+    task = create_task(tmp_path, "Design model routing selector")
+    task_dir_path = tmp_path / ".devflow/tasks" / task.id
+    save_task(task_dir_path, task)
+
+    fit_data = estimate_task_fit(tmp_path, task.id)
+    task_fit = fit_data["task_fit"]
+    repo_scan = fit_data["repo_scan"]
+
+    assert task_fit["task_type"] == "model_routing_change"
+    assert task_fit["architectural_risk"] == "critical"
+    assert task_fit["recommended_planner_tier"] == "frontier"
+    assert task_fit["recommended_worker_tier"] == "frontier"
+    assert task_fit["recommended_reviewer_tier"] == "frontier"
+    assert task_fit["recommended_verifier_tier"] == "deterministic"
+    assert task_fit["recommended_summarizer_tier"] in {"local", "strong_local"}
+    assert task_fit["recommended_scout_tier"] in {"local", "strong_local"}
+    assert "task.yaml" in repo_scan["evidence_inputs"]
+    assert "CODE_MAP.md" in repo_scan["evidence_inputs"]
+    assert isinstance(repo_scan["missing_inputs"], list)
+
+
+def test_estimator_cli_json_is_stable_without_experimental_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up documentation in PRODUCT_NORTH_STAR.md")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DEVFLOW_EXPERIMENTAL", raising=False)
+
+    result = CliRunner().invoke(app, ["task", "fit", task.id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["task_id"] == task.id
+    assert payload["task_fit"]["task_type"] == "documentation_cleanup"
+    assert payload["artifact_path"] == f".devflow/tasks/{task.id}/task-fit.yaml"

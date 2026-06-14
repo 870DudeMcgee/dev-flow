@@ -1,12 +1,45 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from devflow.control_room.persistence import get_task
 from devflow.control_room.paths import task_dir
+
+
+def _relative(root: Path, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _line_and_token_estimate(paths: list[Path]) -> tuple[int, int]:
+    line_count = 0
+    token_count = 0
+    for path in paths:
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        line_count += len(content.splitlines())
+        token_count += len(content) // 4
+    return line_count, token_count
+
+
+def _tier_for_summarizer(context_requirement: str) -> str:
+    if context_requirement in {"high", "critical"}:
+        return "strong_local"
+    return "local"
+
+
+def _tier_for_scout(task_type: str, repo_scope: str, architectural_risk: str) -> str:
+    if task_type in {"architecture_change", "model_routing_change", "repo_refactor"}:
+        return "strong_local"
+    if repo_scope in {"medium", "large"} or architectural_risk in {"high", "critical"}:
+        return "strong_local"
+    return "local"
 
 
 def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
@@ -52,16 +85,30 @@ def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
             if f not in docs_list:
                 docs_list.append(f)
 
+    evidence_inputs = ["task.yaml"]
+    missing_inputs = []
+
+    code_map_path = root / "CODE_MAP.md"
+    if code_map_path.exists() and code_map_path.is_file():
+        evidence_inputs.append("CODE_MAP.md")
+    else:
+        missing_inputs.append("CODE_MAP.md")
+
+    if referenced_files:
+        evidence_inputs.extend(sorted(_relative(root, path) for path in referenced_files))
+    else:
+        missing_inputs.append("explicit referenced files")
+
+    if test_files_list:
+        evidence_inputs.extend(sorted(_relative(root, path) for path in test_files_list))
+    else:
+        missing_inputs.append("matched test files")
+
+    evidence_inputs.extend(sorted(_relative(root, path) for path in docs_list))
+    evidence_inputs = list(dict.fromkeys(evidence_inputs))
+
     # Estimate line count and tokens
-    relevant_lines = 0
-    relevant_tokens = 0
-    for f in all_relevant_files:
-        try:
-            content = f.read_text(encoding="utf-8", errors="ignore")
-            relevant_lines += len(content.splitlines())
-            relevant_tokens += len(content) // 4
-        except Exception:
-            pass
+    relevant_lines, relevant_tokens = _line_and_token_estimate(all_relevant_files)
 
     # Read events.jsonl for task history tokens
     task_history_tokens = 0
@@ -84,6 +131,8 @@ def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
         "relevant_tokens_estimate": relevant_tokens,
         "test_files_needed": len(test_files_list),
         "docs_needed": len(docs_list),
+        "evidence_inputs": evidence_inputs,
+        "missing_inputs": missing_inputs,
         "task_history_tokens": task_history_tokens,
         "total_context_estimate": total_context_estimate,
     }
@@ -213,6 +262,10 @@ def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
     else:
         recommended_reviewer_tier = "frontier"
 
+    recommended_verifier_tier = "deterministic"
+    recommended_summarizer_tier = _tier_for_summarizer(context_requirement)
+    recommended_scout_tier = _tier_for_scout(task_type, repo_scope, architectural_risk)
+
     # Confidence calculation
     confidence = 0.85
     if len(referenced_files) > 0:
@@ -238,6 +291,9 @@ def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
         "recommended_planner_tier": recommended_planner_tier,
         "recommended_worker_tier": recommended_worker_tier,
         "recommended_reviewer_tier": recommended_reviewer_tier,
+        "recommended_verifier_tier": recommended_verifier_tier,
+        "recommended_summarizer_tier": recommended_summarizer_tier,
+        "recommended_scout_tier": recommended_scout_tier,
         "confidence": confidence,
     }
 
@@ -255,11 +311,15 @@ def save_task_fit(root: Path, task_id: str, fit_data: dict[str, Any]) -> None:
 
     lines = []
     
-    # task_fit block
-    lines.append("task_fit:")
-    task_fit = fit_data.get("task_fit", {})
-    for key in sorted(task_fit.keys()):
-        val = task_fit[key]
+    def append_yaml_value(key: str, val: Any) -> None:
+        if isinstance(val, list):
+            if not val:
+                lines.append(f"  {key}: []")
+                return
+            lines.append(f"  {key}:")
+            for item in val:
+                lines.append(f"    - {item}")
+            return
         if isinstance(val, bool):
             val_str = "true" if val else "false"
         elif isinstance(val, (int, float)):
@@ -268,13 +328,18 @@ def save_task_fit(root: Path, task_id: str, fit_data: dict[str, Any]) -> None:
             val_str = str(val)
         lines.append(f"  {key}: {val_str}")
 
+    # task_fit block
+    lines.append("task_fit:")
+    task_fit = fit_data.get("task_fit", {})
+    for key in sorted(task_fit.keys()):
+        append_yaml_value(key, task_fit[key])
+
     lines.append("")
 
     # repo_scan block
     lines.append("repo_scan:")
     repo_scan = fit_data.get("repo_scan", {})
     for key in sorted(repo_scan.keys()):
-        val = repo_scan[key]
-        lines.append(f"  {key}: {val}")
+        append_yaml_value(key, repo_scan[key])
 
     yaml_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
