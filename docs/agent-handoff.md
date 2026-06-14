@@ -34,9 +34,11 @@ Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, and human-controlled promotion.
+The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, and human-controlled promotion.
 
 The initial Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, and humans promote through Git-aware mechanics rather than blind copy-back.
+
+The next implementation milestone is Milestone 19 Git-Native Worker Lane Hardening. It should make the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, and operating-layer surfaces before provider adapters or autonomous routing are revisited.
 
 ## Code Architecture Boundary
 
@@ -190,10 +192,16 @@ Current verification covers the command/filesystem/safety contract, copied works
 
 Goal `G-0001` integration notes live in [docs/architecture/control-room-refactoring-integration.md](architecture/control-room-refactoring-integration.md).
 
-## Operating-Layer Beta State
+## Milestone State
 
-Milestone 18 Operating-Layer Beta is implemented on the feature branch: approved Action Rail result retention is covered, the snapshot includes a derived browser review-loop summary, active result-retention wording is no longer future-tense, and browser dogfood covers exact task verification plus exact task promotion without expanding browser mutations beyond the guarded approval path. The next safe action is human-approved merge and push.
+Milestone 18 Operating-Layer Beta is merged and pushed on `main`: approved Action Rail result retention is covered, the snapshot includes a derived browser review-loop summary, active result-retention wording is no longer future-tense, and browser dogfood covers exact task verification plus exact task promotion without expanding browser mutations beyond the guarded approval path.
+
+Milestone 19 Git-Native Worker Lane Hardening is the next planned milestone. Planning artifacts:
+
+- [docs/superpowers/specs/2026-06-14-milestone-19-git-native-worker-lane-hardening-design.md](superpowers/specs/2026-06-14-milestone-19-git-native-worker-lane-hardening-design.md)
+- [docs/superpowers/plans/2026-06-14-milestone-19-git-native-worker-lane-hardening.md](superpowers/plans/2026-06-14-milestone-19-git-native-worker-lane-hardening.md)
+- [docs/handoffs/2026-06-14-milestone-19-git-native-worker-lane-hardening-next.md](handoffs/2026-06-14-milestone-19-git-native-worker-lane-hardening-next.md)
 
 ## Known Worktree State At Handoff
 
-Before this documentation reset, the repository already had unrelated dirty files in public-site, agent, manager, script, test, and `.devflow` artifact/task/report areas. Future agents must not revert those unless explicitly asked.
+At the Milestone 19 planning handoff, `main` is the intended base and future implementation should start from a clean Dev-Flow Git status in an isolated task/worktree. Future agents must keep unrelated dirty worktree changes intact if any appear after this handoff.

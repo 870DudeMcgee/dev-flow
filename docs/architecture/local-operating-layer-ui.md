@@ -227,14 +227,14 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 
 ## Next Safe Slice
 
-Milestone 18 Operating-Layer Beta is implemented on the feature branch. The next safe slice is closure:
+Milestone 18 Operating-Layer Beta is merged and pushed on `main`. The next safe slice is Milestone 19 Git-Native Worker Lane Hardening:
 
-1. Review the `milestone-18-operating-layer-beta` branch and merge it to `main` only after explicit human approval.
-2. Push `main` through the DevMode git bridge.
-3. Remove the feature worktree and local branch after the pushed mainline is clean.
-4. Pick the next milestone from current product needs; do not treat archived factory workflow material as authority.
+1. Add a read-only Git worker lane summary for opt-in `--git-worktree` tasks.
+2. Surface the same lane state in CLI, supervisor, and operating-layer projections: worktree path, worker branch, base commit, head commit, dirty state, verified commit, promotion readiness, conflict prediction, stale baseline state, cleanup status, and next safe action.
+3. Make stale, dirty, head-changed, missing, and conflict states refuse promotion with deterministic recovery commands.
+4. Dogfood two Git-native shell lanes from the same clean main baseline, promote one lane, and cleanup/archive owned resources without removing canonical task evidence.
 
-Do not add worker execution, task creation, patch application, git publication, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
+Do not add worker execution, task creation, patch application, git publication, provider execution, autonomous routing, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
 
 ## Design Constraints
 

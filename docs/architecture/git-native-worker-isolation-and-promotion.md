@@ -1,6 +1,6 @@
 # Git-Native Worker Isolation And Promotion
 
-Status: initial opt-in vertical slice implemented. The default task path remains copy-workspace unless `devflow task create --git-worktree` is used.
+Status: initial opt-in vertical slice implemented. Milestone 19 hardening is planned. The default task path remains copy-workspace unless `devflow task create --git-worktree` is used.
 
 ## Thesis
 
@@ -205,6 +205,39 @@ The initial implementation proves this sequence:
 8. Refuse promotion if worker HEAD changed after verification.
 9. Refuse promotion if main moved and the conflict or stale baseline is unresolved.
 10. Promote with Git-aware mechanics instead of blind copy-back.
+
+## Milestone 19 Hardening Direction
+
+The next hardening milestone makes the opt-in Git-native lane first-class across control-room surfaces without making it the default runtime.
+
+Milestone 19 adds a read-only worker lane projection derived from existing Git evidence, verification evidence, promotion-preview evidence, and live read-only Git state. The projection should answer:
+
+- which worktree and branch belongs to the task;
+- which base commit the lane forked from;
+- whether local `main` or `origin/main` advanced after lane creation;
+- which worker branch commit is current;
+- whether the worktree is dirty;
+- which commit was verified;
+- whether the worker head still matches the verified commit;
+- whether promotion preview is ready, stale, conflicted, missing, or blocked;
+- which cleanup resources are owned by the task;
+- which exact command is the next safe action.
+
+The lane projection is a derived read model. It should not replace canonical task evidence, write promotion previews, refresh diffs, mutate refs, or create a database. Mutation remains limited to existing explicit commands: worker execution, verification, finalize, promote-preview evidence writing, human-confirmed promotion, dry-run-first cleanup, and explicit archive/prune apply.
+
+Milestone 19 should expose the same vocabulary in CLI, supervisor, and operating-layer UI:
+
+```text
+ready
+unverified
+dirty
+stale
+conflict
+missing
+blocked
+```
+
+Every non-ready state needs a concrete recovery command, such as rerunning exact verification, rebuilding promotion preview, inspecting conflict evidence, or running cleanup dry-run first.
 
 ## Out Of Scope For This Milestone
 
