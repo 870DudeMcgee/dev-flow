@@ -422,7 +422,7 @@ Outside the current product contract:
 
 - autonomous browser/web dashboard mutation surface
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
-- task-fit/context routing runtime (Design documented only. The current local selector ranks eligible installed agents for an explicit role; it does not autonomously pick the best model for arbitrary tasks, invoke scouts, or change shell-worker behavior.)
+- autonomous task-fit/context routing runtime (Milestone 17 is approved as an evidence-only routing spec. The current local selector ranks eligible installed agents for an explicit role; it does not autonomously pick the best model for arbitrary tasks, invoke workers, or change shell-worker behavior.)
 - provider-backed non-shell worker adapters
 - Ollama keep-alive/model-stop controls for local resource pressure
 - remote provider-backed registry and adapter-runtime execution beyond the current shell/manual/local-patch/local-evidence guardrails
@@ -432,7 +432,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, and Milestone 16 agent registry runtime hardening are complete. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery and selected-agent evidence. Fully automatic best-model-for-any-task routing remains future task-fit/context-routing work and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, and Milestone 16 agent registry runtime hardening are complete. Milestone 17 is approved as an evidence-only task-fit/context-routing spec. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery and selected-agent evidence. Fully automatic best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

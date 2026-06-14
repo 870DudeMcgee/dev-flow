@@ -21,7 +21,7 @@ Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
 Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, and Milestone 16 agent registry runtime hardening.
 
-Current follow-on boundary: future model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role today; fully automatic best-model-for-any-task routing remains deferred to the task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) until a future slice promotes it.
+Current follow-on boundary: future model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role today. Milestone 17 is approved as an evidence-only task-fit/context-routing spec, but fully automatic best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -410,10 +410,18 @@ Implemented:
 - add role-scoped context pack evidence built from canonical task packets
 - normalize current worker evidence summaries so shell, manual, local patch, and local model evidence can be inspected through one derived projection
 - dogfood the current local patch ladder through explicit local-agent selection, patch proposal generation, review, dry-run, and refusal-safe application gates without provider calls
-- document that local model selection is model-agnostic: installed-model discovery and selected-agent evidence choose eligible profiles by role, while fully automatic best-model-for-any-task routing remains future task-fit/context-routing work
+- document that local model selection is model-agnostic: installed-model discovery and selected-agent evidence choose eligible profiles by role, while fully automatic best-model-for-any-task routing remains excluded beyond the approved Milestone 17 evidence-only routing spec
 - update active docs so Milestone 16 is a completed hardening slice, not a remote-provider or autonomous-routing launch
 
 Boundary: this milestone must not enable OpenAI, Anthropic, Gemini, xAI, LM Studio, or OpenAI-compatible remote execution through stable task runs. It must not add autonomous routing, PR automation, hidden memory, database state, or worker-owned verification/promotion.
+
+## Milestone 17: Task-Fit Context Routing Evidence
+
+Status: approved spec. Design lives in [docs/superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md](superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md).
+
+Goal: promote deterministic task-fit, context estimation, scout, routing, and routing-quality artifacts into an explicit evidence-only control-room slice.
+
+Boundary: this milestone must not add autonomous routing, automatic worker execution, remote provider API calls, silent model substitution, worker-owned verification/promotion, commits, pushes, pull requests, hidden memory, vector search, RAG, embeddings, or training. Routing decisions may recommend next commands, but humans or explicit dogfood lanes still invoke execution.
 
 ## Later, Not Now
 
