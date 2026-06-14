@@ -188,6 +188,9 @@ def finalize_task(root: Path, task_id: str, commit: bool = False) -> dict[str, A
                     atomic_write_text(verification_json_path, json.dumps(v_data, indent=2) + "\n")
                 except Exception:
                     pass
+            from devflow.control_room.task_lifecycle import write_merge_readiness
+
+            write_merge_readiness(root, task_path, task)
 
     # 6. Record finalization evidence
     next_action = f"devflow task promote-preview {task_id}" if commit else f"devflow task finalize {task_id} --commit"

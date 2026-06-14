@@ -278,6 +278,11 @@ def test_finalize_commit_stages_tracked_worktree_modifications() -> None:
             assert new_head != baseline
             assert _git(worktree_dir, "status", "--porcelain") == ""
             assert _git(worktree_dir, "show", "--pretty=", "--name-only", "HEAD").splitlines() == ["base.txt"]
+
+            merge_readiness = json.loads(Path(".devflow/tasks/task-0001/merge-readiness.json").read_text(encoding="utf-8"))
+            assert merge_readiness["ready"] is True
+            assert merge_readiness["workspace_dirty"] is False
+            assert "worker worktree is dirty after verification" not in merge_readiness["reasons"]
         finally:
             os.chdir(old_cwd)
 
