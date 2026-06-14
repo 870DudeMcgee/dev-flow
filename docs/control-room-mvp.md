@@ -257,7 +257,7 @@ Do not implement these in the first milestone:
 - PR automation
 - autonomous browser/web dashboard mutation surfaces
 - token-context routing helpers beyond the current read-only planning helper
-- task-fit/context routing runtime
+- autonomous task-fit/context routing runtime beyond the Milestone 17 evidence commands
 - hidden or autonomous commit, push, merge, or pull request creation
 
 ## Runtime Structure

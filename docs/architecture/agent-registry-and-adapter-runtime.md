@@ -8,9 +8,9 @@ Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents ar
 
 Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are experimental read-only in normal worker lookup. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
 
-Milestone 16 implemented the current model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Selection ranks installed registry agents for an explicit role from manifest and policy evidence. It is not autonomous routing and does not claim to choose the best model for arbitrary tasks without the future task-fit layer.
+Milestone 16 implemented the model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Milestone 17 adds evidence-only task-fit/context routing: stable fit, scout, route, and scorecard commands write derived artifacts and recommended next commands. These surfaces are not autonomous routing and do not run workers, call providers, verify, promote, commit, push, or publish.
 
-Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the future task-fit profile, context estimator, model capability profile, scout roles, and routing-quality feedback loop needed to choose the best available model for each task and role. That broader routing remains planning architecture until a future implementation explicitly promotes it.
+Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, provider-backed execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
 
 ## 1. Problem
 
@@ -386,7 +386,7 @@ Routing inputs can include task type, allowed files, failure count, verification
 
 Build this layer incrementally. Do not jump directly to a general-purpose agent framework.
 
-Implemented through Milestone 16:
+Implemented through Milestone 17:
 
 1. Architecture document.
 2. Agent registry loading.
@@ -398,16 +398,19 @@ Implemented through Milestone 16:
 8. Derived task-local evidence summary through `agent evidence`.
 9. Local Ollama discovery and explicit role-based selected-agent evidence through `agent discover-local` and `agent select-local`.
 10. Explicit local patch runtime profiles for approved Ollama agents, currently including Qwopus and Gemma evidence paths.
+11. Evidence-only task-fit and context estimation through `devflow task fit`.
+12. Evidence-only local scout signal capture through `devflow task scout`.
+13. Evidence-only candidate eligibility, rejection, unresolved-role, and next-command routing decisions through `devflow task route`.
+14. Evidence-only post-run routing-quality scorecards through `devflow task scorecard`.
 
 Deferred until future specs promote them:
 
-1. Deterministic task-fit and full context-size estimation for arbitrary tasks.
-2. Best-available model routing by task and role.
+1. Full arbitrary-task context-size estimation beyond the Milestone 17 deterministic evidence slice.
+2. Autonomous best-available model routing by task and role.
 3. OpenAI-compatible adapter execution for LM Studio and Grok-style APIs.
 4. Native OpenAI, Anthropic, and Gemini execution adapters.
-5. Local scout reports as optional evidence.
-6. Routing engine.
-7. Metrics: local success rate, frontier escalations, verification failures, rework, useful context limits, and cost avoided.
+5. Routing engines that assign workers, invoke workers, or verify/promote based on routing evidence.
+6. Metrics that drive autonomous routing policy, cost optimization, or provider selection beyond the Milestone 17 scorecard artifacts.
 
 Each step should preserve the shell-worker control-room contract and add evidence before automation. A future implementation step is acceptable only when it makes task execution more visible, isolated, recoverable, or reviewable.
 
