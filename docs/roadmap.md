@@ -417,7 +417,7 @@ Boundary: this milestone must not enable OpenAI, Anthropic, Gemini, xAI, LM Stud
 
 ## Milestone 17: Task-Fit Context Routing Evidence
 
-Status: approved spec. Design lives in [docs/superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md](superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md).
+Status: approved spec and implementation plan. Design and plan live in [docs/superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md](superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md) and [docs/superpowers/plans/2026-06-14-milestone-17-task-fit-context-routing-evidence.md](superpowers/plans/2026-06-14-milestone-17-task-fit-context-routing-evidence.md).
 
 Goal: promote deterministic task-fit, context estimation, scout, routing, and routing-quality artifacts into an explicit evidence-only control-room slice.
 
