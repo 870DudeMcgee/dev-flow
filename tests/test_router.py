@@ -133,7 +133,7 @@ agents:
     workspace: isolated_task_workspace
     enabled: true
   qwen-local:
-    provider: local
+    provider: ollama
     model: qwen-local
     adapter: ollama_chat
     role: local_senior_worker
@@ -357,20 +357,6 @@ def test_router_blocks_local_provider_candidates_with_non_executable_runtime(
     monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
 
     task = create_task(tmp_path, "Implement a small worker feature")
-    selection_path = tmp_path / ".devflow/tasks" / task.id / "agent-selection.json"
-    selection_path.write_text(
-        json.dumps(
-            {
-                "task_id": task.id,
-                "role": "implementation_worker",
-                "status": "selected",
-                "selected_agent_id": "legacy-local-implementer",
-                "selected_model": "legacy-local",
-            }
-        ),
-        encoding="utf-8",
-    )
-
     routing_res = route_task(tmp_path, task.id)
     rd = routing_res["routing_decision"]
 

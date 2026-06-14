@@ -274,6 +274,8 @@ def _worker_rejection_reason(
 
     if agent.provider not in LOCAL_MODEL_PROVIDERS and agent.provider != "shell":
         return _runtime_block_reason(runtime)
+    if runtime.execution_surface == "blocked" or not runtime.task_run_allowed:
+        return _runtime_block_reason(runtime)
 
     useful_context_tokens = _useful_context_tokens(agent.tier)
     if total_context_estimate > useful_context_tokens:
@@ -309,9 +311,6 @@ def _worker_rejection_reason(
         selected_model = selected_agent_evidence.get("selected_model") if selected_agent_evidence else None
         if selected_model and selected_model != agent.model:
             return f"selected-agent evidence model mismatch (selected {selected_model}, registry model {agent.model})"
-
-    if runtime.execution_surface == "blocked" or not runtime.task_run_allowed:
-        return _runtime_block_reason(runtime)
 
     return None
 
