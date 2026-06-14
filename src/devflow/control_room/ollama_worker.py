@@ -16,6 +16,11 @@ from devflow.control_room.context_pack import build_context_pack
 from devflow.control_room.json_utils import repair_and_parse_json
 from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.models import WorkerInput, WorkerResult
+from devflow.control_room.ollama_generation import (
+    OllamaPatchGenerationSettings,
+    build_ollama_patch_request_payload,
+    settings_for_ollama_patch_agent,
+)
 from devflow.control_room.persistence import atomic_write_text
 
 
@@ -44,6 +49,8 @@ class OllamaChatWorkerAdapter:
         base_url = "http://127.0.0.1:11434"
         timeout = worker_input.timeout_seconds or 300
         provider_id = "ollama"
+        selected_agent = None
+        generation_settings = OllamaPatchGenerationSettings(endpoint="generate")
 
         run_meta: dict[str, Any] = {
             "task_id": worker_input.task_id,
@@ -127,6 +134,7 @@ class OllamaChatWorkerAdapter:
                         summary=f"Agent '{env_agent_id}' is not approved for local Ollama patch runtime.",
                         exit_code=1,
                     )
+                selected_agent = agent
                 model = agent.model
                 provider_id = provider_def.provider
                 if provider_def.base_url:
@@ -181,18 +189,37 @@ class OllamaChatWorkerAdapter:
             context_pack=context_pack,
         )
 
-        url = f"{base_url.rstrip('/')}/api/generate"
-        data = {
-            "model": model,
-            "prompt": prompt,
-            "system": system_instruction,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.2},
-        }
+        generation_settings = settings_for_ollama_patch_agent(
+            evidence_agent_id,
+            model,
+            selected_agent,
+        )
+        url = f"{base_url.rstrip('/')}{generation_settings.endpoint_path}"
+        data = build_ollama_patch_request_payload(
+            model=model,
+            system_instruction=system_instruction,
+            prompt=prompt,
+            settings=generation_settings,
+        )
+        run_meta.update(
+            {
+                "request_endpoint": generation_settings.endpoint_path,
+                "request_payload_shape": generation_settings.payload_shape,
+                "request_options": generation_settings.options(),
+                "request_format": "json" if generation_settings.format_json else None,
+                "native_chat_think": generation_settings.think if generation_settings.endpoint == "chat" else None,
+                "prompt_chars": len(prompt),
+                "system_instruction_chars": len(system_instruction),
+            }
+        )
 
         with worker_input.log_file.open("a", encoding="utf-8") as log:
-            log.write(f"Connecting to local Ollama on {url} (model: {model}, timeout: {timeout}s)...\n")
+            log.write(
+                "Connecting to local Ollama on "
+                f"{url} (model: {model}, timeout: {timeout}s, "
+                f"num_ctx: {generation_settings.num_ctx}, "
+                f"num_predict: {generation_settings.num_predict})...\n"
+            )
 
         req = urllib.request.Request(
             url,
@@ -204,7 +231,7 @@ class OllamaChatWorkerAdapter:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 res_body = json.loads(response.read().decode("utf-8"))
-                run_meta["ollama_response"] = {k: v for k, v in res_body.items() if k != "response"}
+                run_meta["ollama_response"] = _ollama_response_metadata(res_body)
         except urllib.error.HTTPError as exc:
             raw_error = _http_error_detail(exc)
             if _looks_like_missing_model(raw_error, model, exc.code):
@@ -244,6 +271,7 @@ class OllamaChatWorkerAdapter:
 
         # Try message.content, response, content, thinking in order
         candidates = []
+        failed_candidate_text = None
         
         # 1. message.content
         msg = res_body.get("message")
@@ -281,6 +309,8 @@ class OllamaChatWorkerAdapter:
                     extracted_text = val
                     break
                 except Exception as e:
+                    if failed_candidate_text is None:
+                        failed_candidate_text = val
                     if parse_error is None:
                         parse_error = e
             else:
@@ -290,6 +320,8 @@ class OllamaChatWorkerAdapter:
                     extracted_text = str_val
                     break
                 except Exception as e:
+                    if failed_candidate_text is None:
+                        failed_candidate_text = str_val
                     if parse_error is None:
                         parse_error = e
 
@@ -297,7 +329,13 @@ class OllamaChatWorkerAdapter:
             if diff_data is not None:
                 response_text = extracted_text
             else:
-                response_text = str(res_body.get("response", ""))
+                response_text = (
+                    extracted_text
+                    if extracted_text is not None
+                    else failed_candidate_text
+                    if failed_candidate_text is not None
+                    else str(res_body.get("response", ""))
+                )
                 extracted_text = response_text
                 
             if parse_error is None:
@@ -307,7 +345,8 @@ class OllamaChatWorkerAdapter:
                     parse_error = ValueError("No JSON object or array start found in text")
             
             atomic_write_text(raw_output_path, extracted_text)
-            message = f"Malformed JSON from local Ollama worker; inspect raw output at {raw_output_path}. Parser error: {parse_error}"
+            response_meta = _ollama_response_metadata(res_body)
+            message = _malformed_json_message(raw_output_path, parse_error, response_meta)
             with worker_input.log_file.open("a", encoding="utf-8") as log:
                 log.write(f"{message}\n")
                 log.write(f"Raw response preserved at {raw_output_path}\n")
@@ -409,6 +448,26 @@ def _response_summary(diff_data: dict[str, Any]) -> dict[str, Any]:
         "risk": diff_data.get("risk"),
         "confidence": diff_data.get("confidence"),
     }
+
+
+def _ollama_response_metadata(res_body: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in res_body.items() if k not in {"response", "message"}}
+
+
+def _malformed_json_message(raw_output_path: Path, parse_error: Exception, response_meta: dict[str, Any]) -> str:
+    base = f"Malformed JSON from local Ollama worker; inspect raw output at {raw_output_path}. Parser error: {parse_error}"
+    done_reason = response_meta.get("done_reason")
+    eval_count = response_meta.get("eval_count")
+    prompt_eval_count = response_meta.get("prompt_eval_count")
+    if done_reason == "length":
+        detail = (
+            "Ollama stopped at length before returning complete JSON "
+            f"(prompt_eval_count={prompt_eval_count}, eval_count={eval_count})."
+        )
+        if isinstance(eval_count, int) and eval_count <= 1:
+            detail += " The model emitted only the JSON prefix or an equivalent one-token response."
+        return f"{base}. {detail}"
+    return base
 
 
 def _proposed_file_paths(diff_text: str) -> list[str]:

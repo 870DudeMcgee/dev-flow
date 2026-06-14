@@ -366,6 +366,199 @@ def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_pat
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello from Qwopus\n"
 
 
+def _write_local_patch_registry(root: Path, *, agent_id: str, model: str) -> None:
+    agents_dir = root / ".devflow" / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (agents_dir / "registry.yaml").write_text(
+        "version: 1\n"
+        "providers:\n"
+        "  ollama:\n"
+        "    provider: ollama\n"
+        "    adapter: ollama_chat\n"
+        "    base_url: http://127.0.0.1:11434\n"
+        "    default_timeout_seconds: 600\n"
+        "    enabled: true\n"
+        "agents:\n"
+        f"  {agent_id}:\n"
+        "    provider: ollama\n"
+        f"    model: {model}\n"
+        "    adapter: ollama_chat\n"
+        "    role: implementation_worker\n"
+        "    tier: strong_local\n"
+        "    default_mode: workspace_write\n"
+        "    execution_mode: automated\n"
+        "    workspace: isolated_task_workspace\n"
+        "    can_run_shell: false\n"
+        "    can_use_network: false\n"
+        "    can_promote: false\n"
+        "    enabled: true\n",
+        encoding="utf-8",
+    )
+
+
+def _ready_patch_response() -> bytes:
+    return json.dumps(
+        {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "status": "ready",
+                        "diff": (
+                            "diff --git a/hello.txt b/hello.txt\n"
+                            "--- a/hello.txt\n"
+                            "+++ b/hello.txt\n"
+                            "@@ -1 +1 @@\n"
+                            "-Hello World\n"
+                            "+Hello from Gemma\n"
+                        ),
+                        "touched_paths": ["hello.txt"],
+                        "risk": "low",
+                        "confidence": 0.88,
+                    }
+                )
+            },
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 64,
+            "eval_count": 128,
+        }
+    ).encode("utf-8")
+
+
+def test_gemma_patch_worker_uses_native_chat_with_explicit_generation_options(tmp_path: Path) -> None:
+    Path(tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    _write_local_patch_registry(
+        tmp_path,
+        agent_id="gemma4-12b-qat-implementer",
+        model="gemma4:12b-it-qat",
+    )
+    task = create_task(tmp_path, "Gemma patch settings")
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.read.return_value = _ready_patch_response()
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = run_shell_task(tmp_path, task.id, [], worker_adapter="gemma4-12b-qat-implementer")
+
+    assert result.status == "complete"
+    request = mock_urlopen.call_args.args[0]
+    assert request.full_url == "http://127.0.0.1:11434/api/chat"
+    payload = json.loads(request.data.decode("utf-8"))
+    assert payload["model"] == "gemma4:12b-it-qat"
+    assert payload["stream"] is False
+    assert payload["think"] is False
+    assert payload["format"] == "json"
+    assert payload["options"]["temperature"] == 0.2
+    assert payload["options"]["num_ctx"] == 8192
+    assert payload["options"]["num_predict"] == 4096
+    assert [message["role"] for message in payload["messages"]] == ["system", "user"]
+
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "gemma4-12b-qat-implementer"
+    run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_json["request_endpoint"] == "/api/chat"
+    assert run_json["request_payload_shape"] == "native_chat_messages"
+    assert run_json["request_options"] == {"num_ctx": 8192, "num_predict": 4096, "temperature": 0.2}
+    assert run_json["native_chat_think"] is False
+    assert run_json["request_format"] == "json"
+    assert run_json["ollama_response"]["done_reason"] == "stop"
+    assert "message" not in run_json["ollama_response"]
+    assert "Hello from Gemma" in (agent_dir / "proposal.patch").read_text(encoding="utf-8")
+
+
+def test_non_gemma_patch_worker_keeps_generate_endpoint_with_explicit_generation_options(tmp_path: Path) -> None:
+    Path(tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    task = create_task(tmp_path, "Qwopus patch settings")
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.read.return_value = json.dumps(
+        {
+            "response": json.dumps(
+                {
+                    "status": "ready",
+                    "diff": (
+                        "diff --git a/hello.txt b/hello.txt\n"
+                        "--- a/hello.txt\n"
+                        "+++ b/hello.txt\n"
+                        "@@ -1 +1 @@\n"
+                        "-Hello World\n"
+                        "+Hello from Qwopus\n"
+                    ),
+                    "touched_paths": ["hello.txt"],
+                    "risk": "low",
+                    "confidence": 0.91,
+                }
+            ),
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 64,
+            "eval_count": 128,
+        }
+    ).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = run_shell_task(tmp_path, task.id, [], worker_adapter="qwopus-implementer")
+
+    assert result.status == "complete"
+    request = mock_urlopen.call_args.args[0]
+    assert request.full_url == "http://127.0.0.1:11434/api/generate"
+    payload = json.loads(request.data.decode("utf-8"))
+    assert payload["model"] == "qwopus:latest"
+    assert payload["format"] == "json"
+    assert payload["stream"] is False
+    assert payload["options"] == {"num_ctx": 8192, "num_predict": 4096, "temperature": 0.2}
+
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "qwopus-implementer"
+    run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_json["request_endpoint"] == "/api/generate"
+    assert run_json["request_payload_shape"] == "generate_prompt_system"
+    assert run_json["request_options"] == {"num_ctx": 8192, "num_predict": 4096, "temperature": 0.2}
+
+
+def test_ollama_worker_malformed_json_reports_length_truncation(tmp_path: Path) -> None:
+    Path(tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    _write_local_patch_registry(
+        tmp_path,
+        agent_id="gemma4-12b-qat-implementer",
+        model="gemma4:12b-it-qat",
+    )
+    task = create_task(tmp_path, "Gemma truncated JSON")
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.read.return_value = json.dumps(
+        {
+            "message": {"content": "{\""},
+            "done": True,
+            "done_reason": "length",
+            "prompt_eval_count": 4095,
+            "eval_count": 1,
+        }
+    ).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("devflow.control_room.ollama_worker.build_context_pack", return_value={}):
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = run_shell_task(tmp_path, task.id, [], worker_adapter="gemma4-12b-qat-implementer")
+
+    assert result.status == "worker_failed"
+
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "gemma4-12b-qat-implementer"
+    assert (agent_dir / "raw_output.md").read_text(encoding="utf-8") == "{\""
+    run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
+    worker_failed = json.loads((agent_dir / "worker_failed.json").read_text(encoding="utf-8"))
+    assert "Ollama stopped at length before returning complete JSON" in run_json["summary"]
+    assert "eval_count=1" in run_json["summary"]
+    assert run_json["ollama_response"]["done_reason"] == "length"
+    assert "num_predict" in run_json["request_options"]
+    assert worker_failed["summary"] == run_json["summary"]
+
+
 def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
