@@ -1538,17 +1538,12 @@ def task_orchestrate(
     typer.echo(render_orchestration_plan_summary(Path.cwd(), plan), nl=False)
 
 
-@task_app.command(
-    "fit",
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
-)
+@task_app.command("fit")
 def task_fit_command(
     task_id: str,
     json_output: bool = typer.Option(False, "--json", help="Emit stable JSON evidence."),
 ) -> None:
-    """[EXPERIMENTAL-READONLY] Deterministic task-fit and context-size estimation."""
-    if not json_output:
-        _enforce_experimental("task fit")
+    """Deterministic task-fit and context-size estimation."""
     root = Path.cwd()
     try:
         from devflow.control_room.estimator import estimate_task_fit, save_task_fit
@@ -1561,6 +1556,7 @@ def task_fit_command(
     if json_output:
         payload = {
             "artifact_path": f".devflow/tasks/{task_id}/task-fit.yaml",
+            "fit_data": fit_data,
             "repo_scan": fit_data["repo_scan"],
             "task_fit": fit_data["task_fit"],
             "task_id": task_id,
@@ -1666,7 +1662,12 @@ def task_scout_command(
         raise typer.Exit(code=1) from exc
 
     if json_output:
-        typer.echo(json.dumps({"task_id": task_id, "reports": reports, "artifact_paths": artifact_paths}, sort_keys=True))
+        payload = {
+            "artifact_paths": artifact_paths,
+            "reports": reports,
+            "task_id": task_id,
+        }
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
 
     # Render beautiful breakdown
@@ -1690,13 +1691,12 @@ def task_scout_command(
     typer.echo("-" * 50)
 
 
-@task_app.command(
-    "route",
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
-)
-def task_route_command(task_id: str) -> None:
-    """[EXPERIMENTAL-READONLY] Run conservative routing matching to assign agent roles to a task."""
-    _enforce_experimental("task route")
+@task_app.command("route")
+def task_route_command(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Emit stable JSON evidence."),
+) -> None:
+    """Run conservative evidence-only routing matching for a task."""
     root = Path.cwd()
     try:
         from devflow.control_room.router import route_task, save_routing_decision
@@ -1706,45 +1706,87 @@ def task_route_command(task_id: str) -> None:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
+    artifact_path = f".devflow/tasks/{task_id}/routing-decision.yaml"
+    if json_output:
+        payload = {
+            "artifact_path": artifact_path,
+            "routing_decision": decision_data["routing_decision"],
+            "task_id": task_id,
+        }
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
     # Render beautiful breakdown
     typer.echo(f"Executed routing mapping for task: {task_id}")
     typer.echo("-" * 50)
 
     rd = decision_data["routing_decision"]
-    typer.echo(f"Policy Version:              {rd['policy_version']}")
+    typer.echo(f"Policy Version:              {rd.get('policy_version')}")
 
     typer.echo("")
     typer.echo("Selected Agent Assignments:")
-    selected = rd["selected"]
+    selected = rd.get("selected", {})
     for key in sorted(selected.keys()):
         typer.echo(f"  {key:<12}: {selected[key]}")
+    if not selected:
+        typer.echo("  - none")
 
     typer.echo("")
     typer.echo("Recorded Reasons:")
-    for reason in rd["reason"]:
+    for reason in rd.get("reason", []):
         typer.echo(f"  - {reason}")
 
     typer.echo("")
     typer.echo("Rejected Agents:")
-    rejected = rd["rejected"]
+    rejected = rd.get("rejected", [])
     if not rejected:
         typer.echo("  - none")
     else:
         for rej in rejected:
-            typer.echo(f"  - agent:  {rej['agent']}")
-            typer.echo(f"    reason: {rej['reason']}")
+            typer.echo(f"  - agent:  {rej.get('agent', 'unknown')}")
+            typer.echo(f"    reason: {rej.get('reason', 'unspecified')}")
+
+    typer.echo("")
+    typer.echo("Blocked Candidates:")
+    blocked = rd.get("blocked", [])
+    if not blocked:
+        typer.echo("  - none")
+    else:
+        for item in blocked:
+            typer.echo(f"  - role:   {item.get('role', 'unknown')}")
+            typer.echo(f"    agent:  {item.get('agent', 'unknown')}")
+            typer.echo(f"    status: {item.get('status', 'unknown')}")
+            typer.echo(f"    reason: {item.get('reason', 'unspecified')}")
+
+    typer.echo("")
+    typer.echo("Unresolved Decisions:")
+    unresolved = rd.get("unresolved", [])
+    if not unresolved:
+        typer.echo("  - none")
+    else:
+        for item in unresolved:
+            typer.echo(f"  - role:   {item.get('role', 'unknown')}")
+            typer.echo(f"    status: {item.get('status', 'unknown')}")
+            typer.echo(f"    reason: {item.get('reason', 'unspecified')}")
+            if item.get("next_command"):
+                typer.echo(f"    next:   {item['next_command']}")
+
+    typer.echo("")
+    typer.echo("Recommended Next Commands:")
+    recommended_next_commands = rd.get("recommended_next_commands", {})
+    if not recommended_next_commands:
+        typer.echo("  - none")
+    else:
+        for role in sorted(recommended_next_commands.keys()):
+            typer.echo(f"  {role:<12}: {recommended_next_commands[role]}")
 
     typer.echo("-" * 50)
     typer.echo(f"Wrote routing-decision.yaml under .devflow/tasks/{task_id}/")
 
 
-@task_app.command(
-    "scorecard",
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
-)
+@task_app.command("scorecard")
 def task_scorecard_command(task_id: str) -> None:
-    """[EXPERIMENTAL-READONLY] Compile and display a task's post-run routing quality scorecard."""
-    _enforce_experimental("task scorecard")
+    """Compile and display a task's post-run routing quality scorecard."""
     root = Path.cwd()
     try:
         from devflow.control_room.scorecard import generate_scorecard, save_scorecard

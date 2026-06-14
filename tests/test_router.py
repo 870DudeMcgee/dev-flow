@@ -112,6 +112,24 @@ def test_router_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert yaml_file.exists()
 
 
+def test_route_cli_json_is_stable_without_experimental_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up documentation")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DEVFLOW_EXPERIMENTAL", raising=False)
+
+    result = CliRunner().invoke(app, ["task", "route", task.id, "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["task_id"] == task.id
+    assert payload["routing_decision"]["decision_mode"] == "evidence_only"
+    assert payload["artifact_path"] == f".devflow/tasks/{task.id}/routing-decision.yaml"
+
+
 def test_high_risk_tasks_require_human_escalation_without_worker_selection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. Initialize structures
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
