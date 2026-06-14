@@ -117,6 +117,8 @@ The real MVP vertical slice runs one safe local profile such as `local-qwopus-in
 
 `local-gemma4-summarizer` uses a Gemma-specific native Ollama chat path because `gemma4:latest` has thinking capability and the OpenAI-compatible endpoint can cap or reshape full task packets in ways that hide the useful final content. That profile calls `/api/chat` with `think: false`, explicit `num_ctx`, and a compact evidence-summary packet. The quality gate still rejects missing task grounding, placeholder task ids, and generic readiness summaries.
 
+`gemma4-12b-qat-implementer` is the first Gemma local patch runtime profile. It uses native Ollama `/api/chat` with thinking disabled and explicit bounded generation settings (`num_ctx 8192`, `num_predict 4096`) so patch proposal output is parseable JSON evidence. It still only writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, logs, questions, or worker failure evidence under the task-local agent directory; Dev-Flow still owns patch review, dry-run, application, verification, and promotion.
+
 ## WorkerEvidence
 
 WorkerEvidence stores:

@@ -606,7 +606,7 @@ Expected: task is closed with an audit-visible reason and one next safe cleanup 
 - Modify: `docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md`
 - Create: `docs/handoffs/2026-06-14-gemma-native-patch-output-reliability-complete.md`
 
-- [ ] **Step 1: Update local model worker-pool docs**
+- [x] **Step 1: Update local model worker-pool docs**
 
 Add a concise paragraph to `docs/architecture/local-model-worker-pool.md` near the existing Gemma native chat paragraph:
 
@@ -614,7 +614,7 @@ Add a concise paragraph to `docs/architecture/local-model-worker-pool.md` near t
 `gemma4-12b-qat-implementer` is the first Gemma local patch runtime profile. It uses native Ollama `/api/chat` with thinking disabled and explicit bounded generation settings (`num_ctx 8192`, `num_predict 4096`) so patch proposal output is parseable JSON evidence. It still only writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, logs, questions, or worker failure evidence under the task-local agent directory; Dev-Flow still owns patch review, dry-run, application, verification, and promotion.
 ```
 
-- [ ] **Step 2: Update MVP current behavior wording**
+- [x] **Step 2: Update MVP current behavior wording**
 
 In `docs/control-room-mvp.md`, update the registry-backed local patch paragraph so it names both current explicit patch profiles:
 
@@ -624,7 +624,7 @@ The registry-backed local patch form is `devflow task run <task_id> --worker qwo
 
 Keep the rest of the paragraph clear that local patch workers only produce proposal evidence.
 
-- [ ] **Step 3: Update Milestone 16 Task 5B status**
+- [x] **Step 3: Update Milestone 16 Task 5B status**
 
 In `docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md`, append a short Task 5B evidence note:
 
@@ -632,7 +632,7 @@ In `docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-harden
 **Task 5B update, 2026-06-14:** `task-0035` selected `gemma4-12b-qat-implementer` after the explicit registry entry was added, but the existing generic Ollama patch worker emitted only `{"` and stopped with `done_reason: length`, `prompt_eval_count: 4095`, and `eval_count: 1`. Direct probes proved `gemma4:12b-it-qat` returns valid JSON when `num_ctx` and `num_predict` are explicit. Resume Task 5B only after completing `docs/superpowers/plans/2026-06-14-gemma-native-patch-output-reliability.md`.
 ```
 
-- [ ] **Step 4: Write the completion handoff**
+- [x] **Step 4: Write the completion handoff**
 
 Create `docs/handoffs/2026-06-14-gemma-native-patch-output-reliability-complete.md` using the standard headings:
 
@@ -672,7 +672,7 @@ complete
 
 Do not commit the completion handoff until every Verification bullet contains a real command and observed result.
 
-- [ ] **Step 5: Run doc hygiene checks**
+- [x] **Step 5: Run doc hygiene checks**
 
 Run:
 
@@ -683,7 +683,7 @@ git diff --check
 
 Expected: `rg` has no matches and `git diff --check` has no output.
 
-- [ ] **Step 6: Checkpoint and push when explicitly approved**
+- [x] **Step 6: Checkpoint and push when explicitly approved**
 
 Run:
 

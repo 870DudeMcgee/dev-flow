@@ -813,6 +813,8 @@ Expected: each command preserves explicit evidence and does not promote automati
 
 Record the dogfood command outputs in the final handoff. If the dogfood task is evidence-only or rejected, close it explicitly with an outcome and reason.
 
+**Task 5B update, 2026-06-14:** `task-0035` selected `gemma4-12b-qat-implementer` after the explicit registry entry was added, but the existing generic Ollama patch worker emitted only `{"` and stopped with `done_reason: length`, `prompt_eval_count: 4095`, and `eval_count: 1`. Direct probes proved `gemma4:12b-it-qat` returns valid JSON when `num_ctx` and `num_predict` are explicit. Resume Task 5B only after completing `docs/superpowers/plans/2026-06-14-gemma-native-patch-output-reliability.md`.
+
 ### Task 6: Docs And Final Verification
 
 **Files:**
