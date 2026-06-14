@@ -1279,6 +1279,14 @@ def task_show(
         typer.echo(f"worktree_path: {worker_lane['worktree_path']}")
         typer.echo(f"lane_readiness: {worker_lane['readiness_status']}")
         typer.echo(f"lane_next_action: {worker_lane['next_safe_action']}")
+    from devflow.control_room.local_worker_lane import local_worker_lane_summary
+
+    local_lane = local_worker_lane_summary(root, task)
+    if local_lane:
+        typer.echo(f"local_worker_lane: {local_lane['lane_type']}")
+        typer.echo(f"local_worker: {local_lane['worker_id']}")
+        typer.echo(f"local_worker_readiness: {local_lane['readiness_status']}")
+        typer.echo(f"local_worker_next_action: {local_lane['next_safe_action']}")
     if task.branch_name:
         typer.echo(f"branch_name: {task.branch_name}")
     if task.workspace_commit:

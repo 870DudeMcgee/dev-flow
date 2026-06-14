@@ -7,6 +7,7 @@ from typing import Any
 
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.git_worktree import git_worker_lane_summary, is_git_worktree_task, worker_id_for_task
+from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.patch_dry_run import latest_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review
@@ -800,6 +801,7 @@ def _compact_task_record(
 ) -> dict[str, Any]:
     evidence = _task_evidence(root, task)
     worker_lane = git_worker_lane_summary(root, task)
+    local_worker_lane = local_worker_lane_summary(root, task)
     next_action = build_task_next_action(root, task.id)
     active = _is_active_task(task)
     blocked_reason = _blocked_reason(projection, evidence) if active else None
@@ -831,9 +833,20 @@ def _compact_task_record(
     }
     if worker_lane:
         record["worker_lane"] = worker_lane
+    if local_worker_lane:
+        record["local_worker_lane"] = {
+            "lane_type": local_worker_lane["lane_type"],
+            "worker_id": local_worker_lane["worker_id"],
+            "readiness_status": local_worker_lane["readiness_status"],
+            "next_safe_action": local_worker_lane["next_safe_action"],
+            "evidence_paths": local_worker_lane.get("evidence_paths") or [],
+        }
     if include_evidence_paths:
         lane_evidence = list(worker_lane.get("evidence_paths") or []) if worker_lane else []
-        record["evidence_paths"] = _dedupe_preserve_order(evidence["evidence_paths"] + lane_evidence)
+        local_lane_evidence = list(local_worker_lane.get("evidence_paths") or []) if local_worker_lane else []
+        record["evidence_paths"] = _dedupe_preserve_order(
+            evidence["evidence_paths"] + lane_evidence + local_lane_evidence
+        )
     return record
 
 

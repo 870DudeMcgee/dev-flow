@@ -19,6 +19,7 @@ from devflow.control_room.git_worktree import (
     list_devflow_worktrees,
 )
 from devflow.control_room.knowledge_foundry import capture_from_validation, search_knowledge
+from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_visual_qa import (
     build_visual_qa_plan,
@@ -31,8 +32,11 @@ from devflow.control_room.paths import (
     relative_path,
 )
 from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
+from devflow.control_room.patch_dry_run import preview_patch_dry_run
+from devflow.control_room.patch_review import normalize_agent_patch_candidate, review_patch_candidate
 from devflow.control_room.readiness import promotion_readiness_errors
 from devflow.control_room.service import (
+    apply_task_patch,
     create_task,
     doctor,
     init_control_room,
@@ -44,6 +48,7 @@ from devflow.control_room.service import (
 from devflow.control_room.supervisor_surface import build_control_room_status
 from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
+from devflow.control_room.worker_evidence import write_worker_evidence
 from devflow.control_room.worker_outcome import validate_worker_outcome, validate_worker_outcome_file
 
 
@@ -52,11 +57,11 @@ PRODUCTION_READINESS_SUITE = "production-readiness"
 SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
-    "A_safety_git_discipline": 20,
-    "B_pipeline_correctness": 20,
+    "A_safety_git_discipline": 22,
+    "B_pipeline_correctness": 22,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 15,
-    "E_recovery_failure_handling": 15,
+    "D_worker_artifact_quality": 18,
+    "E_recovery_failure_handling": 18,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
     "H_operating_layer_visual_qa": 10,
@@ -210,6 +215,42 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "A_safety_git_discipline": 4,
                 "B_pipeline_correctness": 2,
                 "E_recovery_failure_handling": 2,
+            },
+        ),
+        _case_definition(
+            case_id="local-worker-lane-hardening",
+            title="Local worker lane hardening",
+            category="D_worker_artifact_quality",
+            task_type="local_worker_evidence_ladder",
+            risk_level="medium",
+            purpose="Prove registry-backed local worker evidence is visible and recoverable without provider calls.",
+            expected_behavior=[
+                "write deterministic read-only WorkerEvidence",
+                "write deterministic local patch worker proposal evidence",
+                "project both local worker lane types across supervisor and operating-layer surfaces",
+                "run patch review, dry-run, apply, verify, and promote-preview gates explicitly",
+                "avoid provider API calls, autonomous routing, auto-promotion, commits, pushes, databases, and hidden memory",
+            ],
+            command_sequence=[
+                "write read-only WorkerEvidence fixture",
+                "write local patch worker proposal fixture",
+                "devflow task review-patch <task-id> --agent qwopus-implementer",
+                "devflow task patch-dry-run <task-id> --agent qwopus-implementer",
+                "devflow task apply-patch <task-id> --agent qwopus-implementer",
+                "devflow task verify <task-id> --shell 'test -f hello.txt'",
+                "devflow task promote-preview <task-id>",
+            ],
+            success_criteria=[
+                "read-only local worker lane is summarized with review-only next action",
+                "local patch worker lane advances through the explicit patch ladder",
+                "workspace mutation occurs only after apply-patch",
+                "supervisor and operating-layer snapshots expose local worker lane state",
+            ],
+            scoring={
+                "A_safety_git_discipline": 2,
+                "B_pipeline_correctness": 2,
+                "D_worker_artifact_quality": 3,
+                "E_recovery_failure_handling": 3,
             },
         ),
         _case_definition(
@@ -980,6 +1021,182 @@ def _case_git_native_worker_lane(
     return _finalize_case(root, case, state, scores, failures)
 
 
+def _case_local_worker_lane(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "local-worker-lane-repo"
+    _init_git_native_dogfood_repo(scratch)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_command(state, "git init scratch local-worker-lane dogfood repo", status="passed", output=relative_path(root, scratch))
+
+    read_only = create_task(scratch, "Dogfood read-only local worker evidence")
+    patch_task = create_task(scratch, "Dogfood local patch worker evidence")
+    _record_command(state, "devflow task create 'Dogfood read-only local worker evidence' (scratch)", status="passed", output=read_only.id)
+    _record_command(state, "devflow task create 'Dogfood local patch worker evidence' (scratch)", status="passed", output=patch_task.id)
+
+    write_worker_evidence(
+        root=scratch,
+        worker_type="local_model_worker_pool",
+        profile_id="local-qwopus-inspector",
+        worker_id="local-qwopus-inspector",
+        task_id=read_only.id,
+        run_id="run-1",
+        packet_text="deterministic dogfood packet",
+        raw_output="deterministic read-only analysis",
+        response_text="deterministic read-only response",
+        model="qwopus:latest",
+        adapter="ollama_chat",
+        adapter_maturity="local_patch_runtime",
+        permission_mode="read_only",
+        hermes_delegable=True,
+        runtime="dogfood_fixture",
+        status="success",
+        started_at="2026-06-14T00:00:00+00:00",
+        quality_notes="dogfood fixture",
+        quality_score=0.9,
+    )
+    _record_command(state, f"write deterministic read-only WorkerEvidence for {read_only.id}", status="passed")
+
+    patch_workspace_file = scratch / ".devflow" / "workspaces" / patch_task.id / "hello.txt"
+    patch_agent_dir = scratch / ".devflow" / "tasks" / patch_task.id / "agents" / "qwopus-implementer"
+    patch_agent_dir.mkdir(parents=True, exist_ok=True)
+    patch_text = (
+        "diff --git a/hello.txt b/hello.txt\n"
+        "--- /dev/null\n"
+        "+++ b/hello.txt\n"
+        "@@ -1,0 +1 @@\n"
+        "+hello from local worker lane dogfood\n"
+    )
+    atomic_write_text(patch_agent_dir / "proposal.patch", patch_text)
+    atomic_write_text(patch_agent_dir / "result.md", "Patch proposed by deterministic dogfood fixture.\n")
+    atomic_write_text(
+        patch_agent_dir / "run.json",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "task_id": patch_task.id,
+                "agent_id": "qwopus-implementer",
+                "status": "complete",
+                "model": "qwopus:latest",
+                "adapter": "ollama_chat",
+                "proposal_patch_found": True,
+                "proposal_patch_byte_length": len(patch_text.encode("utf-8")),
+                "proposed_file_count": 1,
+                "proposed_file_paths": ["hello.txt"],
+                "finished_at": "2026-06-14T00:01:00+00:00",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    before_apply_exists = patch_workspace_file.exists()
+    _record_command(state, f"write deterministic local patch worker evidence for {patch_task.id}", status="passed")
+
+    normalized_run_id = normalize_agent_patch_candidate(scratch, patch_task.id, "qwopus-implementer")
+    review = review_patch_candidate(scratch, patch_task.id, run_id=normalized_run_id)
+    _record_command(
+        state,
+        f"devflow task review-patch {patch_task.id} --agent qwopus-implementer (scratch)",
+        status=review.review_status,
+    )
+    dry_run = preview_patch_dry_run(scratch, patch_task.id, run_id=normalized_run_id)
+    _record_command(
+        state,
+        f"devflow task patch-dry-run {patch_task.id} --agent qwopus-implementer (scratch)",
+        status=dry_run.dry_run_status,
+    )
+    apply_task_patch(scratch, patch_task.id, run_id=normalized_run_id)
+    after_apply_exists = patch_workspace_file.exists()
+    _record_command(state, f"devflow task apply-patch {patch_task.id} --agent qwopus-implementer (scratch)", status="passed")
+    verified = verify_task(scratch, patch_task.id, ["/bin/sh", "-c", "test -f hello.txt"], timeout_seconds=20)
+    _record_command(
+        state,
+        f"devflow task verify {patch_task.id} --shell 'test -f hello.txt' (scratch)",
+        status=verified.verification_status,
+    )
+    preview = preview_task_promotion(scratch, patch_task.id)
+    _record_command(
+        state,
+        f"devflow task promote-preview {patch_task.id} (scratch)",
+        status=preview.get("promotion_readiness") or preview.get("status") or "previewed",
+    )
+
+    read_lane = local_worker_lane_summary(scratch, get_task(scratch, read_only.id)) or {}
+    patch_lane = local_worker_lane_summary(scratch, get_task(scratch, patch_task.id)) or {}
+    status = build_control_room_status(scratch)
+    operating = build_operating_layer_snapshot(scratch).model_dump(mode="json")
+    supervisor_lanes = [task.get("local_worker_lane") for task in status["tasks"] if task.get("local_worker_lane")]
+    operating_lanes = [task.get("local_worker_lane") for task in operating["tasks"] if task.get("local_worker_lane")]
+    summary = {
+        "scratch_repo": relative_path(root, scratch),
+        "read_only_lane": read_lane,
+        "patch_lane": patch_lane,
+        "supervisor_local_worker_lanes": supervisor_lanes,
+        "operating_layer_local_worker_lanes": operating_lanes,
+        "workspace_file_exists_before_apply": before_apply_exists,
+        "workspace_file_exists_after_apply": after_apply_exists,
+        "root_file_exists_after_apply": (scratch / "hello.txt").exists(),
+        "review_status": review.review_status,
+        "dry_run_status": dry_run.dry_run_status,
+        "verification_status": verified.verification_status,
+    }
+    summary_path = case_dir / "artifacts" / "local-worker-lane-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+
+    commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
+    forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "route")
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "A_safety_git_discipline",
+        2,
+        not before_apply_exists and after_apply_exists and not (scratch / "hello.txt").exists(),
+        "workspace mutation waited for explicit apply-patch",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        review.review_status in {"low_risk_candidate", "review_required"}
+        and dry_run.dry_run_status in {"would_apply_cleanly", "would_create_files", "would_modify_with_warnings"}
+        and verified.verification_status == "passed",
+        "local patch worker evidence reached apply/verify gates",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        3,
+        read_lane.get("lane_type") == "local-model-worker-pool"
+        and read_lane.get("permission_mode") == "read_only"
+        and read_lane.get("next_safe_action") == f"devflow agent evidence {read_only.id} --json",
+        "read-only local worker evidence was summarized",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        3,
+        patch_lane.get("readiness_status") in {"needs_promotion_preview", "ready"}
+        and len(supervisor_lanes) >= 2
+        and len(operating_lanes) >= 2
+        and not any(token in commands_text for token in forbidden_tokens),
+        "no provider API calls or autonomous routing were introduced",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
 def _case_success_empty(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1451,6 +1668,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "cli-help-bounded-feature-task": _case_cli_help,
     "unsafe-worker-outcome": _case_unsafe_worker_outcome,
     "git-native-worker-lane-hardening": _case_git_native_worker_lane,
+    "local-worker-lane-hardening": _case_local_worker_lane,
     "success-empty-worker-outcome": _case_success_empty,
     "plan-only-unsafe-git-state": _case_plan_only_unsafe_git,
     "failed-verification-recovery": _case_failed_verification,

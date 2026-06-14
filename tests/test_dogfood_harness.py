@@ -41,11 +41,12 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 12
+    assert len(cases) == 13
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "git-native-worker-lane-hardening",
+        "local-worker-lane-hardening",
         "knowledge-capture-from-validation-failure",
         "central-schema-refactor-risk",
         "operating-layer-visual-qa-hardening",
@@ -72,7 +73,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 12
+    assert len(result["run"]["cases_run"]) == 13
     spawned_tasks = list_tasks(tmp_path)
     assert spawned_tasks
     assert all(task.status == "closed" for task in spawned_tasks)
@@ -186,6 +187,19 @@ def test_git_native_worker_lane_dogfood_case_exercises_two_lane_recovery(tmp_pat
     assert summary["first_lane_after_cleanup"]["worktree_exists"] is False
     assert summary["second_lane_after_first_promotion"]["readiness_status"] in {"stale", "blocked"}
     assert summary["second_lane_after_first_promotion"]["next_safe_action"] == "devflow task promote-preview task-0002"
+
+
+def test_local_worker_lane_dogfood_case_exercises_evidence_ladder(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["local-worker-lane-hardening"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("read-only local worker evidence was summarized" in lesson for lesson in case_result["lessons"])
+    assert any("local patch worker evidence reached apply/verify gates" in lesson for lesson in case_result["lessons"])
+    assert any("no provider API calls or autonomous routing were introduced" in lesson for lesson in case_result["lessons"])
 
 
 def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:

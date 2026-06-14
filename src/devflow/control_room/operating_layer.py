@@ -17,6 +17,7 @@ from devflow.control_room.dashboard import (
 from devflow.control_room.agent_evidence import compact_agent_evidence_summary
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.git_worktree import git_worker_lane_summary
+from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
@@ -127,6 +128,21 @@ class OperatingLayerWorkerLane(BaseModel):
     next_safe_action: str
 
 
+class OperatingLayerLocalWorkerLane(BaseModel):
+    lane_type: str
+    worker_id: str
+    profile_id: str | None = None
+    model: str | None = None
+    adapter: str | None = None
+    permission_mode: str | None = None
+    latest_run_id: str | None = None
+    latest_status: str | None = None
+    patch_candidate: bool = False
+    readiness_status: str
+    next_safe_action: str
+    evidence_paths: list[str] = Field(default_factory=list)
+
+
 class OperatingLayerTask(BaseModel):
     id: str
     title: str
@@ -152,6 +168,7 @@ class OperatingLayerTask(BaseModel):
     review_evidence: list[str] = Field(default_factory=list)
     agent_evidence_summary: dict[str, Any] = Field(default_factory=dict)
     worker_lane: OperatingLayerWorkerLane | None = None
+    local_worker_lane: OperatingLayerLocalWorkerLane | None = None
     actions: list[OperatingLayerAction] = Field(default_factory=list)
     detail: OperatingLayerTaskDetail
 
@@ -928,6 +945,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
     if next_action.command:
         next_action.command = _scope_task_command(next_action.command, project_id)
     worker_lane = git_worker_lane_summary(root, task)
+    local_worker_lane = local_worker_lane_summary(root, task)
     review_readiness = build_review_readiness_projection(
         root,
         task.id,
@@ -960,6 +978,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         review_evidence=review_readiness.evidence,
         agent_evidence_summary=compact_agent_evidence_summary(root, task.id),
         worker_lane=OperatingLayerWorkerLane(**worker_lane) if worker_lane else None,
+        local_worker_lane=OperatingLayerLocalWorkerLane(**local_worker_lane) if local_worker_lane else None,
         actions=_task_actions(task.id, next_action.command, project_id=project_id, ready_to_promote=projection.ready_to_promote),
         detail=_task_detail(root, projection),
     )
@@ -1139,6 +1158,9 @@ def _task_detail(root: Path, projection: TaskStatusProjection) -> OperatingLayer
     worker_lane = git_worker_lane_summary(root, task)
     if worker_lane:
         evidence_paths.extend(str(path) for path in worker_lane.get("evidence_paths") or [])
+    local_worker_lane = local_worker_lane_summary(root, task)
+    if local_worker_lane:
+        evidence_paths.extend(str(path) for path in local_worker_lane.get("evidence_paths") or [])
     return OperatingLayerTaskDetail(
         events_path=relative_path(root, base / "events.jsonl"),
         verification_path=relative_path(root, base / "verification.json"),
@@ -1160,6 +1182,7 @@ def _task_review_summary(
 ) -> list[OperatingLayerReviewItem]:
     task = projection.task
     worker_lane = git_worker_lane_summary(root, task)
+    local_worker_lane = local_worker_lane_summary(root, task)
     changed_files = _changed_workspace_files(root, task.workspace, notes)
     task_contents = _changed_file_contents(root, task.workspace, changed_files, notes)
     items = [
@@ -1179,6 +1202,15 @@ def _task_review_summary(
     if worker_lane:
         items.insert(3, OperatingLayerReviewItem(label="Worker lane", value=str(worker_lane["workspace_mode"])))
         items.insert(4, OperatingLayerReviewItem(label="Lane readiness", value=str(worker_lane["readiness_status"])))
+    if local_worker_lane:
+        items.insert(3, OperatingLayerReviewItem(label="Local worker", value=str(local_worker_lane["worker_id"])))
+        items.insert(
+            4,
+            OperatingLayerReviewItem(
+                label="Local worker readiness",
+                value=str(local_worker_lane["readiness_status"]),
+            ),
+        )
     return items
 
 

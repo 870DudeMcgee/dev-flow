@@ -202,12 +202,13 @@ Milestone 19 Git-Native Worker Lane Hardening is promoted on local `main`. Plann
 - [docs/superpowers/plans/2026-06-14-milestone-19-git-native-worker-lane-hardening.md](superpowers/plans/2026-06-14-milestone-19-git-native-worker-lane-hardening.md)
 - [docs/handoffs/2026-06-14-milestone-19-git-native-worker-lane-hardening-next.md](handoffs/2026-06-14-milestone-19-git-native-worker-lane-hardening-next.md)
 
-Milestone 20 Registry-Backed Local Worker Runtime Hardening is the next planned milestone. Planning artifacts:
+Milestone 20 Registry-Backed Local Worker Runtime Hardening is implemented in the active branch. It adds a read-only local worker lane projection for registry-backed local patch-worker and read-only local model WorkerEvidence, then surfaces that projection through CLI, review-readiness, agent evidence, supervisor, operating-layer, and dogfood surfaces without enabling provider execution or autonomous routing. Artifacts:
 
 - [docs/superpowers/specs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-design.md](superpowers/specs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-design.md)
 - [docs/superpowers/plans/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening.md](superpowers/plans/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening.md)
 - [docs/handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-next.md](handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-next.md)
+- [docs/handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-implementation.md](handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-implementation.md)
 
 ## Known Worktree State At Handoff
 
-At the Milestone 20 planning handoff, local `main` contains the promoted Milestone 19 work but has not been pushed. Future agents should start Milestone 20 from a clean Dev-Flow Git status in a new isolated task/worktree, and must keep unrelated dirty worktree changes intact if any appear after this handoff.
+Milestone 20 implementation is in task `task-0038` on the `devflow/task-0038/shell` worktree/branch until reviewed and promoted. Future agents should continue through the Dev-Flow task promotion path and keep unrelated dirty worktree changes intact if any appear after this handoff.

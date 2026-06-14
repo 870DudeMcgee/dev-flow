@@ -33,6 +33,28 @@ def _create_goal(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_local_patch_worker_evidence(root: Path, task_id: str) -> None:
+    agent_dir = root / ".devflow" / "tasks" / task_id / "agents" / "qwopus-implementer"
+    _write_json(
+        agent_dir / "run.json",
+        {
+            "schema_version": 1,
+            "task_id": task_id,
+            "agent_id": "qwopus-implementer",
+            "status": "complete",
+            "model": "qwopus:latest",
+            "adapter": "ollama_chat",
+            "proposal_patch_found": True,
+        },
+    )
+    (agent_dir / "proposal.patch").write_text("diff --git a/hello.txt b/hello.txt\n", encoding="utf-8")
+
+
 def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert INDEX_HTML is SPLIT_INDEX_HTML
     assert APP_CSS is SPLIT_APP_CSS
@@ -42,8 +64,10 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert ".approved-verification-control" in APP_CSS
     assert ".task-review-panel" in APP_CSS
     assert ".worker-lane-block" in APP_CSS
+    assert ".local-worker-lane-block" in APP_CSS
     assert "refreshSnapshotAfterApprovedAction" in APP_JS
     assert "renderWorkerLaneBlock" in APP_JS
+    assert "renderLocalWorkerLaneBlock" in APP_JS
     assert "isTaskPromotionAction" in APP_JS
     assert "Approve & promote" in APP_JS
     assert "data-promotion-context" in APP_JS
@@ -195,6 +219,26 @@ def test_operating_layer_snapshot_includes_git_worker_lane_summary(
     review = {item["label"]: item["value"] for item in payload["tasks"][0]["detail"]["review_summary"]}
     assert review["Worker lane"] == "git-worktree"
     assert review["Lane readiness"] == "ready"
+
+
+def test_operating_layer_snapshot_includes_local_worker_lane_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    created = runner.invoke(app, ["task", "create", "local lane"])
+    assert created.exit_code == 0, created.output
+    _write_local_patch_worker_evidence(tmp_path, "task-0001")
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    lane = payload["tasks"][0]["local_worker_lane"]
+    assert lane["lane_type"] == "local-patch-worker"
+    assert lane["worker_id"] == "qwopus-implementer"
+    assert lane["readiness_status"] == "needs_review"
+    assert lane["next_safe_action"] == "devflow task review-patch task-0001 --agent qwopus-implementer"
+    review = {item["label"]: item["value"] for item in payload["tasks"][0]["detail"]["review_summary"]}
+    assert review["Local worker"] == "qwopus-implementer"
+    assert review["Local worker readiness"] == "needs_review"
 
 
 def test_operating_layer_review_loop_flags_failed_verification_decision_pressure(
