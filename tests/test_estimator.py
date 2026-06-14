@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from devflow.control_room.persistence import save_task, get_task
 from devflow.control_room.service import create_task
-from devflow.control_room.estimator import estimate_task_fit, save_task_fit
+from devflow.control_room.estimator import _line_and_token_estimate, estimate_task_fit, save_task_fit
 from devflow.cli import app
 
 
@@ -142,3 +142,13 @@ def test_estimator_cli_json_is_stable_without_experimental_env(tmp_path: Path, m
     assert payload["task_id"] == task.id
     assert payload["task_fit"]["task_type"] == "documentation_cleanup"
     assert payload["artifact_path"] == f".devflow/tasks/{task.id}/task-fit.yaml"
+
+
+def test_line_and_token_estimate_caps_large_file_samples(tmp_path: Path) -> None:
+    large_file = tmp_path / "large.py"
+    large_file.write_text(("x\n" * 80_000), encoding="utf-8")
+
+    lines, tokens = _line_and_token_estimate([large_file])
+
+    assert lines < 40_000
+    assert tokens < 20_000

@@ -8,6 +8,9 @@ from devflow.control_room.persistence import get_task
 from devflow.control_room.paths import task_dir
 
 
+_FILE_ESTIMATE_SAMPLE_BYTES = 64 * 1024
+
+
 def _relative(root: Path, path: Path) -> str:
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
@@ -20,9 +23,11 @@ def _line_and_token_estimate(paths: list[Path]) -> tuple[int, int]:
     token_count = 0
     for path in paths:
         try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
+            with path.open("rb") as handle:
+                sample = handle.read(_FILE_ESTIMATE_SAMPLE_BYTES)
         except Exception:
             continue
+        content = sample.decode("utf-8", errors="ignore")
         line_count += len(content.splitlines())
         token_count += len(content) // 4
     return line_count, token_count
