@@ -307,6 +307,115 @@ def test_router_uses_matching_selected_agent_evidence(tmp_path: Path, monkeypatc
     assert rd["recommended_next_commands"]["worker"] == f"devflow task run {task.id} --worker qwopus-implementer"
 
 
+def test_router_blocks_selected_local_patch_worker_when_provider_base_url_is_remote(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    providers_dir = tmp_path / ".devflow/providers"
+    providers_dir.mkdir(parents=True)
+    (providers_dir / "ollama.yaml").write_text(
+        """provider: ollama
+adapter: ollama_chat
+base_url: https://ollama.example.invalid
+default_timeout_seconds: 300
+enabled: true
+""",
+        encoding="utf-8",
+    )
+    agent = AgentDefinition(
+        id="qwopus-implementer",
+        provider="ollama",
+        model="qwopus:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        allowed_writes=["<task>/agents/qwopus-implementer/proposal.patch"],
+        enabled=True,
+    )
+    registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Implement a small worker feature")
+    selection_path = tmp_path / ".devflow/tasks" / task.id / "agent-selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "role": "implementation_worker",
+                "status": "selected",
+                "selected_agent_id": "qwopus-implementer",
+                "selected_model": "qwopus:latest",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert "worker" not in rd["selected"]
+    assert any(
+        item["agent"] == "qwopus-implementer" and "non-local" in item["reason"]
+        for item in rd["rejected"]
+    )
+    assert any(
+        item["agent"] == "qwopus-implementer" and item["status"] == "blocked_runtime"
+        for item in rd["blocked"]
+    )
+
+
+def test_router_rejects_unknown_tier_for_strong_worker_requirement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    agent = AgentDefinition(
+        id="unknown-tier-implementer",
+        provider="ollama",
+        model="unknown-tier:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="mystery_tier",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        allowed_writes=["<task>/agents/unknown-tier-implementer/proposal.patch"],
+        enabled=True,
+    )
+    registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Implement a small worker feature")
+    selection_path = tmp_path / ".devflow/tasks" / task.id / "agent-selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "role": "implementation_worker",
+                "status": "selected",
+                "selected_agent_id": "unknown-tier-implementer",
+                "selected_model": "unknown-tier:latest",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert "worker" not in rd["selected"]
+    assert any(
+        item["agent"] == "unknown-tier-implementer" and "tier mismatch" in item["reason"]
+        for item in rd["rejected"]
+    )
+
+
 def test_router_blocks_remote_provider_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)

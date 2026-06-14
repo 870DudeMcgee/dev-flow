@@ -5,7 +5,13 @@ import re
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.agent_registry import AgentDefinition, load_agent_registry
+from devflow.control_room.agent_registry import (
+    AgentDefinition,
+    ProviderDefinition,
+    is_local_ollama_base_url,
+    load_agent_registry,
+    load_provider_registry,
+)
 from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
 from devflow.control_room.estimator import estimate_task_fit, save_task_fit
 from devflow.control_room.paths import task_dir
@@ -43,7 +49,7 @@ def _tier_cost(tier: str) -> int:
         "premium_local": 2,
         "frontier": 3,
     }
-    return costs.get(tier.lower(), 3)
+    return costs.get(tier.lower(), 0)
 
 
 def _role_matches(agent: AgentDefinition, role: str) -> bool:
@@ -91,6 +97,7 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
     task_fit = fit_data.get("task_fit", {})
     repo_scan = fit_data.get("repo_scan", {})
     registry = load_agent_registry(root)
+    providers, provider_registry_error = _load_provider_registry(root)
     enabled_agents = [
         agent
         for agent in registry.enabled_agents()
@@ -124,6 +131,8 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
         _record_readonly_role_candidates(
             role=role,
             agents=enabled_agents,
+            providers=providers,
+            provider_registry_error=provider_registry_error,
             rejected=rejected,
             blocked=blocked,
         )
@@ -132,6 +141,8 @@ def route_task(root: Path, task_id: str) -> dict[str, Any]:
         rejection_reason = _worker_rejection_reason(
             task_id=task_id,
             agent=agent,
+            provider=providers.get(agent.provider),
+            provider_registry_error=provider_registry_error,
             selected_agent_id=selected_agent_id,
             selected_agent_evidence=selected_agent_evidence,
             recommended_worker_tier=recommended_worker_tier,
@@ -239,15 +250,23 @@ def _record_readonly_role_candidates(
     *,
     role: str,
     agents: list[AgentDefinition],
+    providers: dict[str, ProviderDefinition],
+    provider_registry_error: str | None,
     rejected: list[dict[str, Any]],
     blocked: list[dict[str, Any]],
 ) -> None:
     for agent in agents:
         if not _role_matches(agent, role):
             continue
-        runtime = resolve_agent_runtime_definition(agent, None)
+        provider_error = _provider_registry_block_reason(agent, provider_registry_error)
+        if provider_error is not None:
+            rejected.append({"role": role, "agent": agent.id, "reason": provider_error})
+            blocked.append({"role": role, "agent": agent.id, "status": "blocked_runtime", "reason": provider_error})
+            continue
+        provider = providers.get(agent.provider)
+        runtime = resolve_agent_runtime_definition(agent, provider)
         if runtime.remote_provider or runtime.adapter_maturity in {"experimental_readonly", "planned_not_executable"}:
-            reason = _runtime_block_reason(runtime)
+            reason = _runtime_block_reason(runtime, provider)
             rejected.append({"role": role, "agent": agent.id, "reason": reason})
             blocked.append({"role": role, "agent": agent.id, "status": "blocked_runtime", "reason": reason})
 
@@ -256,6 +275,8 @@ def _worker_rejection_reason(
     *,
     task_id: str,
     agent: AgentDefinition,
+    provider: ProviderDefinition | None,
+    provider_registry_error: str | None,
     selected_agent_id: str | None,
     selected_agent_evidence: dict[str, Any] | None,
     recommended_worker_tier: str,
@@ -263,19 +284,23 @@ def _worker_rejection_reason(
     task_fit: dict[str, Any],
     requires_escalation: bool,
 ) -> str | None:
-    runtime = resolve_agent_runtime_definition(agent, None)
+    provider_error = _provider_registry_block_reason(agent, provider_registry_error)
+    if provider_error is not None:
+        return provider_error
+
+    runtime = resolve_agent_runtime_definition(agent, provider)
     if runtime.remote_provider:
-        return _runtime_block_reason(runtime)
+        return _runtime_block_reason(runtime, provider)
     if runtime.adapter_maturity in {"experimental_readonly", "planned_not_executable"}:
-        return _runtime_block_reason(runtime)
+        return _runtime_block_reason(runtime, provider)
 
     if agent.default_mode in _READ_ONLY_MODES or agent.default_mode not in _IMPLEMENTATION_MODES:
         return f"read-only profile cannot serve as implementation worker (default_mode={agent.default_mode})"
 
     if agent.provider not in LOCAL_MODEL_PROVIDERS and agent.provider != "shell":
-        return _runtime_block_reason(runtime)
+        return _runtime_block_reason(runtime, provider)
     if runtime.execution_surface == "blocked" or not runtime.task_run_allowed:
-        return _runtime_block_reason(runtime)
+        return _runtime_block_reason(runtime, provider)
 
     useful_context_tokens = _useful_context_tokens(agent.tier)
     if total_context_estimate > useful_context_tokens:
@@ -324,7 +349,22 @@ def _requires_escalation(task_fit: dict[str, Any]) -> bool:
     )
 
 
-def _runtime_block_reason(runtime: Any) -> str:
+def _load_provider_registry(root: Path) -> tuple[dict[str, ProviderDefinition], str | None]:
+    try:
+        return load_provider_registry(root).providers, None
+    except Exception as exc:
+        return {}, f"provider registry failed to load: {exc}"
+
+
+def _provider_registry_block_reason(agent: AgentDefinition, provider_registry_error: str | None) -> str | None:
+    if provider_registry_error is None or agent.provider in {"shell", "manual"}:
+        return None
+    return f"{provider_registry_error}; refusing provider-backed routing candidate {agent.id}"
+
+
+def _runtime_block_reason(runtime: Any, provider: ProviderDefinition | None = None) -> str:
+    if provider and provider.provider == "ollama" and not is_local_ollama_base_url(provider.base_url):
+        return f"provider registry marks ollama base_url as non-local ({provider.base_url}); runtime is blocked"
     maturity = str(runtime.adapter_maturity).replace("_", "-")
     if runtime.remote_provider:
         return f"provider is {maturity}; remote provider execution is blocked by evidence-only routing"
