@@ -61,12 +61,15 @@ agents:
     routing_res = route_task(tmp_path, task.id)
     rd = routing_res["routing_decision"]
 
-    # Verify agent matching selections
+    # Verify evidence-only routing records candidates without running or auto-selecting workers.
     assert rd["task_id"] == task.id
+    assert rd["policy_version"] == 2
+    assert rd["decision_mode"] == "evidence_only"
+    assert rd["requires_escalation"] is True
     selected = rd["selected"]
-    assert selected["planner"] == "openai-architect"
-    assert selected["worker"] == "qwen-senior"
-    assert selected["reviewer"] == "openai-architect" # Fallback cheapest/only eligible for reviewer/architect in registry
+    assert selected["verifier"] == "deterministic-shell"
+    assert "worker" not in selected
+    assert any(item["status"] == "human_escalation_required" for item in rd["unresolved"])
 
     # Test saving
     save_routing_decision(tmp_path, task.id, routing_res)
@@ -75,8 +78,13 @@ agents:
     
     yaml_content = yaml_file.read_text(encoding="utf-8")
     assert "routing_decision:" in yaml_content
+    assert "decision_mode: evidence_only" in yaml_content
+    assert "requires_escalation: true" in yaml_content
     assert "selected:" in yaml_content
-    assert "planner: openai-architect" in yaml_content
+    assert "verifier: deterministic-shell" in yaml_content
+    assert "blocked:" in yaml_content
+    assert "unresolved:" in yaml_content
+    assert "recommended_next_commands:" in yaml_content
 
 
 def test_router_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,7 +112,7 @@ def test_router_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert yaml_file.exists()
 
 
-def test_high_risk_tasks_require_frontier_routing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_high_risk_tasks_require_human_escalation_without_worker_selection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. Initialize structures
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
@@ -177,9 +185,12 @@ agents:
     routing_res = route_task(tmp_path, task.id)
     rd = routing_res["routing_decision"]
 
-    # Verify that qwen-local was rejected due to risk mismatch, and qwen-senior was selected
+    # Verify high-risk routing remains evidence-only and does not auto-select a worker.
     selected = rd["selected"]
-    assert selected["worker"] == "qwen-senior"
+    assert selected["verifier"] == "deterministic-shell"
+    assert "worker" not in selected
+    assert rd["requires_escalation"] is True
+    assert any(item["status"] == "human_escalation_required" for item in rd["unresolved"])
     
     rejected = rd["rejected"]
     # Check that qwen-local is in rejected list due to risk mismatch
@@ -217,6 +228,108 @@ def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
 
     task = create_task(tmp_path, "Route read-only worker pool safely")
     routing_res = route_task(tmp_path, task.id)
-    selected = routing_res["routing_decision"]["selected"]
+    rd = routing_res["routing_decision"]
 
-    assert selected["worker"] == "deterministic-shell"
+    assert "worker" not in rd["selected"]
+    assert any(
+        item["agent"] == "local-qwopus-inspector" and "read-only profile" in item["reason"]
+        for item in rd["rejected"]
+    )
+
+
+def test_router_requires_explicit_local_selection_for_local_model_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    agent = AgentDefinition(
+        id="qwopus-implementer",
+        provider="ollama",
+        model="qwopus:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        allowed_writes=["<task>/agents/qwopus-implementer/proposal.patch"],
+        enabled=True,
+    )
+    registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Implement a small worker feature")
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert "worker" not in rd["selected"]
+    assert any(item["role"] == "worker" and item["status"] == "needs_human_agent_selection" for item in rd["unresolved"])
+    assert any(item["agent"] == "qwopus-implementer" and "no selected-agent evidence" in item["reason"] for item in rd["rejected"])
+
+
+def test_router_uses_matching_selected_agent_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    agent = AgentDefinition(
+        id="qwopus-implementer",
+        provider="ollama",
+        model="qwopus:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        allowed_writes=["<task>/agents/qwopus-implementer/proposal.patch"],
+        enabled=True,
+    )
+    registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Implement a small worker feature")
+    selection_path = tmp_path / ".devflow/tasks" / task.id / "agent-selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "role": "implementation_worker",
+                "status": "selected",
+                "selected_agent_id": "qwopus-implementer",
+                "selected_model": "qwopus:latest",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert rd["decision_mode"] == "evidence_only"
+    assert rd["selected"]["worker"] == "qwopus-implementer"
+    assert rd["recommended_next_commands"]["worker"] == f"devflow task run {task.id} --worker qwopus-implementer"
+
+
+def test_router_blocks_remote_provider_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    remote = AgentDefinition(
+        id="openai-architect",
+        provider="openai",
+        model="gpt-5",
+        adapter="openai_chat",
+        role="frontier_planner_architect_reviewer",
+        tier="frontier",
+        default_mode="frontier_read_only",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        can_use_network=True,
+        enabled=True,
+    )
+    registry = AgentRegistry(version=1, default_agent_id=remote.id, agents={remote.id: remote})
+    monkeypatch.setattr("devflow.control_room.router.load_agent_registry", lambda root: registry)
+
+    task = create_task(tmp_path, "Design model routing selector")
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert rd["requires_escalation"] is True
+    assert any(item["agent"] == "openai-architect" and "provider is experimental-readonly" in item["reason"] for item in rd["rejected"])
+    assert any(item["status"] == "human_escalation_required" for item in rd["unresolved"])
