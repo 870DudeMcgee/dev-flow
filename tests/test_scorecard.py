@@ -107,6 +107,62 @@ def test_scorecard_reads_promotion_ready_from_merge_readiness_without_verificati
     assert scorecard["promotion_ready"] is True
 
 
+def test_scorecard_reads_passed_verification_status(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up docs")
+    task_path = tmp_path / ".devflow/tasks" / task.id
+    save_task(task_path, task)
+    (task_path / "verification.json").write_text(json.dumps({"status": "passed"}) + "\n", encoding="utf-8")
+
+    scorecard = generate_scorecard(tmp_path, task.id)["scorecard"]
+
+    assert scorecard["verification_passed"] is True
+
+
+def test_scorecard_reads_failed_verification_status(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up docs")
+    task_path = tmp_path / ".devflow/tasks" / task.id
+    save_task(task_path, task)
+    (task_path / "verification.json").write_text(json.dumps({"status": "failed"}) + "\n", encoding="utf-8")
+
+    scorecard = generate_scorecard(tmp_path, task.id)["scorecard"]
+
+    assert scorecard["verification_passed"] is False
+
+
+@pytest.mark.parametrize("verification_payload", [{"status": "skipped"}, {"passed": "false"}])
+def test_scorecard_reports_unknown_for_malformed_verification_evidence(
+    tmp_path: Path,
+    verification_payload: dict[str, object],
+) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up docs")
+    task_path = tmp_path / ".devflow/tasks" / task.id
+    save_task(task_path, task)
+    (task_path / "verification.json").write_text(json.dumps(verification_payload) + "\n", encoding="utf-8")
+
+    scorecard = generate_scorecard(tmp_path, task.id)["scorecard"]
+
+    assert scorecard["verification_passed"] == "unknown"
+
+
+def test_scorecard_reports_unknown_for_non_bool_promotion_ready(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Clean up docs")
+    task_path = tmp_path / ".devflow/tasks" / task.id
+    save_task(task_path, task)
+    (task_path / "merge-readiness.json").write_text(json.dumps({"ready": "false"}) + "\n", encoding="utf-8")
+
+    scorecard = generate_scorecard(tmp_path, task.id)["scorecard"]
+
+    assert scorecard["promotion_ready"] == "unknown"
+
+
 def test_scorecard_cli_json_is_stable_without_experimental_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)

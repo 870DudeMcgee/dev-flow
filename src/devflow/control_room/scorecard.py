@@ -46,7 +46,7 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
         selected = {}
     planner_agent_id = selected.get("planner", "deterministic-shell")
     worker_agent_id = selected.get("worker", "deterministic-shell")
-    verification_passed = _json_bool_from_task_artifact(root, task_id, "verification.json", "passed")
+    verification_passed = _verification_passed_from_task_artifact(root, task_id)
     promotion_ready = _promotion_ready_from_task_artifact(root, task_id)
 
     # Read events from events.jsonl
@@ -225,15 +225,20 @@ def _read_routing_decision(path: Path) -> dict[str, Any] | None:
     return {"routing_decision": routing_decision}
 
 
-def _json_bool_from_task_artifact(root: Path, task_id: str, filename: str, key: str) -> bool | str:
-    path = task_dir(root, task_id) / filename
+def _verification_passed_from_task_artifact(root: Path, task_id: str) -> bool | str:
+    path = task_dir(root, task_id) / "verification.json"
     payload = _read_json_object(path)
     if payload is None:
         return "unknown"
-    if key not in payload:
-        return "unknown"
-    value = payload[key]
-    return value if isinstance(value, bool) else bool(value)
+    if "passed" in payload:
+        value = payload["passed"]
+        return value if isinstance(value, bool) else "unknown"
+    status = payload.get("status")
+    if status == "passed":
+        return True
+    if status == "failed":
+        return False
+    return "unknown"
 
 
 def _promotion_ready_from_task_artifact(root: Path, task_id: str) -> bool | str:
@@ -244,7 +249,7 @@ def _promotion_ready_from_task_artifact(root: Path, task_id: str) -> bool | str:
     if "ready" not in payload:
         return "unknown"
     value = payload["ready"]
-    return value if isinstance(value, bool) else bool(value)
+    return value if isinstance(value, bool) else "unknown"
 
 
 def _read_json_object(path: Path) -> dict[str, Any] | None:
