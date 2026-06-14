@@ -1644,35 +1644,35 @@ def task_pack_command(task_id: str, role: str) -> None:
     typer.echo(f"Wrote context-pack-{role}.yaml under .devflow/tasks/{task_id}/")
 
 
-@task_app.command(
-    "scout",
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
-)
-def task_scout_command(task_id: str, role: str) -> None:
-    """[EXPERIMENTAL-READONLY] Run local scout roles to gather routing evidence and analyze risks."""
-    _enforce_experimental("task scout")
+@task_app.command("scout")
+def task_scout_command(
+    task_id: str,
+    role: str = typer.Option("all", "--role", help="Scout role to run, or 'all'."),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON output."),
+) -> None:
+    """Run local scout roles to gather routing evidence and analyze risks."""
     root = Path.cwd()
-    roles_to_run = []
-    if role == "all":
-        roles_to_run = ["repo_scope", "risk", "context", "test", "stale_context"]
-    else:
-        roles_to_run = [role]
 
     try:
-        from devflow.control_room.scout import run_scout_report, save_scout_report
-        reports = {}
-        for r in roles_to_run:
-            data = run_scout_report(root, task_id, r)
-            save_scout_report(root, task_id, r, data)
-            reports[r] = data["scout_report"]
+        from devflow.control_room.scout import run_scout_reports, save_scout_report
+
+        reports = run_scout_reports(root, task_id, role=role)
+        artifact_paths = {
+            scout_role: _relative(root, save_scout_report(root, task_id, scout_role, data))
+            for scout_role, data in reports.items()
+        }
     except Exception as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
+    if json_output:
+        typer.echo(json.dumps({"task_id": task_id, "reports": reports, "artifact_paths": artifact_paths}, sort_keys=True))
+        return
+
     # Render beautiful breakdown
     typer.echo(f"Executed scout evaluation for task: {task_id}")
-    for r in roles_to_run:
-        sr = reports[r]
+    for scout_role, data in reports.items():
+        sr = data["scout_report"]
         typer.echo("-" * 50)
         typer.echo(f"Scout Role:                  {sr['role'].upper()}")
         for key in sorted(sr.keys()):
@@ -1686,7 +1686,7 @@ def task_scout_command(task_id: str, role: str) -> None:
             else:
                 typer.echo(f"  {key}: {val}")
 
-        typer.echo(f"Wrote scout-{r}.yaml under .devflow/tasks/{task_id}/")
+        typer.echo(f"Wrote {artifact_paths[scout_role]}")
     typer.echo("-" * 50)
 
 

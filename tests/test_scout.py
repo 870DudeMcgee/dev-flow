@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
-from devflow.control_room.persistence import save_task, get_task
-from devflow.control_room.service import create_task
-from devflow.control_room.scout import run_scout_report, save_scout_report
 from devflow.cli import app
+from devflow.control_room.persistence import save_task
+from devflow.control_room.scout import run_scout_report, run_scout_reports, save_scout_report
+from devflow.control_room.service import create_task
 
 
 def test_scout_report_heuristics_and_saving(tmp_path: Path) -> None:
@@ -61,31 +62,45 @@ def test_scout_report_heuristics_and_saving(tmp_path: Path) -> None:
     assert "task schema migration risk" in yaml_content
 
 
-def test_scout_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # 1. Initialize structures
+def test_run_scout_reports_returns_all_roles_without_provider_calls(tmp_path: Path) -> None:
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Route implementation worker safely")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
 
-    # 2. Create task
-    task = create_task(tmp_path, "Clean up documentation in PRODUCT_NORTH_STAR.md")
-    task_dir_path = tmp_path / ".devflow/tasks" / task.id
-    save_task(task_dir_path, task)
+    reports = run_scout_reports(tmp_path, task.id, role="all")
 
-    # Monkeypatch Cwd to point to our tmp_path
+    assert sorted(reports) == ["context", "repo_scope", "risk", "stale_context", "test"]
+    assert reports["risk"]["scout_report"]["role"] == "risk_scout"
+    assert reports["stale_context"]["scout_report"]["poison_context_risk"] in {"low", "high"}
+
+
+def test_save_scout_report_returns_artifact_path(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Find likely tests")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
+    report = run_scout_report(tmp_path, task.id, "test")
+    path = save_scout_report(tmp_path, task.id, "test", report)
+
+    assert path == tmp_path / ".devflow/tasks" / task.id / "scout-test.yaml"
+    assert "scout_report:" in path.read_text(encoding="utf-8")
+
+
+def test_scout_cli_json_is_stable_without_experimental_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Assess routing risks")
+    save_task(tmp_path / ".devflow/tasks" / task.id, task)
+
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DEVFLOW_EXPERIMENTAL", raising=False)
 
-    runner = CliRunner()
-    result = runner.invoke(app, ["task", "scout", task.id, "all"])
+    result = CliRunner().invoke(app, ["task", "scout", task.id, "--role", "risk", "--json"])
 
     assert result.exit_code == 0
-    assert "Executed scout evaluation for task" in result.output
-    assert "Scout Role:                  REPO_SCOPE_SCOUT" in result.output
-    assert "Scout Role:                  RISK_SCOUT" in result.output
-    assert "Scout Role:                  STALE_CONTEXT_SCOUT" in result.output
-
-    # Check files exist
-    assert (task_dir_path / "scout-repo_scope.yaml").exists()
-    assert (task_dir_path / "scout-risk.yaml").exists()
-    assert (task_dir_path / "scout-context.yaml").exists()
-    assert (task_dir_path / "scout-test.yaml").exists()
-    assert (task_dir_path / "scout-stale_context.yaml").exists()
+    payload = json.loads(result.output)
+    assert payload["task_id"] == task.id
+    assert payload["reports"]["risk"]["scout_report"]["role"] == "risk_scout"
+    assert payload["artifact_paths"]["risk"] == f".devflow/tasks/{task.id}/scout-risk.yaml"

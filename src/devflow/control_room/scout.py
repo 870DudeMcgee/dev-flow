@@ -10,6 +10,9 @@ from devflow.control_room.paths import task_dir
 from devflow.control_room.estimator import estimate_task_fit
 
 
+SCOUT_ROLES = ("repo_scope", "risk", "context", "test", "stale_context")
+
+
 class RepoScout:
     """Consolidated repository and task workspace scanning engine."""
 
@@ -160,9 +163,8 @@ class RepoScout:
 
 def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
     """Deterministic scout reports generation engine."""
-    allowed_roles = ("repo_scope", "risk", "context", "test", "stale_context")
-    if role not in allowed_roles:
-        raise ValueError(f"Invalid scout role: '{role}'. Must be one of: {', '.join(allowed_roles)}")
+    if role not in SCOUT_ROLES:
+        raise ValueError(f"Invalid scout role: '{role}'. Must be one of: {', '.join(SCOUT_ROLES)}")
 
     scout = RepoScout(root)
     # Load task details and estimate basic heuristics
@@ -310,7 +312,19 @@ def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
     }
 
 
-def save_scout_report(root: Path, task_id: str, role: str, report_data: dict[str, Any]) -> None:
+def run_scout_reports(root: Path, task_id: str, role: str = "all") -> dict[str, dict[str, Any]]:
+    """Run one or all deterministic scout roles for a task."""
+    if role == "all":
+        roles = SCOUT_ROLES
+    elif role in SCOUT_ROLES:
+        roles = (role,)
+    else:
+        raise ValueError(f"Invalid scout role: '{role}'. Must be one of: all, {', '.join(SCOUT_ROLES)}")
+
+    return {scout_role: run_scout_report(root, task_id, scout_role) for scout_role in roles}
+
+
+def save_scout_report(root: Path, task_id: str, role: str, report_data: dict[str, Any]) -> Path:
     """Save the scout report data to scout-<role>.yaml inside the task directory."""
     task_directory = task_dir(root, task_id)
     task_directory.mkdir(parents=True, exist_ok=True)
@@ -342,3 +356,4 @@ def save_scout_report(root: Path, task_id: str, role: str, report_data: dict[str
             lines.append(f"  {key}: {val}")
 
     yaml_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return yaml_file
