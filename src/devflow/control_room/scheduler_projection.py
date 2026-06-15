@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.models import TaskRecord
+from devflow.control_room.operator_readiness import (
+    OperatorReadinessSnapshot,
+    OperatorTaskProjection,
+    build_operator_readiness_snapshot,
+)
 from devflow.control_room.paths import relative_path, task_dir
 from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
 from devflow.control_room.question_resume import QuestionRecord, build_question_snapshot
@@ -85,6 +90,7 @@ class SchedulerSnapshot(BaseModel):
     retry_candidates: list[str] = Field(default_factory=list)
     next_safe_action: str
     evidence_paths: list[str] = Field(default_factory=list)
+    operator_readiness: OperatorReadinessSnapshot | None = None
 
 
 STATE_ORDER: list[SchedulerTaskState] = [
@@ -107,10 +113,15 @@ def build_scheduler_snapshot(root: Path) -> SchedulerSnapshot:
     root = root.resolve()
     freshness = _try_freshness(root)
     question_snapshot = build_question_snapshot(root)
+    operator_readiness = build_operator_readiness_snapshot(root)
+    operator_tasks = {task.task_id: task for task in operator_readiness.tasks}
     questions_by_task: dict[str, list[QuestionRecord]] = {}
     for question in question_snapshot.questions:
         questions_by_task.setdefault(question.task_id, []).append(question)
-    tasks = [_scheduler_task(root, task, questions_by_task.get(task.id, [])) for task in list_tasks(root)]
+    tasks = [
+        _scheduler_task(root, task, questions_by_task.get(task.id, []), operator_tasks.get(task.id))
+        for task in list_tasks(root)
+    ]
     batches = _scheduler_batches(freshness)
     blocked_dependencies = _blocked_dependencies(freshness)
 
@@ -139,8 +150,9 @@ def build_scheduler_snapshot(root: Path) -> SchedulerSnapshot:
         blocked_dependencies=blocked_dependencies,
         stale_tasks=stale_tasks,
         retry_candidates=retry_candidates,
-        next_safe_action=_next_safe_action(batches, sorted_tasks, blocked_dependencies),
+        next_safe_action=_next_safe_action(operator_readiness, batches, sorted_tasks, blocked_dependencies),
         evidence_paths=evidence_paths,
+        operator_readiness=operator_readiness,
     )
 
 
@@ -193,7 +205,12 @@ def _try_freshness(root: Path) -> FreshnessReport | None:
         return None
 
 
-def _scheduler_task(root: Path, task: TaskRecord, questions: list[QuestionRecord]) -> SchedulerTask:
+def _scheduler_task(
+    root: Path,
+    task: TaskRecord,
+    questions: list[QuestionRecord],
+    operator_task: OperatorTaskProjection | None = None,
+) -> SchedulerTask:
     current_task_dir = task_dir(root, task.id)
     stale, stale_reason, stale_evidence = _is_stale(root, task, current_task_dir)
     blockers, blocker_evidence, question_next_action, has_answered_question = _question_blockers(questions)
@@ -208,8 +225,14 @@ def _scheduler_task(root: Path, task: TaskRecord, questions: list[QuestionRecord
     if retry_request.exists():
         evidence_paths.append(relative_path(root, retry_request))
 
+    operator_blocked = operator_task is not None and operator_task.readiness.state == "blocked"
+    if operator_blocked:
+        blockers.extend(blocker.message for blocker in operator_task.readiness.blocked_by)
+
     if task.status in CLOSED_STATUSES:
         state: SchedulerTaskState = "closed"
+    elif operator_blocked:
+        state = "blocked"
     elif stale:
         state: SchedulerTaskState = "stale"
     elif blockers or (task.status == "blocked" and not has_answered_question):
@@ -372,10 +395,16 @@ def _snapshot_status(counts: dict[str, int]) -> Literal["ready", "blocked", "sta
 
 
 def _next_safe_action(
+    operator_readiness: OperatorReadinessSnapshot,
     batches: list[SchedulerBatch],
     tasks: list[SchedulerTask],
     blocked_dependencies: list[SchedulerDependencyBlocker],
 ) -> str:
+    if (
+        operator_readiness.next_safe_action.kind in {"repair_goal_lifecycle", "inspect_stale_directive"}
+        and operator_readiness.next_safe_action.command
+    ):
+        return operator_readiness.next_safe_action.command
     if batches:
         return batches[0].next_safe_action
     for state in ("stale", "needs_retry", "blocked", "ready_to_promote", "ready_to_verify"):

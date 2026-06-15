@@ -660,8 +660,11 @@ def render_supervisor_command_classification(command: str, *, json_output: bool)
 
 
 def build_control_room_status(root: Path) -> dict[str, Any]:
+    from devflow.control_room.operator_readiness import build_operator_readiness_snapshot
+
     projections = list_task_status_projections(root)
     scheduler = build_scheduler_snapshot(root)
+    operator_readiness = build_operator_readiness_snapshot(root)
     questions = build_question_snapshot(root)
     task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
     active_tasks = [record for record in task_records if record["active"]]
@@ -699,6 +702,7 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
             "next_safe_action": scheduler.next_safe_action,
             "max_parallel_recommendation": scheduler.max_parallel_recommendation,
         },
+        "operator_readiness": operator_readiness.model_dump(mode="json"),
         "questions": {
             "counts": questions.counts,
             "next_safe_action": questions.next_safe_action,
@@ -716,6 +720,7 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
     status = build_control_room_status(root)
     policy = build_supervisor_policy()
     scheduler = build_scheduler_snapshot(root)
+    operator_readiness = status["operator_readiness"]
     questions = build_question_snapshot(root)
     tasks = [
         _compact_task_record(root, projection.task, projection, include_evidence_paths=True)
@@ -783,6 +788,7 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
             "next_safe_action": scheduler.next_safe_action,
             "max_parallel_recommendation": scheduler.max_parallel_recommendation,
         },
+        "operator_readiness": operator_readiness,
         "questions": {
             "counts": questions.counts,
             "next_safe_action": questions.next_safe_action,

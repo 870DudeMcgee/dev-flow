@@ -48,7 +48,7 @@ from devflow.control_room.service import (
     verify_task,
 )
 from devflow.control_room.scheduler_projection import build_scheduler_snapshot, request_scheduler_retry
-from devflow.control_room.supervisor_surface import build_control_room_status
+from devflow.control_room.supervisor_surface import build_control_room_status, build_supervisor_packet
 from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
 from devflow.control_room.worker_evidence import write_worker_evidence
@@ -61,10 +61,10 @@ SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
     "A_safety_git_discipline": 22,
-    "B_pipeline_correctness": 26,
+    "B_pipeline_correctness": 28,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 23,
-    "E_recovery_failure_handling": 27,
+    "D_worker_artifact_quality": 25,
+    "E_recovery_failure_handling": 30,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
     "H_operating_layer_visual_qa": 10,
@@ -512,6 +512,39 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "B_pipeline_correctness": 2,
                 "D_worker_artifact_quality": 2,
                 "E_recovery_failure_handling": 4,
+            },
+        ),
+        _case_definition(
+            case_id="operator-readiness-reconciliation",
+            title="Operator readiness reconciliation",
+            category="E_recovery_failure_handling",
+            task_type="operator_readiness_projection",
+            risk_level="medium",
+            purpose="Prove operator-facing status, scheduler, supervisor, and operating-layer projections agree on lifecycle blockers and plain task labels.",
+            expected_behavior=[
+                "build deterministic generated-name and descriptive-name task fixtures",
+                "mark a goal lifecycle as missing without mutating it from the projection",
+                "preserve stale freshness dispatch evidence as a warning",
+                "make scheduler, status, supervisor packet, and operating-layer snapshot agree on operator readiness counts",
+                "prefer lifecycle repair over worker dispatch or stale task-creation guidance",
+            ],
+            command_sequence=[
+                "write deterministic operator-readiness fixture",
+                "devflow status --json",
+                "devflow scheduler status --json",
+                "devflow supervisor packet --json",
+                "devflow operating-layer snapshot --json",
+            ],
+            success_criteria=[
+                "major surfaces agree on worker-ready and lifecycle-blocked counts",
+                "next safe action points to lifecycle repair",
+                "generated task ids remain secondary to the descriptive slice title",
+                "stale freshness guidance is retained as a warning, not an executable directive",
+            ],
+            scoring={
+                "B_pipeline_correctness": 2,
+                "D_worker_artifact_quality": 2,
+                "E_recovery_failure_handling": 3,
             },
         ),
         _case_definition(
@@ -1866,6 +1899,213 @@ def _case_question_blocker_resume_loop(
     return _finalize_case(root, case, state, scores, failures)
 
 
+def _case_operator_readiness_reconciliation(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "operator-readiness-repo"
+    _init_git_native_dogfood_repo(scratch)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+
+    project_dir = scratch / ".devflow" / "project"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(
+        project_dir / "project.yaml",
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "id": "operator-console",
+                "project_id": "operator-console",
+                "name": "Operator Console",
+                "root_path": scratch.as_posix(),
+            },
+            sort_keys=False,
+        ),
+    )
+    goal_path = scratch / ".devflow" / "goals" / "G-0004"
+    goal_path.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(goal_path / "goal.yaml", "id: G-0004\ntitle: Operator readiness dogfood\nstate: active\n")
+    atomic_write_text(
+        goal_path / "task-slices.yaml",
+        yaml.safe_dump(
+            {
+                "task_slices": [
+                    {
+                        "task_id": "TS-0002",
+                        "title": "Reconcile operating-layer state",
+                        "summary": "Align counts, lifecycle blockers, warnings, and next actions.",
+                        "parallel_safe": True,
+                        "shared_files": ["src/devflow/control_room/operator_readiness.py"],
+                        "risk": "low",
+                        "execution_mode": "AFK",
+                    }
+                ]
+            },
+            sort_keys=False,
+        ),
+    )
+    atomic_write_text(goal_path / "linked-tasks.yaml", "linked_tasks: {}\n")
+
+    generated = create_task(scratch, "G-0004 • Slice 2")
+    descriptive = create_task(scratch, "Implement lifecycle readiness gate")
+    atomic_write_text(
+        scratch / ".devflow" / "tasks" / generated.id / "goal-link.yaml",
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "goal_id": "G-0004",
+                "goal_path": ".devflow/goals/G-0004",
+                "slice_id": "TS-0002",
+                "slice_source_path": ".devflow/goals/G-0004/task-slices.yaml",
+                "created_from_goal_slice": True,
+            },
+            sort_keys=False,
+        ),
+    )
+    agent_dir = scratch / ".devflow" / "tasks" / generated.id / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    with (agent_dir / "questions.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "type": "blocked_question",
+                    "task_id": generated.id,
+                    "agent_id": "devflow-manual-codex-worker",
+                    "question": "Should lifecycle repair happen before dispatch?",
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+    freshness_dir = scratch / ".devflow" / "freshness"
+    freshness_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(
+        freshness_dir / "latest.json",
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "ok",
+                "goal_loop": [
+                    {
+                        "goal_id": "G-0004",
+                        "title": "Operator readiness dogfood",
+                        "goal_state": "active",
+                        "loop_state": "ready_for_parallel_task_creation",
+                        "next_action": "Parallel batch PB-0001: devflow freshness create-batch G-0004 PB-0001",
+                        "parallel_batches": [
+                            {
+                                "batch_id": "PB-0001",
+                                "lane_ids": ["TS-0002"],
+                                "commands": ["devflow goal create-task G-0004 TS-0002"],
+                                "shared_files": ["src/devflow/control_room/operator_readiness.py"],
+                                "reason": "stale recommendation captured before lifecycle state disappeared",
+                            }
+                        ],
+                    }
+                ],
+                "next_action": "Continue.",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+
+    status = build_control_room_status(scratch)
+    scheduler = build_scheduler_snapshot(scratch).model_dump(mode="json")
+    supervisor = build_supervisor_packet(scratch)
+    operating = build_operating_layer_snapshot(scratch).model_dump(mode="json")
+    surfaces = {
+        "status": status["operator_readiness"],
+        "scheduler": scheduler["operator_readiness"],
+        "supervisor": supervisor["operator_readiness"],
+        "operating_layer": operating["operator_readiness"],
+    }
+    summary = {
+        "generated_task_id": generated.id,
+        "descriptive_task_id": descriptive.id,
+        "surface_counts": {name: payload["counts"] for name, payload in surfaces.items()},
+        "surface_next_actions": {name: payload["next_safe_action"] for name, payload in surfaces.items()},
+        "scheduler_next_safe_action": scheduler["next_safe_action"],
+        "status_scheduler_next_safe_action": status["scheduler"]["next_safe_action"],
+        "operating_layer_next_action": operating["next_action"],
+        "status_tasks": surfaces["status"]["tasks"],
+        "warnings": surfaces["status"]["warnings"],
+    }
+    summary_path = case_dir / "artifacts" / "operator-readiness-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_command(state, "devflow status --json (fixture)", status="passed", output=relative_path(root, summary_path))
+    _record_command(state, "devflow scheduler status --json (fixture)", status="passed")
+    _record_command(state, "devflow supervisor packet --json (fixture)", status="passed")
+    _record_command(state, "devflow operating-layer snapshot --json (fixture)", status="passed")
+
+    surface_counts_agree = len({json.dumps(payload["counts"], sort_keys=True) for payload in surfaces.values()}) == 1
+    lifecycle_counts = all(
+        payload["counts"].get("worker_ready") == 1 and payload["counts"].get("lifecycle_blocked") == 1
+        for payload in surfaces.values()
+    )
+    repair_priority = all(
+        payload["next_safe_action"]["kind"] == "repair_goal_lifecycle"
+        and str(payload["next_safe_action"]["command"]).startswith("devflow goal activate G-0004")
+        for payload in surfaces.values()
+    )
+    repair_priority = (
+        repair_priority
+        and str(status["scheduler"]["next_safe_action"]).startswith("devflow goal activate G-0004")
+        and str(scheduler["next_safe_action"]).startswith("devflow goal activate G-0004")
+        and str(operating["next_action"]["command"]).startswith("devflow goal activate G-0004")
+    )
+    generated_projection = next(item for item in surfaces["status"]["tasks"] if item["task_id"] == generated.id)
+    plain_label = (
+        generated_projection["display"]["primary"] == "Reconcile operating-layer state"
+        and generated_projection["display"]["raw_title"] == "G-0004 • Slice 2"
+        and generated_projection["display"]["ids"]["goal_id"] == "G-0004"
+    )
+    stale_warning = any(
+        warning.get("code") == "stale_freshness_directive"
+        and warning.get("blocked_by") == "goal_lifecycle_missing"
+        for warning in surfaces["status"]["warnings"]
+    )
+    commands_clean = _commands_have_no_provider_calls(state["commands_run"])
+
+    close_task(scratch, generated.id, outcome="evidence-only", reason="dogfood operator readiness evidence captured")
+    close_task(scratch, descriptive.id, outcome="evidence-only", reason="dogfood operator readiness evidence captured")
+
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        surface_counts_agree and lifecycle_counts,
+        "operator surfaces agreed on readiness counts",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        3,
+        repair_priority and stale_warning,
+        "lifecycle repair outranked stale dispatch guidance",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        2,
+        plain_label and commands_clean,
+        "plain descriptive task labels remained primary",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
 def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
@@ -2008,6 +2248,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "central-schema-refactor-risk": _case_central_schema_risk,
     "simple-scheduler-parallel-coordination": _case_simple_scheduler_parallel_coordination,
     "question-blocker-resume-loop": _case_question_blocker_resume_loop,
+    "operator-readiness-reconciliation": _case_operator_readiness_reconciliation,
     "operating-layer-visual-qa-hardening": _case_operating_layer_visual_qa,
 }
 

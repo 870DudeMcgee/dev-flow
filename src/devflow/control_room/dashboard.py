@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 from pydantic import BaseModel
 
+from devflow.control_room.operator_readiness import OperatorReadinessSnapshot, build_operator_readiness_snapshot
 from devflow.control_room.status_projection import (
     ProjectedNextAction,
     TaskStatusProjection,
@@ -75,6 +76,7 @@ class DashboardState(BaseModel):
     next_action: DashboardNextAction
     tasks: list[TaskStatusProjection] = []
     goals: DashboardGoals | None = None
+    operator_readiness: OperatorReadinessSnapshot | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -330,6 +332,7 @@ def _collect_recent_activity(projections: list[TaskStatusProjection]) -> list[di
 def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
     root = (repo_root or Path.cwd()).resolve()
     projections = list_task_status_projections(root)
+    operator_readiness = build_operator_readiness_snapshot(root)
     
     branch = _git_branch(root)
     working_tree = _git_working_tree(root)
@@ -450,10 +453,20 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
         recent_activity=recent_activity,
         next_action=dummy_next,
         tasks=projections,
-        goals=goals_state
+        goals=goals_state,
+        operator_readiness=operator_readiness,
     )
     
     state.next_action = choose_dashboard_next_action_v2(state, goal_projections)
+    if (
+        operator_readiness.next_safe_action.kind in {"repair_goal_lifecycle", "inspect_stale_directive"}
+        and operator_readiness.next_safe_action.command
+    ):
+        state.next_action = DashboardNextAction(
+            label="Operator readiness",
+            command=operator_readiness.next_safe_action.command,
+            reason=operator_readiness.next_safe_action.reason,
+        )
     return state
 
 
@@ -608,6 +621,15 @@ def render_dashboard(repo_root: Path | None = None) -> str:
     lines.append(f"  Ready to promote: {state.health.ready_to_promote}")
     lines.append(f"  Promoted: {state.health.promoted_tasks}")
     lines.append("")
+
+    if state.operator_readiness:
+        operator_counts = state.operator_readiness.counts
+        lines.append("Operator Readiness")
+        lines.append(f"  Worker ready: {operator_counts.get('worker_ready', 0)}")
+        lines.append(f"  Lifecycle blocked: {operator_counts.get('lifecycle_blocked', 0)}")
+        lines.append(f"  Warnings: {operator_counts.get('warnings', 0)}")
+        lines.append(f"  Next: {state.operator_readiness.next_safe_action.command or 'None'}")
+        lines.append("")
     
     lines.append("Current Focus")
     goal_str = state.goals.focus_goal.goal_id if (state.goals and state.goals.focus_goal) else "None"

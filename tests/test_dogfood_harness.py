@@ -41,12 +41,13 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 15
+    assert len(cases) == 16
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "git-native-worker-lane-hardening",
         "local-worker-lane-hardening",
+        "operator-readiness-reconciliation",
         "simple-scheduler-parallel-coordination",
         "question-blocker-resume-loop",
         "knowledge-capture-from-validation-failure",
@@ -75,7 +76,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 15
+    assert len(result["run"]["cases_run"]) == 16
     spawned_tasks = list_tasks(tmp_path)
     assert spawned_tasks
     assert all(task.status == "closed" for task in spawned_tasks)
@@ -228,6 +229,19 @@ def test_question_blocker_resume_loop_dogfood_case(tmp_path: Path) -> None:
     assert any("question list exposed deterministic open blocker" in lesson for lesson in case_result["lessons"])
     assert any("answer preserved source question evidence" in lesson for lesson in case_result["lessons"])
     assert any("no worker resume or provider call was executed by question commands" in lesson for lesson in case_result["lessons"])
+
+
+def test_operator_readiness_reconciliation_dogfood_case(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["operator-readiness-reconciliation"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("operator surfaces agreed on readiness counts" in lesson for lesson in case_result["lessons"])
+    assert any("lifecycle repair outranked stale dispatch guidance" in lesson for lesson in case_result["lessons"])
+    assert any("plain descriptive task labels remained primary" in lesson for lesson in case_result["lessons"])
 
 
 def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:

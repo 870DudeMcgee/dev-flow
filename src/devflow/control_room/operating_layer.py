@@ -19,6 +19,7 @@ from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.log_sanitizer import sanitize_log_line
+from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.question_resume import QuestionSnapshot, build_question_snapshot
@@ -417,6 +418,7 @@ class OperatingLayerSnapshot(BaseModel):
     mission_feed: list[OperatingLayerMissionFeedItem] = Field(default_factory=list)
     review_loop: OperatingLayerReviewLoop
     scheduler: OperatingLayerScheduler | None = None
+    operator_readiness: OperatorReadinessSnapshot | None = None
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -499,6 +501,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
             next_action=dashboard_next_action,
         ),
         scheduler=_scheduler_card(scheduler),
+        operator_readiness=dashboard.operator_readiness,
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )
