@@ -525,6 +525,27 @@ def test_git_native_promotion_ready_task_is_reported_without_mutating_refs(tmp_p
     assert ".devflow/tasks/task-0001/workers/shell/promotion-preview.json" in packet["evidence_paths"]
 
 
+def test_local_worker_lane_summary_reaches_supervisor_surfaces(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = create_task(tmp_path, "local worker lane")
+    _write_qwopus_patch(tmp_path, task.id)
+
+    status = _read_json(_invoke_read_only(tmp_path, ["status", "--json"]))
+    task_record = status["tasks"][0]
+    assert task_record["local_worker_lane"]["lane_type"] == "local-patch-worker"
+    assert task_record["local_worker_lane"]["worker_id"] == "qwopus-implementer"
+    assert task_record["local_worker_lane"]["readiness_status"] == "needs_review"
+    assert (
+        task_record["local_worker_lane"]["next_safe_action"]
+        == "devflow task review-patch task-0001 --agent qwopus-implementer"
+    )
+
+    packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
+    packet_task = packet["tasks"][0]
+    assert packet_task["local_worker_lane"]["lane_type"] == "local-patch-worker"
+    assert ".devflow/tasks/task-0001/agents/qwopus-implementer/run.json" in packet_task["evidence_paths"]
+
+
 def test_supervisor_safe_json_commands_parse_and_do_not_mutate(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     create_task(tmp_path, "operator json")

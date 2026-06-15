@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from devflow.control_room.git_worktree import git_worker_lane_summary, is_git_worktree_task, worker_id_for_task
+from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
 from devflow.control_room.persistence import get_task, list_tasks
@@ -57,6 +58,10 @@ class ReviewReadinessProjection(BaseModel):
     worktree_path: str | None = None
     lane_readiness: str | None = None
     lane_next_action: str | None = None
+    local_worker_lane: str | None = None
+    local_worker: str | None = None
+    local_worker_readiness: str | None = None
+    local_worker_next_action: str | None = None
 
 
 class ReviewReadinessSummary(BaseModel):
@@ -84,6 +89,9 @@ def build_review_readiness_projection(
     lane = git_worker_lane_summary(root, record)
     if lane:
         evidence = _dedupe(evidence + list(lane.get("evidence_paths") or []))
+    local_lane = local_worker_lane_summary(root, record)
+    if local_lane:
+        evidence = _dedupe(evidence + list(local_lane.get("evidence_paths") or []))
     state, score, blockers, next_command = _classify_review_readiness(
         projection,
         preview,
@@ -107,6 +115,10 @@ def build_review_readiness_projection(
         worktree_path=lane.get("worktree_path") if lane else None,
         lane_readiness=lane.get("readiness_status") if lane else None,
         lane_next_action=lane.get("next_safe_action") if lane else None,
+        local_worker_lane=local_lane.get("lane_type") if local_lane else None,
+        local_worker=local_lane.get("worker_id") if local_lane else None,
+        local_worker_readiness=local_lane.get("readiness_status") if local_lane else None,
+        local_worker_next_action=local_lane.get("next_safe_action") if local_lane else None,
     )
 
 
@@ -159,6 +171,9 @@ def render_review_readiness(projection_or_summary: ReviewReadinessProjection | R
             if task.worker_lane:
                 lines.append(f"    worker_lane: {task.worker_lane}")
                 lines.append(f"    lane_readiness: {task.lane_readiness or 'unknown'}")
+            if task.local_worker_lane:
+                lines.append(f"    local_worker_lane: {task.local_worker_lane}")
+                lines.append(f"    local_worker_readiness: {task.local_worker_readiness or 'unknown'}")
             if task.blockers:
                 lines.append(f"    blockers: {'; '.join(task.blockers)}")
         return "\n".join(lines) + "\n"
@@ -181,6 +196,15 @@ def render_review_readiness(projection_or_summary: ReviewReadinessProjection | R
                 f"worktree_path: {projection_or_summary.worktree_path or ''}",
                 f"lane_readiness: {projection_or_summary.lane_readiness or 'unknown'}",
                 f"lane_next_action: {projection_or_summary.lane_next_action or ''}",
+            ]
+        )
+    if projection_or_summary.local_worker_lane:
+        lines.extend(
+            [
+                f"local_worker_lane: {projection_or_summary.local_worker_lane}",
+                f"local_worker: {projection_or_summary.local_worker or ''}",
+                f"local_worker_readiness: {projection_or_summary.local_worker_readiness or 'unknown'}",
+                f"local_worker_next_action: {projection_or_summary.local_worker_next_action or ''}",
             ]
         )
     lines.append("blockers:")

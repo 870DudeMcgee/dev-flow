@@ -2072,9 +2072,11 @@ function renderTaskReviewPanel(target) {
   const changedFiles = reviewByLabel["Changed files"] || "No file changes detected";
   const taskContents = reviewByLabel["Task contents"] || "No changed file preview available";
   const laneLabels = ["Worker lane", "Lane readiness"];
+  const localLaneLabels = ["Local worker", "Local worker readiness"];
   const metaItems = summaryItems.filter((item) => {
     if (["Task", "Changed files", "Task contents"].includes(item.label)) return false;
     if (task.worker_lane && laneLabels.includes(item.label)) return false;
+    if (task.local_worker_lane && localLaneLabels.includes(item.label)) return false;
     return true;
   });
   target.innerHTML = `
@@ -2099,6 +2101,7 @@ function renderTaskReviewPanel(target) {
           <pre>${escapeHtml(changedFiles)}</pre>
         </div>
         ${renderWorkerLaneBlock(task.worker_lane)}
+        ${renderLocalWorkerLaneBlock(task.local_worker_lane)}
       </div>
       ${promoteAction ? `
         <div class="review-approval-card">
@@ -2160,6 +2163,24 @@ function renderWorkerLaneBlock(lane) {
       </div>
       <p>${escapeHtml(detail)}</p>
     </div>
+  `;
+}
+
+function renderLocalWorkerLaneBlock(lane) {
+  if (!lane) return "";
+  const rows = [
+    ["Worker", lane.worker_id],
+    ["Type", lane.lane_type],
+    ["Status", lane.latest_status],
+    ["Readiness", lane.readiness_status],
+    ["Next", lane.next_safe_action],
+  ].filter(([, value]) => Boolean(value));
+  return `
+    <section class="local-worker-lane-block">
+      ${rows.map(([label, value]) => (
+        `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`
+      )).join("")}
+    </section>
   `;
 }
 

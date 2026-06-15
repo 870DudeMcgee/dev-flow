@@ -1644,7 +1644,8 @@ button:focus-visible {
   overflow: auto;
 }
 
-.worker-lane-block {
+.worker-lane-block,
+.local-worker-lane-block {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
@@ -1655,7 +1656,8 @@ button:focus-visible {
   padding: 10px;
 }
 
-.worker-lane-block span {
+.worker-lane-block span,
+.local-worker-lane-block span {
   display: block;
   color: var(--muted);
   font-size: 11px;
@@ -1663,7 +1665,8 @@ button:focus-visible {
   text-transform: uppercase;
 }
 
-.worker-lane-block strong {
+.worker-lane-block strong,
+.local-worker-lane-block strong {
   display: block;
   margin-top: 4px;
   color: var(--text);
@@ -1687,6 +1690,10 @@ button:focus-visible {
   font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.local-worker-lane-block div:last-child {
+  grid-column: 1 / -1;
 }
 
 .task-review-preview {
@@ -3756,7 +3763,8 @@ body[data-page="goals"] .goal-board-list {
   color: rgba(248, 249, 255, 0.9);
 }
 
-.worker-lane-block {
+.worker-lane-block,
+.local-worker-lane-block {
   border-color: rgba(102, 240, 209, 0.2);
   background:
     linear-gradient(135deg, rgba(102, 240, 209, 0.08), rgba(143, 216, 255, 0.04)),
@@ -3764,11 +3772,13 @@ body[data-page="goals"] .goal-board-list {
 }
 
 .worker-lane-block span,
-.worker-lane-block p {
+.worker-lane-block p,
+.local-worker-lane-block span {
   color: rgba(213, 219, 244, 0.68);
 }
 
-.worker-lane-block strong {
+.worker-lane-block strong,
+.local-worker-lane-block strong {
   color: rgba(248, 249, 255, 0.94);
 }
 

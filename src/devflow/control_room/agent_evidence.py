@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.paths import relative_path, task_dir
 from devflow.control_room.persistence import get_task
 
@@ -52,6 +53,7 @@ class AgentEvidenceSummary:
     manual_result_present: bool = False
     manual_result_path: str | None = None
     shell_evidence: ShellEvidence | None = None
+    local_worker_lane: dict[str, Any] | None = None
     next_safe_action: str = "run a worker to produce evidence"
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,12 +68,14 @@ def summarize_agent_evidence(root: Path, task_id: str) -> AgentEvidenceSummary:
     manual_result_path = base / "agents" / MANUAL_AGENT_ID / "result.md"
     manual_result_present = manual_result_path.exists()
     shell_evidence = _shell_evidence(root, task.log_path, task.result_path, task.worker)
+    local_worker_lane = local_worker_lane_summary(root, task)
     has_worker_evidence = any(
         [
             local_model_runs,
             local_patch_agents,
             manual_result_present,
             shell_evidence is not None,
+            local_worker_lane is not None,
         ]
     )
     return AgentEvidenceSummary(
@@ -82,6 +86,7 @@ def summarize_agent_evidence(root: Path, task_id: str) -> AgentEvidenceSummary:
         manual_result_present=manual_result_present,
         manual_result_path=relative_path(root, manual_result_path) if manual_result_present else None,
         shell_evidence=shell_evidence,
+        local_worker_lane=_compact_local_worker_lane(local_worker_lane),
         next_safe_action=(
             "review worker evidence before verification or promotion"
             if has_worker_evidence
@@ -98,6 +103,18 @@ def compact_agent_evidence_summary(root: Path, task_id: str) -> dict[str, Any]:
         "local_patch_agent_count": len(summary.local_patch_agents),
         "manual_result_present": summary.manual_result_present,
         "next_safe_action": summary.next_safe_action,
+    }
+
+
+def _compact_local_worker_lane(lane: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not lane:
+        return None
+    return {
+        "lane_type": lane.get("lane_type"),
+        "worker_id": lane.get("worker_id"),
+        "readiness_status": lane.get("readiness_status"),
+        "next_safe_action": lane.get("next_safe_action"),
+        "evidence_paths": lane.get("evidence_paths") or [],
     }
 
 
