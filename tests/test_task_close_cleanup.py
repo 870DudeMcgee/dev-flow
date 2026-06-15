@@ -282,7 +282,8 @@ def test_prune_closed_preview_lists_old_closed_evidence_without_deleting() -> No
         assert prune.exit_code == 0, prune.output
         assert "mode: preview" in prune.output
         assert "would_prune: .devflow/tasks/task-0001" in prune.output
-        assert "audit: .devflow/prune-runs/" in prune.output
+        assert "audit:" not in prune.output
+        assert not Path(".devflow/prune-runs").exists()
         assert Path(".devflow/tasks/task-0001/task.yaml").exists()
 
     _with_temp_cwd(scenario)

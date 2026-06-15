@@ -222,6 +222,14 @@ def choose_focus_goal_projection(goal_projections: list[Any], task_projections: 
 
 
 def choose_dashboard_next_action_v2(state: DashboardState, goal_projections: list[Any]) -> DashboardNextAction:
+    if not state.tasks:
+        return DashboardNextAction(
+            label="Control room clean",
+            task_id=None,
+            command='devflow task create "<title>"',
+            reason="Control room is clean; create the next real task when ready.",
+        )
+
     task_action = choose_task_dashboard_action(state.tasks, max_priority=50)
     if task_action is not None:
         return _dashboard_action(task_action)
@@ -459,7 +467,8 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
     
     state.next_action = choose_dashboard_next_action_v2(state, goal_projections)
     if (
-        operator_readiness.next_safe_action.kind in {"repair_goal_lifecycle", "inspect_stale_directive"}
+        state.tasks
+        and operator_readiness.next_safe_action.kind in {"repair_goal_lifecycle", "inspect_stale_directive"}
         and operator_readiness.next_safe_action.command
     ):
         state.next_action = DashboardNextAction(
@@ -692,6 +701,7 @@ def render_dashboard(repo_root: Path | None = None) -> str:
     lines.append(f"{'Task':<10} {'Status':<20} {'Verify':<12} {'Worker':<8} Latest")
     lines.append("-" * 82)
     if not state.tasks:
+        lines.append("Control room is clean; create the next real task when ready.")
         lines.append("No tasks found.")
     for projection in state.tasks:
         task = projection.task

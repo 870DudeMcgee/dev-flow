@@ -23,11 +23,13 @@ def test_dashboard_shows_empty_state() -> None:
             assert "Dev-Flow Control Room" in res.output
             assert "Total: 0" in res.output
             assert "No tasks found" in res.output
+            assert "Control room is clean" in res.output
             
             # Check next action recommended command
             res_next = runner.invoke(app, ["next"])
             assert res_next.exit_code == 0, res_next.output
             assert "devflow task create" in res_next.output
+            assert "Control room is clean" in res_next.output
         finally:
             os.chdir(old_cwd)
 

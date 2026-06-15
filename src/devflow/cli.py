@@ -41,6 +41,7 @@ from devflow.control_room.task_closure import (
     read_closure,
 )
 from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
+from devflow.control_room.maintenance import reset_dogfood_state, repair_state
 from devflow.control_room.patch_applier import (
     PatchError,
     PatchSelectionError,
@@ -124,6 +125,7 @@ worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
 idea_app = typer.Typer(help="Capture and review raw ideas before they become goals or tasks")
 dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
+maintenance_app = typer.Typer(help="Repair or reset ignored Dev-Flow runtime state")
 release_app = typer.Typer(help="Inspect milestone release-readiness gates")
 supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
 hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
@@ -143,6 +145,7 @@ app.add_typer(worker_app, name="worker")
 app.add_typer(knowledge_app, name="knowledge")
 app.add_typer(idea_app, name="idea")
 app.add_typer(dogfood_app, name="dogfood")
+app.add_typer(maintenance_app, name="maintenance")
 app.add_typer(release_app, name="release")
 app.add_typer(supervisor_app, name="supervisor")
 app.add_typer(hermes_app, name="hermes")
@@ -815,6 +818,38 @@ def doctor_command(
         raise typer.Exit(code=1)
 
 
+@maintenance_app.command("reset-dogfood-state")
+def maintenance_reset_dogfood_state(
+    preview: bool = typer.Option(False, "--preview", help="Preview ignored runtime artifact removal."),
+    yes: bool = typer.Option(False, "--yes", help="Apply ignored runtime artifact removal."),
+) -> None:
+    """Reset disposable dogfood/task runtime artifacts while preserving tracked seed state."""
+    if preview == yes:
+        typer.echo("Choose exactly one of --preview or --yes.", err=True)
+        raise typer.Exit(code=1)
+    result = reset_dogfood_state(Path.cwd(), apply=yes)
+    typer.echo(f"mode: {'apply' if yes else 'preview'}")
+    _echo_maintenance_result(result)
+    if result.refused:
+        raise typer.Exit(code=1)
+
+
+@maintenance_app.command("repair-state")
+def maintenance_repair_state(
+    preview: bool = typer.Option(False, "--preview", help="Preview missing task baseline artifact repair."),
+    yes: bool = typer.Option(False, "--yes", help="Restore missing task baseline artifacts."),
+) -> None:
+    """Restore missing task baseline artifacts without overwriting existing evidence."""
+    if preview == yes:
+        typer.echo("Choose exactly one of --preview or --yes.", err=True)
+        raise typer.Exit(code=1)
+    result = repair_state(Path.cwd(), apply=yes)
+    typer.echo(f"mode: {'apply' if yes else 'preview'}")
+    _echo_maintenance_result(result)
+    if result.refused:
+        raise typer.Exit(code=1)
+
+
 @app.command("reconcile")
 def reconcile_command(
     json_output: bool = typer.Option(False, "--json", help="Print the report as JSON."),
@@ -1243,7 +1278,8 @@ def task_prune_closed(
         raise typer.Exit(code=1) from exc
     typer.echo(f"mode: {'apply' if apply else 'preview'}")
     typer.echo(f"older_than: {older_than}")
-    typer.echo(f"audit: {result['audit_path']}")
+    if result.get("audit_path"):
+        typer.echo(f"audit: {result['audit_path']}")
     _echo_task_prune_result(result)
 
 
@@ -3693,6 +3729,27 @@ def _echo_task_prune_result(result: dict[str, Any]) -> None:
         typer.echo(f"refused: {item['task_id']} {item['reason']}")
 
 
+def _echo_maintenance_result(result: Any) -> None:
+    for path in result.would_remove:
+        typer.echo(f"would_remove: {path}")
+    for path in result.removed:
+        typer.echo(f"removed: {path}")
+    for path in result.would_repair:
+        typer.echo(f"would_repair: {path}")
+    for path in result.repaired:
+        typer.echo(f"repaired: {path}")
+    for item in result.refused:
+        typer.echo(f"refused: {item}")
+    if not (
+        result.would_remove
+        or result.removed
+        or result.would_repair
+        or result.repaired
+        or result.refused
+    ):
+        typer.echo("nothing_to_do: yes")
+
+
 def _echo_list(label: str, values: list[str]) -> None:
     typer.echo(f"{label}:")
     if not values:
@@ -3802,6 +3859,11 @@ def dogfood_show(case_id: str) -> None:
 def dogfood_run(
     suite: str = typer.Option("production-readiness", "--suite"),
     case: list[str] | None = typer.Option(None, "--case", help="Run only the selected case id. Repeatable."),
+    write_root_runtime_evidence: bool = typer.Option(
+        False,
+        "--write-root-runtime-evidence",
+        help="Unsafe/noisy: write dogfood-created tasks and runtime evidence into this repo instead of a temp scratch project.",
+    ),
     fail_below_silver: bool = typer.Option(
         True,
         "--fail-below-silver/--no-fail-below-silver",
@@ -3812,7 +3874,12 @@ def dogfood_run(
     try:
         from devflow.control_room.dogfood import run_dogfood_suite
 
-        result = run_dogfood_suite(Path.cwd(), suite=suite, case_ids=case)
+        result = run_dogfood_suite(
+            Path.cwd(),
+            suite=suite,
+            case_ids=case,
+            write_root_runtime_evidence=write_root_runtime_evidence,
+        )
     except Exception as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

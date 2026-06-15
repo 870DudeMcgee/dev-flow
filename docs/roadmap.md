@@ -23,7 +23,7 @@ Current completed hardening slices: [docs/architecture/git-native-worker-isolati
 
 Current follow-on boundary: model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role and write Milestone 17 task-fit/context-routing evidence today, but autonomous best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 
-Current selected milestone: none. Milestone 24 is implemented and release-readiness closure has passed; choose Milestone 25 only after the closure evidence is reviewed.
+Current selected milestone: Milestone 25 Stop The Task/Data Sprawl. Pause new worker/runtime features until task/data reset, baseline repair, scratch-root dogfood, clean prune previews, and clean-dashboard readiness are verified.
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 

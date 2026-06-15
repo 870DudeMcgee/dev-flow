@@ -78,10 +78,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
     assert len(result["run"]["cases_run"]) == 17
-    spawned_tasks = list_tasks(tmp_path)
-    assert spawned_tasks
-    assert all(task.status == "closed" for task in spawned_tasks)
-    assert {task.close_outcome for task in spawned_tasks} == {"evidence-only"}
+    assert list_tasks(tmp_path) == []
 
     report = (run_dir / "report.md").read_text(encoding="utf-8")
     assert "threshold:" in report
@@ -89,10 +86,31 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert "auto_promotion: none" in report
 
 
+def test_dogfood_can_opt_into_root_runtime_evidence(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(
+        tmp_path,
+        suite="production-readiness",
+        case_ids=["tiny-deterministic-docs-task"],
+        write_root_runtime_evidence=True,
+    )
+
+    assert result["scorecard"]["threshold_result"]["silver_met"] is True
+    spawned_tasks = list_tasks(tmp_path)
+    assert spawned_tasks
+    assert all(task.status == "closed" for task in spawned_tasks)
+    assert {task.close_outcome for task in spawned_tasks} == {"evidence-only"}
+
+
 def test_unsafe_worker_outcome_case_fails_validation_as_expected(tmp_path: Path) -> None:
     _init_dogfood_repo(tmp_path)
 
-    result = run_dogfood_suite(tmp_path, case_ids=["unsafe-worker-outcome"])
+    result = run_dogfood_suite(
+        tmp_path,
+        case_ids=["unsafe-worker-outcome"],
+        write_root_runtime_evidence=True,
+    )
     case_result = result["results"][0]
 
     assert case_result["status"] == "passed"
@@ -131,7 +149,11 @@ def test_plan_only_unsafe_git_case_records_blocked_human_review(tmp_path: Path) 
 def test_knowledge_capture_case_creates_proposed_source_linked_knowledge(tmp_path: Path) -> None:
     _init_dogfood_repo(tmp_path)
 
-    result = run_dogfood_suite(tmp_path, case_ids=["knowledge-capture-from-validation-failure"])
+    result = run_dogfood_suite(
+        tmp_path,
+        case_ids=["knowledge-capture-from-validation-failure"],
+        write_root_runtime_evidence=True,
+    )
     case_result = result["results"][0]
 
     assert case_result["status"] == "passed"
@@ -150,7 +172,11 @@ def test_operating_layer_visual_qa_case_writes_baseline_artifacts(tmp_path: Path
 
     monkeypatch.setattr(visual_qa, "_browser_target_ready", lambda base_url: False)
 
-    result = run_dogfood_suite(tmp_path, case_ids=["operating-layer-visual-qa-hardening"])
+    result = run_dogfood_suite(
+        tmp_path,
+        case_ids=["operating-layer-visual-qa-hardening"],
+        write_root_runtime_evidence=True,
+    )
     case_result = result["results"][0]
 
     assert case_result["status"] == "passed"

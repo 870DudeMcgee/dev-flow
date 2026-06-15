@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+import tempfile
 from collections.abc import Callable, Iterable
 from datetime import timedelta
 from pathlib import Path
@@ -686,6 +687,7 @@ def run_dogfood_suite(
     suite: str = PRODUCTION_READINESS_SUITE,
     *,
     case_ids: Iterable[str] | None = None,
+    write_root_runtime_evidence: bool = False,
 ) -> dict[str, Any]:
     if suite != PRODUCTION_READINESS_SUITE:
         raise ValueError(f"Unknown dogfood suite: {suite}")
@@ -702,26 +704,43 @@ def run_dogfood_suite(
     requested = list(case_ids) if case_ids else [case["id"] for case in production_readiness_cases()]
     cases_by_id = {case["id"]: case for case in production_readiness_cases()}
     results: list[dict[str, Any]] = []
-    shared: dict[str, Any] = {}
 
-    for case_id in requested:
-        case = cases_by_id.get(case_id)
-        if case is None:
-            results.append(_skipped_unknown_case(run_id, case_id, run_dir))
-            continue
-        case_dir = run_dir / "cases" / case["id"]
-        case_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(case_dir / "case.yaml", yaml.safe_dump(case, sort_keys=False))
-        pre_case_task_ids = _task_ids(root)
-        try:
-            result = _RUNNERS[case["id"]](root, run_id, case, case_dir, shared)
-        except Exception as exc:
-            result = _failed_case_result(root, run_id, case, case_dir, exc)
-        closed_tasks = _close_new_dogfood_tasks(root, pre_case_task_ids, run_id, case["id"])
-        if closed_tasks:
-            result["dogfood_tasks_closed"] = closed_tasks
-        _write_case_result(case_dir, result)
-        results.append(result)
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    execution_root = root
+    try:
+        if not write_root_runtime_evidence:
+            temp_dir = tempfile.TemporaryDirectory(prefix=f"{run_id}-")
+            execution_root = Path(temp_dir.name) / "project"
+            _init_git_native_dogfood_repo(execution_root)
+        shared: dict[str, Any] = {
+            "report_root": root,
+            "execution_root": execution_root,
+            "write_root_runtime_evidence": write_root_runtime_evidence,
+        }
+
+        for case_id in requested:
+            case = cases_by_id.get(case_id)
+            if case is None:
+                results.append(_skipped_unknown_case(run_id, case_id, run_dir))
+                continue
+            case_dir = run_dir / "cases" / case["id"]
+            case_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(case_dir / "case.yaml", yaml.safe_dump(case, sort_keys=False))
+            pre_case_task_ids = _task_ids(execution_root)
+            try:
+                result = _RUNNERS[case["id"]](execution_root, run_id, case, case_dir, shared)
+            except Exception as exc:
+                result = _failed_case_result(execution_root, run_id, case, case_dir, exc)
+            closed_tasks = _close_new_dogfood_tasks(execution_root, pre_case_task_ids, run_id, case["id"])
+            if closed_tasks:
+                result["dogfood_tasks_closed"] = closed_tasks
+            if not write_root_runtime_evidence:
+                result["runtime_evidence_root"] = "temp_scratch_project"
+            _write_case_result(case_dir, result)
+            results.append(result)
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
     duration = round(time.monotonic() - started, 3)
     scorecard = _build_scorecard(run_id, suite, baseline, requested, results, duration)

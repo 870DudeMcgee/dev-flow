@@ -76,9 +76,10 @@ def prune_closed_tasks(root: Path, *, older_than: str, apply: bool) -> dict[str,
         "pruned": pruned,
         "skipped": skipped,
         "refused": refused,
-        "audit_path": relative_path(root, audit_path),
+        "audit_path": relative_path(root, audit_path) if apply else None,
     }
-    atomic_write_text(audit_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
+    if apply:
+        atomic_write_text(audit_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
 
 

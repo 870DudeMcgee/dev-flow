@@ -60,6 +60,10 @@ from devflow.control_room.task_lifecycle import (
     record_task_update,
     write_task_state,
 )
+from devflow.control_room.task_artifacts import (
+    ensure_task_baseline_artifacts,
+    missing_task_baseline_artifacts,
+)
 from devflow.control_room.verification import VerificationResult, run_verification_command
 from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
@@ -558,6 +562,12 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                     checks.append((f"{path.name} workspace", True, f"closed task workspace not required: {task.workspace}"))
                 else:
                     checks.append((f"{path.name} workspace", workspace_exists, task.workspace))
+                missing_baseline = missing_task_baseline_artifacts(path)
+                checks.append((
+                    f"{path.name} baseline artifacts",
+                    not missing_baseline,
+                    "complete" if not missing_baseline else f"missing: {', '.join(missing_baseline)}",
+                ))
                 for name in ("events.jsonl", "questions.jsonl", "result.md", "verification.json"):
                     checks.append((f"{path.name} {name}", (path / name).exists(), str(path / name)))
                 events_ok, events_detail = validate_event_log(path / "events.jsonl")
@@ -814,26 +824,7 @@ def _read_task_events(path: Path) -> list[dict[str, Any]]:
 
 
 def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) -> None:
-    (task_path / "events.jsonl").touch(exist_ok=True)
-    (task_path / "questions.jsonl").touch(exist_ok=True)
-    (task_path / "result.md").write_text(f"# Result: {task_id}\n\nNot run yet.\n", encoding="utf-8")
-    atomic_write_text(
-        task_path / "verification.json",
-        json.dumps({
-            "schema_version": TASK_SCHEMA_VERSION,
-            "task_id": task_id,
-            "workspace": workspace_rel,
-            "command": None,
-            "status": "not_run",
-            "task_status": "created",
-            "exit_code": None,
-            "latest_log_line": None,
-            "log_path": f".devflow/tasks/{task_id}/logs/verify.log",
-            "finished_at": None,
-        }, indent=2) + "\n",
-    )
-    (task_path / "logs" / "worker.log").touch(exist_ok=True)
-    (task_path / "logs" / "verify.log").touch(exist_ok=True)
+    ensure_task_baseline_artifacts(task_path, task_id=task_id, workspace_rel=workspace_rel)
 
 
 def _write_result(task_path: Path, task_id: str, command: list[str], result: WorkerResult) -> None:
