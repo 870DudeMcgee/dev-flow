@@ -4086,6 +4086,42 @@ def idea_create_goal(
     typer.echo("verification_ran: no")
 
 
+@idea_app.command("scaffold-goal")
+def idea_scaffold_goal(
+    idea_id: str,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without writing scaffold evidence."),
+) -> None:
+    """Create reviewable intent-to-goal scaffold evidence from an idea."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError
+        from devflow.control_room.intent_scaffold import (
+            preview_scaffold_from_idea,
+            write_scaffold_from_idea,
+        )
+
+        proposal = (
+            preview_scaffold_from_idea(Path.cwd(), idea_id)
+            if dry_run
+            else write_scaffold_from_idea(Path.cwd(), idea_id)
+        )
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if dry_run:
+        typer.echo("would_write_scaffold: yes")
+    typer.echo(f"idea_id: {idea_id}")
+    typer.echo(f"status: {proposal['status']}")
+    typer.echo(f"title: {proposal['normalized_intent']['title']}")
+    if not dry_run and proposal["status"] == "ready_for_review":
+        typer.echo(f"scaffold_path: .devflow/ideas/{idea_id}/scaffold-goal.json")
+    for command in proposal.get("next_commands") or []:
+        typer.echo(f"next: {command}")
+    typer.echo("created_goal: no")
+    typer.echo("created_task: no")
+    typer.echo("worker_ran: no")
+    typer.echo("verification_ran: no")
+
+
 @idea_app.command("create-task")
 def idea_create_task(
     idea_id: str,

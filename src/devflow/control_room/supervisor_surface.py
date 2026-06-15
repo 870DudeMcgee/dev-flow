@@ -97,6 +97,7 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow idea show",
     "devflow idea create-goal --dry-run",
     "devflow idea create-task --dry-run",
+    "devflow idea scaffold-goal --dry-run",
     "devflow dogfood list",
     "devflow dogfood show",
 ]
@@ -117,6 +118,7 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow idea capture",
     "devflow idea classify",
     "devflow idea promote",
+    "devflow idea scaffold-goal",
     "devflow idea archive",
 ]
 
@@ -388,9 +390,9 @@ def _classify_supervisor_command(command: str) -> str:
     if command_group == "idea":
         if subcommand in {"list", "show"}:
             return PURE_READ_ONLY
-        if subcommand in {"create-goal", "create-task"} and "--dry-run" in tokens:
+        if subcommand in {"create-goal", "create-task", "scaffold-goal"} and "--dry-run" in tokens:
             return PURE_READ_ONLY
-        if subcommand in {"capture", "classify", "promote", "archive"}:
+        if subcommand in {"capture", "classify", "promote", "scaffold-goal", "archive"}:
             return APPROVAL_REQUIRED_EVIDENCE_WRITING
         if subcommand in {"create-goal", "create-task"}:
             return APPROVAL_REQUIRED_TASK_STATE

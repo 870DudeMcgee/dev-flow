@@ -82,22 +82,24 @@ def test_planning_and_deep_review_select_local_reasoning_models(tmp_path: Path) 
     assert deep["operator_plan"]["model"] == "qwopus:latest"
 
 
-def test_implementation_routes_to_task_or_codex_goal_without_model(tmp_path: Path) -> None:
+def test_implementation_routes_to_scaffold_pending_action_without_model(tmp_path: Path) -> None:
     task_decision = route_telegram_message(tmp_path, "fix the failing dashboard tests")
     codex_decision = route_telegram_message(tmp_path, "create a Codex goal to refactor routing")
 
     assert task_decision["route"] == "implementation"
     assert task_decision["model"] is None
-    assert task_decision["action"] == "create_task"
-    assert task_decision["routing_footer"] == "route: implementation\nmodel: none\naction: create_task"
+    assert task_decision["action"] == "scaffold_goal"
+    assert task_decision["routing_footer"] == "route: implementation\nmodel: none\naction: scaffold_goal"
     assert task_decision["operator_plan"]["next_step"] == "request_human_approval"
     assert task_decision["operator_plan"]["approval_required"] is True
-    assert task_decision["operator_plan"]["pending_action"]["kind"] == "devflow_command"
-    assert task_decision["operator_plan"]["pending_action"]["command"].startswith("devflow task create ")
-    assert "devflow task create" in task_decision["operator_plan"]["approval_prompt_hint"]
+    assert task_decision["operator_plan"]["pending_action"]["kind"] == "intent_scaffold"
+    assert task_decision["operator_plan"]["pending_action"]["approval_required"] is True
+    assert "devflow idea capture" in task_decision["operator_plan"]["pending_action"]["approval_commands"][0]
+    assert "devflow idea scaffold-goal" in task_decision["operator_plan"]["pending_action"]["approval_commands"][-1]
+    assert "scaffold evidence" in task_decision["operator_plan"]["approval_prompt_hint"]
     assert codex_decision["route"] == "implementation"
-    assert codex_decision["action"] == "create_codex_goal"
-    assert codex_decision["operator_plan"]["pending_action"] is None
+    assert codex_decision["action"] == "scaffold_goal"
+    assert codex_decision["operator_plan"]["pending_action"]["kind"] == "intent_scaffold"
 
 
 def test_project_read_routes_to_project_list(tmp_path: Path) -> None:

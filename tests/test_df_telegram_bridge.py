@@ -2,21 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devflow.control_room.persistence import get_task
 from devflow.df_telegram_bridge import run_telegram_to_devflow_pipeline
 
 
-def test_telegram_bridge_creates_valid_tasks_and_workspaces(tmp_path: Path) -> None:
-    result = run_telegram_to_devflow_pipeline("smoke test", tmp_path)
+def test_telegram_bridge_returns_scaffold_pending_action_without_mutation(tmp_path: Path) -> None:
+    result = run_telegram_to_devflow_pipeline("build a search plugin", tmp_path)
 
-    assert result["status"] == "ok"
-    assert result["goal_id"] == "G-0001"
-    assert result["task_ids"] == ["task-0001", "task-0002"]
+    assert result["status"] == "pending_approval"
+    assert result["pipeline_step"] == "intent_scaffold_pending"
+    assert result["goal_id"] is None
+    assert result["task_ids"] == []
+    assert result["pending_action"]["kind"] == "intent_scaffold"
+    assert result["pending_action"]["approval_required"] is True
+    assert "devflow idea capture" in result["pending_action"]["approval_commands"][0]
+    assert "devflow idea scaffold-goal" in result["pending_action"]["approval_commands"][-1]
+    assert "No goals, tasks, workers" in result["telegram_response"]
 
-    for task_id in result["task_ids"]:
-        task = get_task(tmp_path, task_id)
-        assert task.status == "created"
-        assert task.verification_status == "not_run"
-        assert task.verification_command == "test -f .devflow/goals/G-0001/success.json"
-        assert (tmp_path / task.workspace).is_dir()
-        assert result["dispatch"][task_id]["status"] == "created"
+    assert not (tmp_path / ".devflow" / "goals").exists()
+    assert not (tmp_path / ".devflow" / "tasks").exists()

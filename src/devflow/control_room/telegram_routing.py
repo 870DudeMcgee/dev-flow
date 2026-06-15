@@ -26,6 +26,7 @@ RUN_SAFE_COMMAND = "run_safe_command"
 CREATE_TASK = "create_task"
 CREATE_CODEX_GOAL = "create_codex_goal"
 CREATE_PROJECT = "create_project"
+SCAFFOLD_GOAL = "scaffold_goal"
 
 PURE_READ_ONLY = "pure_read_only"
 CREATE_GOAL = "create_goal"
@@ -122,22 +123,21 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
         return _apply_repo_aware_overrides(decision)
 
     if _looks_like_implementation(lower, tokens):
-        action = CREATE_CODEX_GOAL if "codex" in tokens or "goal" in tokens else CREATE_TASK
-        recommended_command = None if action == CREATE_CODEX_GOAL else _recommended_task_create_command(message)
-        command_classification = (
-            _classify_supervisor_command(recommended_command) if recommended_command else None
-        )
+        from devflow.control_room.intent_scaffold import build_scaffold_pending_action
+
         decision = _decision(
             route=IMPLEMENTATION,
             model=None,
-            action=action,
-            reason="Implementation request; DevFlow should create a task or Codex goal instead of routing to chat.",
-            requested_action=action,
+            action=SCAFFOLD_GOAL,
+            reason="Implementation request; DevFlow should capture a reviewable intent scaffold before creating goals, tasks, or workers.",
+            requested_action=SCAFFOLD_GOAL,
             risk_level="high",
             repo_state=repo_state,
             task_state=task_state,
-            recommended_command=recommended_command,
-            command_classification=command_classification,
+            pending_action=build_scaffold_pending_action(
+                message,
+                source="supervisor_route_message",
+            ),
         )
         return _apply_repo_aware_overrides(decision)
 
@@ -261,6 +261,7 @@ def _decision(
     task_state: dict[str, Any] | None,
     recommended_command: str | None = None,
     command_classification: dict[str, Any] | None = None,
+    pending_action: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _with_footer(
         {
@@ -275,6 +276,7 @@ def _decision(
             "task_state": task_state,
             "recommended_command": recommended_command,
             "command_classification": command_classification,
+            "pending_action": pending_action,
             "overrides": [],
         }
     )
@@ -306,7 +308,7 @@ def _operator_plan(decision: dict[str, Any]) -> dict[str, Any]:
         approval_required = True
     elif decision["action"] == RUN_SAFE_COMMAND and may_auto_run_command:
         next_step = "run_recommended_command"
-    elif decision["action"] in {CREATE_TASK, CREATE_CODEX_GOAL, CREATE_PROJECT}:
+    elif decision["action"] in {CREATE_TASK, CREATE_CODEX_GOAL, CREATE_PROJECT, SCAFFOLD_GOAL}:
         next_step = "request_human_approval"
         approval_required = True
     elif recommended_command and not may_auto_run_command:
@@ -346,10 +348,14 @@ def _approval_prompt_hint(decision: dict[str, Any]) -> str | None:
         return "Ask for explicit approval before creating a DevFlow project."
     if decision["action"] == CREATE_TASK:
         return "Ask for explicit approval before creating a DevFlow task."
+    if decision["action"] == SCAFFOLD_GOAL:
+        return "Ask for explicit approval before capturing the idea and writing scaffold evidence."
     return None
 
 
 def _pending_action(decision: dict[str, Any]) -> dict[str, Any] | None:
+    if decision.get("pending_action"):
+        return decision["pending_action"]
     command = decision.get("recommended_command")
     if not command or decision["action"] not in {CREATE_TASK, CREATE_PROJECT}:
         return None

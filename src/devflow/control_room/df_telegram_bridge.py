@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from devflow.control_room.goals import next_goal_id, create_goal_from_markdown, render_goal_summary
+from devflow.control_room.intent_scaffold import build_scaffold_pending_action
 from devflow.control_room.persistence import get_task, list_tasks
 from devflow.control_room.models import TaskRecord, TaskStatus
 from devflow.control_room.git_state import inspect_git_state
@@ -362,53 +363,31 @@ def format_telegram_response(
 # ── 6. Main Pipeline ──
 def run_telegram_to_devflow_pipeline(message: str, repo_path: Path | str) -> dict[str, Any]:
     """
-    Run the full pipeline: parse → scaffold → decompose → dispatch → report.
+    Return approval-gated intent scaffold guidance without mutating Dev-Flow state.
     """
     repo_path = Path(repo_path)
-    report = {
+    pending_action = build_scaffold_pending_action(message, source="telegram")
+    return {
         "pipeline_step": "started",
         "raw_message": message,
-        "status": "ok",
+        "status": "pending_approval",
+        "pipeline_step": "intent_scaffold_pending",
+        "pending_action": pending_action,
+        "goal_id": None,
+        "task_ids": [],
+        "telegram_response": _format_pending_scaffold_response(pending_action),
     }
-    
-    try:
-        # Phase 1: Parse intent
-        intent = parse_telegram_intent(message, repo_path)
-        report["pipeline_step"] = "intents_parsed"
-        report["intent"] = {
-            "goal_title": intent.goal_title,
-            "priority": intent.priority,
-            "effort": intent.estimated_effort,
-            "affected_areas": intent.affected_areas,
-            "suggested_roles": intent.suggested_roles,
-        }
-        
-        # Phase 2: Scaffold goal
-        goal_id, goal_dir = scaffold_goal_from_intent(intent, repo_path)
-        report["pipeline_step"] = "goal_scaffolded"
-        report["goal_id"] = goal_id
-        report["goal_dir"] = str(goal_dir)
-        
-        # Phase 3: Decompose into tasks
-        task_ids = decompose_goal_into_tasks(goal_id, goal_dir, repo_path)
-        report["pipeline_step"] = "tasks_created"
-        report["task_ids"] = task_ids
-        
-        # Phase 4: Dispatch workers
-        dispatch_report = dispatch_workers(task_ids, repo_path)
-        report["pipeline_step"] = "workers_dispatched"
-        report["dispatch"] = dispatch_report
-        
-        # Phase 5: Format response
-        telegram_text = format_telegram_response(
-            intent, goal_id, task_ids, dispatch_report, repo_path
-        )
-        report["telegram_response"] = telegram_text
-        
-        return report
-        
-    except Exception as e:
-        report["status"] = "error"
-        report["error"] = str(e)
-        report["error_type"] = type(e).__name__
-        return report
+
+
+def _format_pending_scaffold_response(pending_action: dict[str, Any]) -> str:
+    proposal = pending_action["proposal"]
+    title = proposal["normalized_intent"]["title"]
+    lines = [
+        "DevFlow intent scaffold is pending approval.",
+        f"Title: {title}",
+        f"Status: {proposal['status']}",
+        "No goals, tasks, workers, verification, promotion, or git actions ran.",
+        "Approval commands:",
+    ]
+    lines.extend(f"- {command}" for command in pending_action["approval_commands"])
+    return "\n".join(lines)
