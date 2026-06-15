@@ -326,6 +326,15 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "directly edit .devflow" in payload["operator_layer"]["must_not"]
     assert "spawn unbounded parallel workers" in payload["operator_layer"]["must_not"]
     assert "promotion" in payload["operator_layer"]["human_approval_required_for"]
+    assert payload["operator_layer"]["browser_allowed_mutations"] == [
+        "idea capture",
+        "task creation",
+        "shell worker execution",
+        "task verification",
+        "task promotion",
+    ]
+    assert "non-shell worker execution" in payload["operator_layer"]["browser_blocked_mutations"]
+    assert "local/provider model execution" in payload["operator_layer"]["browser_blocked_mutations"]
     assert payload["telegram_routing"]["provider"] == "local"
     assert payload["telegram_routing"]["default_model"] == "gemma4:latest"
     assert payload["telegram_routing"]["footer_required"] is True

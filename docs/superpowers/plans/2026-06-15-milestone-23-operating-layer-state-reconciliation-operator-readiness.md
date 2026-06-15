@@ -111,7 +111,7 @@ PYTHONPATH=src:. .venv/bin/devflow dashboard
 - [x] Add shared operator summary and warnings to supervisor packet output.
 - [x] Update operating-layer snapshot to use shared labels and counts.
 - [x] Ensure first-viewport directive and next action explain lifecycle/stale blockers plainly.
-- [x] Keep Action Rail command classification and browser mutation gates unchanged.
+- [x] Keep Advanced Commands classification and browser mutation gates constrained to the stable guarded list.
 - [x] Verify generated ids remain visible but secondary.
 
 Verification:

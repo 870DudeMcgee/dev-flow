@@ -228,9 +228,9 @@ def test_operating_layer_visual_qa_case_writes_baseline_artifacts(tmp_path: Path
         metadata = yaml.safe_load((tmp_path / artifact["current_metadata"]).read_text(encoding="utf-8"))
         checks = metadata["checks"]
         assert checks["no_horizontal_overflow"] is True
-        assert checks["orchestrator_first"] is True
-        assert checks["worker_progress_rows"] is True
-        assert checks["action_rail_safety_states"] is True
+        assert checks["guided_first_viewport"] is True
+        assert checks["active_work_cards"] is True
+        assert checks["approval_states"] is True
 
 
 def test_git_native_worker_lane_dogfood_case_exercises_two_lane_recovery(tmp_path: Path) -> None:

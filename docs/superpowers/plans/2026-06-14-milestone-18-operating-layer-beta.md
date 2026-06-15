@@ -521,7 +521,7 @@ Run:
 PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json
 ```
 
-Expected: pass JSON with `surface` or `visual_flow` describing the operating layer, desktop/mobile viewports, no-horizontal-overflow coverage, Orchestrator-first coverage, worker progress rows, and Action Rail safety states.
+Expected: pass JSON with `surface` or `visual_flow` describing the operating layer, desktop/mobile viewports, no-horizontal-overflow coverage, guided first viewport, active work cards, approval states, and Advanced Commands containment.
 
 - [x] **Step 3: Run production-readiness dogfood**
 

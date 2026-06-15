@@ -672,10 +672,15 @@ def _review_loop_summary(
         status=status,
         headline=headline,
         next_safe_action=command,
-        browser_allowed_mutations=["task verification", "task promotion"],
-        browser_blocked_mutations=[
+        browser_allowed_mutations=[
+            "idea capture",
             "task creation",
-            "worker execution",
+            "shell worker execution",
+            "task verification",
+            "task promotion",
+        ],
+        browser_blocked_mutations=[
+            "non-shell worker execution",
             "patch application",
             "git publication",
             "provider-backed model calls",

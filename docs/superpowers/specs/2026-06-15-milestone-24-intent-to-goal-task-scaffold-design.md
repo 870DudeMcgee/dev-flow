@@ -37,7 +37,7 @@ Milestone 24 must not add:
 - automatic worker execution
 - automatic verification
 - automatic promotion, commit, push, pull request, release, or publication
-- browser mutation expansion beyond existing approval-gated verification/promotion controls
+- browser mutation expansion beyond the stable guarded list of idea capture, task creation, shell worker execution, task verification, and task promotion
 - database storage
 - hidden memory, vector search, RAG, embeddings, or training
 - worker-owned verification or promotion

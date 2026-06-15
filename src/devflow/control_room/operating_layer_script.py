@@ -12,6 +12,12 @@ let actionRunState = null;
 let lastApprovedActionResult = null;
 let verificationCommandInputs = {};
 let promotionContextInputs = {};
+let shellCommandInputs = {};
+let workerTimeoutInputs = {};
+let ideaIntakeText = "";
+let ideaIntakeTitle = "";
+let startWorkTitle = "";
+let startWorkGitWorktree = false;
 let selectedSpecDocumentKey = null;
 let agentsExpanded = false;
 let globalFilter = "";
@@ -20,7 +26,7 @@ let currentPage = "orchestrator";
 const APPROVAL_PHRASE = "I approve this exact Dev-Flow command";
 const laneLimit = ["blocked", "running", "ready_to_promote", "needs_review", "needs_verification", "new"];
 const pageSections = {
-  orchestrator: ["orchestrator", "command"],
+  orchestrator: ["command", "guided"],
   map: ["command", "map", "context"],
   lanes: ["command", "lanes", "context"],
   goals: ["command", "goals", "context"],
@@ -29,21 +35,21 @@ const pageSections = {
   attention: ["command", "attention", "inbox"],
   inbox: ["command", "inbox", "attention"],
   projects: ["command", "projects"],
-  actions: ["command", "actions", "context"],
+  actions: ["command", "actions", "map", "goals", "specs", "gates", "attention", "inbox", "evidence", "context"],
   evidence: ["command", "evidence", "context"],
   promotion: ["command", "promotion", "context"],
 };
 const pageNames = {
-  orchestrator: "Overview",
+  orchestrator: "Home",
   map: "Map",
-  lanes: "Workers",
+  lanes: "Work",
   goals: "Goals",
   specs: "Specs",
   gates: "Progress",
   attention: "Alerts",
   inbox: "Inbox",
   projects: "Projects",
-  actions: "Actions",
+  actions: "Advanced",
   evidence: "Evidence",
   promotion: "Review",
 };
@@ -159,6 +165,10 @@ function visibleTasksForMapScope() {
   return applyGlobalTaskFilter(tasks);
 }
 
+function visibleTasks() {
+  return visibleTasksForMapScope();
+}
+
 function applyGlobalTaskFilter(tasks) {
   if (!globalFilter.trim()) return tasks;
   return tasks.filter((task) => taskMatchesFilter(task, globalFilter));
@@ -258,6 +268,7 @@ function render() {
   byId("blocked-tasks").textContent = snapshot.health.blocked_tasks;
   byId("verify-tasks").textContent = snapshot.health.needs_verification;
   byId("next-action").textContent = (snapshot.next_action && snapshot.next_action.command) || "None";
+  renderGuidedControlRoom();
   renderOrchestrator();
   renderGlobalFilterState();
   renderOperatingMap();
@@ -279,6 +290,344 @@ function render() {
   applySectionState();
   applyPageVisibility();
   updateActiveNav(currentSection());
+}
+
+function renderGuidedControlRoom() {
+  if (!byId("guided")) return;
+  const next = guidedRecommendedAction();
+  byId("guided-next-state").textContent = readableSafetyLabel(next.action.safety_class);
+  byId("guided-next-title").textContent = next.title;
+  byId("guided-next-detail").textContent = next.detail;
+  byId("guided-next-command").textContent = next.command || "None";
+  byId("guided-primary-action").textContent = next.button;
+  byId("guided-primary-action").disabled = !next.command;
+  byId("guided-primary-note").textContent = next.note;
+  byId("idea-intake-text").value = ideaIntakeText;
+  byId("idea-intake-title").value = ideaIntakeTitle;
+  byId("start-work-title").value = startWorkTitle;
+  byId("start-work-git-worktree").checked = startWorkGitWorktree;
+  renderGuidedActionResult();
+  renderActiveWorkGroups();
+  renderGuidedReviewQueue();
+}
+
+function guidedRecommendedAction() {
+  const command = (snapshot.review_loop && snapshot.review_loop.next_safe_action)
+    || (snapshot.next_action && snapshot.next_action.command)
+    || "";
+  const action = actionByCommand(command) || fallbackActionForCommand(command);
+  if (!command) {
+    return {
+      title: "No action waiting",
+      detail: "The current snapshot has no recommended local action.",
+      command: "",
+      button: "Refresh snapshot",
+      note: "No mutation will run",
+      action,
+    };
+  }
+  if (isShellWorkerRunAction(action)) {
+    return {
+      title: "Add a shell command",
+      detail: "This task is ready for an isolated shell worker run.",
+      command,
+      button: "Go to command entry",
+      note: "Only shell workers are browser-runnable",
+      action,
+    };
+  }
+  if (isTaskVerificationAction(action)) {
+    return {
+      title: "Run verification",
+      detail: "Worker output is recorded. Add the exact verification command on the task card.",
+      command,
+      button: "Go to verification",
+      note: "Verification runs only after explicit approval",
+      action,
+    };
+  }
+  if (isTaskPromotionAction(action)) {
+    return {
+      title: "Approve promotion",
+      detail: "Verified work can be promoted after the exact command is approved.",
+      command,
+      button: "Review approval",
+      note: "Promotion remains human-controlled",
+      action,
+    };
+  }
+  return {
+    title: action.label || "Inspect next command",
+    detail: action.supervisor_may_auto_run
+      ? "This read-only command can run in the browser."
+      : "This command needs review before it can run.",
+    command,
+    button: action.supervisor_may_auto_run ? "Run read-only command" : "Open command preview",
+    note: readableSafetyLabel(action.safety_class),
+    action,
+  };
+}
+
+function handleGuidedPrimaryAction() {
+  const next = guidedRecommendedAction();
+  const action = next.action;
+  if (!action || !action.command) {
+    loadSnapshot(selectedProjectId).catch(() => {});
+    return;
+  }
+  if (isShellWorkerRunAction(action) || isTaskVerificationAction(action)) {
+    const task = (snapshot.tasks || []).find((item) => (item.actions || []).some((candidate) => candidate.command === action.command));
+    if (task) selectedTaskId = task.id;
+    renderGuidedControlRoom();
+    byId("active-work-groups")?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  if (isTaskPromotionAction(action)) {
+    executeAction(action, { approvedPromotion: true });
+    return;
+  }
+  if (action.supervisor_may_auto_run) {
+    executeAction(action);
+    return;
+  }
+  selectedActionCommand = action.command;
+  sectionState.actions = "expanded";
+  setCurrentPage("actions", { updateHash: true });
+}
+
+function renderActiveWorkGroups() {
+  const container = byId("active-work-groups");
+  if (!container) return;
+  const groups = [
+    { key: "needs-command", label: "Needs command", lanes: ["new", "idle"] },
+    { key: "running", label: "Running", lanes: ["running"] },
+    { key: "needs-verification", label: "Needs verification", lanes: ["needs_verification"] },
+    { key: "ready-review", label: "Ready to review", lanes: ["ready_to_promote", "needs_review"] },
+    { key: "blocked", label: "Blocked", lanes: ["blocked", "failed"] },
+    { key: "closed", label: "Closed", lanes: ["closed"] },
+  ];
+  const visibleTasks = applyGlobalTaskFilter(snapshot.tasks || []);
+  const openCount = visibleTasks.filter((task) => task.lane !== "closed").length;
+  byId("active-work-count").textContent = `${openCount} active`;
+  container.innerHTML = groups.map((group) => {
+    const tasks = visibleTasks.filter((task) => group.lanes.includes(task.lane)).slice(0, 6);
+    return `
+      <div class="guided-work-group ${group.key}" role="listitem">
+        <div class="guided-group-heading">
+          <span>${escapeHtml(group.label)}</span>
+          <strong>${tasks.length}</strong>
+        </div>
+        <div class="guided-task-stack">
+          ${tasks.map((task) => guidedTaskCard(task)).join("") || '<div class="empty">None</div>'}
+        </div>
+      </div>
+    `;
+  }).join("");
+  bindGuidedTaskControls(container);
+}
+
+function guidedTaskCard(task) {
+  const actions = guidedTaskActions(task);
+  return `
+    <article class="guided-task-card ${escapeHtml(task.lane || "unknown")}" data-guided-task="${escapeHtml(task.id)}">
+      <div class="guided-task-top">
+        <div>
+          <span>${escapeHtml(task.id)}</span>
+          <h3>${escapeHtml(task.title)}</h3>
+        </div>
+        <strong>${escapeHtml(plainTaskStatusLabel(task))}</strong>
+      </div>
+      <p>${escapeHtml(plainTaskStatusLine(task))}</p>
+      <div class="guided-task-actions">
+        ${actions.map((item) => guidedActionControl(task, item)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function guidedTaskActions(task) {
+  const lane = String(task.lane || "");
+  const actions = task.actions || [];
+  const showTask = actions.find((action) => /^devflow task show\\s+/.test(action.command || ""));
+  const taskLog = actions.find((action) => /^devflow task log\\s+/.test(action.command || ""));
+  const shellRun = actions.find(isShellWorkerRunAction);
+  const verify = actions.find(isTaskVerificationAction);
+  const preview = actions.find((action) => /^devflow task promote-preview\\s+/.test(action.command || ""));
+  const promote = actions.find(isTaskPromotionAction);
+
+  if (lane === "new" || lane === "idle") {
+    return shellRun ? [{ kind: "shell-run", label: "Run shell worker", action: shellRun }] : [];
+  }
+  if (lane === "running") {
+    return taskLog ? [{ kind: "read-only", label: "Task log", action: taskLog }] : [];
+  }
+  if (lane === "needs_verification") {
+    return verify ? [{ kind: "verification", label: "Run verification", action: verify }] : [];
+  }
+  if (lane === "ready_to_promote" || lane === "needs_review") {
+    return [
+      preview ? { kind: "read-only", label: "Promotion preview", action: preview } : null,
+      promote ? { kind: "promotion", label: "Approve promotion", action: promote } : null,
+    ].filter(Boolean);
+  }
+  if (lane === "blocked" || lane === "failed") {
+    return [
+      taskLog ? { kind: "read-only", label: "Task log", action: taskLog } : null,
+      showTask ? { kind: "read-only", label: "Show task", action: showTask } : null,
+    ].filter(Boolean);
+  }
+  if (lane === "closed") {
+    return showTask ? [{ kind: "read-only", label: "Show task", action: showTask }] : [];
+  }
+  return showTask ? [{ kind: "read-only", label: "Show task", action: showTask }] : [];
+}
+
+function guidedActionControl(task, item) {
+  const action = item.action;
+  const command = action.command || "";
+  if (item.kind === "shell-run") {
+    const value = shellCommandInputs[command] || "";
+    const timeout = workerTimeoutInputs[command] || "";
+    return `
+      <label class="guided-command-input">
+        <span class="label">Shell command</span>
+        <input data-guided-shell-command="${escapeHtml(command)}" type="text" value="${escapeHtml(value)}" placeholder="echo hello">
+      </label>
+      <label class="guided-timeout-input">
+        <span class="label">Timeout</span>
+        <input data-guided-worker-timeout="${escapeHtml(command)}" type="number" min="1" step="1" value="${escapeHtml(timeout)}" placeholder="60">
+      </label>
+      <button type="button" data-guided-run="${escapeHtml(command)}" ${value.trim() ? "" : "disabled"}>${escapeHtml(item.label)}</button>
+    `;
+  }
+  if (item.kind === "verification") {
+    const value = verificationCommandInputs[command] || "";
+    return `
+      <label class="guided-command-input">
+        <span class="label">Verify command</span>
+        <input data-guided-verify-command="${escapeHtml(command)}" type="text" value="${escapeHtml(value)}" placeholder="test -f result.txt">
+      </label>
+      <button type="button" data-guided-verify="${escapeHtml(command)}" ${value.trim() ? "" : "disabled"}>${escapeHtml(item.label)}</button>
+    `;
+  }
+  if (item.kind === "promotion") {
+    return `<button type="button" data-guided-promote="${escapeHtml(command)}">${escapeHtml(item.label)}</button>`;
+  }
+  return `<button type="button" data-guided-readonly="${escapeHtml(command)}">${escapeHtml(item.label)}</button>`;
+}
+
+function bindGuidedTaskControls(container) {
+  container.querySelectorAll("[data-guided-shell-command]").forEach((input) => {
+    input.addEventListener("input", (event) => {
+      shellCommandInputs[input.dataset.guidedShellCommand] = event.target.value;
+      renderGuidedControlRoom();
+    });
+  });
+  container.querySelectorAll("[data-guided-worker-timeout]").forEach((input) => {
+    input.addEventListener("input", (event) => {
+      workerTimeoutInputs[input.dataset.guidedWorkerTimeout] = event.target.value;
+    });
+  });
+  container.querySelectorAll("[data-guided-verify-command]").forEach((input) => {
+    input.addEventListener("input", (event) => {
+      verificationCommandInputs[input.dataset.guidedVerifyCommand] = event.target.value;
+      renderGuidedControlRoom();
+    });
+  });
+  container.querySelectorAll("[data-guided-run]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = actionByCommand(button.dataset.guidedRun);
+      if (action) executeAction(action, { approvedShellRun: true });
+    });
+  });
+  container.querySelectorAll("[data-guided-verify]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = actionByCommand(button.dataset.guidedVerify);
+      if (action) executeAction(action, { approvedVerification: true });
+    });
+  });
+  container.querySelectorAll("[data-guided-promote]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = actionByCommand(button.dataset.guidedPromote);
+      if (action) executeAction(action, { approvedPromotion: true });
+    });
+  });
+  container.querySelectorAll("[data-guided-readonly]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = actionByCommand(button.dataset.guidedReadonly);
+      if (action) executeAction(action);
+    });
+  });
+}
+
+function renderGuidedReviewQueue() {
+  const queue = byId("guided-review-queue");
+  if (!queue) return;
+  const tasks = applyGlobalTaskFilter(snapshot.tasks || [])
+    .filter((task) => ["needs_verification", "ready_to_promote", "needs_review"].includes(task.lane))
+    .slice(0, 8);
+  byId("review-queue-count").textContent = `${tasks.length} ${tasks.length === 1 ? "item" : "items"}`;
+  queue.innerHTML = tasks.map((task) => `
+    <article class="review-queue-card ${escapeHtml(task.lane)}">
+      <span>${escapeHtml(plainTaskStatusLabel(task))}</span>
+      <strong>${escapeHtml(task.title)}</strong>
+      <code>${escapeHtml((task.next_action && task.next_action.command) || "No command")}</code>
+    </article>
+  `).join("") || '<div class="empty">Nothing is waiting for review</div>';
+}
+
+function renderGuidedActionResult() {
+  const target = byId("guided-action-result");
+  if (!target) return;
+  const result = actionRunState && actionRunState.status !== "running" ? actionRunState : lastApprovedActionResult;
+  if (!result) {
+    target.innerHTML = "";
+    return;
+  }
+  target.innerHTML = renderActionResult(result);
+}
+
+function actionByCommand(command) {
+  if (!command) return null;
+  const allActions = [
+    ...(snapshot.action_rail || []),
+    ...(snapshot.tasks || []).flatMap((task) => task.actions || []),
+    ...(snapshot.goal_board || []).flatMap((goal) => [
+      ...(goal.actions || []),
+      ...(goal.lanes || []).flatMap((lane) => lane.actions || []),
+      ...(goal.parallel_batches || []).flatMap((batch) => batch.actions || []),
+      ...(goal.worker_batches || []).flatMap((batch) => batch.actions || []),
+      ...(goal.verification_batches || []).flatMap((batch) => batch.actions || []),
+    ]),
+  ];
+  return allActions.find((action) => action.command === command) || null;
+}
+
+function fallbackActionForCommand(command) {
+  if (!command) {
+    return {
+      label: "Refresh snapshot",
+      command: "",
+      scope: "project",
+      safety_class: "pure_read_only",
+      requires_human_approval: false,
+      supervisor_may_auto_run: true,
+      reason: null,
+    };
+  }
+  const readOnly = /^devflow task promote-preview\\s+/.test(command)
+    || /^devflow task show\\s+/.test(command)
+    || /^devflow task list/.test(command)
+    || /^devflow git status/.test(command);
+  return {
+    label: readOnly ? "Read-only command" : "Command",
+    command,
+    scope: "project",
+    safety_class: readOnly ? "pure_read_only" : "approval_required_worker_runtime",
+    requires_human_approval: !readOnly,
+    supervisor_may_auto_run: readOnly,
+    reason: readOnly ? null : "This command needs approval before it can run.",
+  };
 }
 
 function renderOperatingMap() {
@@ -1487,10 +1836,10 @@ function renderActions() {
     item.className = `action-item ${selected ? "selected" : ""}`;
     item.setAttribute("aria-pressed", selected ? "true" : "false");
     item.setAttribute("aria-label", `Preview ${action.label}`);
-    const safety = action.supervisor_may_auto_run ? "read-only" : "approval required";
+    const safety = readableSafetyLabel(action.safety_class);
     item.innerHTML = `
       <strong>${escapeHtml(action.label)}</strong>
-      <span class="label">${escapeHtml(safety)} / ${escapeHtml(action.safety_class)}</span>
+      <span class="label">${escapeHtml(safety)} / ${action.requires_human_approval ? "approval required" : "no approval"}</span>
       <code>${escapeHtml(action.command)}</code>
     `;
     item.addEventListener("click", () => {
@@ -1519,22 +1868,46 @@ function renderActionPreview(action) {
   const actionResult =
     actionRunState && actionRunState.command === action.command ? actionRunState : preservedResult;
   const isApprovedVerification = isTaskVerificationAction(action);
+  const isApprovedShellRun = isShellWorkerRunAction(action);
   const isApprovedPromotion = isTaskPromotionAction(action);
   const verificationCommand = (verificationCommandInputs[action.command] || "").trim();
+  const shellCommand = (shellCommandInputs[action.command] || "").trim();
+  const shellTimeout = (workerTimeoutInputs[action.command] || "").trim();
   const promotionContext = promotionContextInputs[action.command] || "";
-  const effectiveCommand = isApprovedVerification && verificationCommand ? approvedVerificationCommand(action) : action.command;
+  const effectiveCommand = isApprovedShellRun && shellCommand
+    ? approvedShellRunCommand(action)
+    : isApprovedVerification && verificationCommand
+      ? approvedVerificationCommand(action)
+      : action.command;
   const canRun =
     action.supervisor_may_auto_run ||
+    (isApprovedShellRun && shellCommand) ||
     (isApprovedVerification && verificationCommand) ||
     isApprovedPromotion;
   const executeLabel = action.supervisor_may_auto_run
     ? "Execute read-only command"
-    : (isApprovedVerification ? "Approve and run verification" : (isApprovedPromotion ? "Approve & promote" : "Approval required in CLI"));
+    : (isApprovedShellRun
+      ? "Approve and run shell worker"
+      : (isApprovedVerification ? "Approve and run verification" : (isApprovedPromotion ? "Approve & promote" : "Approval required in CLI")));
   const controlLabel = isApprovedVerification
     ? "This approved action runs only the exact verification command shown above."
-    : (isApprovedPromotion
+    : (isApprovedShellRun
+      ? "Runs only --worker shell inside the task workspace after exact approval."
+      : (isApprovedPromotion
       ? "Promotes only the exact command shown; optional context is saved with the decision."
-      : (action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval"));
+      : (action.supervisor_may_auto_run ? "Runs locally through Dev-Flow guardrails" : "Use the trusted CLI after explicit approval")));
+  const shellRunControl = isApprovedShellRun
+    ? `
+      <label class="approved-verification-control">
+        <span class="label">Shell worker command</span>
+        <input type="text" data-shell-run-command value="${escapeHtml(shellCommand)}" placeholder="echo hello">
+      </label>
+      <label class="approved-timeout-control">
+        <span class="label">Timeout seconds</span>
+        <input type="number" min="1" step="1" data-shell-run-timeout value="${escapeHtml(shellTimeout)}" placeholder="60">
+      </label>
+    `
+    : "";
   const verificationControl = isApprovedVerification
     ? `
       <label class="approved-verification-control">
@@ -1566,7 +1939,8 @@ function renderActionPreview(action) {
       </div>
       <div>
         <span>Safety</span>
-        <strong>${escapeHtml(action.safety_class)}</strong>
+        <strong>${escapeHtml(readableSafetyLabel(action.safety_class))}</strong>
+        <small>Raw safety class: ${escapeHtml(action.safety_class)}</small>
       </div>
       <div>
         <span>Execution</span>
@@ -1579,6 +1953,7 @@ function renderActionPreview(action) {
     </div>
     <code>${escapeHtml(effectiveCommand)}</code>
     <p>${escapeHtml(action.reason || "This command is supervisor-classified as safe for this local control layer.")}</p>
+    ${shellRunControl}
     ${verificationControl}
     ${promotionControl}
     <div class="action-execute-row">
@@ -1596,6 +1971,19 @@ function renderActionPreview(action) {
       renderActionPreview(action);
     });
   }
+  const shellRunInput = preview.querySelector("[data-shell-run-command]");
+  if (shellRunInput) {
+    shellRunInput.addEventListener("input", (event) => {
+      shellCommandInputs[action.command] = event.target.value;
+      renderActionPreview(action);
+    });
+  }
+  const shellTimeoutInput = preview.querySelector("[data-shell-run-timeout]");
+  if (shellTimeoutInput) {
+    shellTimeoutInput.addEventListener("input", (event) => {
+      workerTimeoutInputs[action.command] = event.target.value;
+    });
+  }
   const promotionContextInput = preview.querySelector("[data-promotion-context]");
   if (promotionContextInput) {
     promotionContextInput.addEventListener("input", (event) => {
@@ -1605,9 +1993,50 @@ function renderActionPreview(action) {
   const runButton = preview.querySelector("[data-run-action]");
   if (runButton && canRun) {
     runButton.addEventListener("click", () =>
-      executeAction(action, { approvedVerification: isApprovedVerification, approvedPromotion: isApprovedPromotion })
+      executeAction(action, {
+        approvedShellRun: isApprovedShellRun,
+        approvedVerification: isApprovedVerification,
+        approvedPromotion: isApprovedPromotion,
+      })
     );
   }
+}
+
+function readableSafetyLabel(safetyClass) {
+  const labels = {
+    pure_read_only: "Read-only",
+    approval_required_evidence_writing: "Writes evidence",
+    approval_required_task_state: "Changes task state",
+    approval_required_worker_runtime: "Runs worker or verification",
+    approval_required_git: "Changes Git or promotion",
+    forbidden_for_supervisor: "Blocked in browser",
+  };
+  return labels[safetyClass] || plainDisplayText(safetyClass || "unknown");
+}
+
+function isIdeaCaptureAction(action) {
+  return Boolean(
+    action &&
+      action.safety_class === "approval_required_evidence_writing" &&
+      /^devflow idea capture(?:\\s|$)/.test(action.command || "")
+  );
+}
+
+function isTaskCreationAction(action) {
+  return Boolean(
+    action &&
+      action.safety_class === "approval_required_task_state" &&
+      /^devflow task create(?:\\s|$)/.test(action.command || "")
+  );
+}
+
+function isShellWorkerRunAction(action) {
+  return Boolean(
+    action &&
+      action.safety_class === "approval_required_worker_runtime" &&
+      /^devflow task run\\s+/.test(action.command || "") &&
+      /--worker\\s+shell(?:\\s|$)/.test(action.command || "")
+  );
 }
 
 function isTaskVerificationAction(action) {
@@ -1624,6 +2053,53 @@ function isTaskPromotionAction(action) {
       action.safety_class === "approval_required_git" &&
       /^devflow task promote\\s+/.test(action.command || "")
   );
+}
+
+function approvedIdeaCaptureCommand() {
+  const text = ideaIntakeText.trim();
+  const title = ideaIntakeTitle.trim();
+  const titlePart = title ? ` --title ${quoteShellArgument(title)}` : "";
+  return `devflow idea capture --source browser${titlePart} ${quoteShellArgument(text)}`;
+}
+
+function createIdeaCaptureAction() {
+  return {
+    label: "Save idea",
+    command: approvedIdeaCaptureCommand(),
+    scope: "idea",
+    safety_class: "approval_required_evidence_writing",
+    requires_human_approval: true,
+    supervisor_may_auto_run: false,
+    reason: "Captures raw local idea evidence. It does not create a task, run a worker, or call a model.",
+  };
+}
+
+function approvedTaskCreationCommand() {
+  const title = startWorkTitle.trim();
+  const projectPart = selectedProjectId ? ` --project ${quoteShellArgument(selectedProjectId)}` : "";
+  const worktreePart = startWorkGitWorktree ? " --git-worktree" : "";
+  return `devflow task create${projectPart}${worktreePart} ${quoteShellArgument(title)}`;
+}
+
+function createTaskAction() {
+  return {
+    label: "Create task",
+    command: approvedTaskCreationCommand(),
+    scope: "task",
+    safety_class: "approval_required_task_state",
+    requires_human_approval: true,
+    supervisor_may_auto_run: false,
+    reason: "Creates one Dev-Flow task after explicit browser approval.",
+  };
+}
+
+function approvedShellRunCommand(action) {
+  const shellCommand = (shellCommandInputs[action.command] || "").trim();
+  const timeout = (workerTimeoutInputs[action.command] || "").trim();
+  const parts = String(action.command || "").split(" -- ");
+  const prefix = parts[0] || action.command;
+  const timeoutFlag = timeout ? ` --timeout-seconds ${Math.max(1, parseInt(timeout, 10) || 1)}` : "";
+  return `${prefix}${timeoutFlag} -- /bin/sh -c ${quoteShellArgument(shellCommand)}`;
 }
 
 function approvedVerificationCommand(action) {
@@ -1656,18 +2132,26 @@ function renderActionResult(result) {
     `;
   }
   const payload = result.payload || {};
+  const command = result.displayCommand || result.command || (payload.classification && payload.classification.command) || "unknown command";
   const output = [payload.stdout, payload.stderr].filter(Boolean).join("\\n");
   const status = payload.timed_out ? "Timed out" : `Exit ${payload.exit_code}`;
   return `
     <div class="action-result">
       <strong>${escapeHtml(status)}</strong>
+      <span class="label">Command</span>
+      <code>${escapeHtml(command)}</code>
       ${payload.output_truncated ? "<p>Output was truncated.</p>" : ""}
+      <span class="label">Output excerpt</span>
       <pre>${escapeHtml(output || "No output")}</pre>
     </div>
   `;
 }
 
 function rememberApprovedActionResult(action, runState) {
+  rememberBrowserActionResult(action, runState);
+}
+
+function rememberBrowserActionResult(action, runState) {
   if (!action || !runState || runState.status === "running") return;
   lastApprovedActionResult = {
     ...runState,
@@ -1686,10 +2170,24 @@ function preservedActionResultForSelectedTask(actions) {
 }
 
 async function executeAction(action, options = {}) {
-  const command = options.approvedVerification ? approvedVerificationCommand(action) : action.command;
+  const command = options.approvedIdeaCapture
+    ? action.command
+    : options.approvedTaskCreation
+    ? action.command
+    : options.approvedShellRun
+      ? approvedShellRunCommand(action)
+      : options.approvedVerification
+        ? approvedVerificationCommand(action)
+        : action.command;
   const body = { command, project: selectedProjectId };
   let refreshedSnapshot = false;
-  if (options.approvedVerification || options.approvedPromotion) {
+  if (
+    options.approvedIdeaCapture ||
+    options.approvedTaskCreation ||
+    options.approvedShellRun ||
+    options.approvedVerification ||
+    options.approvedPromotion
+  ) {
     body.human_approved = true;
     body.approval_phrase = APPROVAL_PHRASE;
     body.approved_command = command;
@@ -1697,8 +2195,9 @@ async function executeAction(action, options = {}) {
       body.context_note = promotionContextInputs[action.command] || "";
     }
   }
-  actionRunState = { command: action.command, status: "running" };
+  actionRunState = { command: action.command, displayCommand: command, status: "running" };
   renderActionPreview(action);
+  renderGuidedControlRoom();
   try {
     const response = await fetch("/api/actions/run", {
       method: "POST",
@@ -1709,6 +2208,7 @@ async function executeAction(action, options = {}) {
     if (!response.ok && payload.executed === false) {
       actionRunState = {
         command: action.command,
+        displayCommand: command,
         status: "blocked",
         message: payload.message || payload.error || "Action requires approval",
         payload,
@@ -1716,25 +2216,43 @@ async function executeAction(action, options = {}) {
     } else if (!response.ok) {
       actionRunState = {
         command: action.command,
+        displayCommand: command,
         status: "error",
         message: payload.error || payload.stderr || "Action failed",
         payload,
       };
     } else {
-      actionRunState = { command: action.command, status: "complete", payload };
+      actionRunState = { command: action.command, displayCommand: command, status: "complete", payload };
     }
-    if ((options.approvedVerification || options.approvedPromotion) && payload.executed === true) {
+    if (
+      (
+        options.approvedIdeaCapture ||
+        options.approvedTaskCreation ||
+        options.approvedShellRun ||
+        options.approvedVerification ||
+        options.approvedPromotion
+      )
+      && payload.executed === true
+    ) {
+      if (options.approvedIdeaCapture) {
+        ideaIntakeText = "";
+        ideaIntakeTitle = "";
+      }
       await refreshSnapshotAfterApprovedAction(action);
       refreshedSnapshot = true;
     }
   } catch (error) {
     actionRunState = {
       command: action.command,
+      displayCommand: command,
       status: "error",
       message: error instanceof Error ? error.message : "Action failed",
     };
   }
-  if (!refreshedSnapshot) renderActionPreview(action);
+  if (!refreshedSnapshot) {
+    renderActionPreview(action);
+    renderGuidedControlRoom();
+  }
 }
 
 async function refreshSnapshotAfterApprovedAction(action) {
@@ -2669,6 +3187,51 @@ function isTypingTarget(target) {
 }
 
 const _rb = byId("refresh-button"); _rb?.addEventListener("click", () => loadSnapshot());
+const _gpa = byId("guided-primary-action"); _gpa?.addEventListener("click", () => handleGuidedPrimaryAction());
+const _iif = byId("idea-intake-form"); _iif?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  ideaIntakeText = byId("idea-intake-text").value;
+  ideaIntakeTitle = byId("idea-intake-title").value;
+  if (!ideaIntakeText.trim()) {
+    actionRunState = {
+      command: "devflow idea capture",
+      displayCommand: "devflow idea capture",
+      status: "error",
+      message: "Brainstorm text is required.",
+    };
+    renderGuidedControlRoom();
+    return;
+  }
+  executeAction(createIdeaCaptureAction(), { approvedIdeaCapture: true });
+});
+const _iit = byId("idea-intake-text"); _iit?.addEventListener("input", (event) => {
+  ideaIntakeText = event.target.value;
+});
+const _iititle = byId("idea-intake-title"); _iititle?.addEventListener("input", (event) => {
+  ideaIntakeTitle = event.target.value;
+});
+const _swf = byId("start-work-form"); _swf?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  startWorkTitle = byId("start-work-title").value;
+  startWorkGitWorktree = byId("start-work-git-worktree").checked;
+  if (!startWorkTitle.trim()) {
+    actionRunState = {
+      command: "devflow task create",
+      displayCommand: "devflow task create",
+      status: "error",
+      message: "Task title is required.",
+    };
+    renderGuidedControlRoom();
+    return;
+  }
+  executeAction(createTaskAction(), { approvedTaskCreation: true });
+});
+const _swt = byId("start-work-title"); _swt?.addEventListener("input", (event) => {
+  startWorkTitle = event.target.value;
+});
+const _swg = byId("start-work-git-worktree"); _swg?.addEventListener("change", (event) => {
+  startWorkGitWorktree = event.target.checked;
+});
 const _ccb = byId("clear-context-button"); _ccb?.addEventListener("click", () => clearContext());
 const _ast = byId("agent-stack-toggle"); _ast?.addEventListener("click", () => {
   agentsExpanded = !agentsExpanded;

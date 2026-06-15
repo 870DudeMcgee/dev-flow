@@ -638,7 +638,7 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "current and baseline PNG/SVG artifacts are written",
                 "deterministic fallback is enough when browser screenshots are unavailable",
                 "external/Appshot or Playwright rasters are accepted when present",
-                "visual metadata covers no-overflow, Orchestrator-first layout, worker progress, and Action Rail safety",
+                "visual metadata covers no-overflow, guided first viewport, active work cards, and approval states",
             ],
             command_sequence=[
                 "devflow task create 'Dogfood operating layer visual QA'",
@@ -650,7 +650,7 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "desktop and mobile current/baseline artifacts exist",
                 "visual QA status is pass",
                 "metadata confirms no horizontal overflow",
-                "metadata confirms Orchestrator-first ordering, worker progress rows, and Action Rail safety state",
+                "metadata confirms guided first viewport ordering, active work cards, and approval states",
             ],
             scoring={
                 "H_operating_layer_visual_qa": 10,
@@ -2663,8 +2663,8 @@ def _case_operating_layer_visual_qa(
         "H_operating_layer_visual_qa",
         1,
         metadata_checks
-        and all(bool(checks.get("orchestrator_first")) for checks in metadata_checks),
-        "visual metadata confirms Orchestrator-first layout",
+        and all(bool(checks.get("guided_first_viewport")) for checks in metadata_checks),
+        "visual metadata confirms guided first viewport",
     )
     _award(
         state,
@@ -2673,8 +2673,8 @@ def _case_operating_layer_visual_qa(
         "H_operating_layer_visual_qa",
         1,
         metadata_checks
-        and all(bool(checks.get("worker_progress_rows")) for checks in metadata_checks),
-        "visual metadata confirms worker progress rows",
+        and all(bool(checks.get("active_work_cards")) for checks in metadata_checks),
+        "visual metadata confirms active work cards",
     )
     _award(
         state,
@@ -2683,8 +2683,8 @@ def _case_operating_layer_visual_qa(
         "H_operating_layer_visual_qa",
         1,
         metadata_checks
-        and all(bool(checks.get("action_rail_safety_states")) for checks in metadata_checks),
-        "visual metadata confirms Action Rail safety state",
+        and all(bool(checks.get("approval_states")) for checks in metadata_checks),
+        "visual metadata confirms approval states",
     )
     _award(
         state,

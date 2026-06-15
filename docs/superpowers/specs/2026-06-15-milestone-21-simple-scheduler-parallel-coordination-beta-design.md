@@ -38,7 +38,7 @@ Milestone 21 must not add:
 - auto-verification
 - auto-promotion, auto-commit, auto-push, or pull requests
 - database storage
-- task mutation from the operating-layer browser beyond already approved exact verification and promotion actions
+- task mutation from the operating-layer browser beyond the stable guarded list of idea capture, task creation, shell worker execution, task verification, and task promotion
 - worker-owned readiness certification
 
 ## User-Facing Contract

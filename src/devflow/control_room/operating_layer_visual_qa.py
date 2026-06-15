@@ -27,8 +27,8 @@ VIEWPORTS: tuple[dict[str, int | str], ...] = (
 
 
 VISUAL_FLOW = (
-    "app loads -> first viewport renders Orchestrator, Mission Feed, worker progress, "
-    "and Action Rail safety states without horizontal overflow"
+    "app loads -> first viewport renders Capture idea, Next step, Active work cards, "
+    "and Review queue approval states without horizontal overflow"
 )
 
 
@@ -244,43 +244,52 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "pass" if "overflow-x: hidden;" in APP_CSS and "width: 100%;" in APP_CSS else "fail",
         ),
         _check(
-            "orchestrator-first",
-            "#orchestrator",
-            "The Orchestrator section is the first operating surface after the top bar.",
-            "pass" if _index_before('id="orchestrator"', 'id="map"') else "fail",
+            "guided-first-viewport",
+            "#guided",
+            "The guided control room is the first operating surface after the top bar.",
+            "pass" if _index_before('id="guided"', 'id="orchestrator"') else "fail",
         ),
         _check(
-            "mission-feed-contained",
-            ".mission-feed",
-            "Mission Feed has a bounded scroll container inside the Orchestrator core.",
-            "pass"
-            if all(token in INDEX_HTML + APP_CSS for token in ("mission-feed-list", ".mission-feed", "overflow: auto;"))
-            else "fail",
-        ),
-        _check(
-            "worker-progress-rows",
-            "#orchestrator-agent-progress",
-            "Worker progress row hooks are present in HTML, CSS, and render code.",
+            "idea-intake",
+            "#idea-intake-form",
+            "Brainstorm intake is available in the normal first-viewport loop.",
             "pass"
             if all(
                 token in INDEX_HTML + APP_CSS + APP_JS
-                for token in ("orchestrator-agent-progress", "agent-progress-row", "renderOrchestratorAgentProgress")
+                for token in ("idea-intake-form", "idea-intake-text", "approvedIdeaCaptureCommand")
             )
             else "fail",
         ),
         _check(
-            "action-rail-safety-states",
-            "#action-preview",
-            "Action Rail renders read-only, approval-required, and approved verification states.",
+            "active-work-cards",
+            "#active-work-groups",
+            "Active work groups and guided task cards are present in HTML, CSS, and render code.",
             "pass"
             if all(
-                token in APP_JS
-                for token in (
-                    "supervisor_may_auto_run",
-                    "requires_human_approval",
-                    "isTaskVerificationAction",
-                    "I approve this exact Dev-Flow command",
-                )
+                token in INDEX_HTML + APP_CSS + APP_JS
+                for token in ("active-work-groups", "guided-task-card", "renderActiveWorkGroups")
+            )
+            else "fail",
+        ),
+        _check(
+            "approval-states",
+            "#guided-review-queue",
+            "Guided review queue and command preview render readable approval states.",
+            "pass"
+            if all(
+                token in INDEX_HTML + APP_CSS + APP_JS
+                for token in ("guided-review-queue", "readableSafetyLabel", "Approve promotion")
+            )
+            else "fail",
+        ),
+        _check(
+            "advanced-commands-contained",
+            "#action-preview",
+            "Advanced command preview preserves raw safety details without leading the first viewport.",
+            "pass"
+            if all(
+                token in INDEX_HTML + APP_JS
+                for token in ("Advanced Commands", "Command Preview", "Raw safety class")
             )
             else "fail",
         ),
@@ -294,20 +303,24 @@ def _playwright_assertions() -> list[dict[str, str]]:
             "script": "document.documentElement.scrollWidth <= document.documentElement.clientWidth",
         },
         {
-            "id": "orchestrator-first",
-            "script": "document.querySelector('main > section')?.id === 'orchestrator'",
+            "id": "guided-first-viewport",
+            "script": "document.querySelector('main > section')?.id === 'guided'",
         },
         {
-            "id": "mission-feed-contained",
-            "script": "document.querySelector('.mission-feed-list')?.scrollHeight >= 0",
+            "id": "idea-intake",
+            "script": "Boolean(document.querySelector('#idea-intake-form textarea'))",
         },
         {
-            "id": "worker-progress-rows",
-            "script": "document.querySelectorAll('#orchestrator-agent-progress .agent-progress-row').length >= 1",
+            "id": "active-work-cards",
+            "script": "document.querySelectorAll('#active-work-groups .guided-task-card').length >= 1",
         },
         {
-            "id": "action-rail-safety-states",
-            "script": "document.querySelector('#action-preview')?.textContent.includes('Approval')",
+            "id": "approval-states",
+            "script": "document.querySelector('#guided-review-queue')?.textContent.length >= 0",
+        },
+        {
+            "id": "advanced-commands-contained",
+            "script": "document.querySelector('#actions')?.textContent.includes('Advanced Commands')",
         },
     ]
 
@@ -319,10 +332,11 @@ def _fallback_visual_checks() -> dict[str, bool]:
     }
     return {
         "no_horizontal_overflow": check_ids.get("no_horizontal_overflow", False),
-        "orchestrator_first": check_ids.get("orchestrator_first", False),
-        "mission_feed_contained": check_ids.get("mission_feed_contained", False),
-        "worker_progress_rows": check_ids.get("worker_progress_rows", False),
-        "action_rail_safety_states": check_ids.get("action_rail_safety_states", False),
+        "guided_first_viewport": check_ids.get("guided_first_viewport", False),
+        "idea_intake": check_ids.get("idea_intake", False),
+        "active_work_cards": check_ids.get("active_work_cards", False),
+        "approval_states": check_ids.get("approval_states", False),
+        "advanced_commands_contained": check_ids.get("advanced_commands_contained", False),
         "no_mission_feed_action_overlap": True,
     }
 
@@ -406,24 +420,37 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
     return page.evaluate(
         """() => {
           const doc = document.documentElement;
-          const orchestrator = document.querySelector('#orchestrator');
-          const feed = document.querySelector('.mission-feed-list');
-          const progressRows = document.querySelectorAll('#orchestrator-agent-progress .agent-progress-row');
+          const guided = document.querySelector('#guided');
+          const ideaIntake = document.querySelector('#idea-intake-form textarea');
+          const activeCards = document.querySelectorAll('#active-work-groups .guided-task-card');
+          const reviewQueue = document.querySelector('#guided-review-queue');
+          const commandPreview = document.querySelector('#action-preview');
+          const advanced = document.querySelector('#actions');
+          const guidedRect = guided ? guided.getBoundingClientRect() : null;
+          const advancedRect = advanced ? advanced.getBoundingClientRect() : null;
           const actionPreview = document.querySelector('#action-preview');
-          const feedRect = feed ? feed.getBoundingClientRect() : null;
-          const actionRect = actionPreview ? actionPreview.getBoundingClientRect() : null;
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
-            orchestrator_first: document.querySelector('main > section')?.id === 'orchestrator',
-            mission_feed_contained: Boolean(feedRect && feedRect.width > 0 && feedRect.height > 0),
-            worker_progress_rows: progressRows.length >= 1,
-            action_rail_safety_states: Boolean(actionPreview && actionPreview.textContent.includes('Approval')),
+            guided_first_viewport: document.querySelector('main > section')?.id === 'guided',
+            idea_intake: Boolean(ideaIntake),
+            active_work_cards: activeCards.length >= 1,
+            approval_states: Boolean(
+              reviewQueue &&
+              commandPreview &&
+              /Read-only|Writes evidence|Changes task state|Runs worker or verification|Changes Git or promotion|Blocked in browser/.test(commandPreview.textContent || '')
+            ),
+            advanced_commands_contained: Boolean(
+              advanced &&
+              actionPreview &&
+              advanced.textContent.includes('Advanced Commands') &&
+              actionPreview.textContent.includes('Raw safety class')
+            ),
             no_mission_feed_action_overlap: Boolean(
-              !feedRect || !actionRect ||
-              feedRect.right <= actionRect.left ||
-              actionRect.right <= feedRect.left ||
-              feedRect.bottom <= actionRect.top ||
-              actionRect.bottom <= feedRect.top
+              !guidedRect || !advancedRect ||
+              guidedRect.right <= advancedRect.left ||
+              advancedRect.right <= guidedRect.left ||
+              guidedRect.bottom <= advancedRect.top ||
+              advancedRect.bottom <= guidedRect.top
             ),
           };
         }"""
@@ -456,11 +483,11 @@ def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:
         '<rect width="100%" height="100%" fill="url(#bg)"/>',
         _text(left, top + 24, "Dev-Flow Operating Layer", 28 * scale, "#f6f3ff", 800),
         _text(left, top + 54, f"{snapshot.health.total_tasks} tasks / {snapshot.health.active_tasks} active / {snapshot.health.needs_verification} need verification", 15 * scale, "#9fb0c7", 600),
-        _panel(left, top + 82, card_width, 190, "Orchestrator", snapshot.next_action.command or "None", "#66f0d1"),
+        _panel(left, top + 82, card_width, 190, "Next step", snapshot.next_action.command or "None", "#66f0d1"),
     ]
 
     y = top + 306
-    rows.append(_text(left, y, "Worker Activity", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Active work", 18 * scale, "#f6f3ff", 800))
     y += 16
     for worker in workers:
         y += 34
@@ -468,13 +495,13 @@ def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:
         rows.append(_progress_row(left, y, card_width, worker.name, worker.state, percent))
 
     y += 58
-    rows.append(_text(left, y, "Work Feed", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Review queue", 18 * scale, "#f6f3ff", 800))
     for item in feed:
         y += 30
         rows.append(_text(left + 14, y, f"{item.label}: {item.title}", 13 * scale, "#dfe7ff", 650))
 
     y += 48
-    rows.append(_text(left, y, "Action Rail Safety", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Advanced Commands", 18 * scale, "#f6f3ff", 800))
     for action in actions:
         y += 30
         safety = "read-only" if action.supervisor_may_auto_run else "approval required"

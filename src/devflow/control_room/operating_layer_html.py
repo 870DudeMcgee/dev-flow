@@ -25,18 +25,11 @@ INDEX_HTML = """<!doctype html>
       </div>
       <nav aria-label="Primary" role="navigation">
         <ul>
-          <li><a href="#orchestrator" data-action="go-orchestrator" aria-current="page">Overview</a></li>
-          <li><a href="#map" data-action="go-map">Map</a></li>
-          <li><a href="#lanes" data-action="go-lanes">Workers</a></li>
-          <li><a href="#goals" data-action="go-goals">Goals</a></li>
-          <li><a href="#specs" data-action="go-specs">Specs</a></li>
-          <li><a href="#gates" data-action="go-gates">Progress</a></li>
-          <li><a href="#attention" data-action="go-attention">Alerts</a></li>
-          <li><a href="#projects" data-action="go-projects">Projects</a></li>
-          <li><a href="#inbox" data-action="go-inbox">Inbox</a></li>
-          <li><a href="#actions" data-action="go-actions">Actions</a></li>
-          <li><a href="#evidence" data-action="go-evidence">Evidence</a></li>
+          <li><a href="#orchestrator" data-action="go-orchestrator" aria-current="page">Home</a></li>
+          <li><a href="#lanes" data-action="go-lanes">Work</a></li>
           <li><a href="#promotion" data-action="go-promotion">Review</a></li>
+          <li><a href="#projects" data-action="go-projects">Projects</a></li>
+          <li><a href="#actions" data-action="go-actions">Advanced</a></li>
         </ul>
       </nav>
     </aside>
@@ -70,6 +63,75 @@ INDEX_HTML = """<!doctype html>
           <button id="refresh-button" type="button" title="Refresh snapshot">Refresh</button>
         </div>
       </header>
+
+      <!-- Guided control room -->
+      <section id="guided" class="guided-control-room" data-section="guided" aria-label="Guided control room">
+        <section class="guided-panel idea-intake-panel" aria-labelledby="idea-intake-heading">
+          <div class="section-heading">
+            <span id="idea-intake-heading">Capture idea</span>
+            <output id="idea-intake-state" aria-live="polite" aria-atomic="true">Brainstorm</output>
+          </div>
+          <form id="idea-intake-form" class="idea-intake-form">
+            <label>
+              <span class="label">Brainstorm, request, or rough thought</span>
+              <textarea id="idea-intake-text" autocomplete="off" placeholder="Type the messy version here. Dev-Flow will save it as idea evidence, not run it."></textarea>
+            </label>
+            <label>
+              <span class="label">Optional short title</span>
+              <input id="idea-intake-title" type="text" autocomplete="off" placeholder="e.g. Better project onboarding">
+            </label>
+            <div class="guided-action-row">
+              <button id="idea-intake-submit" class="primary-action" type="submit">Save idea</button>
+              <span class="label">Creates local idea evidence only</span>
+            </div>
+          </form>
+          <details class="advanced-toggle task-create-toggle">
+            <summary>Create an immediate task instead</summary>
+            <form id="start-work-form" class="start-work-form">
+              <label>
+                <span class="label">Task title</span>
+                <input id="start-work-title" type="text" autocomplete="off" placeholder="e.g. Fix import sorting">
+              </label>
+              <label class="inline-control">
+                <input id="start-work-git-worktree" type="checkbox">
+                <span>Create Git worktree lane</span>
+              </label>
+              <button id="start-work-submit" class="secondary-action" type="submit">Create task</button>
+            </form>
+          </details>
+        </section>
+
+        <section class="guided-panel next-step-panel" aria-labelledby="guided-next-heading">
+          <div class="section-heading">
+            <span id="guided-next-heading">Next step</span>
+            <output id="guided-next-state" aria-live="polite" aria-atomic="true">Loading</output>
+          </div>
+          <h2 id="guided-next-title">Loading recommended action...</h2>
+          <p id="guided-next-detail">Reading the current snapshot.</p>
+          <code id="guided-next-command">Loading...</code>
+          <div class="guided-action-row">
+            <button id="guided-primary-action" class="primary-action" type="button">Open next action</button>
+            <span id="guided-primary-note" class="label">Filesystem state remains the source of truth</span>
+          </div>
+          <div id="guided-action-result" class="guided-action-result" aria-live="polite" aria-atomic="true"></div>
+        </section>
+
+        <section class="guided-panel active-work-panel" aria-labelledby="active-work-heading">
+          <div class="section-heading">
+            <span id="active-work-heading">Active work</span>
+            <output id="active-work-count" aria-live="polite" aria-atomic="true">0 tasks</output>
+          </div>
+          <div id="active-work-groups" class="active-work-groups" role="list" aria-label="Task cards grouped by state"></div>
+        </section>
+
+        <section class="guided-panel review-queue-panel" aria-labelledby="review-queue-heading">
+          <div class="section-heading">
+            <span id="review-queue-heading">Review queue</span>
+            <output id="review-queue-count" aria-live="polite" aria-atomic="true">0 items</output>
+          </div>
+          <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Verification and promotion queue"></div>
+        </section>
+      </section>
 
       <!-- Orchestrator stage (live-updating panel) -->
       <section id="orchestrator" class="orchestrator-stage" data-section="orchestrator" aria-label="Orchestrator overview" aria-live="polite" aria-atomic="true">
@@ -140,17 +202,17 @@ INDEX_HTML = """<!doctype html>
         <button id="clear-context-button" type="button" aria-label="Clear current scope">Clear</button>
       </section>
 
-      <!-- Action Rail (collapsible panel) -->
-      <section id="actions" class="action-strip collapsed" data-section="actions" aria-label="Action rail">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="actions" aria-expanded="false" aria-controls="action-list" aria-label="Action rail, 0 actions">
+      <!-- Advanced Commands (collapsible panel) -->
+      <section id="actions" class="action-strip collapsed" data-section="actions" aria-label="Advanced commands">
+        <button class="section-heading accordion-trigger" type="button" data-toggle-section="actions" aria-expanded="false" aria-controls="action-list" aria-label="Advanced commands, 0 actions">
           <span>
-            <strong class="sr-only" aria-hidden="true">Action Rail</strong>
-            Action Rail
+            <strong class="sr-only" aria-hidden="true">Advanced Commands</strong>
+            Advanced Commands
           </span>
           <output id="action-count" aria-live="polite" aria-atomic="true">0</output>
         </button>
         <div id="action-list" class="action-list section-body" role="list" aria-label="Action items"></div>
-        <div id="action-preview" class="action-preview section-body" aria-live="polite" aria-atomic="true" aria-label="Action preview"></div>
+        <div id="action-preview" class="action-preview section-body" aria-live="polite" aria-atomic="true" aria-label="Command Preview"></div>
       </section>
 
       <!-- Question & Blocker Inbox (collapsible panel) -->

@@ -214,4 +214,4 @@ Milestone 20 is complete when:
 - Do not make `devflow agent run` choose a model automatically.
 - Do not make local workers verify, promote, commit, push, or create PRs.
 - Do not add a database.
-- Do not expand browser mutation beyond already approved exact verification and promotion controls.
+- Do not expand browser mutation beyond the stable guarded list of idea capture, task creation, shell worker execution, task verification, and task promotion.

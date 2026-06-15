@@ -433,7 +433,7 @@ Status: implemented in the active branch. Design and implementation plan live in
 
 Goal: promote human-blocked worker questions into explicit list, show, answer, resolve, and resume-recommendation commands without auto-resuming work.
 
-Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. Question answer and resolve commands write evidence only; existing task, freshness, scheduler, and trusted CLI commands remain responsible for any later work.
+Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion beyond the stable guarded list, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. Question answer and resolve commands write evidence only; existing task, freshness, scheduler, and trusted CLI commands remain responsible for any later work.
 
 ## Milestone 23: Operating Layer State Reconciliation & Operator Readiness
 
@@ -449,7 +449,7 @@ Implemented:
 - replaced generated slice labels with goal/slice descriptions where evidence permits, while preserving task/goal/slice ids as secondary metadata
 - added deterministic production-readiness dogfood coverage for operator reconciliation
 
-Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. It is a read-only projection and visibility hardening slice over existing Dev-Flow evidence.
+Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion beyond the stable guarded list, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. It is a read-only projection and visibility hardening slice over existing Dev-Flow evidence.
 
 ## Milestone 24: Intent-To-Goal/Task Scaffold
 

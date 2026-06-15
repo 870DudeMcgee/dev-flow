@@ -51,7 +51,7 @@ The operating layer should make Dev-Flow feel like an Agent OS without becoming 
 5. **Evidence beats trust.** Every worker outcome should connect to task events, log paths, verification evidence, readiness evidence, and safe next commands.
 6. **Isolation is a product feature.** Workspace/worktree ownership, dirty state, branch state, and promotion readiness are not implementation details; they are control-room UI facts.
 7. **Progressive disclosure protects attention.** Worker detail, lower boards, logs, and evidence panes should stay compact until the user drills down.
-8. **The browser shell is guarded, not decorative.** It may execute supervisor-classified read-only Dev-Flow commands from the Action Rail, while mutating worker/runtime/task/git commands stop at an explicit approval gate and trusted CLI execution.
+8. **The browser shell is guarded, not decorative.** It may execute supervisor-classified read-only Dev-Flow commands from Advanced Commands, plus the small approved mutation list of idea capture, task creation, shell worker execution, task verification, and task promotion. Every approved mutation still requires exact human approval through the guarded `/api/actions/run` path.
 
 ## Product Map
 
@@ -89,17 +89,17 @@ Multi-project      project_registry.py, multi_project_freshness.py
 | Option | Shape | Strength | Risk | Decision |
 | --- | --- | --- | --- | --- |
 | Kanban-first dashboard | Lanes dominate first viewport; Orchestrator is secondary | Familiar task-management pattern | Hides the actual directive/output and makes agent OS feel like a generic board | Reject as primary layout |
-| Chat-first command center | Thread/output dominates; boards are secondary | Matches agent collaboration surfaces | Can obscure parallel state if telemetry is not compact | Use as part of Orchestrator-first layout |
-| Orchestrator-first control room | Directive, next action, mission feed, and actual worker activity dominate first viewport | Best match for supervising parallel AI work without reading logs | Requires disciplined progressive disclosure to avoid visual noise | Recommended |
+| Chat-first command center | Thread/output dominates; boards are secondary | Matches agent collaboration surfaces | Can obscure parallel state if telemetry is not compact | Use only as supporting context |
+| Guided control room | Capture idea, Next step, Active work, and Review queue dominate first viewport | Best match for the normal local intake/create/run/verify/promote loop | Requires disciplined progressive disclosure to avoid visual noise | Recommended |
 
 ## Recommended Direction
 
-Dev-Flow should be an Orchestrator-first local control room:
+Dev-Flow should be a guided local control room:
 
-- Overview page: project-wide `Worker Activity` grouped by real `task.worker` values, `Current Directive`, `Next Safe Action`, `Work Feed`, `System Health`, compact counters, and compact repository/project chrome.
+- Overview page: a guided first viewport with `Capture idea`, `Next step`, `Active work`, and `Review queue`, followed by project-wide worker activity, system health, compact counters, and repository/project chrome.
 - Drilldown pages: Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review each show only the panels that belong to that work mode.
 - Navigation: the browser shell uses hash-based page routing over one derived snapshot. Page changes must not spawn workers, mutate canonical state, or require a server-side route.
-- Controls: Action Rail execution is limited to supervisor-classified `pure_read_only` Dev-Flow commands. Approval-required worker/runtime/task/git commands are displayed as explicit approval gates and are not executed by the browser.
+- Controls: Advanced Commands execution supports supervisor-classified `pure_read_only` Dev-Flow commands plus exact approval-gated idea capture, task creation, shell worker execution, task verification, and task promotion. Non-shell workers, local/provider model runs, patch application, cleanup apply, sync, push, project publication, and broad mutations remain blocked in the browser.
 
 ## UI Spec
 
@@ -174,16 +174,17 @@ Implemented pieces:
 - Mission feed projection: `operating_layer.py` derives plain-language Orchestrator updates such as "Task progress", "Task update", "Evidence", "Question", and "Ready for review" from existing Dev-Flow artifacts; the browser shell only renders this list.
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
 - `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
-- Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The approved browser mutations are limited to exact human-approved task verification and exact human-approved task promotion, with the server rechecking the classifier, requiring the exact approval phrase, refusing placeholder verification commands, and preserving the existing promotion safety gates.
+- Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The approved browser mutations are limited to exact human-approved idea capture, task creation, shell worker execution, task verification, and task promotion, with the server rechecking the classifier, requiring the exact approval phrase, refusing placeholder idea/title/command text, limiting browser worker runs to `--worker shell`, blocking local/provider model commands, and preserving the existing verification and promotion safety gates.
 - Verification refresh: after an executed approved task-verification action, the browser re-fetches `/api/snapshot` so task lanes, status, progress receipts, and evidence panes update from filesystem truth without a manual page reload.
 - UI assets: `operating_layer_assets.py` remains the public facade, while `operating_layer_html.py`, `operating_layer_styles.py`, and `operating_layer_script.py` own the bundled HTML, CSS, and JavaScript for the local browser shell.
-- Orchestrator-first UI: renders current directive, next safe action, mission feed, health bars, counters, and real project-wide worker activity before repo chrome.
+- Guided-first UI: renders the normal local loop before dense diagnostics, with current directive, mission feed, health bars, counters, and real project-wide worker activity still available below.
 - Page routing: the browser shell maps hash navigation to separate page views so Overview, Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review are not stacked into one cluttered page. The command center remains visible on routed pages so the global filter and project controls stay available.
 - Project drilldown: `/api/snapshot?project=<project_id>` resolves registered projects through the existing registry and returns that project's derived snapshot.
 - Global filter: narrows visible worker-lane tasks and Progress readiness receipts client-side by task id, title, status, worker, workspace, verification state, and latest event text without changing canonical state.
 - Operating Map: scoped map nodes for goals, inbox, workers, progress, review, and projects.
 - Selection Context Bar: names active map/goal scope and provides a Clear control.
-- Action Rail: supervisor-classified commands for project, task, goal, lane, and batch contexts, with a collapsible command preview, read-only command execution, approval-gated task verification, bounded command output, and explicit approval gates for unsafe commands.
+- Guided control room: the first viewport now prioritizes Capture idea, Next step, Active work, and Review queue so the normal local loop is visible before advanced surfaces.
+- Advanced Commands: supervisor-classified commands for project, task, goal, lane, and batch contexts, with a collapsible command preview, read-only command execution, approval-gated task creation/shell-run/verification/promotion controls, bounded command output, and explicit refusal for unsafe commands.
 - Question & Blocker Inbox: groups manual worker questions, blocked tasks, failed/attention tasks, and freshness findings needing human decisions.
 - Goals page: shows goal loop state, completion progress, all projected slices, linked task ids, risk, recommendations, ready/blocked lanes, conflict-aware parallel/worker/verification batches, and safe commands.
 - Spec Board references: shows goal-specific relevant files, optional `.devflow/standards/index.yml` entries, and architecture contract links as bounded read-only reference chips.
@@ -206,24 +207,27 @@ Current verification for this surface lives in `tests/test_operating_layer.py`, 
 7. [x] Add Agent OS-inspired Spec Board and Task Progress projections without adding canonical state.
 8. [x] Add Multi-Project Overview from the existing registry-backed dashboard projection.
 9. [x] Add read-only project drilldown by resolving registered project ids through the existing project registry and fetching that project's derived snapshot.
-10. [x] Add an Action Rail that lists supervisor-classified project, task, goal, lane, and batch commands without executing mutations.
+10. [x] Add Advanced Commands that list supervisor-classified project, task, goal, lane, and batch commands without executing broad mutations.
 11. [x] Add selected-task evidence drilldown with bounded recent events, verification summary, evidence paths, and scrubbed text previews.
 12. [x] Add a Question & Blocker Inbox that groups manual questions, blocked tasks, failed/attention tasks, and freshness human-decision findings.
 13. [x] Add Operating Map, scoped panel filtering, context reset, and accessibility affordances.
-14. [x] Add polished Agent OS-style UI chrome with Orchestrator-first ordering, compact repo chrome, collapsible lower sections, attention strip, micro-interactions, and reduced-motion support.
+14. [x] Add polished Agent OS-style UI chrome with guided-first ordering, compact repo chrome, collapsible lower sections, attention strip, micro-interactions, and reduced-motion support.
 15. [x] Split static UI assets into `operating_layer_assets.py` so the HTTP server remains a small request router.
 16. [x] Add standards/reference visibility to the Spec Board from goal context, optional `.devflow/standards/index.yml`, and architecture contracts.
-17. [x] Add command preview for Action Rail items.
+17. [x] Add command preview for Advanced Commands items.
 18. [x] Add a client-side global filter for worker-lane task discovery.
 19. [x] Replace decorative radar with real worker-activity rows and verify the first viewport with desktop/mobile screenshots.
 20. [x] Move project-wide worker activity into a typed backend snapshot projection.
 21. [x] Move the Orchestrator mission feed into a typed backend snapshot projection with plain-language labels.
 22. [x] Split the long stacked dashboard into hash-routed page views using the same read-only snapshot.
 23. [x] Split large UI asset strings into deeper, efficient modules once the visual direction is accepted.
-24. [x] Add explicit supervisor-safe Action Rail execution for `pure_read_only` Dev-Flow commands while blocking approval-required commands in the browser.
-25. [x] Add the first approval-gated browser mutation for exact `devflow task verify <task_id> --shell "<command>"` commands, with server-side classifier recheck and exact approval echo.
-26. [x] Add exact approval-gated task promotion with server-side classifier recheck, exact approval echo, optional context capture, and existing promotion safety gates.
-27. [x] Refresh the browser snapshot after approved task verification or promotion so lane/status/evidence changes are visible immediately from `/api/snapshot`.
+24. [x] Add explicit supervisor-safe Advanced Commands execution for `pure_read_only` Dev-Flow commands while blocking broad approval-required commands in the browser.
+25. [x] Add approval-gated browser idea capture for exact `devflow idea capture [--source browser] [--title <title>] "<text>"` commands, with placeholder refusal.
+26. [x] Add approval-gated browser task creation for exact `devflow task create [--project <id>] [--git-worktree] "<title>"` commands, with placeholder-title refusal.
+27. [x] Add approval-gated browser shell worker execution for exact `devflow task run <task_id> [--project <id>] --worker shell [--timeout-seconds N] -- <command>` commands, with placeholder, non-shell, local-model, and provider command refusal.
+28. [x] Add approval-gated task verification for exact `devflow task verify <task_id> --shell "<command>"` commands, with server-side classifier recheck and exact approval echo.
+29. [x] Add exact approval-gated task promotion with server-side classifier recheck, exact approval echo, optional context capture, and existing promotion safety gates.
+30. [x] Refresh the browser snapshot after approved idea capture, task creation, shell worker execution, task verification, or promotion so lane/status/evidence changes are visible immediately from `/api/snapshot`.
 
 ## Git-Native Lane Visibility
 
@@ -234,7 +238,7 @@ Milestone 19 adds Git-native worker lane visibility to the operating layer witho
 3. Stale, dirty, head-changed, missing, and conflict states use the same readiness vocabulary as CLI and supervisor surfaces.
 4. Production-readiness dogfood exercises two Git-native shell lanes in a scratch repository, promotes one lane, and cleanup/archives owned resources while preserving canonical task evidence.
 
-Do not add worker execution, task creation, patch application, git publication, provider execution, autonomous routing, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact task verification and exact task promotion through the guarded `/api/actions/run` approval path.
+Do not add non-shell worker execution, local/provider model execution, patch application, cleanup apply, sync, push, project publication, autonomous routing, or broad mutation buttons to the browser shell as part of this checkpoint. Keep approved browser mutations limited to exact idea capture, task creation, shell worker execution, task verification, and task promotion through the guarded `/api/actions/run` approval path.
 
 ## Design Constraints
 

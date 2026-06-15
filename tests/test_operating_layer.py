@@ -55,6 +55,36 @@ def _write_local_patch_worker_evidence(root: Path, task_id: str) -> None:
     (agent_dir / "proposal.patch").write_text("diff --git a/hello.txt b/hello.txt\n", encoding="utf-8")
 
 
+def _serve_operating_layer(root: Path) -> tuple[OperatingLayerHTTPServer, threading.Thread, str, int]:
+    server = OperatingLayerHTTPServer(("127.0.0.1", 0), root)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    return server, thread, host, port
+
+
+def _post_action(host: str, port: int, command: str, **extra: object) -> tuple[int, dict]:
+    connection = HTTPConnection(host, port, timeout=5)
+    body = json.dumps(
+        {
+            "command": command,
+            "human_approved": True,
+            "approval_phrase": "I approve this exact Dev-Flow command",
+            "approved_command": command,
+            **extra,
+        }
+    )
+    connection.request(
+        "POST",
+        "/api/actions/run",
+        body=body,
+        headers={"Content-Type": "application/json"},
+    )
+    response = connection.getresponse()
+    payload = json.loads(response.read().decode("utf-8"))
+    return response.status, payload
+
+
 def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert INDEX_HTML is SPLIT_INDEX_HTML
     assert APP_CSS is SPLIT_APP_CSS
@@ -81,8 +111,11 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
 def test_operating_layer_approved_action_result_retention_hooks_are_present() -> None:
     assert "lastApprovedActionResult" in APP_JS
     assert "rememberApprovedActionResult" in APP_JS
+    assert "rememberBrowserActionResult" in APP_JS
     assert "refreshSnapshotAfterApprovedAction" in APP_JS
     assert "preservedActionResultForSelectedTask" in APP_JS
+    assert "renderGuidedActionResult" in APP_JS
+    assert "Output excerpt" in APP_JS
     assert "Last approved command" in APP_JS
 
 
@@ -153,9 +186,14 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     assert review_loop["status"] == "needs_verification"
     assert review_loop["headline"] == "1 task needs verification"
     assert review_loop["next_safe_action"] == 'devflow task verify task-0001 --shell "<command>"'
-    assert review_loop["browser_allowed_mutations"] == ["task verification", "task promotion"]
-    assert "worker execution" in review_loop["browser_blocked_mutations"]
-    assert "task creation" in review_loop["browser_blocked_mutations"]
+    assert review_loop["browser_allowed_mutations"] == [
+        "idea capture",
+        "task creation",
+        "shell worker execution",
+        "task verification",
+        "task promotion",
+    ]
+    assert "non-shell worker execution" in review_loop["browser_blocked_mutations"]
     assert review_loop["needs_verification_count"] == 1
     assert review_loop["ready_to_promote_count"] == 0
     assert review_loop["blocked_decision_count"] == 0
@@ -686,10 +724,7 @@ def test_operating_layer_server_serves_app_and_snapshot(
 
     assert runner.invoke(app, ["task", "create", "ui shell task"]).exit_code == 0
 
-    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
+    server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
         connection = HTTPConnection(host, port, timeout=5)
         connection.request("GET", "/")
@@ -697,8 +732,15 @@ def test_operating_layer_server_serves_app_and_snapshot(
         body = response.read().decode("utf-8")
         assert response.status == 200
         assert "Dev-Flow Operating Layer" in body
+        assert "Next step" in body
+        assert "Capture idea" in body
+        assert "idea-intake-text" in body
+        assert "Create an immediate task instead" in body
+        assert "Active work" in body
+        assert "Review queue" in body
+        assert "Advanced Commands" in body
         assert "Operating Map" in body
-        assert ">Goals<" in body
+        assert "Goal Board" in body
         assert "Scope" in body
         assert 'aria-live="polite"' in body
         assert "Spec Board" in body
@@ -707,7 +749,7 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "progress-summary-grid" in body
         assert "progress-checklist" in body
         assert "Multi-Project Overview" in body
-        assert "Action Rail" in body
+        assert "Command Preview" in body
         assert "action-preview" in body
         assert 'data-toggle-section="actions"' in body
         assert "global-filter" in body
@@ -726,6 +768,10 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert response.status == 200
         assert "map-list" in css
         assert "map-node" in css
+        assert "guided-control-room" in css
+        assert "idea-intake-panel" in css
+        assert "guided-task-card" in css
+        assert "review-queue-list" in css
         assert "context-bar" in css
         assert "focus-visible" in css
         assert "lane-board" in css
@@ -746,6 +792,14 @@ def test_operating_layer_server_serves_app_and_snapshot(
         response = connection.getresponse()
         js = response.read().decode("utf-8")
         assert response.status == 200
+        assert "renderGuidedControlRoom" in js
+        assert "approvedIdeaCaptureCommand" in js
+        assert "isIdeaCaptureAction" in js
+        assert "guidedTaskActions" in js
+        assert "readableSafetyLabel" in js
+        assert "approvedShellRunCommand" in js
+        assert "isTaskCreationAction" in js
+        assert "isShellWorkerRunAction" in js
         assert "renderOperatingMap" in js
         assert "renderContextBar" in js
         assert "currentContext" in js
@@ -788,10 +842,13 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "selectedGoalTaskIds" in js
         assert "selectedGoalGateReceipts" in js
         assert "selectedGoalEvidence" in js
+        assert "function visibleTasks()" in js
         assert "plainGoalState" in js
         assert "goal-page-card" in js
         assert "pageSections" in js
+        assert 'orchestrator: ["command", "guided"]' in js
         assert 'lanes: ["command", "lanes", "context"]' in js
+        assert 'promotion: ["command", "promotion", "context"]' in js
         assert 'gates: ["command", "gates", "context"]' in js
         assert 'projects: ["command", "projects"]' in js
         assert "setCurrentPage" in js
@@ -808,6 +865,44 @@ def test_operating_layer_server_serves_app_and_snapshot(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_operating_layer_guided_sections_render_before_advanced_sections() -> None:
+    assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="orchestrator"')
+    assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="actions"')
+    assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="specs"')
+    assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="evidence"')
+    assert "Next step" in INDEX_HTML
+    assert "Capture idea" in INDEX_HTML
+    assert "idea-intake-form" in INDEX_HTML
+    assert "Create an immediate task instead" in INDEX_HTML
+    assert "Active work" in INDEX_HTML
+    assert "Review queue" in INDEX_HTML
+    assert "Advanced Commands" in INDEX_HTML
+    assert 'aria-label="Advanced commands"' in INDEX_HTML
+
+
+def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None:
+    assert "function guidedTaskActions(task)" in APP_JS
+    assert "Run shell worker" in APP_JS
+    assert "Run verification" in APP_JS
+    assert "Promotion preview" in APP_JS
+    assert "Approve promotion" in APP_JS
+    assert "Show task" in APP_JS
+    assert "Task log" in APP_JS
+    assert "lane === \"new\"" in APP_JS
+    assert "lane === \"needs_verification\"" in APP_JS
+    assert "lane === \"ready_to_promote\"" in APP_JS
+    assert "lane === \"closed\"" in APP_JS
+
+
+def test_operating_layer_command_preview_uses_human_readable_safety_labels() -> None:
+    assert "function readableSafetyLabel" in APP_JS
+    assert "Read-only" in APP_JS
+    assert "Writes evidence" in APP_JS
+    assert "Runs worker or verification" in APP_JS
+    assert "Changes task state" in APP_JS
+    assert "Raw safety class" in APP_JS
 
 
 def test_operating_layer_visual_qa_plan_covers_core_regression_contracts(
@@ -847,10 +942,11 @@ def test_operating_layer_visual_qa_plan_covers_core_regression_contracts(
         "desktop-screenshot",
         "mobile-screenshot",
         "no-horizontal-overflow",
-        "orchestrator-first",
-        "mission-feed-contained",
-        "worker-progress-rows",
-        "action-rail-safety-states",
+        "guided-first-viewport",
+        "idea-intake",
+        "active-work-cards",
+        "approval-states",
+        "advanced-commands-contained",
     }
     assert all(check["status"] == "pass" for check in plan["checks"])
 
@@ -868,8 +964,8 @@ def test_operating_layer_visual_qa_cli_renders_json_plan(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["visual_flow"] == (
-        "app loads -> first viewport renders Orchestrator, Mission Feed, worker progress, "
-        "and Action Rail safety states without horizontal overflow"
+        "app loads -> first viewport renders Capture idea, Next step, Active work cards, "
+        "and Review queue approval states without horizontal overflow"
     )
     assert payload["browser_runtime"] == "codex-in-app-browser"
     assert payload["serve_command"] == "devflow operating-layer serve --host 127.0.0.1 --port 8765"
@@ -935,10 +1031,10 @@ def test_operating_layer_visual_qa_writes_browser_raster_when_capture_available(
             png=png + str(viewport["name"]).encode("utf-8"),
             checks={
                 "no_horizontal_overflow": True,
-                "orchestrator_first": True,
-                "mission_feed_contained": True,
-                "worker_progress_rows": True,
-                "action_rail_safety_states": True,
+                "guided_first_viewport": True,
+                "active_work_cards": True,
+                "approval_states": True,
+                "advanced_commands_contained": True,
                 "no_mission_feed_action_overlap": True,
             },
         )
@@ -1002,10 +1098,7 @@ def test_operating_layer_server_runs_supervisor_safe_read_only_action(
 
     assert runner.invoke(app, ["task", "create", "ui control task"]).exit_code == 0
 
-    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
+    server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
         connection = HTTPConnection(host, port, timeout=5)
         body = json.dumps({"command": "devflow task list"})
@@ -1039,13 +1132,10 @@ def test_operating_layer_server_blocks_approval_required_actions(
     worker_log = tmp_path / ".devflow" / "tasks" / "task-0001" / "logs" / "worker.log"
     original_worker_log = worker_log.read_text() if worker_log.exists() else None
 
-    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
+    server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
         connection = HTTPConnection(host, port, timeout=5)
-        command = "devflow task run task-0001 --worker shell -- echo hi"
+        command = "devflow task run task-0001 --worker qwopus-implementer"
         body = json.dumps(
             {
                 "command": command,
@@ -1074,6 +1164,181 @@ def test_operating_layer_server_blocks_approval_required_actions(
         thread.join(timeout=5)
 
 
+def test_operating_layer_server_runs_approved_task_creation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    command = 'devflow task create "browser created task"'
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_task_state"
+        assert payload["exit_code"] == 0
+        assert "Created task-0001: browser created task" in payload["stdout"]
+        assert (tmp_path / ".devflow" / "tasks" / "task-0001" / "task.yaml").exists()
+        assert not (tmp_path / ".devflow" / "worktrees").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_idea_capture(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    command = 'devflow idea capture --source browser --title "Better intake" "Let me dump rough project brainstorms before tasking."'
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_evidence_writing"
+        assert payload["exit_code"] == 0
+        assert "idea_id: I-0001" in payload["stdout"]
+        assert "created_task: no" in payload["stdout"]
+        idea_path = tmp_path / ".devflow" / "ideas" / "I-0001"
+        assert (idea_path / "idea.json").exists()
+        assert "rough project brainstorms" in (idea_path / "raw.md").read_text(encoding="utf-8")
+        assert not (tmp_path / ".devflow" / "tasks" / "task-0001").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_refuses_empty_or_placeholder_idea_capture(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for command in ('devflow idea capture', 'devflow idea capture ""', 'devflow idea capture "<idea>"'):
+            status, payload = _post_action(host, port, command)
+
+            assert status != HTTPStatus.OK
+            assert payload.get("executed") is not True
+        assert not (tmp_path / ".devflow" / "ideas" / "I-0001").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_refuses_empty_or_placeholder_task_titles(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for command in ('devflow task create', 'devflow task create ""', 'devflow task create "<title>"'):
+            status, payload = _post_action(host, port, command)
+
+            assert status != HTTPStatus.OK
+            assert payload.get("executed") is not True
+        assert not (tmp_path / ".devflow" / "tasks" / "task-0001").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_shell_worker_in_task_workspace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "approved shell worker action"]).exit_code == 0
+    command = 'devflow task run task-0001 --worker shell -- /bin/sh -c "printf browser > browser.txt"'
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_worker_runtime"
+        assert payload["exit_code"] == 0
+        assert "task-0001: complete" in payload["stdout"]
+        workspace_file = tmp_path / ".devflow" / "workspaces" / "task-0001" / "browser.txt"
+        assert workspace_file.read_text(encoding="utf-8") == "browser"
+        assert not (tmp_path / "browser.txt").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_refuses_invalid_shell_worker_browser_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "refuse invalid shell run"]).exit_code == 0
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        commands = [
+            "devflow task run task-0001 --worker shell --",
+            "devflow task run task-0001 --worker shell -- <command>",
+            "devflow task run task-0001 --worker qwopus-implementer",
+            "devflow task local task-0001 --worker qwen-planner",
+            "devflow agent run --task task-0001 --profile local-qwopus-inspector --json",
+            "devflow task run task-0001 --worker shell -- ollama run qwen",
+        ]
+        for command in commands:
+            status, payload = _post_action(host, port, command)
+
+            assert status != HTTPStatus.OK
+            assert payload.get("executed") is not True
+        assert not (tmp_path / ".devflow" / "workspaces" / "task-0001" / "provider.txt").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_blocks_disallowed_browser_mutations(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "blocked browser mutation"]).exit_code == 0
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for command in (
+            "devflow task apply-patch task-0001",
+            "devflow task cleanup task-0001 --apply",
+            "devflow sync-main",
+            "devflow push-main",
+            "devflow project connect-github demo --remote-url https://github.com/example/demo",
+        ):
+            status, payload = _post_action(host, port, command)
+
+            assert status == HTTPStatus.CONFLICT
+            assert payload["executed"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_operating_layer_server_runs_approved_task_verification(
     tmp_path: Path,
     monkeypatch,
@@ -1085,10 +1350,7 @@ def test_operating_layer_server_runs_approved_task_verification(
     assert run.exit_code == 0, run.output
 
     command = 'devflow task verify task-0001 --shell "test -f result.txt"'
-    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
+    server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
         connection = HTTPConnection(host, port, timeout=5)
         body = json.dumps(
@@ -1141,10 +1403,7 @@ def test_operating_layer_server_runs_approved_task_promotion(
     assert preview.exit_code == 0, preview.output
 
     command = "devflow task promote task-0001"
-    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    host, port = server.server_address
+    server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
         connection = HTTPConnection(host, port, timeout=5)
         body = json.dumps(

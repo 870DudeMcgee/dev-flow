@@ -18,7 +18,9 @@ from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_H
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
 from devflow.control_room.supervisor_surface import (
+    APPROVAL_REQUIRED_EVIDENCE_WRITING,
     APPROVAL_REQUIRED_GIT,
+    APPROVAL_REQUIRED_TASK_STATE,
     APPROVAL_REQUIRED_WORKER_RUNTIME,
     PURE_READ_ONLY,
     classify_supervisor_command,
@@ -89,16 +91,28 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
 
         classification = classify_supervisor_command(command)
+        approved_idea_capture = False
+        approved_task_creation = False
+        approved_shell_worker_run = False
         approved_verification = False
         approved_promotion = False
         if classification["safety_class"] != PURE_READ_ONLY:
             try:
+                approved_idea_capture = _is_approved_idea_capture(payload, command, classification)
+                approved_task_creation = _is_approved_task_creation(payload, command, classification)
+                approved_shell_worker_run = _is_approved_shell_worker_run(payload, command, classification)
                 approved_verification = _is_approved_task_verification(payload, command, classification)
                 approved_promotion = _is_approved_task_promotion(payload, command, classification)
             except ValueError as exc:
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
                 return
-        if classification["safety_class"] != PURE_READ_ONLY and not (approved_verification or approved_promotion):
+        if classification["safety_class"] != PURE_READ_ONLY and not (
+            approved_idea_capture
+            or approved_task_creation
+            or approved_shell_worker_run
+            or approved_verification
+            or approved_promotion
+        ):
             self._send_json(
                 {
                     "executed": False,
@@ -117,7 +131,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             if isinstance(project_id, str) and project_id.strip():
                 root = resolve_project_root(self.server.repo_root, project_id.strip()).root
             args = (
-                _approved_task_verification_command_args(command)
+                _approved_idea_capture_command_args(command)
+                if approved_idea_capture
+                else _approved_task_creation_command_args(command)
+                if approved_task_creation
+                else _approved_shell_worker_run_command_args(command)
+                if approved_shell_worker_run
+                else _approved_task_verification_command_args(command)
                 if approved_verification
                 else _approved_task_promotion_command_args(command)
                 if approved_promotion
@@ -256,6 +276,108 @@ def _supervisor_read_only_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
+def _approved_idea_capture_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 4 or normalized[1:3] != ["idea", "capture"]:
+        raise ValueError("only approved idea capture may run from the operating layer")
+    allowed_value_options = {"--title", "--source", "--tag"}
+    index = 3
+    idea_texts: list[str] = []
+    while index < len(normalized):
+        token = normalized[index]
+        if token in allowed_value_options:
+            if index + 1 >= len(normalized) or normalized[index + 1].startswith("-"):
+                raise ValueError(f"approved browser idea capture requires a value after {token}")
+            if token == "--title" and _is_placeholder_text(normalized[index + 1], field="title"):
+                raise ValueError("approved browser idea capture requires a concrete title when --title is used")
+            index += 2
+            continue
+        if token.startswith("-"):
+            raise ValueError("approved browser idea capture allows only --title, --source, and --tag")
+        idea_texts.append(token)
+        index += 1
+    if len(idea_texts) != 1:
+        raise ValueError("approved browser idea capture requires one quoted idea body")
+    if _is_placeholder_text(idea_texts[0], field="idea"):
+        raise ValueError("approved browser idea capture requires concrete brainstorm text")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_task_creation_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 4 or normalized[1:3] != ["task", "create"]:
+        raise ValueError("only approved task creation may run from the operating layer")
+    allowed_flags = {"--git-worktree"}
+    allowed_value_options = {"--project"}
+    index = 3
+    titles: list[str] = []
+    while index < len(normalized):
+        token = normalized[index]
+        if token in allowed_flags:
+            index += 1
+            continue
+        if token in allowed_value_options:
+            if index + 1 >= len(normalized) or normalized[index + 1].startswith("-"):
+                raise ValueError("approved browser task creation requires a project id after --project")
+            index += 2
+            continue
+        if token.startswith("-"):
+            raise ValueError("approved browser task creation allows only --project and --git-worktree")
+        titles.append(token)
+        index += 1
+    if len(titles) != 1:
+        raise ValueError("approved browser task creation requires one quoted task title")
+    if _is_placeholder_text(titles[0], field="title"):
+        raise ValueError("approved browser task creation requires a concrete task title")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_shell_worker_run_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 6 or normalized[1:3] != ["task", "run"]:
+        raise ValueError("only approved shell worker runs may run from the operating layer")
+    task_id = normalized[3]
+    if not task_id or task_id.startswith("-"):
+        raise ValueError("shell worker run requires a task id")
+    if "--" not in normalized:
+        raise ValueError("approved browser shell worker run requires a command after '--'")
+    separator = normalized.index("--")
+    options = normalized[4:separator]
+    command_tokens = normalized[separator + 1 :]
+    worker = None
+    index = 0
+    while index < len(options):
+        token = options[index]
+        if token == "--worker":
+            if index + 1 >= len(options):
+                raise ValueError("approved browser shell worker run requires --worker shell")
+            worker = options[index + 1]
+            index += 2
+            continue
+        if token == "--project":
+            if index + 1 >= len(options) or options[index + 1].startswith("-"):
+                raise ValueError("approved browser shell worker run requires a project id after --project")
+            index += 2
+            continue
+        if token == "--timeout-seconds":
+            if index + 1 >= len(options) or not options[index + 1].isdigit():
+                raise ValueError("approved browser shell worker run requires a numeric --timeout-seconds value")
+            index += 2
+            continue
+        raise ValueError("approved browser shell worker run allows only --project, --worker shell, and --timeout-seconds")
+    if worker != "shell":
+        raise ValueError("browser worker execution is limited to --worker shell")
+    shell_command = " ".join(command_tokens).strip()
+    if _is_placeholder_text(shell_command, field="command"):
+        raise ValueError("approved browser shell worker run requires a concrete command")
+    if _looks_like_provider_or_local_model_command(command_tokens):
+        raise ValueError("provider and local-model commands cannot run from the browser shell-worker path")
+    return _devflow_command_args_from_tokens(tokens)
+
+
 def _approved_task_verification_command_args(command: str) -> list[str]:
     tokens = shlex.split(command)
     normalized = _normalize_devflow_command_tokens(tokens)
@@ -333,6 +455,36 @@ def _promotion_task_id(command: str) -> str:
     return normalized[3]
 
 
+def _is_approved_idea_capture(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_EVIDENCE_WRITING:
+        return False
+    try:
+        _approved_idea_capture_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_task_creation(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_TASK_STATE:
+        return False
+    try:
+        _approved_task_creation_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_shell_worker_run(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
+        return False
+    try:
+        _approved_shell_worker_run_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
 def _is_approved_task_verification(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
     if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
         return False
@@ -340,13 +492,7 @@ def _is_approved_task_verification(payload: dict[str, object], command: str, cla
         _approved_task_verification_command_args(command)
     except ValueError:
         return False
-    if payload.get("human_approved") is not True:
-        return False
-    if payload.get("approval_phrase") != ACTION_APPROVAL_PHRASE:
-        return False
-    if payload.get("approved_command") != command:
-        return False
-    return True
+    return _approval_payload_matches(payload, command)
 
 
 def _is_approved_task_promotion(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
@@ -356,6 +502,10 @@ def _is_approved_task_promotion(payload: dict[str, object], command: str, classi
         _approved_task_promotion_command_args(command)
     except ValueError:
         return False
+    return _approval_payload_matches(payload, command)
+
+
+def _approval_payload_matches(payload: dict[str, object], command: str) -> bool:
     if payload.get("human_approved") is not True:
         return False
     if payload.get("approval_phrase") != ACTION_APPROVAL_PHRASE:
@@ -363,6 +513,50 @@ def _is_approved_task_promotion(payload: dict[str, object], command: str, classi
     if payload.get("approved_command") != command:
         return False
     return True
+
+
+def _is_placeholder_text(value: str, *, field: str) -> bool:
+    normalized = " ".join(value.strip().lower().split())
+    placeholders = {
+        "",
+        "...",
+        "todo",
+        "tbd",
+        "placeholder",
+        f"<{field}>",
+        field,
+    }
+    if field == "command":
+        placeholders.update({"your command", "run command", "shell command"})
+    if field == "idea":
+        placeholders.update({"your idea", "rough idea", "brainstorm", "brainstorm here"})
+    if field == "title":
+        placeholders.update({"task title", "untitled", "new task"})
+    return normalized in placeholders
+
+
+def _looks_like_provider_or_local_model_command(command_tokens: list[str]) -> bool:
+    if not command_tokens:
+        return False
+    lowered = [token.lower() for token in command_tokens]
+    joined = " ".join(lowered)
+    if lowered[:3] == ["devflow", "task", "local"]:
+        return True
+    if lowered[:3] == ["devflow", "agent", "run"]:
+        return True
+    provider_markers = (
+        "ollama",
+        "openai",
+        "anthropic",
+        "gemini",
+        "claude",
+        "aider",
+        "opencode",
+        "qwen",
+        "qwopus",
+        "gemma",
+    )
+    return any(marker in joined for marker in provider_markers)
 
 
 def _devflow_command_args_from_tokens(tokens: list[str]) -> list[str]:
