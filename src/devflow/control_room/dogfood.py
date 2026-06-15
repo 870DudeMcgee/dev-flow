@@ -26,7 +26,9 @@ from devflow.control_room.knowledge_foundry import capture_from_validation, sear
 from devflow.control_room.idea_execution_bridge import create_goal_from_idea
 from devflow.control_room.idea_foundry import capture_idea, classify_idea, promote_idea
 from devflow.control_room.intent_scaffold import preview_scaffold_from_idea, write_scaffold_from_idea
+from devflow.control_room.local_agent_discovery import LocalDiscoveryReport, parse_ollama_list
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
+from devflow.control_room.model_audition import execute_model_audition, write_model_audition_dry_run_plan
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_visual_qa import (
     build_visual_qa_plan,
@@ -67,10 +69,10 @@ DEFAULT_DOGFOOD_RUN_RETENTION = 1
 SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
-    "A_safety_git_discipline": 22,
-    "B_pipeline_correctness": 32,
+    "A_safety_git_discipline": 24,
+    "B_pipeline_correctness": 35,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 29,
+    "D_worker_artifact_quality": 33,
     "E_recovery_failure_handling": 32,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
@@ -287,6 +289,36 @@ def production_readiness_cases() -> list[dict[str, Any]]:
             scoring={
                 "B_pipeline_correctness": 2,
                 "D_worker_artifact_quality": 7,
+            },
+        ),
+        _case_definition(
+            case_id="model-audition-evidence",
+            title="Model audition evidence ladder",
+            category="D_worker_artifact_quality",
+            task_type="local_model_audition",
+            risk_level="medium",
+            purpose="Prove read-only local model auditions produce plan/run/score/report evidence without provider calls.",
+            expected_behavior=[
+                "write dry-run candidate plan evidence",
+                "execute selected read-only local profiles through deterministic WorkerEvidence fixtures",
+                "write audition-level runs, scorecard, and report artifacts",
+                "rank grounded output above generic or hallucinated output",
+                "avoid source edits, proposal.patch, verification, promotion, commits, pushes, and provider calls",
+            ],
+            command_sequence=[
+                "devflow agent audition <task-id> --job review-debug --dry-run --json (fixture discovery)",
+                "devflow agent audition <task-id> --job review-debug --execute --json (fixture worker-pool runs)",
+            ],
+            success_criteria=[
+                "dry-run plan selects no more than three safe candidates",
+                "execute writes runs.json, scorecard.json, and report.md",
+                "WorkerEvidence is reused under local-model-runs",
+                "scorecard ranks grounded output first and flags false claims",
+            ],
+            scoring={
+                "A_safety_git_discipline": 2,
+                "B_pipeline_correctness": 3,
+                "D_worker_artifact_quality": 4,
             },
         ),
         _case_definition(
@@ -1361,6 +1393,156 @@ def _case_local_worker_lane(
         and len(operating_lanes) >= 2
         and not any(token in commands_text for token in forbidden_tokens),
         "no provider API calls or autonomous routing were introduced",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
+def _case_model_audition_evidence(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "model-audition-repo"
+    _init_git_native_dogfood_repo(scratch)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_command(state, "git init scratch model-audition dogfood repo", status="passed", output=relative_path(root, scratch))
+
+    task = create_task(scratch, "Dogfood model audition evidence")
+    task_yaml_before = (scratch / ".devflow" / "tasks" / task.id / "task.yaml").read_text(encoding="utf-8")
+    discovery = _dogfood_audition_discovery_report()
+    dry_run = write_model_audition_dry_run_plan(
+        scratch,
+        task.id,
+        "review-debug",
+        discovery_report=discovery,
+    )
+    _record_command(
+        state,
+        f"devflow agent audition {task.id} --job review-debug --dry-run --json (fixture)",
+        status=dry_run["status"],
+        output=dry_run["plan_path"],
+    )
+
+    def fixture_run_profile(**kwargs: Any) -> dict[str, Any]:
+        profile_id = str(kwargs["profile_id"])
+        response_text = _dogfood_audition_response(profile_id, task_id=task.id, task_title=task.title, task_status=task.status)
+        evidence = write_worker_evidence(
+            root=scratch,
+            worker_type="local_model_worker_pool",
+            profile_id=profile_id,
+            worker_id=profile_id,
+            task_id=task.id,
+            run_id=f"dogfood-{profile_id}",
+            packet_text="deterministic model audition packet",
+            raw_output=response_text,
+            response_text=response_text,
+            model=profile_id,
+            adapter="ollama_chat",
+            adapter_maturity="local_patch_runtime",
+            permission_mode="read_only",
+            hermes_delegable=True,
+            runtime="dogfood_fixture",
+            status="success",
+            started_at="2026-06-15T00:00:00+00:00",
+            quality_notes="dogfood fixture",
+            quality_score=0.9,
+        )
+        return {
+            "task_id": task.id,
+            "profile_id": profile_id,
+            "worker_id": profile_id,
+            "status": "success",
+            "run_id": evidence.run_id,
+            "model": profile_id,
+            "adapter": "ollama_chat",
+            "evidence_dir": relative_path(scratch, evidence.evidence_dir),
+            "run_metadata_path": relative_path(scratch, evidence.run_metadata_path),
+            "response_path": relative_path(scratch, evidence.response_path),
+        }
+
+    execute = execute_model_audition(
+        scratch,
+        task.id,
+        "review-debug",
+        discovery_report=discovery,
+        run_profile=fixture_run_profile,
+    )
+    _record_command(
+        state,
+        f"devflow agent audition {task.id} --job review-debug --execute --json (fixture)",
+        status=execute["status"],
+        output=execute["report_path"],
+    )
+
+    audition_dir = scratch / ".devflow" / "tasks" / task.id / "model-auditions" / "execute-review-debug"
+    runs = json.loads((audition_dir / "runs.json").read_text(encoding="utf-8"))
+    scorecard = json.loads((audition_dir / "scorecard.json").read_text(encoding="utf-8"))
+    report_exists = (audition_dir / "report.md").exists()
+    ranking = scorecard["advisory_ranking"]
+    task_yaml_after = (scratch / ".devflow" / "tasks" / task.id / "task.yaml").read_text(encoding="utf-8")
+    git_state = inspect_git_state(scratch)
+    proposal_patches = sorted(str(path) for path in (scratch / ".devflow" / "tasks" / task.id).rglob("proposal.patch"))
+    summary = {
+        "scratch_repo": relative_path(root, scratch),
+        "dry_run_plan_path": dry_run["plan_path"],
+        "execute_paths": {
+            "plan": execute["plan_path"],
+            "runs": execute["runs_path"],
+            "scorecard": execute["scorecard_path"],
+            "report": execute["report_path"],
+        },
+        "selected_candidate_count": len(dry_run["selected_candidates"]),
+        "run_count": len(runs["runs"]),
+        "top_profile": ranking[0]["profile_id"] if ranking else None,
+        "false_claim_flagged": any("false_claim" in item.get("deductions", []) for item in ranking),
+        "task_yaml_unchanged": task_yaml_before == task_yaml_after,
+        "git_dirty": git_state.dirty,
+        "proposal_patches": proposal_patches,
+    }
+    summary_path = case_dir / "artifacts" / "model-audition-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+
+    commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
+    forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "promote", "verify")
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "A_safety_git_discipline",
+        2,
+        task_yaml_before == task_yaml_after
+        and not git_state.dirty
+        and not proposal_patches
+        and not any(token in commands_text for token in forbidden_tokens),
+        "model audition preserved task/source state and avoided promotion-adjacent commands",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        3,
+        dry_run["status"] == "planned"
+        and execute["status"] == "completed"
+        and len(dry_run["selected_candidates"]) <= 3
+        and len(runs["runs"]) == len(dry_run["selected_candidates"]),
+        "dry-run and execute produced bounded candidate/run evidence",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        4,
+        report_exists
+        and ranking
+        and ranking[0]["profile_id"] == "local-gemma4-31b-dense-judge"
+        and summary["false_claim_flagged"]
+        and scorecard["will_update_routing_policy"] is False,
+        "scorecard ranked grounded output first and flagged false claims",
     )
     return _finalize_case(root, case, state, scores, failures)
 
@@ -2523,6 +2705,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "git-native-worker-lane-hardening": _case_git_native_worker_lane,
     "local-worker-lane-hardening": _case_local_worker_lane,
     "success-empty-worker-outcome": _case_success_empty,
+    "model-audition-evidence": _case_model_audition_evidence,
     "plan-only-unsafe-git-state": _case_plan_only_unsafe_git,
     "failed-verification-recovery": _case_failed_verification,
     "knowledge-capture-from-validation-failure": _case_knowledge_capture,
@@ -2954,6 +3137,40 @@ def _init_git_native_dogfood_repo(root: Path) -> None:
     (root / "README.md").write_text("# Git-native Dogfood Repo\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True, text=True, timeout=20)
     subprocess.run(["git", "commit", "-m", "baseline"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
+
+
+def _dogfood_audition_discovery_report() -> LocalDiscoveryReport:
+    installed = parse_ollama_list(
+        """NAME                              ID              SIZE      MODIFIED
+qwen2.5-coder:7b-instruct         aaa111          4.7 GB    1 day ago
+gemma4-review:latest              bbb222          18 GB     1 day ago
+qwen2.5-coder:32b-instruct        ccc333          19 GB     1 day ago
+"""
+    )
+    return LocalDiscoveryReport(installed, [], [])
+
+
+def _dogfood_audition_response(profile_id: str, *, task_id: str, task_title: str, task_status: str) -> str:
+    if profile_id == "local-gemma4-31b-dense-judge":
+        return (
+            "## Task Grounding\n"
+            f"- Task ID: {task_id}\n"
+            f"- Task Title: {task_title}\n"
+            f"- Task Status: {task_status}\n\n"
+            "## Summary\nGrounded model audition evidence.\n\n"
+            "## Findings\n- The packet supports advisory review-debug comparison only.\n\n"
+            "## Risks Or Questions\n- No verification or promotion evidence is present.\n\n"
+            "## Suggested Next Dev-Flow Action\n"
+            f"devflow task show {task_id}\n"
+        )
+    if profile_id == "local-qwen25-coder-32b-code-reviewer":
+        return (
+            "## Task Grounding\n"
+            f"- Task ID: {task_id}\n\n"
+            "## Summary\nI edited files and ran verification successfully.\n\n"
+            "## Suggested Next Dev-Flow Action\nPromote it.\n"
+        )
+    return "Generic response without task grounding."
 
 
 def _run_devflow_help(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:

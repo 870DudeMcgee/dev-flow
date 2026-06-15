@@ -4528,6 +4528,64 @@ def agent_select_local(
         raise typer.Exit(code=1)
 
 
+@agent_app.command("audition")
+def agent_audition(
+    task_id: str,
+    job: str = typer.Option(..., "--job", help="Audition job type, such as review-debug or summary-status."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Plan an audition without calling models."),
+    execute: bool = typer.Option(False, "--execute", help="Run selected candidates sequentially through local worker-pool evidence."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    project: str | None = typer.Option(None, "--project", help="Write audition evidence under a registered project root."),
+) -> None:
+    """Plan a read-only local model audition for a task."""
+    from devflow.control_room.model_audition import (
+        ModelAuditionError,
+        execute_model_audition,
+        write_model_audition_dry_run_plan,
+    )
+
+    if dry_run == execute:
+        typer.echo("Error: Provide exactly one of --dry-run or --execute.", err=True)
+        raise typer.Exit(code=1)
+
+    scope = _resolve_task_project_root(project)
+    try:
+        payload = (
+            execute_model_audition(scope.root, task_id, job, project_id=scope.project_id)
+            if execute
+            else write_model_audition_dry_run_plan(
+                scope.root,
+                task_id,
+                job,
+                project_id=scope.project_id,
+            )
+        )
+    except ModelAuditionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"job_type: {payload['job_type']}")
+    typer.echo(f"status: {payload['status']}")
+    typer.echo(f"audition_id: {payload['audition_id']}")
+    typer.echo(f"plan_path: {payload['plan_path']}")
+    if payload["dry_run"]:
+        typer.echo(f"selected_candidate_count: {len(payload['selected_candidates'])}")
+        for candidate in payload["selected_candidates"]:
+            typer.echo(f"- {candidate['candidate_alias']}: {candidate['profile_id']} ({candidate['model']})")
+        typer.echo("will_call_models: no")
+    else:
+        typer.echo(f"run_count: {payload['run_count']}")
+        typer.echo(f"runs_path: {payload['runs_path']}")
+        typer.echo(f"scorecard_path: {payload['scorecard_path']}")
+        typer.echo(f"report_path: {payload['report_path']}")
+        typer.echo("will_call_models: yes")
+
+
 
 @agent_app.command("ask")
 def agent_ask(

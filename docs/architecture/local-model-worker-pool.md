@@ -103,6 +103,8 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent discover-local --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent select-local <task-id> --role implementation_worker --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent audition <task-id> --job review-debug --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent audition <task-id> --job review-debug --execute --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
 ```
@@ -112,6 +114,10 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --prof
 `agent select-local <task-id> --role <role> --json` ranks installed registry agents for the requested role and writes `.devflow/tasks/<task-id>/agent-selection.json`. It does not run a worker, edit source, apply patches, verify, promote, or silently fall back to another model. Installed models that are not represented by a registry agent are reported as unregistered local models; they are not executable through `task run` until a registry entry grants the needed permission surface.
 
 Dry-run does not call the model and does not write evidence. It reports task id, profile id, model, adapter, runtime, maturity, permission mode, Hermes delegation, machine class, weight class, packet sizing, expected evidence paths, safety warnings, and mutation refusals.
+
+`agent audition <task-id> --job <job-type> --dry-run --json` writes task-local audition planning evidence under `.devflow/tasks/<task-id>/model-auditions/dry-run-<job-type>/plan.json`. It selects up to three installed, read-only local worker-pool profiles for the requested job type, rejects unsafe or uninstalled profiles with reasons, and does not call models.
+
+`agent audition <task-id> --job <job-type> --execute --json` requires worker-safe Git state, reuses or creates the dry-run plan, runs selected profiles sequentially through `run_local_model_profile`, and writes derived audition `plan.json`, `runs.json`, `scorecard.json`, and `report.md` under `.devflow/tasks/<task-id>/model-auditions/execute-<job-type>/`. The underlying model outputs remain normal WorkerEvidence under `local-model-runs`.
 
 The real MVP vertical slice runs one safe local profile such as `local-qwopus-inspector`: it builds a bounded task packet, calls `LocalModelClient`, writes WorkerEvidence, caps raw output, captures failure, and stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
 

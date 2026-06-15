@@ -41,12 +41,13 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 17
+    assert len(cases) == 18
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "git-native-worker-lane-hardening",
         "local-worker-lane-hardening",
+        "model-audition-evidence",
         "intent-scaffold-approval-path",
         "operator-readiness-reconciliation",
         "simple-scheduler-parallel-coordination",
@@ -77,7 +78,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 17
+    assert len(result["run"]["cases_run"]) == 18
     assert list_tasks(tmp_path) == []
 
     report = (run_dir / "report.md").read_text(encoding="utf-8")
@@ -263,6 +264,25 @@ def test_local_worker_lane_dogfood_case_exercises_evidence_ladder(tmp_path: Path
     assert any("read-only local worker evidence was summarized" in lesson for lesson in case_result["lessons"])
     assert any("local patch worker evidence reached apply/verify gates" in lesson for lesson in case_result["lessons"])
     assert any("no provider API calls or autonomous routing were introduced" in lesson for lesson in case_result["lessons"])
+
+
+def test_model_audition_dogfood_case_proves_evidence_ladder(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["model-audition-evidence"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("dry-run and execute produced bounded candidate/run evidence" in lesson for lesson in case_result["lessons"])
+    assert any("scorecard ranked grounded output first and flagged false claims" in lesson for lesson in case_result["lessons"])
+    summary_path = next(path for path in case_result["artifacts_created"] if path.endswith("model-audition-summary.json"))
+    summary = yaml.safe_load((tmp_path / summary_path).read_text(encoding="utf-8"))
+    assert summary["selected_candidate_count"] == 3
+    assert summary["run_count"] == 3
+    assert summary["top_profile"] == "local-gemma4-31b-dense-judge"
+    assert summary["false_claim_flagged"] is True
+    assert summary["task_yaml_unchanged"] is True
 
 
 def test_simple_scheduler_dogfood_case_exercises_parallel_coordination(tmp_path: Path) -> None:
