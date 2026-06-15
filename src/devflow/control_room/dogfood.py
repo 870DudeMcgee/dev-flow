@@ -19,7 +19,11 @@ from devflow.control_room.git_worktree import (
     list_devflow_branches,
     list_devflow_worktrees,
 )
+from devflow.control_room.goal_tasks import load_goal_task_slices
 from devflow.control_room.knowledge_foundry import capture_from_validation, search_knowledge
+from devflow.control_room.idea_execution_bridge import create_goal_from_idea
+from devflow.control_room.idea_foundry import capture_idea, classify_idea, promote_idea
+from devflow.control_room.intent_scaffold import preview_scaffold_from_idea, write_scaffold_from_idea
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_visual_qa import (
@@ -61,10 +65,10 @@ SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
     "A_safety_git_discipline": 22,
-    "B_pipeline_correctness": 28,
+    "B_pipeline_correctness": 32,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 25,
-    "E_recovery_failure_handling": 30,
+    "D_worker_artifact_quality": 29,
+    "E_recovery_failure_handling": 32,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
     "H_operating_layer_visual_qa": 10,
@@ -545,6 +549,46 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "B_pipeline_correctness": 2,
                 "D_worker_artifact_quality": 2,
                 "E_recovery_failure_handling": 3,
+            },
+        ),
+        _case_definition(
+            case_id="intent-scaffold-approval-path",
+            title="Intent scaffold approval path",
+            category="B_pipeline_correctness",
+            task_type="intent_scaffold_approval",
+            risk_level="medium",
+            purpose=(
+                "Prove raw operator intent becomes reviewable Idea Foundry and goal/task scaffold evidence "
+                "before canonical tasks or workers exist."
+            ),
+            expected_behavior=[
+                "capture raw idea evidence",
+                "preview scaffold without mutating goals or tasks",
+                "write scaffold review evidence",
+                "simulate human classification and idea promotion",
+                "create goal from reviewed scaffold evidence",
+                "project task slices without creating canonical task records",
+                "avoid provider calls, worker runs, verification, task promotion, commits, and pushes",
+            ],
+            command_sequence=[
+                "devflow idea capture 'build a search plugin'",
+                "devflow idea scaffold-goal <idea-id> --dry-run",
+                "devflow idea scaffold-goal <idea-id>",
+                "devflow idea classify <idea-id> --maturity goal_ready",
+                "devflow idea promote <idea-id> --to goal",
+                "devflow idea create-goal <idea-id>",
+                "devflow goal slices <goal-id>",
+            ],
+            success_criteria=[
+                "dry-run scaffold preview leaves the scratch repo unchanged",
+                "scaffold-goal JSON and Markdown evidence exist before goal creation",
+                "created goal consumes scaffold PRD, context, risk, handoff, and task-slice evidence",
+                "no canonical task record, worker run, verification, task promotion, commit, push, or provider call occurs",
+            ],
+            scoring={
+                "B_pipeline_correctness": 4,
+                "D_worker_artifact_quality": 4,
+                "E_recovery_failure_handling": 2,
             },
         ),
         _case_definition(
@@ -2106,6 +2150,219 @@ def _case_operator_readiness_reconciliation(
     return _finalize_case(root, case, state, scores, failures)
 
 
+def _case_intent_scaffold_approval_path(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "intent-scaffold-repo"
+    _init_git_native_dogfood_repo(scratch)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_command(
+        state,
+        "git init scratch intent-scaffold dogfood repo",
+        status="passed",
+        output=relative_path(root, scratch),
+    )
+
+    commit_count_before = _git_commit_count(scratch)
+    idea = capture_idea(
+        scratch,
+        "build a search plugin",
+        title="Build search plugin",
+        source="dogfood",
+        tags=["intent"],
+    )
+    _record_command(state, "devflow idea capture 'build a search plugin'", status="passed", output=idea["id"])
+
+    before_preview = _intent_scaffold_file_snapshot(scratch)
+    preview = preview_scaffold_from_idea(scratch, idea["id"])
+    after_preview = _intent_scaffold_file_snapshot(scratch)
+    dry_run_changed = sorted(set(after_preview) - set(before_preview))
+    _record_command(
+        state,
+        f"devflow idea scaffold-goal {idea['id']} --dry-run",
+        status=preview["status"],
+    )
+
+    written = write_scaffold_from_idea(scratch, idea["id"])
+    scaffold_json = scratch / ".devflow" / "ideas" / idea["id"] / "scaffold-goal.json"
+    scaffold_md = scratch / ".devflow" / "ideas" / idea["id"] / "scaffold-goal.md"
+    state["artifacts_created"].extend([relative_path(root, scaffold_json), relative_path(root, scaffold_md)])
+    _record_command(
+        state,
+        f"devflow idea scaffold-goal {idea['id']}",
+        status=written["status"],
+        output=relative_path(root, scaffold_json),
+    )
+
+    classify_idea(
+        scratch,
+        idea["id"],
+        maturity="goal_ready",
+        note="Dogfood scaffold reviewed.",
+        tags=["intent"],
+    )
+    _record_command(
+        state,
+        f"devflow idea classify {idea['id']} --maturity goal_ready",
+        status="passed",
+    )
+    promote_idea(
+        scratch,
+        idea["id"],
+        target="goal",
+        rationale="Human reviewed scaffold evidence.",
+    )
+    _record_command(
+        state,
+        f"devflow idea promote {idea['id']} --to goal",
+        status="passed",
+    )
+
+    created = create_goal_from_idea(scratch, idea["id"])
+    goal_path = scratch / created.created_path
+    state["artifacts_created"].append(relative_path(root, goal_path))
+    _record_command(
+        state,
+        f"devflow idea create-goal {idea['id']}",
+        status="passed",
+        output=created.created_id,
+    )
+
+    slices = load_goal_task_slices(scratch, created.created_id)
+    _record_command(
+        state,
+        f"devflow goal slices {created.created_id}",
+        status="passed",
+        output=f"{len(slices)} slices",
+    )
+
+    canonical_tasks = list_tasks(scratch)
+    prd_path = goal_path / "prd.md"
+    risks_path = goal_path / "risks.md"
+    handoff_path = goal_path / "handoff.md"
+    context_path = goal_path / "context-pointers.yaml"
+    link_path = goal_path / "idea-link.yaml"
+    open_questions_path = goal_path / "open-questions.yaml"
+    task_slices_path = goal_path / "task-slices.yaml"
+    prd = prd_path.read_text(encoding="utf-8") if prd_path.exists() else ""
+    risks = risks_path.read_text(encoding="utf-8") if risks_path.exists() else ""
+    handoff = handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else ""
+    context = yaml.safe_load(context_path.read_text(encoding="utf-8")) if context_path.exists() else {}
+    link = yaml.safe_load(link_path.read_text(encoding="utf-8")) if link_path.exists() else {}
+    open_questions = yaml.safe_load(open_questions_path.read_text(encoding="utf-8")) if open_questions_path.exists() else {}
+    slice_ids = [slice_.task_id for slice_ in slices]
+    commands_clean = _intent_scaffold_commands_avoid_execution(state["commands_run"])
+    commit_count_after = _git_commit_count(scratch)
+    tracked_status = _git_short_status(scratch)
+    no_execution = (
+        commands_clean
+        and canonical_tasks == []
+        and commit_count_after == commit_count_before
+        and tracked_status == []
+    )
+
+    summary = {
+        "idea_id": idea["id"],
+        "preview_status": preview["status"],
+        "written_status": written["status"],
+        "scaffold_json": relative_path(root, scaffold_json),
+        "scaffold_markdown": relative_path(root, scaffold_md),
+        "dry_run_changed_files": dry_run_changed,
+        "goal_id": created.created_id,
+        "goal_path": created.created_path,
+        "task_slice_ids": slice_ids,
+        "canonical_task_ids": [task.id for task in canonical_tasks],
+        "commands_clean": commands_clean,
+        "commit_count_before": commit_count_before,
+        "commit_count_after": commit_count_after,
+        "tracked_git_status": tracked_status,
+        "source_scaffold_path": link.get("source_scaffold_path"),
+    }
+    summary_path = case_dir / "artifacts" / "intent-scaffold-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+
+    scaffold_written = (
+        preview.get("status") == "ready_for_review"
+        and written.get("status") == "ready_for_review"
+        and dry_run_changed == []
+        and scaffold_json.exists()
+        and scaffold_md.exists()
+        and scaffold_json.stat().st_mtime_ns <= goal_path.stat().st_mtime_ns
+    )
+    goal_consumed_scaffold = (
+        created.created_id == "G-0001"
+        and slice_ids == ["TS-0001", "TS-0002"]
+        and link.get("source_scaffold_path") == ".devflow/ideas/I-0001/scaffold-goal.json"
+        and not canonical_tasks
+    )
+    artifacts_reviewable = (
+        "Canonical goal/task state is created only after explicit human approval." in prd
+        and "TBD" not in prd
+        and "Confirm the plugin boundary" in risks
+        and "PRODUCT_NORTH_STAR.md" in (context.get("required_context") or [])
+        and open_questions.get("implementation_blocked") is False
+    )
+    slices_reviewable = (
+        task_slices_path.exists()
+        and len(slices) == 2
+        and slices[0].verification_policy.get("commands")
+        and slices[0].promotion_allowed is False
+        and f"devflow goal create-task {created.created_id} TS-0001" in handoff
+    )
+
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        scaffold_written,
+        "intent scaffold wrote review evidence before goal creation",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        goal_consumed_scaffold,
+        "goal creation consumed scaffold task slices without running workers",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        2,
+        artifacts_reviewable,
+        "scaffold goal artifacts retained reviewable acceptance criteria",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        2,
+        slices_reviewable and summary_path.exists(),
+        "intent scaffold evidence remained inspectable",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        2,
+        no_execution,
+        "no provider calls, worker runs, verification, task promotion, commits, or pushes were performed",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
 def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
@@ -2249,6 +2506,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "simple-scheduler-parallel-coordination": _case_simple_scheduler_parallel_coordination,
     "question-blocker-resume-loop": _case_question_blocker_resume_loop,
     "operator-readiness-reconciliation": _case_operator_readiness_reconciliation,
+    "intent-scaffold-approval-path": _case_intent_scaffold_approval_path,
     "operating-layer-visual-qa-hardening": _case_operating_layer_visual_qa,
 }
 
@@ -2596,6 +2854,34 @@ def _git_short_status(root: Path) -> list[str]:
     return [line for line in proc.stdout.splitlines() if line and not line[3:].startswith(".devflow/")]
 
 
+def _git_commit_count(root: Path) -> int:
+    try:
+        proc = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    if proc.returncode != 0:
+        return 0
+    try:
+        return int(proc.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def _intent_scaffold_file_snapshot(root: Path) -> list[str]:
+    files: list[str] = []
+    for path in root.rglob("*"):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        files.append(path.relative_to(root).as_posix())
+    return sorted(files)
+
+
 def _new_run_id(root: Path) -> str:
     stamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
     base = f"dogfood-{stamp}"
@@ -2733,6 +3019,27 @@ def _record_command(
 
 def _commands_have_no_provider_calls(commands: list[dict[str, Any]]) -> bool:
     forbidden = ("ollama", "openai", "anthropic", "gemini", "provider", "route", "promote", "push")
+    return not any(
+        any(token in str(command.get("command", "")).lower() for token in forbidden)
+        for command in commands
+    )
+
+
+def _intent_scaffold_commands_avoid_execution(commands: list[dict[str, Any]]) -> bool:
+    forbidden = (
+        "ollama",
+        "openai",
+        "anthropic",
+        "gemini",
+        "provider",
+        "route",
+        "push",
+        "devflow task run",
+        "devflow task verify",
+        "devflow task promote",
+        "git commit",
+        "checkpoint",
+    )
     return not any(
         any(token in str(command.get("command", "")).lower() for token in forbidden)
         for command in commands

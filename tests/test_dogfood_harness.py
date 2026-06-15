@@ -41,12 +41,13 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 16
+    assert len(cases) == 17
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "git-native-worker-lane-hardening",
         "local-worker-lane-hardening",
+        "intent-scaffold-approval-path",
         "operator-readiness-reconciliation",
         "simple-scheduler-parallel-coordination",
         "question-blocker-resume-loop",
@@ -76,7 +77,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 16
+    assert len(result["run"]["cases_run"]) == 17
     spawned_tasks = list_tasks(tmp_path)
     assert spawned_tasks
     assert all(task.status == "closed" for task in spawned_tasks)
@@ -242,6 +243,29 @@ def test_operator_readiness_reconciliation_dogfood_case(tmp_path: Path) -> None:
     assert any("operator surfaces agreed on readiness counts" in lesson for lesson in case_result["lessons"])
     assert any("lifecycle repair outranked stale dispatch guidance" in lesson for lesson in case_result["lessons"])
     assert any("plain descriptive task labels remained primary" in lesson for lesson in case_result["lessons"])
+
+
+def test_intent_scaffold_dogfood_case_exercises_approval_path(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["intent-scaffold-approval-path"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("intent scaffold wrote review evidence before goal creation" in lesson for lesson in case_result["lessons"])
+    assert any("goal creation consumed scaffold task slices without running workers" in lesson for lesson in case_result["lessons"])
+    assert any(
+        "no provider calls, worker runs, verification, task promotion, commits, or pushes were performed" in lesson
+        for lesson in case_result["lessons"]
+    )
+    summary_path = next(path for path in case_result["artifacts_created"] if path.endswith("intent-scaffold-summary.json"))
+    summary = yaml.safe_load((tmp_path / summary_path).read_text(encoding="utf-8"))
+    assert summary["idea_id"] == "I-0001"
+    assert summary["goal_id"] == "G-0001"
+    assert summary["task_slice_ids"] == ["TS-0001", "TS-0002"]
+    assert summary["canonical_task_ids"] == []
+    assert summary["dry_run_changed_files"] == []
 
 
 def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:
