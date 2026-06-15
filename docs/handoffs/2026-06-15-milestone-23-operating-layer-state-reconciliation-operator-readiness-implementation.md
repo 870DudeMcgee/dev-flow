@@ -25,12 +25,13 @@ complete
 - `PYTHONPATH=src:. .venv/bin/python -m pytest -q`: pass, 1043 passed and 6 skipped in 180.00s
 - `PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness`: pass, run `dogfood-20260615T130901Z`, score 143/145, Bulletproof candidate, Silver met
 - stale-context release scan: pass, `.devflow/release/milestone-23/stale-context.log` is empty
+- `PYTHONPATH=src:. .venv/bin/devflow release readiness --pytest-evidence .devflow/release/milestone-23/pytest.log --stale-context-evidence .devflow/release/milestone-23/stale-context.log`: pass, all gates passed
 
 ## Risks
 
 - Plain `.venv/bin/devflow ...` may fail in this checkout unless the editable install is refreshed or `PYTHONPATH=src:.` is set.
-- Release-readiness still needs to be rendered from a clean checkpoint after this handoff/docs boundary repair is committed.
+- Local `main` is ahead of `origin/main`; pushing requires explicit human approval.
 
 ## Next Safe Action
 
-- Checkpoint this docs/boundary repair, then run `devflow release readiness --pytest-evidence .devflow/release/milestone-23/pytest.log --stale-context-evidence .devflow/release/milestone-23/stale-context.log` from the clean checkout.
+- Human-review the local Milestone 23 checkpoint, then run `PYTHONPATH=src:. .venv/bin/devflow push-main` only after explicit approval.

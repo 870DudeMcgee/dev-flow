@@ -38,7 +38,7 @@ The current milestone base is a shell-worker control-room contract plus one manu
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
-Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 adds a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited. Milestone 22 makes worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work. Milestone 23 aligns count semantics, goal lifecycle blockers, stale directives, plain-language task/project names, and browser UI next-action behavior around the approved operating layer. The current priority is Milestone 23 closure/release-readiness evidence before selecting the next product milestone.
+Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 adds a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited. Milestone 22 makes worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work. Milestone 23 aligns count semantics, goal lifecycle blockers, stale directives, plain-language task/project names, and browser UI next-action behavior around the approved operating layer. Release-readiness evidence has passed; the current priority is human review and approved publication of the local Milestone 23 checkpoint before selecting the next product milestone.
 
 ## Code Architecture Boundary
 
@@ -246,4 +246,4 @@ Milestone 23 Operating Layer State Reconciliation & Operator Readiness is implem
 
 ## Known Worktree State At Handoff
 
-Local `main` contains the Milestone 23 implementation. The next safe action is to capture final release-readiness evidence for the operator-readiness slice before selecting the next product milestone.
+Local `main` contains the Milestone 23 implementation and release-readiness evidence has passed. The next safe action is human review, then `devflow push-main` only after explicit approval.
