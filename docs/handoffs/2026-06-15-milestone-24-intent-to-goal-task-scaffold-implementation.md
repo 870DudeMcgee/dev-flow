@@ -2,7 +2,7 @@
 
 ## Status
 
-in-progress
+complete
 
 ## Files Changed
 
@@ -18,11 +18,12 @@ in-progress
 ## Verification
 
 - `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_intent_scaffold.py tests/test_idea_foundry.py tests/test_idea_execution_bridge.py tests/test_supervisor_operating_surface.py tests/test_telegram_routing.py tests/test_df_telegram_bridge.py tests/test_dogfood_harness.py tests/test_devmode_contract.py tests/test_workflow_orchestration_docs.py tests/test_project_scope_docs.py tests/test_release_readiness.py -q`: pass, `100 passed in 41.28s`
-- `PYTHONPATH=src:. .venv/bin/python -m pytest -q`: pass, `1050 passed, 6 skipped in 179.02s`
-- `PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness`: pass, run `dogfood-20260615T155825Z`, score `153/155`, threshold `Bulletproof candidate`, `silver_met: yes`
+- `PYTHONPATH=src:. .venv/bin/python -m pytest -q`: pass, `1050 passed, 6 skipped in 191.27s`
+- `PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness`: pass, run `dogfood-20260615T160446Z`, score `153/155`, threshold `Bulletproof candidate`, `silver_met: yes`
 - release-readiness stale-context scan: pass, no matches
 - Milestone 24 active stale-context scan: pass, no matches
 - `git diff --check`: pass, no output
+- `PYTHONPATH=src:. .venv/bin/devflow release readiness --pytest-evidence .devflow/release/milestone-24-full-pytest.log --stale-context-evidence .devflow/release/milestone-24-stale-context.log --dogfood-run dogfood-20260615T155825Z`: pass, status `passed`, clean checkpoint `7185bf93769d47cc81fbe7eb35a06b0c1a578d73`
 
 ## Risks
 
@@ -32,4 +33,4 @@ in-progress
 
 ## Next Safe Action
 
-- Run `devflow release readiness` against the clean checkpoint with the captured full-pytest and stale-context evidence.
+- Review the Milestone 24 closure evidence, then choose Milestone 25 or tag/build from the clean checkpoint only after human approval.
