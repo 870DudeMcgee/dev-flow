@@ -425,13 +425,20 @@ Goal: promote deterministic task-fit, context estimation, scout, routing, and ro
 
 Boundary: this milestone must not add autonomous routing, automatic worker execution, remote provider API calls, silent model substitution, worker-owned verification/promotion, commits, pushes, pull requests, hidden memory, vector search, RAG, embeddings, or training. Routing decisions may recommend next commands, but humans or explicit dogfood lanes still invoke execution.
 
+## Milestone 22: Question & Blocker Resume Loop
+
+Status: planned. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md](superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md) and [docs/superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md](superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md).
+
+Goal: promote human-blocked worker questions into explicit list, show, answer, resolve, and resume-recommendation commands without auto-resuming work.
+
+Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. Question answer and resolve commands write evidence only; existing task, freshness, scheduler, and trusted CLI commands remain responsible for any later work.
+
 ## Later, Not Now
 
 - Aider adapter
 - Hermes external operator/chat gateway over supervisor-safe commands; no Hermes runtime adapter or source-of-truth role
 - OpenCode adapter
 - dependency scheduler
-- question resume flow
 - protected path gates
 - autonomous routing beyond read-only projections and explicit human commands
 - memory

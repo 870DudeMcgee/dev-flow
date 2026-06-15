@@ -38,7 +38,7 @@ The current milestone base is a shell-worker control-room contract plus one manu
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
-Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 is implemented in the active branch to add a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited.
+Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 adds a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited. Milestone 22 is planned next to make worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work.
 
 ## Code Architecture Boundary
 
@@ -220,6 +220,12 @@ Milestone 21 Simple Scheduler / Parallel Coordination Beta is implemented in the
 - [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md)
 - [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-implementation.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-implementation.md)
 
+Milestone 22 Question & Blocker Resume Loop is planned next. It should add read-only question list/show projections plus explicit answer/resolve evidence commands that feed scheduler, supervisor, and operating-layer resume recommendations without automatically restarting workers. Artifacts:
+
+- [docs/superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md](superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md)
+- [docs/superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md](superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md)
+- [docs/handoffs/2026-06-15-milestone-22-question-blocker-resume-loop-next.md](handoffs/2026-06-15-milestone-22-question-blocker-resume-loop-next.md)
+
 ## Known Worktree State At Handoff
 
-Milestone 21 implementation is in task `task-0041` on the `devflow/task-0041/shell` worktree/branch until reviewed and promoted. Keep unrelated dirty worktree changes intact if any appear after this handoff.
+Milestone 21 has been promoted to local `main`. Milestone 22 planning was attempted in `task-0042`, but that worktree was created from stale `origin/main` before the local Milestone 21 promotion was pushed, so `task-0042` is closed as `superseded`. The active Milestone 22 spec/plan/handoff artifacts live on local `main`; push them with `devflow push-main` before starting implementation.
