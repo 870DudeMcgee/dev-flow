@@ -26,15 +26,15 @@ PYTHONPATH=src:. .venv/bin/devflow freshness loop --json
 
 Expected: exit 0 if all goals have lifecycle state, or exit 2 with a `needs_human_decision` finding for a pre-existing missing lifecycle state.
 
-- [ ] **Step 2: Repair deferred missing lifecycle state if present**
+- [ ] **Step 2: Historical deferred lifecycle repair**
 
-If the only missing lifecycle finding is `G-0001-lifecycle-missing`, run:
+Historical note only: this was the Milestone 14A repair path for a pre-existing missing lifecycle state. Do not run it for the current `G-0001`; the active goal state is now managed by `devflow goal activate G-0001 --reason "<current milestone>"`.
 
 ```bash
-PYTHONPATH=src:. .venv/bin/devflow goal block G-0001 --reason "Deferred after Milestone 14A; Hermes rollout is not the active next lane, and multi-project control room is the next handoff."
+PYTHONPATH=src:. .venv/bin/devflow goal status G-0001
 ```
 
-Expected: command exits 0 and writes ignored lifecycle evidence under `.devflow/goals/G-0001/`.
+Expected: command exits 0 and shows the current lifecycle evidence under `.devflow/goals/G-0001/`.
 
 - [ ] **Step 3: Rerun the freshness loop**
 

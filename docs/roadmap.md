@@ -19,7 +19,7 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, Milestone 16 agent registry runtime hardening, and Milestone 22 question/blocker resume loop in the active branch.
+Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, Milestone 16 agent registry runtime hardening, and Milestone 22 question/blocker resume loop in the local main checkout.
 
 Current follow-on boundary: model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role and write Milestone 17 task-fit/context-routing evidence today, but autonomous best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 

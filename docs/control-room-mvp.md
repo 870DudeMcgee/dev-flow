@@ -452,7 +452,7 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 17 task-fit/context-routing evidence, Milestone 18 Operating-Layer Beta, Milestone 19 Git-Native Worker Lane Hardening, Milestone 20 Registry-Backed Local Worker Runtime Hardening, and Milestone 21 Simple Scheduler / Parallel Coordination Beta are complete in the local main checkout. Milestone 22 Question & Blocker Resume Loop is implemented in the active branch to make worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-resume, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, or making Git-native worktrees the default runtime.
+> **Current Priority**: Operating Layer State Reconciliation & Operator Readiness. Milestone 14 goal execution control loop through Milestone 22 Question & Blocker Resume Loop are complete in the local main checkout. The local operating layer is the authoritative "what should I do now?" surface over existing task, scheduler, goal, question, evidence, verification, and promotion projections. Current model selection is registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-resume, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, or making Git-native worktrees the default runtime.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
@@ -504,7 +504,7 @@ To ensure strict engineering discipline, the data surface is stratified as follo
 The following areas are out-of-scope for the completed MVP and deferred:
 * **Replaceable AI Adapters**: No Codex, Aider, or Hermes adapters.
 * **Model Routing**: No dynamic LLM gateway routing or scheduling.
-* **Dashboard / Web Server**: No database-driven dashboard (text-only terminal dashboard remains static).
+* **Dashboard / Web Server**: No database-driven dashboard or autonomous browser mutation surface. The approved local operating layer is the current browser-friendly control surface over derived filesystem evidence.
 * **Databases**: Relies strictly on plain filesystem architecture; no SQL/NoSQL databases.
 * **Automated Merging**: No automatic pull request creation or branch merging.
 

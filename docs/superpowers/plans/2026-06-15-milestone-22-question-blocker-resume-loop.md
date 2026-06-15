@@ -1089,10 +1089,10 @@ devflow question answer <question_id> --answer "use the existing API"
 devflow question resolve <question_id> --reason "superseded by updated scope"
 ```
 
-Update current-priority text so Milestone 22 is implemented only after the code lands. During implementation, use this wording:
+Historical implementation note: this branch-era wording is no longer authoritative. Current active docs should say Milestone 22 is promoted in the local main checkout.
 
 ```text
-Milestone 22 Question & Blocker Resume Loop is implemented in the active branch to make worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work.
+Milestone 22 Question & Blocker Resume Loop is promoted in the local main checkout and keeps worker question answer/resolve evidence visible to scheduler/supervisor/operating-layer projections without auto-resuming work.
 ```
 
 - [ ] **Step 2: Add implementation handoff**

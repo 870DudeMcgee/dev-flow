@@ -237,7 +237,7 @@ The case should assert:
 The implementation updates active docs to say:
 
 - Milestone 21 is complete in the local main checkout.
-- Milestone 22 is implemented in the active branch.
+- Milestone 22 is promoted in the local main checkout.
 - The question/resume loop is evidence-only and explicit-command driven.
 - Provider adapters, autonomous routing, browser mutation expansion, auto-resume, and automatic verification/promotion remain excluded.
 

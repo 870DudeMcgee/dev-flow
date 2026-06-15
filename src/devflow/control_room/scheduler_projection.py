@@ -12,6 +12,7 @@ from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path, task_dir
 from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
 from devflow.control_room.question_resume import QuestionRecord, build_question_snapshot
+from devflow.control_room.status_projection import build_task_status_projection
 from devflow.control_room.task_lifecycle import append_task_event
 
 
@@ -196,6 +197,7 @@ def _scheduler_task(root: Path, task: TaskRecord, questions: list[QuestionRecord
     current_task_dir = task_dir(root, task.id)
     stale, stale_reason, stale_evidence = _is_stale(root, task, current_task_dir)
     blockers, blocker_evidence, question_next_action, has_answered_question = _question_blockers(questions)
+    projection = build_task_status_projection(root, task.id, task=task)
     retry_request = current_task_dir / "retry-request.json"
     evidence_paths = [
         relative_path(root, current_task_dir / "task.yaml"),
@@ -206,7 +208,9 @@ def _scheduler_task(root: Path, task: TaskRecord, questions: list[QuestionRecord
     if retry_request.exists():
         evidence_paths.append(relative_path(root, retry_request))
 
-    if stale:
+    if task.status in CLOSED_STATUSES:
+        state: SchedulerTaskState = "closed"
+    elif stale:
         state: SchedulerTaskState = "stale"
     elif blockers or (task.status == "blocked" and not has_answered_question):
         state = "blocked"
@@ -214,12 +218,12 @@ def _scheduler_task(root: Path, task: TaskRecord, questions: list[QuestionRecord
         state = "needs_retry"
     elif task.status == "running":
         state = "running"
-    elif task.status == "verified" or task.verification_status == "passed":
+    elif projection.ready_to_promote:
         state = "ready_to_promote"
-    elif task.status == "complete" and task.verification_status != "passed":
+    elif projection.is_verified:
+        state = "needs_review"
+    elif projection.needs_verification:
         state = "ready_to_verify"
-    elif task.status in CLOSED_STATUSES:
-        state = "closed"
     else:
         state = "ready"
 
@@ -285,6 +289,8 @@ def _task_next_action(task_id: str, state: SchedulerTaskState) -> str:
         return f"devflow task promote-preview {task_id}"
     if state == "ready_to_verify":
         return f'devflow task verify {task_id} --shell "<command>"'
+    if state == "needs_review":
+        return f"devflow task review-ready {task_id} --json"
     return f"devflow task show {task_id}"
 
 

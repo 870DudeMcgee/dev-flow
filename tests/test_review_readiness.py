@@ -8,6 +8,8 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.persistence import get_task, save_task, utc_now
+from devflow.control_room.review_readiness import build_review_readiness_projection
+from devflow.control_room.status_projection import build_task_status_projection
 
 
 runner = CliRunner()
@@ -189,6 +191,36 @@ def test_review_ready_rejects_non_ready_git_native_preview(tmp_path: Path, monke
     assert payload["review_state"] == "needs_promotion_preview"
     assert payload["score"] == 80
     assert payload["blockers"] == ["promotion preview is not ready: blocked"]
+
+
+def test_review_ready_treats_non_verification_promotion_blockers_as_review_work(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "stale promotion lane"]).exit_code == 0
+    _set_task_state(
+        tmp_path,
+        "task-0001",
+        status="verified",
+        verification_status="passed",
+        verification_exit_code=0,
+    )
+    projection = build_task_status_projection(tmp_path, "task-0001")
+    projection.promotion_ready = False
+    projection.promotion_blockers = ["origin/main differs from task base commit: abc123"]
+
+    review = build_review_readiness_projection(
+        tmp_path,
+        "task-0001",
+        status_projection=projection,
+    )
+
+    assert review.review_state == "needs_promotion_preview"
+    assert review.score == 80
+    assert review.blockers == ["origin/main differs from task base commit: abc123"]
+    assert review.next_command == "devflow task promote-preview task-0001"
 
 
 def test_review_ready_rejects_preview_for_wrong_task(tmp_path: Path, monkeypatch) -> None:

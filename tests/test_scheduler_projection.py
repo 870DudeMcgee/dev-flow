@@ -172,6 +172,61 @@ def test_scheduler_uses_question_answers_to_clear_open_question_blocker(tmp_path
     assert resumed.next_safe_action == f"devflow task next-action {task.id}"
 
 
+def test_scheduler_keeps_closed_and_promotion_blocked_tasks_out_of_ready_to_promote(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    for title in ("ready", "closed history", "promoted history", "promotion blocker"):
+        created = runner.invoke(app, ["task", "create", title])
+        assert created.exit_code == 0, created.output
+
+    for task_id in ("task-0001", "task-0002", "task-0003", "task-0004"):
+        task = _task(tmp_path, task_id)
+        task.status = "verified"
+        task.verification_status = "passed"
+        task.verification_exit_code = 0
+        save_task(tmp_path / ".devflow" / "tasks" / task.id, task)
+        (tmp_path / ".devflow" / "tasks" / task.id / "verification.json").write_text(
+            json.dumps(
+                {
+                    "task_id": task.id,
+                    "task_status": "verified",
+                    "status": "passed",
+                    "exit_code": 0,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    closed = _task(tmp_path, "task-0002")
+    closed.status = "closed"
+    save_task(tmp_path / ".devflow" / "tasks" / closed.id, closed)
+    promoted = _task(tmp_path, "task-0003")
+    promoted.status = "promoted"
+    save_task(tmp_path / ".devflow" / "tasks" / promoted.id, promoted)
+    (tmp_path / ".devflow" / "tasks" / "task-0004" / "verification.json").write_text(
+        "{not-json\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_scheduler_snapshot(tmp_path)
+    states = {task.task_id: task.scheduler_state for task in snapshot.tasks}
+
+    assert states == {
+        "task-0001": "ready_to_promote",
+        "task-0002": "closed",
+        "task-0003": "closed",
+        "task-0004": "needs_review",
+    }
+    assert snapshot.counts["ready_to_promote"] == 1
+    assert snapshot.counts["closed"] == 2
+    assert snapshot.counts["needs_review"] == 1
+
+
 def test_scheduler_cli_status_and_retry_json(tmp_path: Path, monkeypatch) -> None:
     _init_goal(tmp_path, monkeypatch)
     create = runner.invoke(app, ["task", "create", "cli retry"])

@@ -264,11 +264,18 @@ def _classify_review_readiness(
         return "needs_verification", 60, ["verification has not passed"], _scope_task_command(command, project_id)
     if projection.is_verified:
         if projection.promotion_blockers:
+            if _promotion_blockers_require_verification(projection.promotion_blockers):
+                return (
+                    "needs_verification",
+                    60,
+                    projection.promotion_blockers,
+                    _task_command("verify", task_id, project_id, suffix='--shell "<command>"'),
+                )
             return (
-                "needs_verification",
-                60,
+                "needs_promotion_preview",
+                80,
                 projection.promotion_blockers,
-                _task_command("verify", task_id, project_id, suffix='--shell "<command>"'),
+                _task_command("promote-preview", task_id, project_id),
             )
         if preview.available:
             return "ready_for_review", 100, [], _task_command("capsule", task_id, project_id)
@@ -279,6 +286,17 @@ def _classify_review_readiness(
             _task_command("promote-preview", task_id, project_id),
         )
     return "not_ready", 10, ["no reviewable task output was found"], _task_command("show", task_id, project_id)
+
+
+def _promotion_blockers_require_verification(blockers: list[str]) -> bool:
+    verification_terms = (
+        "verification status",
+        "verification exit code",
+        "verification.json",
+        "verified_patch",
+        "patch-application.json",
+    )
+    return any(any(term in blocker for term in verification_terms) for blocker in blockers)
 
 
 def _promotion_preview_state(root: Path, task: TaskRecord) -> _PromotionPreviewState:

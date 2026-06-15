@@ -49,10 +49,10 @@ INDEX_HTML = """<!doctype html>
           <p id="repo-label" class="label" hidden>Repository</p>
           <h1 id="repo-title">Loading...</h1>
           <div class="metrics-row" aria-label="Command Center metrics">
-            <span id="metrics-heading" class="sr-only">Metrics: total, active, blocked, verify counts</span>
+            <span id="metrics-heading" class="sr-only">Metrics: total, active, blocked task, verify counts</span>
             <span>Total <output id="total-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
             <span>Active <output id="active-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-            <span class="attention">Blocked <output id="blocked-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
+            <span class="attention">Task blocks <output id="blocked-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
             <span class="verify">Verify <output id="verify-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
             <span class="metric-action">Next <code id="next-action" aria-label="Next action" tabindex="-1">Loading...</code></span>
           </div>
@@ -104,7 +104,7 @@ INDEX_HTML = """<!doctype html>
           <div class="orchestrator-counters" role="group" aria-label="Orchestrator counters">
             <div><span>Queue</span><output id="orchestrator-queue" aria-live="polite" aria-atomic="true">0</output></div>
             <div><span>Ready</span><output id="orchestrator-ready" aria-live="polite" aria-atomic="true">0</output></div>
-            <div><span>Blocked</span><output id="orchestrator-blocked" aria-live="polite" aria-atomic="true">0</output></div>
+            <div><span>Blocked lanes</span><output id="orchestrator-blocked" aria-live="polite" aria-atomic="true">0</output></div>
             <div><span>Evidence</span><output id="orchestrator-evidence" aria-live="polite" aria-atomic="true">0</output></div>
           </div>
         </div>
@@ -297,4 +297,3 @@ INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
-

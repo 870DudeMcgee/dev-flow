@@ -110,8 +110,8 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert payload["health"]["total_tasks"] == 1
     assert payload["focus_task_id"] == "task-0001"
     assert payload["next_action"]["command"] == "devflow task run task-0001 --worker shell -- <command>"
-    assert payload["lanes"][5]["name"] == "new"
-    assert payload["lanes"][5]["task_ids"] == ["task-0001"]
+    lanes = {lane["name"]: lane["task_ids"] for lane in payload["lanes"]}
+    assert lanes["new"] == ["task-0001"]
     assert payload["tasks"][0]["id"] == "task-0001"
     assert payload["tasks"][0]["lane"] == "new"
     assert payload["tasks"][0]["detail"]["events_path"] == ".devflow/tasks/task-0001/events.jsonl"
@@ -390,6 +390,31 @@ def test_operating_layer_groups_verification_and_promotion_lanes(
     assert "result.txt" in review["Changed files"]
     assert "done" in review["Task contents"]
     assert str(tmp_path) not in (snapshot.tasks[0].detail.result_preview or "")
+
+
+def test_operating_layer_verified_task_with_invalid_verification_json_stays_actionable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "corrupt verification evidence"]).exit_code == 0
+    task = get_task(tmp_path, "task-0001")
+    task.status = "verified"
+    task.verification_status = "passed"
+    task.verification_exit_code = 0
+    save_task(tmp_path / ".devflow" / "tasks" / task.id, task)
+    (tmp_path / ".devflow" / "tasks" / task.id / "verification.json").write_text(
+        "{not-json\n",
+        encoding="utf-8",
+    )
+
+    snapshot = build_operating_layer_snapshot(tmp_path)
+    lanes = {lane.name: lane.task_ids for lane in snapshot.lanes}
+
+    assert lanes["needs_verification"] == ["task-0001"]
+    assert snapshot.tasks[0].review_state == "needs_verification"
+    assert snapshot.tasks[0].next_action.command == 'devflow task verify task-0001 --shell "<command>"'
 
 
 def test_operating_layer_progress_closes_closed_tasks(
@@ -755,6 +780,9 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "selectedActionCommand" in js
         assert "globalFilter" in js
         assert "taskMatchesFilter" in js
+        assert "laneNamesForCurrentFilter" in js
+        assert "firstFilteredTaskId" in js
+        assert "lane.task_ids.some((taskId) => filteredIds.has(taskId))" in js
         assert "selectedGoalSelection" in js
         assert "goalSelectionPayload" in js
         assert "selectedGoalTaskIds" in js

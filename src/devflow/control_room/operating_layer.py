@@ -442,8 +442,9 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
         ("blocked", "Blocked"),
         ("failed", "Failed"),
         ("running", "Running"),
-        ("needs_verification", "Needs Verification"),
         ("ready_to_promote", "Ready for Review"),
+        ("needs_review", "Needs Review"),
+        ("needs_verification", "Needs Verification"),
         ("new", "New"),
         ("idle", "Idle"),
         ("closed", "Closed"),
@@ -567,7 +568,7 @@ def _goal_cards(root: Path, freshness: FreshnessReport | None) -> list[Operating
 
 
 def _focus_task_id(tasks: list[OperatingLayerTask]) -> str | None:
-    for lane in ("blocked", "failed", "running", "ready_to_promote", "needs_verification", "new", "idle"):
+    for lane in ("blocked", "failed", "running", "ready_to_promote", "needs_review", "needs_verification", "new", "idle"):
         for task in tasks:
             if task.lane == lane:
                 return task.id
@@ -992,12 +993,19 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         status_projection=projection,
         project_id=project_id,
     )
+    if task.status == "verified" and not projection.ready_to_promote and review_readiness.next_command:
+        next_action = DashboardNextAction(
+            label="Resolve review blocker",
+            task_id=task.id,
+            command=review_readiness.next_command,
+            reason="Verification passed but review readiness has blockers.",
+        )
     return OperatingLayerTask(
         id=task.id,
         title=task.title,
         status=task.status,
         display_status=projection.display_status,
-        lane=_lane_for(projection),
+        lane=_lane_for(projection, review_state=review_readiness.review_state),
         worker=task.worker,
         workspace=task.workspace,
         verification_status=projection.verification_status,
@@ -1023,7 +1031,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
     )
 
 
-def _lane_for(projection: TaskStatusProjection) -> str:
+def _lane_for(projection: TaskStatusProjection, *, review_state: str | None = None) -> str:
     task = projection.task
     if not projection.is_active:
         return "closed"
@@ -1035,6 +1043,10 @@ def _lane_for(projection: TaskStatusProjection) -> str:
         return "running"
     if projection.ready_to_promote:
         return "ready_to_promote"
+    if review_state == "needs_promotion_preview" and projection.is_verified:
+        return "needs_review"
+    if review_state == "needs_verification":
+        return "needs_verification"
     if projection.needs_verification:
         return "needs_verification"
     if task.status == "created":

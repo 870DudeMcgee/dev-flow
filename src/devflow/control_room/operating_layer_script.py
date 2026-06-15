@@ -18,7 +18,7 @@ let globalFilter = "";
 let currentPage = "orchestrator";
 
 const APPROVAL_PHRASE = "I approve this exact Dev-Flow command";
-const laneLimit = ["blocked", "running", "needs_verification", "ready_to_promote", "new"];
+const laneLimit = ["blocked", "running", "ready_to_promote", "needs_review", "needs_verification", "new"];
 const pageSections = {
   orchestrator: ["orchestrator", "command"],
   map: ["command", "map", "context"],
@@ -135,7 +135,12 @@ function scopedFocusTaskId() {
 
 function visibleTasksForMapScope() {
   let tasks = snapshot.tasks;
-  if (selectedMapNode === "workers") return applyGlobalTaskFilter(snapshot.tasks.filter((task) => laneLimit.includes(task.lane)));
+  if (selectedMapNode === "workers") {
+    const scoped = globalFilter.trim()
+      ? snapshot.tasks
+      : snapshot.tasks.filter((task) => laneLimit.includes(task.lane));
+    return applyGlobalTaskFilter(scoped);
+  }
   if (selectedMapNode === "gates") {
     const ids = new Set(visibleGateReceipts().map((gate) => gate.task_id));
     tasks = snapshot.tasks.filter((task) => ids.has(task.id));
@@ -180,6 +185,21 @@ function filteredTaskIds() {
   return new Set(applyGlobalTaskFilter(snapshot.tasks).map((task) => task.id));
 }
 
+function laneNamesForCurrentFilter() {
+  const names = new Set(laneLimit);
+  if (!globalFilter.trim()) return names;
+  const filteredIds = filteredTaskIds();
+  snapshot.lanes.forEach((lane) => {
+    if (lane.task_ids.some((taskId) => filteredIds.has(taskId))) names.add(lane.name);
+  });
+  return names;
+}
+
+function firstFilteredTaskId() {
+  const task = applyGlobalTaskFilter(snapshot.tasks)[0];
+  return task ? task.id : null;
+}
+
 function filterGateReceipts(gates) {
   if (!globalFilter.trim()) return gates;
   const ids = filteredTaskIds();
@@ -212,6 +232,7 @@ function visibleEvidence() {
 }
 
 function firstVisibleTaskId() {
+  if (globalFilter.trim()) return firstFilteredTaskId();
   const visible = new Set(laneLimit);
   const task = applyGlobalTaskFilter(snapshot.tasks).find((item) => visible.has(item.lane));
   return task ? task.id : null;
@@ -586,7 +607,7 @@ function operatingMapNodes() {
     + (goal.ready_verification_batch_count || 0), 0);
   const blockedGoalLanes = goals.reduce((total, goal) => total + (goal.blocked_lane_count || 0), 0);
   const activeLaneCount = snapshot.lanes.filter((lane) => lane.task_ids.length > 0).length;
-  const filteredWorkerTasks = applyGlobalTaskFilter(snapshot.tasks.filter((task) => laneLimit.includes(task.lane)));
+  const filteredWorkerTasks = applyGlobalTaskFilter(snapshot.tasks);
   const gateOpen = snapshot.gate_receipts.filter((gate) => gate.next_gate !== "closed").length;
   const projectSummary = snapshot.multi_project;
   return [
@@ -710,9 +731,10 @@ function renderLanes() {
   const scopedTaskIds = new Set(visibleTasksForMapScope().map((task) => task.id));
   const filteredIds = filteredTaskIds();
   const hasMapTaskScope = ["workers", "gates", "promotion", "inbox"].includes(selectedMapNode);
+  const visibleLaneNames = laneNamesForCurrentFilter();
   const visibleLaneTasks = [];
   snapshot.lanes
-    .filter((lane) => laneLimit.includes(lane.name))
+    .filter((lane) => visibleLaneNames.has(lane.name))
     .forEach((lane) => {
       const column = document.createElement("section");
       column.className = "lane";
@@ -943,6 +965,15 @@ function agentProfile(laneName) {
       tone: "mint",
       worker: "human approval",
     },
+    needs_review: {
+      code: "NRV",
+      name: "Needs review",
+      description: "Verified work with review or promotion-readiness blockers.",
+      emptyState: "No tasks",
+      emptyDetail: "No review blockers",
+      tone: "amber",
+      worker: "human review",
+    },
     new: {
       code: "NEW",
       name: "Not started",
@@ -1016,6 +1047,7 @@ function plainTaskStatusLabel(task) {
   if (lane === "running") return "Worker active";
   if (lane === "needs_verification") return "Verification next";
   if (lane === "ready_to_promote") return "Ready for review";
+  if (lane === "needs_review") return "Review blocked";
   if (lane === "new") return "Ready to start";
   if (lane === "closed") return "Closed";
   return "Task state";
@@ -1030,6 +1062,7 @@ function plainTaskStatusLine(task) {
   if (lane === "running" || status.includes("running")) return "A worker is running in the isolated workspace.";
   if (lane === "needs_verification") return "Worker output is recorded. Verification is the next gate.";
   if (lane === "ready_to_promote") return "Verification passed. Review and promotion preview are next.";
+  if (lane === "needs_review") return "Verification passed. Review readiness needs attention.";
   if (verification.includes("fail")) return "Verification failed. Inspect the verify log before continuing.";
   if (verification.includes("pass")) return "Verification passed. Review readiness is available.";
   if (lane === "new" || status === "new") return "Task is queued and ready for a worker command.";
@@ -1397,7 +1430,7 @@ function renderSchedulerBlock() {
   const counts = scheduler.counts || {};
   const rows = [
     ["Ready", counts.ready || 0],
-    ["Blocked", counts.blocked || 0],
+    ["Blocked deps", counts.blocked || 0],
     ["Stale", counts.stale || 0],
     ["Retry", counts.needs_retry || 0],
     ["Batches", scheduler.batch_count || 0],
@@ -1782,7 +1815,7 @@ function renderGoalBoard() {
         <div class="goal-metric"><span>Done</span><strong>${goal.completed_slice_count}</strong></div>
         <div class="goal-metric"><span>Active tasks</span><strong>${goal.active_task_count}</strong></div>
         <div class="goal-metric"><span>Ready lanes</span><strong>${goal.ready_parallel_lane_count}</strong></div>
-        <div class="goal-metric"><span>Blocked</span><strong>${goal.blocked_lane_count}</strong></div>
+        <div class="goal-metric"><span>Blocked lanes</span><strong>${goal.blocked_lane_count}</strong></div>
       </div>
       <div class="goal-page-layout">
         <div class="goal-lane-panel">
