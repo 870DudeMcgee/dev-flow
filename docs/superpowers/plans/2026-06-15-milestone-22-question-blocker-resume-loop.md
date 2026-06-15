@@ -1,5 +1,7 @@
 # Milestone 22 Question & Blocker Resume Loop Implementation Plan
 
+Status: implemented in the active Milestone 22 branch. This file is retained as a historical execution plan, not current runtime authority.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add first-class question listing, answering, resolving, and resume recommendations so human-blocked worker tasks can be recovered through explicit Dev-Flow commands.

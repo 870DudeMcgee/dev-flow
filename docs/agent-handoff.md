@@ -38,7 +38,7 @@ The current milestone base is a shell-worker control-room contract plus one manu
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
-Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 adds a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited. Milestone 22 is planned next to make worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work.
+Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 adds a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited. Milestone 22 is implemented in the active branch to make worker questions listable, answerable, resolvable, and visible to scheduler/supervisor/operating-layer projections without auto-resuming work.
 
 ## Code Architecture Boundary
 
@@ -85,6 +85,10 @@ Current product contract:
 - `devflow task orchestrate <task_id> --plan-only`
 - `devflow scheduler status`
 - `devflow scheduler retry <task_id> --reason "<reason>"`
+- `devflow question list`
+- `devflow question show <question_id>`
+- `devflow question answer <question_id> --answer "<answer>"`
+- `devflow question resolve <question_id> --reason "<reason>"`
 - `devflow worker validate-outcome <path-to-outcome-json>`
 - `devflow knowledge capture/list/show/promote/reject/search`
 - `devflow task promote-preview <task_id>`
@@ -143,6 +147,12 @@ devflow reconcile
 devflow freshness loop
 devflow scheduler status
 devflow scheduler retry <task_id> --reason "<reason>"
+devflow question list
+devflow question list --json
+devflow question show <question_id>
+devflow question show <question_id> --json
+devflow question answer <question_id> --answer "<answer>"
+devflow question resolve <question_id> --reason "<reason>"
 devflow dashboard
 devflow task --help
 devflow task create "example task"
@@ -220,12 +230,13 @@ Milestone 21 Simple Scheduler / Parallel Coordination Beta is implemented in the
 - [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md)
 - [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-implementation.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-implementation.md)
 
-Milestone 22 Question & Blocker Resume Loop is planned next. It should add read-only question list/show projections plus explicit answer/resolve evidence commands that feed scheduler, supervisor, and operating-layer resume recommendations without automatically restarting workers. Artifacts:
+Milestone 22 Question & Blocker Resume Loop is implemented in the active branch. It adds read-only question list/show projections plus explicit answer/resolve evidence commands that feed scheduler, supervisor, and operating-layer resume recommendations without automatically restarting workers. Artifacts:
 
 - [docs/superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md](superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md)
 - [docs/superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md](superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md)
 - [docs/handoffs/2026-06-15-milestone-22-question-blocker-resume-loop-next.md](handoffs/2026-06-15-milestone-22-question-blocker-resume-loop-next.md)
+- [docs/handoffs/2026-06-15-milestone-22-question-blocker-resume-loop-implementation.md](handoffs/2026-06-15-milestone-22-question-blocker-resume-loop-implementation.md)
 
 ## Known Worktree State At Handoff
 
-Milestone 21 has been promoted to local `main`. Milestone 22 planning was attempted in `task-0042`, but that worktree was created from stale `origin/main` before the local Milestone 21 promotion was pushed, so `task-0042` is closed as `superseded`. The active Milestone 22 spec/plan/handoff artifacts live on local `main`; push them with `devflow push-main` before starting implementation.
+Milestone 21 has been promoted and pushed to `main`. Milestone 22 implementation is active in `task-0043` on branch `devflow/task-0043/shell`, based on pushed `main` at `ab7f384`.

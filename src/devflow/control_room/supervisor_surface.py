@@ -14,6 +14,7 @@ from devflow.control_room.patch_review import latest_patch_review
 from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
 from devflow.control_room.persistence import get_task, list_tasks, utc_now
 from devflow.control_room.project_registry import project_task_ref
+from devflow.control_room.question_resume import build_question_snapshot
 from devflow.control_room.qwopus_evidence import read_qwopus_evidence
 from devflow.control_room.scheduler_projection import build_scheduler_snapshot
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
@@ -41,6 +42,10 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow dashboard --json",
     "devflow scheduler status",
     "devflow scheduler status --json",
+    "devflow question list",
+    "devflow question list --json",
+    "devflow question show",
+    "devflow question show --json",
     "devflow status --json",
     "devflow next",
     "devflow supervisor policy",
@@ -106,6 +111,8 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow task capsule --export-md",
     "devflow worker validate-outcome",
     "devflow scheduler retry",
+    "devflow question answer",
+    "devflow question resolve",
     "devflow knowledge capture",
     "devflow idea capture",
     "devflow idea classify",
@@ -338,6 +345,12 @@ def _classify_supervisor_command(command: str) -> str:
         if subcommand == "status":
             return PURE_READ_ONLY
         if subcommand == "retry":
+            return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "question":
+        if subcommand in {"list", "show"}:
+            return PURE_READ_ONLY
+        if subcommand in {"answer", "resolve"}:
             return APPROVAL_REQUIRED_EVIDENCE_WRITING
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "git":
@@ -649,6 +662,7 @@ def render_supervisor_command_classification(command: str, *, json_output: bool)
 def build_control_room_status(root: Path) -> dict[str, Any]:
     projections = list_task_status_projections(root)
     scheduler = build_scheduler_snapshot(root)
+    questions = build_question_snapshot(root)
     task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
     active_tasks = [record for record in task_records if record["active"]]
     closed_tasks = [record for record in task_records if record["status"] == "closed"]
@@ -685,6 +699,10 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
             "next_safe_action": scheduler.next_safe_action,
             "max_parallel_recommendation": scheduler.max_parallel_recommendation,
         },
+        "questions": {
+            "counts": questions.counts,
+            "next_safe_action": questions.next_safe_action,
+        },
         "tasks": task_records,
         "generated_at": utc_now().isoformat(),
     }
@@ -698,6 +716,7 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
     status = build_control_room_status(root)
     policy = build_supervisor_policy()
     scheduler = build_scheduler_snapshot(root)
+    questions = build_question_snapshot(root)
     tasks = [
         _compact_task_record(root, projection.task, projection, include_evidence_paths=True)
         for projection in list_task_status_projections(root)
@@ -723,7 +742,7 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
     stale_or_conflicted = [task for task in tasks if task["active"] and task["stale_or_conflicted"]]
     next_actions = _packet_next_actions(tasks)
     evidence_paths = _dedupe_preserve_order(
-        [path for task in tasks for path in task["evidence_paths"]] + scheduler.evidence_paths
+        [path for task in tasks for path in task["evidence_paths"]] + scheduler.evidence_paths + questions.evidence_paths
     )
     return {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
@@ -763,6 +782,10 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
             "counts": scheduler.counts,
             "next_safe_action": scheduler.next_safe_action,
             "max_parallel_recommendation": scheduler.max_parallel_recommendation,
+        },
+        "questions": {
+            "counts": questions.counts,
+            "next_safe_action": questions.next_safe_action,
         },
         "next_safe_action": next_actions[0]["next_safe_action"] if next_actions else "no active task action inferred",
         "next_recommended_actions": next_actions,

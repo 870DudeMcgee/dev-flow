@@ -21,6 +21,7 @@ from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
+from devflow.control_room.question_resume import QuestionSnapshot, build_question_snapshot
 from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
@@ -175,6 +176,7 @@ class OperatingLayerTask(BaseModel):
 
 
 class OperatingLayerQuestion(BaseModel):
+    question_id: str
     task_id: str
     title: str
     question: str
@@ -426,10 +428,11 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
     project_id = _project_id(root, warnings)
     freshness = _try_freshness(root, warnings)
     scheduler = _try_scheduler(root, warnings)
+    question_snapshot = build_question_snapshot(root)
     tasks = [_task_card(root, projection, project_id=project_id) for projection in dashboard.tasks]
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
-    questions = _questions(dashboard.tasks)
-    inbox = _inbox_items(dashboard.tasks, freshness, project_id=project_id)
+    questions = _questions(question_snapshot, dashboard.tasks)
+    inbox = _inbox_items(dashboard.tasks, freshness, question_snapshot=question_snapshot, project_id=project_id)
     promotion_desk = _promotion_candidates(dashboard.ready_to_promote, project_id=project_id)
     evidence = _evidence(dashboard.tasks)
     goal_board = _goal_board(root, freshness, project_id=project_id)
@@ -733,7 +736,7 @@ def _mission_feed(
         push(
             1,
             OperatingLayerMissionFeedItem(
-                id=f"question:{item.task_id}",
+                id=f"question:{item.question_id}",
                 tone="urgent",
                 label="Question",
                 title=item.task_id or "Worker question",
@@ -1043,17 +1046,22 @@ def _scrub_quarantined_checkout(value: str) -> str:
     return value.replace("/Users/jewelbait/Desktop/DevFlow", "<quarantined-devflow>")
 
 
-def _questions(projections: list[TaskStatusProjection]) -> list[OperatingLayerQuestion]:
+def _questions(
+    question_snapshot: QuestionSnapshot,
+    projections: list[TaskStatusProjection],
+) -> list[OperatingLayerQuestion]:
+    task_titles = {projection.task.id: projection.task.title for projection in projections}
     questions: list[OperatingLayerQuestion] = []
-    for projection in projections:
-        if not projection.manual_agent_question:
+    for question in question_snapshot.questions:
+        if question.status != "open":
             continue
         questions.append(
             OperatingLayerQuestion(
-                task_id=projection.task.id,
-                title=projection.task.title,
-                question=projection.manual_agent_question,
-                command=f"devflow task show {projection.task.id}",
+                question_id=question.question_id,
+                task_id=question.task_id,
+                title=task_titles.get(question.task_id, question.task_id),
+                question=question.question,
+                command=f'devflow question answer {question.question_id} --answer "<answer>"',
             )
         )
     return questions
@@ -1063,12 +1071,36 @@ def _inbox_items(
     projections: list[TaskStatusProjection],
     freshness: FreshnessReport | None,
     *,
+    question_snapshot: QuestionSnapshot,
     project_id: str | None,
 ) -> list[OperatingLayerInboxItem]:
     items: list[OperatingLayerInboxItem] = []
+    task_titles = {projection.task.id: projection.task.title for projection in projections}
+    question_task_ids: set[str] = set()
+    for question in question_snapshot.questions:
+        if question.status != "open":
+            continue
+        question_task_ids.add(question.task_id)
+        command = f'devflow question answer {question.question_id} --answer "<answer>"'
+        items.append(
+            OperatingLayerInboxItem(
+                id=f"question:{question.question_id}",
+                kind="question",
+                priority=10,
+                scope="task",
+                title=f"{question.task_id} - {task_titles.get(question.task_id, question.task_id)}",
+                message=question.question,
+                task_id=question.task_id,
+                path=question.evidence_paths[0] if question.evidence_paths else question.source_path,
+                command=command,
+                action=_action("Answer question", command, "question"),
+            )
+        )
     for projection in projections:
         task = projection.task
         if projection.manual_agent_question:
+            if task.id in question_task_ids:
+                continue
             command = _scope_task_command(f"devflow task show {task.id}", project_id)
             items.append(
                 OperatingLayerInboxItem(

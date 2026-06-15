@@ -19,7 +19,7 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, and Milestone 16 agent registry runtime hardening.
+Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, Milestone 16 agent registry runtime hardening, and Milestone 22 question/blocker resume loop in the active branch.
 
 Current follow-on boundary: model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role and write Milestone 17 task-fit/context-routing evidence today, but autonomous best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 
@@ -427,7 +427,7 @@ Boundary: this milestone must not add autonomous routing, automatic worker execu
 
 ## Milestone 22: Question & Blocker Resume Loop
 
-Status: planned. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md](superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md) and [docs/superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md](superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md).
+Status: implemented in the active branch. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md](superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md) and [docs/superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md](superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md).
 
 Goal: promote human-blocked worker questions into explicit list, show, answer, resolve, and resume-recommendation commands without auto-resuming work.
 

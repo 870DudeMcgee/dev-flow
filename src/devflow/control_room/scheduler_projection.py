@@ -11,6 +11,7 @@ from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path, task_dir
 from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
+from devflow.control_room.question_resume import QuestionRecord, build_question_snapshot
 from devflow.control_room.task_lifecycle import append_task_event
 
 
@@ -104,7 +105,11 @@ CLOSED_STATUSES = {"closed", "promoted"}
 def build_scheduler_snapshot(root: Path) -> SchedulerSnapshot:
     root = root.resolve()
     freshness = _try_freshness(root)
-    tasks = [_scheduler_task(root, task) for task in list_tasks(root)]
+    question_snapshot = build_question_snapshot(root)
+    questions_by_task: dict[str, list[QuestionRecord]] = {}
+    for question in question_snapshot.questions:
+        questions_by_task.setdefault(question.task_id, []).append(question)
+    tasks = [_scheduler_task(root, task, questions_by_task.get(task.id, [])) for task in list_tasks(root)]
     batches = _scheduler_batches(freshness)
     blocked_dependencies = _blocked_dependencies(freshness)
 
@@ -187,10 +192,10 @@ def _try_freshness(root: Path) -> FreshnessReport | None:
         return None
 
 
-def _scheduler_task(root: Path, task: TaskRecord) -> SchedulerTask:
+def _scheduler_task(root: Path, task: TaskRecord, questions: list[QuestionRecord]) -> SchedulerTask:
     current_task_dir = task_dir(root, task.id)
     stale, stale_reason, stale_evidence = _is_stale(root, task, current_task_dir)
-    blockers, blocker_evidence = _task_blockers(root, current_task_dir)
+    blockers, blocker_evidence, question_next_action, has_answered_question = _question_blockers(questions)
     retry_request = current_task_dir / "retry-request.json"
     evidence_paths = [
         relative_path(root, current_task_dir / "task.yaml"),
@@ -203,7 +208,7 @@ def _scheduler_task(root: Path, task: TaskRecord) -> SchedulerTask:
 
     if stale:
         state: SchedulerTaskState = "stale"
-    elif blockers or task.status == "blocked":
+    elif blockers or (task.status == "blocked" and not has_answered_question):
         state = "blocked"
     elif retry_request.exists() or task.status in RETRY_STATUSES:
         state = "needs_retry"
@@ -228,7 +233,7 @@ def _scheduler_task(root: Path, task: TaskRecord) -> SchedulerTask:
         stale_reason=stale_reason,
         blockers=blockers,
         evidence_paths=_dedupe(evidence_paths),
-        next_safe_action=_task_next_action(task.id, state),
+        next_safe_action=question_next_action or _task_next_action(task.id, state),
     )
 
 
@@ -253,29 +258,24 @@ def _is_stale(root: Path, task: TaskRecord, current_task_dir: Path) -> tuple[boo
     return False, None, evidence
 
 
-def _task_blockers(root: Path, current_task_dir: Path) -> tuple[list[str], list[str]]:
+def _question_blockers(questions: list[QuestionRecord]) -> tuple[list[str], list[str], str | None, bool]:
     blockers: list[str] = []
     evidence: list[str] = []
-    question_paths = [current_task_dir / "questions.jsonl"]
-    agents_dir = current_task_dir / "agents"
-    if agents_dir.is_dir():
-        question_paths.extend(sorted(agents_dir.glob("*/questions.jsonl")))
-
-    for questions_path in question_paths:
-        if not questions_path.exists():
+    next_action: str | None = None
+    has_answered_question = False
+    for question in questions:
+        evidence.extend(question.evidence_paths)
+        if question.status == "answered":
+            has_answered_question = True
+            if next_action is None:
+                next_action = question.recommended_resume_command
             continue
-        evidence.append(relative_path(root, questions_path))
-        for line_number, line in enumerate(questions_path.read_text(encoding="utf-8").splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                payload = json.loads(line)
-            except ValueError:
-                blockers.append(f"invalid questions evidence at line {line_number}")
-                continue
-            if payload.get("type") == "blocked_question":
-                blockers.append(str(payload.get("question") or payload.get("summary") or "blocked question"))
-    return blockers, evidence
+        if question.status != "open":
+            continue
+        blockers.append(question.question)
+        if next_action is None:
+            next_action = f'devflow question answer {question.question_id} --answer "<answer>"'
+    return blockers, _dedupe(evidence), next_action, has_answered_question
 
 
 def _task_next_action(task_id: str, state: SchedulerTaskState) -> str:

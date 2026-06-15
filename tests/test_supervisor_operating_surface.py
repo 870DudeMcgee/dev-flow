@@ -143,6 +143,38 @@ def test_evidence_writing_commands_are_not_pure_read_only() -> None:
         assert classification["why_not_auto_runnable"]
 
 
+def test_question_commands_are_classified_by_supervisor_policy() -> None:
+    read_only_list = classify_supervisor_command("devflow question list")
+    read_only_show = classify_supervisor_command("devflow question show Q-task-0001-abc123")
+    answer = classify_supervisor_command('devflow question answer Q-task-0001-abc123 --answer "Use v2"')
+    resolve = classify_supervisor_command('devflow question resolve Q-task-0001-abc123 --reason "stale"')
+
+    assert read_only_list["safety_class"] == PURE_READ_ONLY
+    assert read_only_show["safety_class"] == PURE_READ_ONLY
+    assert answer["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+    assert resolve["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+
+
+def test_question_summary_reaches_supervisor_packet(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    task = create_task(tmp_path, "supervisor question")
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "questions.jsonl").write_text(
+        (
+            '{"type":"blocked_question","task_id":"task-0001",'
+            '"agent_id":"devflow-manual-codex-worker","question":"Which branch should I inspect?"}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
+
+    assert packet["questions"]["counts"]["open"] == 1
+    assert packet["questions"]["next_safe_action"].startswith("devflow question answer Q-task-0001-")
+    assert ".devflow/tasks/task-0001/agents/devflow-manual-codex-worker/questions.jsonl" in packet["evidence_paths"]
+
+
 def test_worker_runtime_commands_are_approval_required() -> None:
     for command in (
         "devflow task run task-0001 --worker shell -- pytest",

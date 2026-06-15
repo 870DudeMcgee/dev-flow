@@ -2,11 +2,11 @@
 
 ## Status
 
-Planned for the next implementation agent after the Milestone 22 spec, plan, and handoff are checkpointed and pushed.
+Implemented in the active Milestone 22 branch. This file is retained as the design record; current runtime authority lives in the active docs and code.
 
 ## Context
 
-Dev-Flow can now project parallel work through task state, goal freshness, scheduler batches, review readiness, manual worker evidence, and operating-layer inbox items. The remaining gap is the human decision loop. Workers can write blocked-question evidence, and the operating layer can display questions, but there is no first-class CLI for listing open questions, answering them, resolving stale blockers, or feeding explicit resume commands back into scheduler and supervisor projections.
+Before Milestone 22, Dev-Flow could project parallel work through task state, goal freshness, scheduler batches, review readiness, manual worker evidence, and operating-layer inbox items, but the human decision loop was still passive. Milestone 22 implements a first-class CLI for listing open questions, answering them, resolving stale blockers, and feeding explicit resume recommendations back into scheduler and supervisor projections.
 
 The North Star says Dev-Flow should let the user see what parallel workers are doing, stop them, answer questions, review their work, and trust that they will not silently damage repos. Milestone 22 promotes "answer questions" from passive visibility into an explicit local-first control-room workflow.
 
@@ -234,10 +234,10 @@ The case should assert:
 
 ## Documentation Updates
 
-Update active docs to say:
+The implementation updates active docs to say:
 
-- Milestone 21 is complete in the local main checkout and ready to push with the Milestone 22 planning artifacts.
-- Milestone 22 is the planned next implementation slice.
+- Milestone 21 is complete in the local main checkout.
+- Milestone 22 is implemented in the active branch.
 - The question/resume loop is evidence-only and explicit-command driven.
 - Provider adapters, autonomous routing, browser mutation expansion, auto-resume, and automatic verification/promotion remain excluded.
 

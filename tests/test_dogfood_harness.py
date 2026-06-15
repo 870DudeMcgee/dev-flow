@@ -41,13 +41,14 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 14
+    assert len(cases) == 15
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "git-native-worker-lane-hardening",
         "local-worker-lane-hardening",
         "simple-scheduler-parallel-coordination",
+        "question-blocker-resume-loop",
         "knowledge-capture-from-validation-failure",
         "central-schema-refactor-risk",
         "operating-layer-visual-qa-hardening",
@@ -74,7 +75,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 14
+    assert len(result["run"]["cases_run"]) == 15
     spawned_tasks = list_tasks(tmp_path)
     assert spawned_tasks
     assert all(task.status == "closed" for task in spawned_tasks)
@@ -214,6 +215,19 @@ def test_simple_scheduler_dogfood_case_exercises_parallel_coordination(tmp_path:
     assert any("scheduler exposed ready blocked stale and retry work" in lesson for lesson in case_result["lessons"])
     assert any("retry request preserved prior task evidence" in lesson for lesson in case_result["lessons"])
     assert any("no background scheduler or provider calls were introduced" in lesson for lesson in case_result["lessons"])
+
+
+def test_question_blocker_resume_loop_dogfood_case(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["question-blocker-resume-loop"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("question list exposed deterministic open blocker" in lesson for lesson in case_result["lessons"])
+    assert any("answer preserved source question evidence" in lesson for lesson in case_result["lessons"])
+    assert any("no worker resume or provider call was executed by question commands" in lesson for lesson in case_result["lessons"])
 
 
 def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:

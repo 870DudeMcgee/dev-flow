@@ -443,11 +443,37 @@ def test_operating_layer_inbox_groups_questions_and_blockers(
         )
 
     snapshot = build_operating_layer_snapshot(tmp_path)
+    assert snapshot.questions[0].question_id.startswith("Q-task-0001-")
     assert snapshot.questions[0].question == "Which API shape should I preserve?"
+    assert snapshot.questions[0].command.startswith("devflow question answer ")
     assert snapshot.inbox[0].kind == "question"
     assert snapshot.inbox[0].priority == 10
     assert snapshot.inbox[0].message == "Which API shape should I preserve?"
-    assert snapshot.inbox[0].command == "devflow task show task-0001"
+    assert snapshot.inbox[0].command.startswith("devflow question answer ")
+
+
+def test_operating_layer_questions_include_answer_command(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    created = runner.invoke(app, ["task", "create", "operator question"])
+    assert created.exit_code == 0, created.output
+    task = get_task(tmp_path, "task-0001")
+    task.status = "blocked"
+    save_task(tmp_path / ".devflow" / "tasks" / task.id, task)
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "questions.jsonl").write_text(
+        (
+            '{"type":"blocked_question","task_id":"task-0001",'
+            '"agent_id":"devflow-manual-codex-worker","question":"Which path should I use?"}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    assert payload["questions"][0]["question_id"].startswith("Q-task-0001-")
+    assert payload["questions"][0]["command"].startswith("devflow question answer ")
+    assert payload["inbox"][0]["kind"] == "question"
 
 
 def test_operating_layer_projects_spec_board_from_goal_slices(
