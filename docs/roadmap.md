@@ -19,11 +19,11 @@ Active specification: [docs/control-room-mvp.md](control-room-mvp.md)
 
 Current product contract: [docs/mvp-contract.md](mvp-contract.md)
 
-Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 22 question/blocker resume loop, and Milestone 23 operating-layer state reconciliation/operator readiness in the local main checkout.
+Current completed hardening slices: [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md), [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md), Milestone 15 multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 22 question/blocker resume loop, Milestone 23 operating-layer state reconciliation/operator readiness, and Milestone 24 intent-to-goal/task scaffold in the local main checkout.
 
 Current follow-on boundary: model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role and write Milestone 17 task-fit/context-routing evidence today, but autonomous best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 
-Current selected milestone: Milestone 24 Intent-To-Goal/Task Scaffold. The next slice should turn raw operator requests into reviewable Idea Foundry and goal/task scaffold evidence before any canonical goal/task creation or worker execution.
+Current selected milestone: none. Milestone 24 is implemented and awaiting release-readiness closure; choose Milestone 25 only after the closure evidence is reviewed.
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 
@@ -453,7 +453,7 @@ Boundary: this milestone must not add provider-backed execution, autonomous rout
 
 ## Milestone 24: Intent-To-Goal/Task Scaffold
 
-Status: selected as the approved next implementation slice. Design, implementation plan, and planning handoff live in [docs/superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md](superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md), [docs/superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md](superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md), and [docs/handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-next.md](handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-next.md).
+Status: implemented and dogfooded on `main`. Design, implementation plan, planning handoff, and closure handoff live in [docs/superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md](superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md), [docs/superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md](superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md), [docs/handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-next.md](handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-next.md), and [docs/handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-implementation.md](handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-implementation.md).
 
 Goal: make a raw operator request such as "build a search plugin" become a safe Dev-Flow scaffold proposal: raw idea evidence, normalized intent, proposed goal artifacts, proposed task slices, review warnings, and explicit approval commands.
 

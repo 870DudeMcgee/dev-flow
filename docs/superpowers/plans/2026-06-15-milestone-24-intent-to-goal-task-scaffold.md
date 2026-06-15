@@ -1,6 +1,6 @@
 # Milestone 24 Intent-To-Goal/Task Scaffold Implementation Plan
 
-Status: selected as the next implementation slice. No runtime implementation has started.
+Status: implemented on `main` on 2026-06-15. This plan is retained as historical execution context; do not rerun it as the next safe action.
 
 > For agentic workers: implement this plan task-by-task. Keep all new product logic under `src/devflow/control_room/`; top-level CLI edits may only bridge to control-room functions.
 
@@ -157,15 +157,15 @@ PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness
 - Update `docs/agent-handoff.md`
 - Add implementation handoff under `docs/handoffs/`
 
-- [ ] Mark Milestone 24 implemented only after code, focused tests, dogfood, stale-context scan, and release-readiness evidence pass.
-- [ ] Remove stale active-doc claims that raw Telegram messages directly create goals/tasks.
-- [ ] Keep historical plans/handoffs clearly historical when retained.
-- [ ] Do not push, tag, publish, or select the next milestone without explicit human approval.
+- [x] Mark Milestone 24 implemented only after code, focused tests, dogfood, stale-context scan, and release-readiness evidence pass.
+- [x] Remove stale active-doc claims that raw Telegram messages directly create goals/tasks.
+- [x] Keep historical plans/handoffs clearly historical when retained.
+- [x] Do not push, tag, publish, or select the next milestone without explicit human approval.
 
 Suggested final verification:
 
 ```bash
 PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_intent_scaffold.py tests/test_idea_foundry.py tests/test_idea_execution_bridge.py tests/test_supervisor_operating_surface.py tests/test_telegram_routing.py tests/test_df_telegram_bridge.py tests/test_dogfood_harness.py -q
 PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness
-rg -n "raw Telegram.*directly creates|auto-runs workers|provider-backed intent scaffold|Milestone 24.*implemented" README.md docs AGENTS.md -S
+Run the stale-context scans recorded in the Milestone 24 implementation handoff.
 ```

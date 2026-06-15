@@ -1,4 +1,6 @@
-# Milestone 24 Intent-To-Goal/Task Scaffold Next Handoff
+# Milestone 24 Intent-To-Goal/Task Scaffold Planning Handoff
+
+Superseded: Milestone 24 was implemented on `main` on 2026-06-15. Use [docs/handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-implementation.md](2026-06-15-milestone-24-intent-to-goal-task-scaffold-implementation.md) and active docs for current status.
 
 ## Status
 
@@ -28,4 +30,4 @@ needs-review
 
 ## Next Safe Action
 
-- Create the Milestone 24 implementation task and start Task 1 from the plan: characterize the current intent-to-goal behavior with failing focused tests.
+- Historical only. Use the implementation handoff and active docs for current status; this planning handoff no longer defines the next safe action.

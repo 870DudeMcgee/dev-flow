@@ -2,7 +2,7 @@
 
 ## Status
 
-Selected as the next product milestone by human approval on 2026-06-15. Runtime implementation has not started.
+Implemented on `main` on 2026-06-15. This design is retained as historical milestone context; use active docs for current product status.
 
 ## Context
 
