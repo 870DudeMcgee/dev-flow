@@ -205,6 +205,8 @@ Run the preferred local Qwopus patch-proposal path:
 .venv/bin/python -m devflow.cli task escalation-packet "$TASK_ID" --agent qwopus-implementer
 ```
 
+For read-only local review/debug auditions, prefer `local-gemma4-31b-dense-judge` as the operator-selected reviewer profile when installed and supported by fresh audition evidence. Use `local-qwen25-coder-32b-code-reviewer` as the heavier code-specialist fallback and `local-qwen25-coder-7b-code-reviewer` as the faster fallback. This is guidance only; Dev-Flow does not auto-route, apply patches, verify, promote, commit, merge, or push from audition scores.
+
 Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-editing files:
 
 ```bash

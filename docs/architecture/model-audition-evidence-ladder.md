@@ -43,6 +43,8 @@ Each job type has at most three default candidates. Candidate names are stable j
 | `review-debug` | `local-reviewer-fast`, `local-reviewer-deep`, `local-qwen25-coder-32b-code-reviewer` | `local-qwen25-coder-7b-code-reviewer`, `local-gemma4-31b-dense-judge`, `local-qwen25-coder-32b-code-reviewer` |
 | `summary-status` | `local-worker-fast`, `local-gemma4-summarizer`, `local-coder-tiny` | `local-gemma4-doc-reviewer`, `local-gemma4-summarizer`, `local-qwen25-coder-15b-classifier` |
 
+For operator-led review/debug work, current guidance is to prefer `local-gemma4-31b-dense-judge` when installed and when explicit local audition evidence supports the task shape. Treat `local-qwen25-coder-32b-code-reviewer` and `local-qwen25-coder-7b-code-reviewer` as fallbacks, not as automatic routing policy.
+
 Eligibility requires:
 
 - installed local Ollama model from `devflow agent discover-local --json`

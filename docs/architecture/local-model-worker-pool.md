@@ -81,6 +81,12 @@ Current starter profiles are registry entries, not a second config file:
 
 The registry records model name, machine class, weight class, role name, secondary roles, caution notes, required verification command, and alias group when relevant. The editable operator surface remains the agent registry; do not add `config/local_workers.yaml` or a second registry.
 
+Operator reviewer guidance:
+
+- Prefer `local-gemma4-31b-dense-judge` for explicit review/debug judge passes when `devflow agent audition <task-id> --job review-debug --execute --json` or equivalent local evidence is needed.
+- Use `local-qwen25-coder-32b-code-reviewer` as the heavier code-specialist fallback and `local-qwen25-coder-7b-code-reviewer` as the faster fallback.
+- Keep this as operator guidance only. It does not update routing policy, auto-select workers, apply patches, verify, promote, commit, merge, push, or bypass fresh audition evidence when model manifests or task shape change.
+
 Conservative defaults:
 
 - no promotion
