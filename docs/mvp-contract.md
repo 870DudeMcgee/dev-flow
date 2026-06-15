@@ -1,12 +1,12 @@
 # Current Control-Room Product Contract
 
-Status: active, reconciled on 2026-05-30.
+Status: active, reconciled on 2026-06-15.
 
-This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, passive review-readiness, explicit goal lifecycle, bounded freshness dispatch, and human-controlled promotion behavior that docs and tests should agree on. Implemented transition layers are allowed only as explicit read-only, local-evidence, or manual planning aids until promoted.
+This is the stable contract for the current Dev-Flow control-room milestone. It freezes the shell-worker, manual proof-agent, local Ollama evidence wrapper, visibility, verification, passive review-readiness, explicit goal lifecycle, bounded freshness dispatch, simple scheduler projection, explicit scheduler retry requests, and human-controlled promotion behavior that docs and tests should agree on. Implemented transition layers are allowed only as explicit read-only, local-evidence, or manual planning aids until promoted.
 
 Post-MVP worker adapter boundaries are described in [docs/adapter-contract.md](adapter-contract.md). The opt-in Git-native worker isolation and promotion slice is described in [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md). The registry/provider/role architecture is described in [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md), with task-fit/context routing evidence design in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md). Pre-conditions, state transitions, and verification invalidation rules for applied patches are documented in [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md).
 
-The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning, scouting, and review output; it is not a router, auto-editor, patch-applier, verification runner, or promotion path. The narrow registry-backed local patch runtime is `devflow task run <task-id> --worker qwopus-implementer` or `devflow task run <task-id> --worker gemma4-12b-qat-implementer` when explicit local-agent selection evidence identifies an installed eligible Gemma profile. These routes write patch evidence for Dev-Flow to review, dry-run, apply, and verify.
+The stable runtime now includes an opt-in Git-native shell-worker slice through `devflow task create --git-worktree`. The default task path remains copy-workspace. It also includes `devflow task local` as a legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning, scouting, and review output; it is not a router, auto-editor, patch-applier, verification runner, or promotion path. The narrow registry-backed local patch runtime is `devflow task run <task-id> --worker qwopus-implementer` or `devflow task run <task-id> --worker gemma4-12b-qat-implementer` when explicit local-agent selection evidence identifies an installed eligible Gemma profile. These routes write patch evidence for Dev-Flow to review, dry-run, apply, and verify. The simple scheduler runtime is a derived projection over existing task, freshness, goal, question, lock, worker, and verification evidence; it does not launch work, verify work, promote work, or route to providers.
 
 ## Stable Commands
 
@@ -21,6 +21,10 @@ devflow supervisor policy
 devflow supervisor policy --json
 devflow supervisor packet
 devflow supervisor packet --json
+devflow scheduler status
+devflow scheduler status --json
+devflow scheduler retry <task_id> --reason "retry after focused repair"
+devflow scheduler retry <task_id> --reason "retry after focused repair" --json
 devflow hermes imessage-check --json
 devflow map init
 devflow map show
@@ -364,6 +368,7 @@ Current MVP implementation limits:
 
 - default workspaces are copy-based scratchpads
 - opt-in `--git-worktree` tasks create branch-backed worktrees and promote with Git-aware merge mechanics
+- scheduler status is read-only derived state; `scheduler retry` writes only explicit retry-request evidence and does not change canonical task status or run workers
 - copy-workspace promotion copies verified workspace changes into the main checkout instead of performing a git-native three-way merge
 - patch application supports validated text patches only, requires matching fresh acceptable review and dry-run evidence, records SHA-256 patch evidence, and rejects binary diffs, renames, copies, mode changes, and similarity metadata
 - event logs are append-only evidence, but task and system event writes are still separate writes and may require human-reviewed reconciliation after a crash
@@ -393,4 +398,4 @@ Future production hardening items:
 - Legacy task-packet and unified-diff workflow rituals.
 
 > [!IMPORTANT]
-> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, and Milestone 17 task-fit/context-routing evidence are complete. Dev-Flow is model-agnostic at the registry/role-selection boundary: local discovery, selected-agent evidence, and derived routing evidence rank or reject eligible installed profiles for explicit roles. Autonomous best-model-for-any-task routing remains excluded and does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, or worker-owned verification.
+> **Current Priority**: Milestone 14 goal execution control loop, Milestone 14A hardening, Milestone 15/15B multi-project control-room hardening, Milestone 16 agent registry runtime hardening, Milestone 17 task-fit/context-routing evidence, Milestone 18 Operating-Layer Beta, Milestone 19 Git-Native Worker Lane Hardening, and Milestone 20 Registry-Backed Local Worker Runtime Hardening are complete on pushed `main`. Milestone 21 Simple Scheduler / Parallel Coordination Beta is implemented in the active branch: Dev-Flow now projects ready, blocked, stale, retry, worker-batch, and verification-batch scheduler state from existing filesystem evidence while keeping dispatch explicit through current `freshness` and `task` commands. Dev-Flow is model-agnostic at the registry/role-selection boundary: local discovery, selected-agent evidence, and derived routing evidence rank or reject eligible installed profiles for explicit roles. Autonomous best-model-for-any-task routing remains excluded and does not enable remote provider execution, autonomous routing, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, or worker-owned promotion.
