@@ -129,6 +129,8 @@ devflow dogfood score <run-id>
 devflow dogfood report <run-id>
 devflow maintenance reset-dogfood-state --preview
 devflow maintenance reset-dogfood-state --yes
+devflow maintenance reset-test-state --preview
+devflow maintenance reset-test-state --yes
 devflow maintenance repair-state --preview
 devflow maintenance repair-state --yes
 devflow task promote-preview <task-id>
@@ -226,7 +228,7 @@ The Idea Foundry form is `devflow idea capture/list/show/classify/promote/create
 
 `devflow task prune-closed --preview --older-than <duration>` is the separate evidence-retention path. It scans task records and reports closed-task evidence directories under `.devflow/tasks/` that are older than the requested duration without writing audit files or deleting anything. `--apply` repeats the same safety checks, deletes only eligible closed-task evidence directories under `.devflow/tasks/<task-id>/`, and writes an audit record under `.devflow/prune-runs/<run-id>.json`. It refuses active tasks, closed tasks without valid `closure.json` metadata, symlinked or path-traversal task evidence paths, and anything whose resolved path is outside `.devflow/tasks/`. Cleanup removes runtime artifacts; prune-closed removes retained closed-task evidence only after explicit approval.
 
-`devflow maintenance reset-dogfood-state --preview` reports only disposable local-test evidence: unpromoted task records whose title identifies dogfood or smoke-test work, closed `evidence-only` task records whose close reason identifies dogfood, their matching workspace/worktree runtime directories, and `.devflow/dogfood/` run reports. `--yes` removes those paths only. The command preserves tracked seed/config/context files, real or promoted task evidence, runtime knowledge, outcome validation, and release logs, and refuses symlink/path escapes outside `.devflow`. `devflow maintenance repair-state --preview` reports missing task baseline artifacts; `--yes` recreates only missing baseline files without overwriting existing evidence. `doctor` reports missing task baseline artifacts read-only.
+`devflow maintenance reset-dogfood-state --preview` reports only disposable local-test evidence: unpromoted task records whose title identifies dogfood or smoke-test work, closed `evidence-only` task records whose close reason identifies dogfood, their matching workspace/worktree runtime directories, and `.devflow/dogfood/` run reports. `--yes` removes those paths only. The command preserves tracked seed/config/context files, real or promoted task evidence, runtime knowledge, outcome validation, and release logs, and refuses symlink/path escapes outside `.devflow`. `devflow maintenance reset-test-state --preview` is the explicit post-test full reset for local app/dogfood test runs; it lists all `.devflow/tasks/task-*`, `.devflow/workspaces/task-*`, `.devflow/worktrees/task-*`, and `.devflow/dogfood/` artifacts, then `--yes` removes only those allowlisted paths after the same symlink/path-escape checks. It preserves project-level state such as config, goals, knowledge, outcome validation, release logs, and tracked seed files. `devflow maintenance repair-state --preview` reports missing task baseline artifacts; `--yes` recreates only missing baseline files without overwriting existing evidence. `doctor` reports missing task baseline artifacts read-only.
 
 `devflow agent show devflow-manual-codex-worker` displays the stable proof-agent contract:
 

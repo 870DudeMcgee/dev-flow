@@ -41,7 +41,7 @@ from devflow.control_room.task_closure import (
     read_closure,
 )
 from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
-from devflow.control_room.maintenance import reset_dogfood_state, repair_state
+from devflow.control_room.maintenance import reset_dogfood_state, reset_test_state, repair_state
 from devflow.control_room.patch_applier import (
     PatchError,
     PatchSelectionError,
@@ -828,6 +828,22 @@ def maintenance_reset_dogfood_state(
         typer.echo("Choose exactly one of --preview or --yes.", err=True)
         raise typer.Exit(code=1)
     result = reset_dogfood_state(Path.cwd(), apply=yes)
+    typer.echo(f"mode: {'apply' if yes else 'preview'}")
+    _echo_maintenance_result(result)
+    if result.refused:
+        raise typer.Exit(code=1)
+
+
+@maintenance_app.command("reset-test-state")
+def maintenance_reset_test_state(
+    preview: bool = typer.Option(False, "--preview", help="Preview local test runtime artifact removal."),
+    yes: bool = typer.Option(False, "--yes", help="Apply local test runtime artifact removal."),
+) -> None:
+    """Reset local test task/workspace/worktree artifacts while preserving project state."""
+    if preview == yes:
+        typer.echo("Choose exactly one of --preview or --yes.", err=True)
+        raise typer.Exit(code=1)
+    result = reset_test_state(Path.cwd(), apply=yes)
     typer.echo(f"mode: {'apply' if yes else 'preview'}")
     _echo_maintenance_result(result)
     if result.refused:

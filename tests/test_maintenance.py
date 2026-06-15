@@ -209,3 +209,64 @@ def test_reset_dogfood_state_refuses_symlink_escape(tmp_path: Path) -> None:
     assert "refused: .devflow/tasks/task-0001 escapes .devflow" in result.output
     assert task_link.is_symlink()
     assert (outside / "keep.txt").exists()
+
+
+def test_reset_test_state_preview_lists_all_local_test_runtime_artifacts(tmp_path: Path) -> None:
+    _init_repo_with_tracked_seed(tmp_path)
+    task = create_task(tmp_path, "Real task evidence from local app test")
+    for rel in [
+        f".devflow/workspaces/{task.id}",
+        f".devflow/worktrees/{task.id}",
+        ".devflow/dogfood",
+    ]:
+        path = tmp_path / rel
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "evidence.txt").write_text("runtime\n", encoding="utf-8")
+    (tmp_path / ".devflow" / "goals" / "G-0001").mkdir(parents=True)
+    (tmp_path / ".devflow" / "goals" / "G-0001" / "goal-state.yaml").write_text("state: active\n", encoding="utf-8")
+
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        preview = runner.invoke(app, ["maintenance", "reset-test-state", "--preview"], catch_exceptions=False)
+    finally:
+        os.chdir(old_cwd)
+
+    assert preview.exit_code == 0, preview.output
+    assert f"would_remove: .devflow/tasks/{task.id}" in preview.output
+    assert f"would_remove: .devflow/workspaces/{task.id}" in preview.output
+    assert f"would_remove: .devflow/worktrees/{task.id}" in preview.output
+    assert "would_remove: .devflow/dogfood" in preview.output
+    assert ".devflow/goals" not in preview.output
+    assert (tmp_path / ".devflow" / "tasks" / task.id).exists()
+
+
+def test_reset_test_state_apply_deletes_local_test_runtime_and_preserves_project_state(tmp_path: Path) -> None:
+    _init_repo_with_tracked_seed(tmp_path)
+    task = create_task(tmp_path, "Real task evidence from local app test")
+    for rel in [
+        f".devflow/workspaces/{task.id}",
+        f".devflow/worktrees/{task.id}",
+        ".devflow/dogfood",
+    ]:
+        path = tmp_path / rel
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "evidence.txt").write_text("runtime\n", encoding="utf-8")
+    goal_state = tmp_path / ".devflow" / "goals" / "G-0001" / "goal-state.yaml"
+    goal_state.parent.mkdir(parents=True)
+    goal_state.write_text("state: active\n", encoding="utf-8")
+
+    old_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        applied = runner.invoke(app, ["maintenance", "reset-test-state", "--yes"], catch_exceptions=False)
+    finally:
+        os.chdir(old_cwd)
+
+    assert applied.exit_code == 0, applied.output
+    assert not (tmp_path / ".devflow" / "tasks" / task.id).exists()
+    assert not (tmp_path / ".devflow" / "workspaces" / task.id).exists()
+    assert not (tmp_path / ".devflow" / "worktrees" / task.id).exists()
+    assert not (tmp_path / ".devflow" / "dogfood").exists()
+    assert goal_state.read_text(encoding="utf-8") == "state: active\n"
+    assert (tmp_path / ".devflow" / "config.yaml").exists()

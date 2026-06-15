@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -36,6 +37,15 @@ DISPOSABLE_TEST_TITLE_MARKERS: tuple[str, ...] = ("dogfood", "smoke")
 
 def reset_dogfood_state(root: Path, *, apply: bool) -> MaintenanceResult:
     candidates = _reset_candidates(root)
+    return _remove_candidates(root, candidates, apply=apply)
+
+
+def reset_test_state(root: Path, *, apply: bool) -> MaintenanceResult:
+    candidates = _reset_test_candidates(root)
+    return _remove_candidates(root, candidates, apply=apply)
+
+
+def _remove_candidates(root: Path, candidates: list[Path], *, apply: bool) -> MaintenanceResult:
     refused = [_refusal_detail(root, path) for path in candidates if not _safe_devflow_runtime_path(root, path)]
     if refused:
         return MaintenanceResult(
@@ -58,13 +68,18 @@ def reset_dogfood_state(root: Path, *, apply: bool) -> MaintenanceResult:
         )
 
     removed: list[str] = []
+    removed_worktree_runtime = False
     for path in candidates:
         rel = _display_path(root, path)
         if path.is_symlink() or path.is_file():
             path.unlink()
         else:
             shutil.rmtree(path)
+        if rel.startswith(".devflow/worktrees/"):
+            removed_worktree_runtime = True
         removed.append(rel)
+    if removed_worktree_runtime:
+        _prune_git_worktree_metadata(root)
     return MaintenanceResult(
         mode="apply",
         removed=removed,
@@ -72,6 +87,17 @@ def reset_dogfood_state(root: Path, *, apply: bool) -> MaintenanceResult:
         repaired=[],
         would_repair=[],
         refused=[],
+    )
+
+
+def _prune_git_worktree_metadata(root: Path) -> None:
+    subprocess.run(
+        ["git", "worktree", "prune"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
 
 
@@ -98,6 +124,20 @@ def repair_state(root: Path, *, apply: bool) -> MaintenanceResult:
         would_repair=[] if apply else would_repair,
         refused=[],
     )
+
+
+def _reset_test_candidates(root: Path) -> list[Path]:
+    base = devflow_dir(root)
+    candidates: list[Path] = []
+    for parent_name in ("tasks", "workspaces", "worktrees"):
+        parent = base / parent_name
+        if parent.exists():
+            candidates.extend(sorted(parent.glob("task-*")))
+    for name in DOGFOOD_RUNTIME_DIRS:
+        path = base / name
+        if path.exists():
+            candidates.append(path)
+    return _dedupe_existing(candidates)
 
 
 def _reset_candidates(root: Path) -> list[Path]:
