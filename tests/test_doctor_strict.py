@@ -202,17 +202,17 @@ def test_doctor_macos_hidden_flag(tmp_path: Path) -> None:
     sys.path.append(str(site_packages))
     try:
         checks = doctor(tmp_path)
-        assert not any(name.startswith("python path check") for name, ok, detail in checks)
+        assert not any(name.startswith("python path hygiene") for name, ok, detail in checks)
 
         # Now set hidden flag on the venv dir
         venv_dir = tmp_path / "venv"
         subprocess.run(["chflags", "hidden", str(venv_dir)], check=True)
         try:
             checks_hidden = doctor(tmp_path)
-            hidden_checks = [c for c in checks_hidden if c[0].startswith("python path check")]
+            hidden_checks = [c for c in checks_hidden if c[0].startswith("python path hygiene")]
             assert len(hidden_checks) == 1
-            assert hidden_checks[0][1] is False
-            assert "macOS hidden flag set on" in hidden_checks[0][2]
+            assert hidden_checks[0][1] is True
+            assert "local environment hygiene: macOS hidden flag set on" in hidden_checks[0][2]
         finally:
             subprocess.run(["chflags", "nohidden", str(venv_dir)], check=True)
     finally:

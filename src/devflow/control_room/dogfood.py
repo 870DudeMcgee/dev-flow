@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -62,6 +63,7 @@ from devflow.control_room.worker_outcome import validate_worker_outcome, validat
 
 DOGFOOD_SCHEMA_VERSION = 1
 PRODUCTION_READINESS_SUITE = "production-readiness"
+DEFAULT_DOGFOOD_RUN_RETENTION = 1
 SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
@@ -688,9 +690,12 @@ def run_dogfood_suite(
     *,
     case_ids: Iterable[str] | None = None,
     write_root_runtime_evidence: bool = False,
+    keep_runs: int = DEFAULT_DOGFOOD_RUN_RETENTION,
 ) -> dict[str, Any]:
     if suite != PRODUCTION_READINESS_SUITE:
         raise ValueError(f"Unknown dogfood suite: {suite}")
+    if keep_runs < 1:
+        raise ValueError("keep_runs must be at least 1.")
 
     init_control_room(root)
     materialize_dogfood_cases(root)
@@ -750,6 +755,7 @@ def run_dogfood_suite(
     atomic_write_text(run_dir / "run.yaml", yaml.safe_dump(run_yaml, sort_keys=False))
     atomic_write_text(run_dir / "scorecard.yaml", yaml.safe_dump(scorecard, sort_keys=False))
     atomic_write_text(run_dir / "report.md", report)
+    pruned_runs = _prune_old_dogfood_runs(root, keep_runs=keep_runs)
 
     return {
         "schema_version": DOGFOOD_SCHEMA_VERSION,
@@ -761,6 +767,7 @@ def run_dogfood_suite(
         "run": run_yaml,
         "scorecard": scorecard,
         "results": results,
+        "pruned_runs": pruned_runs,
     }
 
 
@@ -1834,7 +1841,7 @@ task_slices:
         "D_worker_artifact_quality",
         3,
         snapshot_after.batches
-        and snapshot_after.next_safe_action == "devflow freshness create-batch G-0001 PB-0001"
+        and any(batch.next_safe_action == "devflow freshness create-batch G-0001 PB-0001" for batch in snapshot_after.batches)
         and (scratch / retry.retry_request_path).exists(),
         "scheduler wrote reviewable batch and retry evidence",
     )
@@ -2923,6 +2930,19 @@ def _resolve_run_id(root: Path, run_id: str) -> str:
     if not candidates:
         raise KeyError("No dogfood runs found.")
     return candidates[-1]
+
+
+def _prune_old_dogfood_runs(root: Path, *, keep_runs: int) -> list[str]:
+    runs = dogfood_runs_dir(root)
+    if not runs.exists():
+        return []
+    candidates = sorted(path for path in runs.iterdir() if path.is_dir())
+    stale = candidates[:-keep_runs]
+    pruned: list[str] = []
+    for path in stale:
+        shutil.rmtree(path)
+        pruned.append(relative_path(root, path))
+    return pruned
 
 
 def _init_git_native_dogfood_repo(root: Path) -> None:

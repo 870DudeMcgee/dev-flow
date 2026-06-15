@@ -3869,6 +3869,12 @@ def dogfood_run(
         "--fail-below-silver/--no-fail-below-silver",
         help="Exit non-zero when the run does not satisfy the Silver threshold.",
     ),
+    keep_runs: int = typer.Option(
+        1,
+        "--keep-runs",
+        min=1,
+        help="How many dogfood run reports to retain under .devflow/dogfood/runs.",
+    ),
 ) -> None:
     """Run a deterministic local production-readiness dogfood suite."""
     try:
@@ -3879,6 +3885,7 @@ def dogfood_run(
             suite=suite,
             case_ids=case,
             write_root_runtime_evidence=write_root_runtime_evidence,
+            keep_runs=keep_runs,
         )
     except Exception as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -3893,6 +3900,10 @@ def dogfood_run(
     typer.echo(f"run_path: {result['run_path']}")
     typer.echo(f"scorecard_path: {result['scorecard_path']}")
     typer.echo(f"report_path: {result['report_path']}")
+    if result.get("pruned_runs"):
+        typer.echo("pruned_runs:")
+        for path in result["pruned_runs"]:
+            typer.echo(f"  - {path}")
     if scorecard["failures"]:
         typer.echo("failures:")
         for failure in scorecard["failures"]:

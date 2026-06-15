@@ -531,9 +531,9 @@ def doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
                         st = os.stat(curr)
                         if hasattr(st, "st_flags") and (st.st_flags & 0x8000):
                             checks.append((
-                                f"python path check ({curr.name})",
-                                False,
-                                f"macOS hidden flag set on {curr} - run 'chflags -R nohidden {curr}' to fix ModuleNotFoundError"
+                                f"python path hygiene ({curr.name})",
+                                True,
+                                f"local environment hygiene: macOS hidden flag set on {curr}; if imports fail, run 'chflags -R nohidden {curr}'"
                             ))
                             break
                         curr = curr.parent

@@ -119,6 +119,31 @@ def _operator_snapshot(root: Path):
     return build_operator_readiness_snapshot(root).model_dump(mode="json")
 
 
+def test_missing_goal_lifecycle_is_visible_without_tasks(tmp_path: Path, monkeypatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief = tmp_path / "goal.md"
+    brief.write_text("## Goal Brief\nMake lifecycle state visible.\n", encoding="utf-8")
+    goal = runner.invoke(app, ["goal", "init", "G-0001", "--from", str(brief)])
+    assert goal.exit_code == 0, goal.output
+    (tmp_path / ".devflow" / "goals" / "G-0001" / "goal-state.yaml").unlink()
+
+    payload = _operator_snapshot(tmp_path)
+
+    assert payload["counts"]["total_tasks"] == 0
+    assert payload["counts"]["lifecycle_blocked"] == 1
+    assert payload["next_safe_action"]["kind"] == "repair_goal_lifecycle"
+    assert payload["next_safe_action"]["command"].startswith("devflow goal activate G-0001")
+    assert payload["warnings"][0]["code"] == "goal_lifecycle_missing"
+
+    dashboard = runner.invoke(app, ["dashboard"])
+    assert dashboard.exit_code == 0, dashboard.output
+    assert "Lifecycle blocked: 1" in dashboard.output
+    assert "Goal lifecycle repair is required before worker dispatch." in dashboard.output
+    assert "Control room is clean" not in dashboard.output
+
+
 def test_generated_task_uses_descriptive_label_with_ids_as_secondary_metadata(
     tmp_path: Path,
     monkeypatch,

@@ -467,8 +467,7 @@ def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
     
     state.next_action = choose_dashboard_next_action_v2(state, goal_projections)
     if (
-        state.tasks
-        and operator_readiness.next_safe_action.kind in {"repair_goal_lifecycle", "inspect_stale_directive"}
+        operator_readiness.next_safe_action.kind in {"repair_goal_lifecycle", "inspect_stale_directive"}
         and operator_readiness.next_safe_action.command
     ):
         state.next_action = DashboardNextAction(
@@ -701,7 +700,15 @@ def render_dashboard(repo_root: Path | None = None) -> str:
     lines.append(f"{'Task':<10} {'Status':<20} {'Verify':<12} {'Worker':<8} Latest")
     lines.append("-" * 82)
     if not state.tasks:
-        lines.append("Control room is clean; create the next real task when ready.")
+        lifecycle_blocked = (
+            state.operator_readiness.counts.get("lifecycle_blocked", 0)
+            if state.operator_readiness
+            else 0
+        )
+        if lifecycle_blocked:
+            lines.append("Goal lifecycle repair is required before worker dispatch.")
+        else:
+            lines.append("Control room is clean; create the next real task when ready.")
         lines.append("No tasks found.")
     for projection in state.tasks:
         task = projection.task

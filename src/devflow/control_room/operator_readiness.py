@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from devflow.control_room.goal_lifecycle import read_goal_lifecycle
+from devflow.control_room.goal_projection import list_goal_status_projections
 from devflow.control_room.goal_tasks import GoalTaskSlice, load_goal_task_slices
 from devflow.control_room.persistence import list_tasks
 from devflow.control_room.project_registry import load_project_metadata
@@ -86,7 +87,10 @@ def build_operator_readiness_snapshot(root: Path) -> OperatorReadinessSnapshot:
         _task_projection(root, task)
         for task in list_tasks(root)
     ]
-    warnings = _stale_freshness_warnings(root, tasks)
+    warnings = [
+        *_goal_lifecycle_warnings(root, tasks),
+        *_stale_freshness_warnings(root, tasks),
+    ]
     counts = _counts(tasks, warnings)
     return OperatorReadinessSnapshot(
         project=project,
@@ -262,6 +266,38 @@ def _stale_freshness_warnings(root: Path, tasks: list[OperatorTaskProjection]) -
     return warnings
 
 
+def _goal_lifecycle_warnings(root: Path, tasks: list[OperatorTaskProjection]) -> list[OperatorWarning]:
+    task_blocked_goal_ids = {
+        blocker.goal_id
+        for task in tasks
+        for blocker in task.readiness.blocked_by
+        if blocker.code.startswith("goal_lifecycle_") and blocker.goal_id
+    }
+    warnings: list[OperatorWarning] = []
+    for goal in list_goal_status_projections(root):
+        if goal.goal_id in task_blocked_goal_ids:
+            continue
+        if goal.lifecycle_missing:
+            warnings.append(
+                OperatorWarning(
+                    code="goal_lifecycle_missing",
+                    message=f"Goal {goal.goal_id} lifecycle state is missing; repair it before worker dispatch.",
+                    goal_id=goal.goal_id,
+                    blocked_by="goal_lifecycle_missing",
+                )
+            )
+        elif goal.lifecycle in {"paused", "blocked", "complete", "archived", "unknown"}:
+            warnings.append(
+                OperatorWarning(
+                    code=f"goal_lifecycle_{goal.lifecycle}",
+                    message=f"Goal {goal.goal_id} lifecycle is {goal.lifecycle}; do not dispatch new worker work.",
+                    goal_id=goal.goal_id,
+                    blocked_by=f"goal_lifecycle_{goal.lifecycle}",
+                )
+            )
+    return warnings
+
+
 def _read_freshness_snapshot(root: Path) -> dict[str, Any] | None:
     path = root / ".devflow" / "freshness" / "latest.json"
     if not path.exists():
@@ -281,16 +317,22 @@ def _goal_create_task_command(command: str) -> tuple[str | None, str | None]:
 
 
 def _counts(tasks: list[OperatorTaskProjection], warnings: list[OperatorWarning]) -> dict[str, int]:
-    lifecycle_blocked = sum(
-        1
+    lifecycle_blocked_goal_ids = {
+        blocker.goal_id
         for task in tasks
-        if any(blocker.code.startswith("goal_lifecycle_") for blocker in task.readiness.blocked_by)
+        for blocker in task.readiness.blocked_by
+        if blocker.code.startswith("goal_lifecycle_") and blocker.goal_id
+    }
+    lifecycle_blocked_goal_ids.update(
+        warning.goal_id
+        for warning in warnings
+        if warning.code.startswith("goal_lifecycle_") and warning.goal_id
     )
     return {
         "total_tasks": len(tasks),
         "worker_ready": sum(1 for task in tasks if task.readiness.worker_ready),
         "blocked": sum(1 for task in tasks if task.readiness.state == "blocked"),
-        "lifecycle_blocked": lifecycle_blocked,
+        "lifecycle_blocked": len(lifecycle_blocked_goal_ids),
         "warnings": len(warnings),
     }
 
@@ -307,6 +349,21 @@ def _next_safe_action(tasks: list[OperatorTaskProjection], warnings: list[Operat
     )
     if lifecycle_blocker:
         goal_id = lifecycle_blocker.goal_id
+        return OperatorNextSafeAction(
+            kind="repair_goal_lifecycle",
+            command=f"devflow goal activate {goal_id} --reason 'ready to execute'",
+            reason=f"Repair goal lifecycle state for {goal_id} before dispatching worker tasks.",
+        )
+    lifecycle_warning = next(
+        (
+            warning
+            for warning in warnings
+            if warning.code.startswith("goal_lifecycle_") and warning.goal_id
+        ),
+        None,
+    )
+    if lifecycle_warning:
+        goal_id = lifecycle_warning.goal_id
         return OperatorNextSafeAction(
             kind="repair_goal_lifecycle",
             command=f"devflow goal activate {goal_id} --reason 'ready to execute'",

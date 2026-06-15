@@ -86,6 +86,39 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert "auto_promotion: none" in report
 
 
+def test_dogfood_prunes_old_runs_by_default(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    runs_dir = tmp_path / ".devflow" / "dogfood" / "runs"
+    for name in ["dogfood-19990101T000000Z", "dogfood-19990102T000000Z"]:
+        run_dir = runs_dir / name
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "run.yaml").write_text("old: true\n", encoding="utf-8")
+
+    result = run_dogfood_suite(tmp_path, case_ids=["missing-case"])
+
+    retained = sorted(path.name for path in runs_dir.iterdir() if path.is_dir())
+    assert retained == [result["run_id"]]
+    assert result["pruned_runs"] == [
+        ".devflow/dogfood/runs/dogfood-19990101T000000Z",
+        ".devflow/dogfood/runs/dogfood-19990102T000000Z",
+    ]
+
+
+def test_dogfood_keep_runs_retains_requested_history(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    runs_dir = tmp_path / ".devflow" / "dogfood" / "runs"
+    for name in ["dogfood-19990101T000000Z", "dogfood-19990102T000000Z"]:
+        run_dir = runs_dir / name
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "run.yaml").write_text("old: true\n", encoding="utf-8")
+
+    result = run_dogfood_suite(tmp_path, case_ids=["missing-case"], keep_runs=2)
+
+    retained = sorted(path.name for path in runs_dir.iterdir() if path.is_dir())
+    assert retained == ["dogfood-19990102T000000Z", result["run_id"]]
+    assert result["pruned_runs"] == [".devflow/dogfood/runs/dogfood-19990101T000000Z"]
+
+
 def test_dogfood_can_opt_into_root_runtime_evidence(tmp_path: Path) -> None:
     _init_dogfood_repo(tmp_path)
 

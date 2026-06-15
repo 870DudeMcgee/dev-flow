@@ -47,10 +47,19 @@ Before making any code changes, perform these checks:
 2. Read [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) and check your plan against its *Periodic Self-Check* section.
 3. Read [docs/control-room-mvp.md](docs/control-room-mvp.md).
 4. Read [docs/token-optimization.md](docs/token-optimization.md) and invoke `devmode:token-budget` to manage active context and search policies.
-5. Inspect only the smallest relevant implementation files.
-6. Preserve useful code that supports the control-room MVP.
-7. Bypass old workflow machinery that conflicts with the MVP.
-8. Keep changes focused and verify them.
+5. Consult [docs/verification-ledger.md](docs/verification-ledger.md) before running expensive verification.
+6. Inspect only the smallest relevant implementation files.
+7. Preserve useful code that supports the control-room MVP.
+8. Bypass old workflow machinery that conflicts with the MVP.
+9. Keep changes focused and verify them.
+
+## Verification Escalation Policy
+
+- Status questions use lightweight read-only commands plus [docs/verification-ledger.md](docs/verification-ledger.md).
+- Documentation-only changes use `git diff --check` and targeted stale-context searches.
+- Focused code changes use targeted tests around the touched behavior.
+- Full pytest is reserved for release gates, broad shared behavior changes, or explicit user request.
+- Production dogfood is reserved for dogfood/control-room end-to-end changes, release gates, or explicit user request; otherwise consult the latest ledger entry.
 
 ---
 
