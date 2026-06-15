@@ -56,6 +56,18 @@ def test_devflow_status_routes_to_safe_read_command(tmp_path: Path) -> None:
     assert decision["operator_plan"]["telegram_reply_style"] == "short_summary_with_footer"
 
 
+def test_devflow_status_tool_name_routes_to_safe_read_command(tmp_path: Path) -> None:
+    decision = route_telegram_message(
+        tmp_path,
+        "Call devflow_status and summarize active_task_count in one short sentence.",
+    )
+
+    assert decision["route"] == "devflow_read"
+    assert decision["action"] == "run_safe_command"
+    assert decision["recommended_command"] == "devflow status --json"
+    assert decision["operator_plan"]["next_step"] == "run_recommended_command"
+
+
 def test_planning_and_deep_review_select_local_reasoning_models(tmp_path: Path) -> None:
     plan = route_telegram_message(tmp_path, "please plan the release risk review")
     deep = route_telegram_message(tmp_path, "deep architecture decision on the routing layer")

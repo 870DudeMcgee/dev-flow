@@ -28,6 +28,7 @@ CREATE_CODEX_GOAL = "create_codex_goal"
 CREATE_PROJECT = "create_project"
 
 PURE_READ_ONLY = "pure_read_only"
+CREATE_GOAL = "create_goal"
 
 IMPLEMENTATION_STATUSES_WITHOUT_FRESH_VERIFICATION = {
     "created",
@@ -426,6 +427,7 @@ def _extract_devflow_command(message: str) -> str | None:
 def _looks_like_devflow_read(lower: str, tokens: set[str]) -> bool:
     if _looks_like_implementation(lower, tokens) and not (
         "status" in tokens
+        or "devflow_status" in tokens
         or "list" in tokens
         or "show" in tokens
         or "log" in tokens
@@ -434,7 +436,7 @@ def _looks_like_devflow_read(lower: str, tokens: set[str]) -> bool:
         or "review queue" in lower
     ):
         return False
-    if "devflow" in tokens:
+    if "devflow" in tokens or "devflow_status" in tokens:
         return True
     if "next action" in lower or "next safe action" in lower or "review queue" in lower:
         return True
