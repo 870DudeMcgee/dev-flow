@@ -245,6 +245,7 @@ function render() {
   renderInspector();
   renderActions();
   renderReviewLoopSummary();
+  renderSchedulerBlock();
   renderGoalBoard();
   renderSpecs();
   renderGates();
@@ -1385,6 +1386,37 @@ function renderReviewLoopSummary() {
     <p class="label">${escapeHtml(loop.evidence_summary || "No review evidence yet.")}</p>
   `;
   container.prepend(card);
+}
+
+function renderSchedulerBlock() {
+  const container = byId("action-preview");
+  const scheduler = snapshot.scheduler;
+  if (!container || !scheduler || !sectionExpanded("actions")) return;
+  const existing = container.querySelector("[data-scheduler-block]");
+  if (existing) existing.remove();
+  const counts = scheduler.counts || {};
+  const rows = [
+    ["Ready", counts.ready || 0],
+    ["Blocked", counts.blocked || 0],
+    ["Stale", counts.stale || 0],
+    ["Retry", counts.needs_retry || 0],
+    ["Batches", scheduler.batch_count || 0],
+  ];
+  const block = document.createElement("section");
+  block.className = "scheduler-block";
+  block.setAttribute("data-scheduler-block", "true");
+  block.setAttribute("aria-label", "Scheduler");
+  block.innerHTML = `
+    <div class="section-heading">
+      <span>Scheduler</span>
+      <strong>${escapeHtml(scheduler.status || "idle")}</strong>
+    </div>
+    <div class="scheduler-grid">
+      ${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
+    </div>
+    <code>${escapeHtml(scheduler.next_safe_action || "devflow task list")}</code>
+  `;
+  container.prepend(block);
 }
 
 function renderActions() {
