@@ -12,6 +12,8 @@ from devflow.control_room.idea_execution_bridge import (
     preview_task_from_idea,
 )
 from devflow.control_room.idea_foundry import capture_idea, classify_idea, promote_idea, show_idea
+from devflow.control_room.intent_scaffold import write_scaffold_from_idea
+from devflow.control_room.goal_tasks import load_goal_task_slices
 
 
 def _promoted_goal_idea(root: Path) -> str:
@@ -61,6 +63,47 @@ def test_create_goal_from_promoted_idea_links_both_sides(tmp_path: Path) -> None
     assert "Ready to become a goal" in classification
     assert "target: goal" in promotion
     assert (tmp_path / ".devflow" / "ideas" / idea_id / "goal-brief.md").exists()
+    assert not (tmp_path / ".devflow" / "tasks").exists()
+
+
+def test_create_goal_from_promoted_idea_consumes_scaffold_evidence(tmp_path: Path) -> None:
+    item = capture_idea(
+        tmp_path,
+        "build a search plugin",
+        title="Build search plugin",
+        source="operator-message",
+        tags=["intent"],
+    )
+    write_scaffold_from_idea(tmp_path, item["id"])
+    classify_idea(tmp_path, item["id"], maturity="goal_ready", note="Scaffold reviewed.", tags=["intent"])
+    promote_idea(tmp_path, item["id"], target="goal", rationale="Human reviewed scaffold.")
+
+    created = create_goal_from_idea(tmp_path, item["id"])
+
+    assert created.created_id == "G-0001"
+    goal_dir = tmp_path / ".devflow" / "goals" / "G-0001"
+    goal_md = (goal_dir / "goal.md").read_text(encoding="utf-8")
+    prd_md = (goal_dir / "prd.md").read_text(encoding="utf-8")
+    risks_md = (goal_dir / "risks.md").read_text(encoding="utf-8")
+    handoff_md = (goal_dir / "handoff.md").read_text(encoding="utf-8")
+    open_questions = yaml.safe_load((goal_dir / "open-questions.yaml").read_text(encoding="utf-8"))
+    context_pointers = yaml.safe_load((goal_dir / "context-pointers.yaml").read_text(encoding="utf-8"))
+    link = yaml.safe_load((goal_dir / "idea-link.yaml").read_text(encoding="utf-8"))
+    slices = load_goal_task_slices(tmp_path, "G-0001")
+
+    assert "Build search plugin" in goal_md
+    assert "Scaffold Acceptance Criteria" in goal_md
+    assert "Canonical goal/task state is created only after explicit human approval." in prd_md
+    assert "TBD" not in prd_md
+    assert [slice_.task_id for slice_ in slices] == ["TS-0001", "TS-0002"]
+    assert slices[0].title == "Design build search plugin scaffold contract"
+    assert slices[0].verification_policy["commands"]
+    assert "Confirm the plugin boundary" in risks_md
+    assert "devflow goal create-task G-0001 TS-0001" in handoff_md
+    assert open_questions["implementation_blocked"] is False
+    assert "PRODUCT_NORTH_STAR.md" in context_pointers["required_context"]
+    assert link["source_scaffold_path"] == ".devflow/ideas/I-0001/scaffold-goal.json"
+    assert (tmp_path / ".devflow" / "ideas" / item["id"] / "goal-brief.md").exists()
     assert not (tmp_path / ".devflow" / "tasks").exists()
 
 
