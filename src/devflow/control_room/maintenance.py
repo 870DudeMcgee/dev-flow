@@ -30,14 +30,8 @@ class MaintenanceResult:
     refused: list[str]
 
 
-RESET_RUNTIME_DIRS: tuple[str, ...] = (
-    "prune-runs",
-    "dogfood",
-    "agent-runs",
-    "knowledge",
-    "outcome-validations",
-    "release",
-)
+DOGFOOD_RUNTIME_DIRS: tuple[str, ...] = ("dogfood",)
+DISPOSABLE_TEST_TITLE_MARKERS: tuple[str, ...] = ("dogfood", "smoke")
 
 
 def reset_dogfood_state(root: Path, *, apply: bool) -> MaintenanceResult:
@@ -109,15 +103,51 @@ def repair_state(root: Path, *, apply: bool) -> MaintenanceResult:
 def _reset_candidates(root: Path) -> list[Path]:
     base = devflow_dir(root)
     candidates: list[Path] = []
-    for parent_name in ("tasks", "workspaces", "worktrees"):
-        parent = base / parent_name
-        if parent.exists():
-            candidates.extend(sorted(parent.glob("task-*")))
-    for name in RESET_RUNTIME_DIRS:
+    for task_id in _disposable_testing_task_ids(root):
+        for parent_name in ("tasks", "workspaces", "worktrees"):
+            path = base / parent_name / task_id
+            if path.exists() or path.is_symlink():
+                candidates.append(path)
+    candidates.extend(_unsafe_runtime_symlink_candidates(root))
+    for name in DOGFOOD_RUNTIME_DIRS:
         path = base / name
         if path.exists():
             candidates.append(path)
     return _dedupe_existing(candidates)
+
+
+def _unsafe_runtime_symlink_candidates(root: Path) -> list[Path]:
+    base = devflow_dir(root)
+    candidates: list[Path] = []
+    for parent_name in ("tasks", "workspaces", "worktrees"):
+        parent = base / parent_name
+        if not parent.exists():
+            continue
+        for path in sorted(parent.glob("task-*")):
+            if path.is_symlink() and not _safe_devflow_runtime_path(root, path):
+                candidates.append(path)
+    return candidates
+
+
+def _disposable_testing_task_ids(root: Path) -> list[str]:
+    task_ids: list[str] = []
+    for task in list_tasks(root):
+        if not _is_disposable_testing_task(task):
+            continue
+        task_ids.append(task.id)
+    return sorted(task_ids)
+
+
+def _is_disposable_testing_task(task: object) -> bool:
+    status = str(getattr(task, "status", ""))
+    close_outcome = str(getattr(task, "close_outcome", "") or "")
+    title = str(getattr(task, "title", "") or "").lower()
+    close_reason = str(getattr(task, "close_reason", "") or "").lower()
+    if status == "promoted":
+        return False
+    if status == "closed" and close_outcome == "evidence-only" and "dogfood" in close_reason:
+        return True
+    return any(marker in title for marker in DISPOSABLE_TEST_TITLE_MARKERS)
 
 
 def _dedupe_existing(paths: list[Path]) -> list[Path]:
@@ -151,7 +181,7 @@ def _safe_devflow_runtime_path(root: Path, path: Path) -> bool:
     except ValueError:
         return False
     rel = resolved.relative_to(base).as_posix()
-    if rel in RESET_RUNTIME_DIRS:
+    if rel in DOGFOOD_RUNTIME_DIRS:
         return True
     for parent in ("tasks", "workspaces", "worktrees"):
         if rel.startswith(f"{parent}/task-"):

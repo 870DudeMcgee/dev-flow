@@ -7,7 +7,9 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.persistence import save_task
 from devflow.control_room.service import create_task, doctor
+from devflow.control_room.task_closure import close_task
 
 
 runner = CliRunner()
@@ -72,17 +74,36 @@ def test_repair_state_restores_missing_artifacts_without_overwriting_evidence(tm
     assert worker_log.read_text(encoding="utf-8") == "existing worker evidence\n"
 
 
-def test_reset_dogfood_state_preview_lists_only_allowlisted_runtime_artifacts(tmp_path: Path) -> None:
+def test_reset_dogfood_state_preview_lists_only_disposable_dogfood_artifacts(tmp_path: Path) -> None:
     _init_repo_with_tracked_seed(tmp_path)
+    dogfood_task = create_task(tmp_path, "Dogfood tiny docs task")
+    close_task(
+        tmp_path,
+        dogfood_task.id,
+        outcome="evidence-only",
+        reason="dogfood run dogfood-19990101T000000Z case tiny evidence captured",
+    )
+    smoke_task = create_task(tmp_path, "local worker smoke")
+    real_task = create_task(tmp_path, "Milestone real task")
+    promoted_task = create_task(tmp_path, "Promoted milestone task")
+    promoted_smoke_task = create_task(tmp_path, "Promoted smoke task")
+    save_task(
+        tmp_path / ".devflow" / "tasks" / promoted_task.id,
+        promoted_task.model_copy(update={"status": "promoted"}),
+    )
+    save_task(
+        tmp_path / ".devflow" / "tasks" / promoted_smoke_task.id,
+        promoted_smoke_task.model_copy(update={"status": "promoted"}),
+    )
     runtime_paths = [
-        ".devflow/tasks/task-0001",
-        ".devflow/workspaces/task-0001",
-        ".devflow/worktrees/task-0001",
-        ".devflow/prune-runs",
+        f".devflow/workspaces/{dogfood_task.id}",
+        f".devflow/worktrees/{dogfood_task.id}",
+        f".devflow/workspaces/{smoke_task.id}",
+        f".devflow/workspaces/{real_task.id}",
+        f".devflow/worktrees/{promoted_task.id}",
+        f".devflow/workspaces/{promoted_smoke_task.id}",
         ".devflow/dogfood",
-        ".devflow/agent-runs",
         ".devflow/knowledge",
-        ".devflow/outcome-validations",
         ".devflow/release",
     ]
     for rel in runtime_paths:
@@ -101,17 +122,50 @@ def test_reset_dogfood_state_preview_lists_only_allowlisted_runtime_artifacts(tm
 
     assert preview.exit_code == 0, preview.output
     assert "mode: preview" in preview.output
-    for rel in runtime_paths:
+    for rel in [
+        f".devflow/tasks/{dogfood_task.id}",
+        f".devflow/workspaces/{dogfood_task.id}",
+        f".devflow/worktrees/{dogfood_task.id}",
+        f".devflow/tasks/{smoke_task.id}",
+        f".devflow/workspaces/{smoke_task.id}",
+        ".devflow/dogfood",
+    ]:
         assert f"would_remove: {rel}" in preview.output
+        assert (tmp_path / rel).exists()
+    for rel in [
+        f".devflow/tasks/{real_task.id}",
+        f".devflow/workspaces/{real_task.id}",
+        f".devflow/tasks/{promoted_task.id}",
+        f".devflow/worktrees/{promoted_task.id}",
+        f".devflow/tasks/{promoted_smoke_task.id}",
+        f".devflow/workspaces/{promoted_smoke_task.id}",
+        ".devflow/knowledge",
+        ".devflow/release",
+    ]:
+        assert rel not in preview.output
         assert (tmp_path / rel).exists()
     assert ".devflow/artifacts" not in preview.output
     assert (tmp_path / ".devflow" / "config.yaml").exists()
     assert (tmp_path / ".devflow" / "tasks" / "README.md").exists()
 
 
-def test_reset_dogfood_state_apply_deletes_runtime_and_preserves_tracked_seed(tmp_path: Path) -> None:
+def test_reset_dogfood_state_apply_deletes_dogfood_and_preserves_real_tasks(tmp_path: Path) -> None:
     _init_repo_with_tracked_seed(tmp_path)
-    for rel in [".devflow/tasks/task-0001", ".devflow/workspaces/task-0001", ".devflow/dogfood"]:
+    dogfood_task = create_task(tmp_path, "Dogfood tiny docs task")
+    close_task(
+        tmp_path,
+        dogfood_task.id,
+        outcome="evidence-only",
+        reason="dogfood run dogfood-19990101T000000Z case tiny evidence captured",
+    )
+    smoke_task = create_task(tmp_path, "operator proof smoke")
+    real_task = create_task(tmp_path, "Real active task")
+    for rel in [
+        f".devflow/workspaces/{dogfood_task.id}",
+        f".devflow/workspaces/{smoke_task.id}",
+        f".devflow/workspaces/{real_task.id}",
+        ".devflow/dogfood",
+    ]:
         path = tmp_path / rel
         path.mkdir(parents=True, exist_ok=True)
         (path / "evidence.txt").write_text("runtime\n", encoding="utf-8")
@@ -125,9 +179,13 @@ def test_reset_dogfood_state_apply_deletes_runtime_and_preserves_tracked_seed(tm
 
     assert applied.exit_code == 0, applied.output
     assert "mode: apply" in applied.output
-    assert not (tmp_path / ".devflow" / "tasks" / "task-0001").exists()
-    assert not (tmp_path / ".devflow" / "workspaces" / "task-0001").exists()
+    assert not (tmp_path / ".devflow" / "tasks" / dogfood_task.id).exists()
+    assert not (tmp_path / ".devflow" / "workspaces" / dogfood_task.id).exists()
+    assert not (tmp_path / ".devflow" / "tasks" / smoke_task.id).exists()
+    assert not (tmp_path / ".devflow" / "workspaces" / smoke_task.id).exists()
     assert not (tmp_path / ".devflow" / "dogfood").exists()
+    assert (tmp_path / ".devflow" / "tasks" / real_task.id).exists()
+    assert (tmp_path / ".devflow" / "workspaces" / real_task.id).exists()
     assert (tmp_path / ".devflow" / "config.yaml").read_text(encoding="utf-8") == "version: 1\n"
     assert (tmp_path / ".devflow" / "tasks" / "README.md").exists()
 
