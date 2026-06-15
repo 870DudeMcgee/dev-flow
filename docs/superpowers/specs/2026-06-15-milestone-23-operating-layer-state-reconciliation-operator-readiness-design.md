@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. Milestone task: `task-0137`.
+Implemented in the local main checkout. Milestone task: `task-0137`.
 
 ## Context
 

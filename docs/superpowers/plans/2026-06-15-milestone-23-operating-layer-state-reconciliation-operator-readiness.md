@@ -1,6 +1,6 @@
 # Milestone 23 Operating Layer State Reconciliation & Operator Readiness Implementation Plan
 
-Status: planned. This file is the execution plan for `task-0137`.
+Status: implemented in the local main checkout. This file is the execution plan for `task-0137`.
 
 > For agentic workers: implement this plan task-by-task. Keep all new product logic under `src/devflow/control_room/`; top-level CLI edits may only bridge to control-room functions.
 
@@ -39,18 +39,18 @@ Status: planned. This file is the execution plan for `task-0137`.
 - Create `tests/test_operator_readiness.py`
 - Read only relevant existing tests for scheduler/status/operating-layer fixtures
 
-- [ ] Build a small fixture with:
+- [x] Build a small fixture with:
   - a descriptive project/repo name
   - one goal with missing lifecycle state
   - one task titled like `G-0004 • Slice 2`
   - one descriptive task title
   - one stale freshness recommendation
-- [ ] Assert the desired shared operator projection:
+- [x] Assert the desired shared operator projection:
   - generated-name task resolves to a descriptive display title
   - missing-lifecycle goal blocks worker-ready status
   - next safe action is lifecycle repair or inspection, not worker dispatch
   - ids remain available as secondary metadata
-- [ ] Run the focused test and confirm it fails before implementation.
+- [x] Run the focused test and confirm it fails before implementation.
 
 Verification:
 
@@ -64,13 +64,13 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operator_readiness.py -q
 - Create or modify `src/devflow/control_room/operator_readiness.py`
 - Read only the narrow projection helpers needed for task, goal, scheduler, freshness, and question state
 
-- [ ] Define Pydantic models for display identity, count buckets, blockers, warnings, and next-safe-action.
-- [ ] Derive project, goal, task, and worker display names from existing artifacts.
-- [ ] Normalize count buckets from canonical task and goal state.
-- [ ] Add lifecycle gating for goal-linked tasks.
-- [ ] Detect stale directives when freshness or scheduler recommendations point at inactive, missing-lifecycle, closed, or superseded work.
-- [ ] Implement next-safe-action priority from the design spec.
-- [ ] Keep all functions read-only and deterministic.
+- [x] Define Pydantic models for display identity, count buckets, blockers, warnings, and next-safe-action.
+- [x] Derive project, goal, task, and worker display names from existing artifacts.
+- [x] Normalize count buckets from canonical task and goal state.
+- [x] Add lifecycle gating for goal-linked tasks.
+- [x] Detect stale directives when freshness or scheduler recommendations point at inactive, missing-lifecycle, closed, or superseded work.
+- [x] Implement next-safe-action priority from the design spec.
+- [x] Keep all functions read-only and deterministic.
 
 Verification:
 
@@ -86,10 +86,10 @@ PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operator_readiness.py -q
 - Modify `src/devflow/control_room/dashboard.py`
 - Extend existing focused tests
 
-- [ ] Make `status --json` expose shared operator counts, warnings, and next safe action.
-- [ ] Make scheduler ready/blocked counts use lifecycle-gated operator readiness.
-- [ ] Make dashboard text use descriptive labels and the shared next-safe-action reason.
-- [ ] Preserve existing JSON fields where external callers may depend on them; add fields rather than breaking consumers when possible.
+- [x] Make `status --json` expose shared operator counts, warnings, and next safe action.
+- [x] Make scheduler ready/blocked counts use lifecycle-gated operator readiness.
+- [x] Make dashboard text use descriptive labels and the shared next-safe-action reason.
+- [x] Preserve existing JSON fields where external callers may depend on them; add fields rather than breaking consumers when possible.
 
 Verification:
 
@@ -108,11 +108,11 @@ PYTHONPATH=src:. .venv/bin/devflow dashboard
 - Modify UI asset modules only for label/rendering changes
 - Extend existing supervisor and operating-layer tests
 
-- [ ] Add shared operator summary and warnings to supervisor packet output.
-- [ ] Update operating-layer snapshot to use shared labels and counts.
-- [ ] Ensure first-viewport directive and next action explain lifecycle/stale blockers plainly.
-- [ ] Keep Action Rail command classification and browser mutation gates unchanged.
-- [ ] Verify generated ids remain visible but secondary.
+- [x] Add shared operator summary and warnings to supervisor packet output.
+- [x] Update operating-layer snapshot to use shared labels and counts.
+- [x] Ensure first-viewport directive and next action explain lifecycle/stale blockers plainly.
+- [x] Keep Action Rail command classification and browser mutation gates unchanged.
+- [x] Verify generated ids remain visible but secondary.
 
 Verification:
 
@@ -128,9 +128,9 @@ PYTHONPATH=src:. .venv/bin/devflow operating-layer snapshot --json
 - Modify `src/devflow/control_room/dogfood.py`
 - Modify `tests/test_dogfood_harness.py`
 
-- [ ] Add an operator-reconciliation case with lifecycle, stale directive, question, generated-name, and descriptive-name fixtures.
-- [ ] Assert the major surfaces agree on count buckets and next-safe-action class.
-- [ ] Ensure dogfood closes any task evidence it creates as evidence-only.
+- [x] Add an operator-reconciliation case with lifecycle, stale directive, question, generated-name, and descriptive-name fixtures.
+- [x] Assert the major surfaces agree on count buckets and next-safe-action class.
+- [x] Ensure dogfood closes any task evidence it creates as evidence-only.
 
 Verification:
 
@@ -148,11 +148,11 @@ PYTHONPATH=src:. .venv/bin/devflow dogfood run --suite production-readiness
 - Update `docs/agent-handoff.md`
 - Add implementation handoff under `docs/handoffs/`
 
-- [ ] Mark Milestone 23 implemented only after code and dogfood verification pass.
-- [ ] Run focused tests plus broader suite appropriate to touched modules.
-- [ ] Run stale-context searches for old priority wording and confusing future-tense claims.
-- [ ] Check Dev-Flow Git status is clean.
-- [ ] Do not push or publish without explicit human approval.
+- [x] Mark Milestone 23 implemented only after code and dogfood verification pass.
+- [x] Run focused tests plus broader suite appropriate to touched modules.
+- [x] Run stale-context searches for old priority wording and confusing future-tense claims.
+- [x] Check Dev-Flow Git status is clean.
+- [x] Do not push or publish without explicit human approval.
 
 Suggested final verification:
 

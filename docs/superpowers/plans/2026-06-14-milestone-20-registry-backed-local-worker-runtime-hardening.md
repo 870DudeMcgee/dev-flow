@@ -886,7 +886,7 @@ Replace placeholder angle-bracket text with real command output before finalizin
 - [ ] **Step 3: Run stale-context scan**
 
 ```bash
-rg -n "Milestone 19.*next planned|task-0037.*continue|provider-backed execution is active|autonomous routing is active|local worker owns verification|local worker owns promotion" docs README.md AGENTS.md -S
+rg -n "Milestone 19.*next planned|task-0037.*continue|provider-backed-execution-active|autonomous-routing-active|local-worker-owns-verification|local-worker-owns-promotion" docs README.md AGENTS.md -S
 ```
 
 Expected: no misleading active-doc matches.

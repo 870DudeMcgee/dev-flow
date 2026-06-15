@@ -1,5 +1,7 @@
 # Milestone 23 Operating Layer State Reconciliation & Operator Readiness Next Handoff
 
+Superseded by [2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-implementation.md](2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-implementation.md). Retained as historical planning evidence only; do not treat this file as the current next-action authority.
+
 ## Status
 
 complete
@@ -10,9 +12,9 @@ complete
 - `docs/superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md` (implementation plan)
 - `docs/control-room-mvp.md` (current priority sharpened around plain-language operator visibility)
 - `docs/mvp-contract.md` (current priority sharpened around shared operator counts and lifecycle blockers)
-- `docs/roadmap.md` (Milestone 23 planned slice added)
+- `docs/roadmap.md` (original Milestone 23 planning slice added; now superseded by implementation handoff)
 - `docs/agent-handoff.md` (active milestone state and task id updated)
-- `.devflow/tasks/task-0137/` and `.devflow/workspaces/task-0137/` (planning task record for Milestone 23)
+- `.devflow/tasks/task-0137/` and `.devflow/workspaces/task-0137/` (original planning task record for Milestone 23)
 
 ## Verification
 
@@ -24,10 +26,10 @@ complete
 
 ## Risks
 
-- This is a planning handoff only; no Milestone 23 runtime implementation has started.
+- Superseded historical note: at the time this handoff was written, no Milestone 23 runtime implementation had started.
 - Local `main` was already ahead of `origin/main` by one commit before this planning work.
 - Milestone 23 must not add provider-backed execution, autonomous routing, auto-resume, browser mutation expansion, commits, pushes, PRs, databases, or Git-native worktrees as the default runtime.
 
 ## Next Safe Action
 
-- Start Task 1 in `docs/superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md` from `task-0137`, beginning with failing operator-readiness characterization tests.
+- See the implementation handoff for current authority; this planning handoff no longer defines the next safe action.
