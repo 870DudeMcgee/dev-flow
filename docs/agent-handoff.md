@@ -34,11 +34,11 @@ Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, Milestone 19 Git-native worker lane hardening, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, Git-native lane recovery visibility, registry-backed local worker evidence, and human-controlled promotion.
+The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, Milestone 19 Git-native worker lane hardening, Milestone 20 registry-backed local worker evidence hardening, Milestone 21 simple scheduler projection, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, Git-native lane recovery visibility, registry-backed local worker evidence, explicit scheduler retry evidence, and human-controlled promotion.
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
-Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 is planned next to add a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited.
+Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 is implemented in the active branch to add a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited.
 
 ## Code Architecture Boundary
 
@@ -83,6 +83,8 @@ Current product contract:
 - `devflow task log <task_id>`
 - `devflow task apply-patch <task_id>` with SHA-256 patch evidence under `.devflow/tasks/<task_id>/patches/`
 - `devflow task orchestrate <task_id> --plan-only`
+- `devflow scheduler status`
+- `devflow scheduler retry <task_id> --reason "<reason>"`
 - `devflow worker validate-outcome <path-to-outcome-json>`
 - `devflow knowledge capture/list/show/promote/reject/search`
 - `devflow task promote-preview <task_id>`
@@ -139,6 +141,8 @@ devflow git status
 devflow sync-main
 devflow reconcile
 devflow freshness loop
+devflow scheduler status
+devflow scheduler retry <task_id> --reason "<reason>"
 devflow dashboard
 devflow task --help
 devflow task create "example task"
@@ -209,12 +213,13 @@ Milestone 20 Registry-Backed Local Worker Runtime Hardening is promoted and push
 - [docs/handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-next.md](handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-next.md)
 - [docs/handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-implementation.md](handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-implementation.md)
 
-Milestone 21 Simple Scheduler / Parallel Coordination Beta is planned next. It should add a derived scheduler projection and explicit retry-request evidence over existing task, freshness, goal, question, lock, worker, and verification state without adding a background scheduler or autonomous execution. Artifacts:
+Milestone 21 Simple Scheduler / Parallel Coordination Beta is implemented in the active branch. It adds a derived scheduler projection and explicit retry-request evidence over existing task, freshness, goal, question, lock, worker, and verification state without adding a background scheduler or autonomous execution. Artifacts:
 
 - [docs/superpowers/specs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-design.md](superpowers/specs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-design.md)
 - [docs/superpowers/plans/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta.md](superpowers/plans/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta.md)
 - [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md)
+- [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-implementation.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-implementation.md)
 
 ## Known Worktree State At Handoff
 
-Milestone 21 planning is in task `task-0040` on the `devflow/task-0040/shell` worktree/branch until reviewed and promoted. Task `task-0039` was closed as superseded because it was created before Milestone 20 was pushed and therefore had a stale baseline. Future agents should start Milestone 21 implementation from pushed `main` after this planning branch is promoted, and must keep unrelated dirty worktree changes intact if any appear after this handoff.
+Milestone 21 implementation is in task `task-0041` on the `devflow/task-0041/shell` worktree/branch until reviewed and promoted. Keep unrelated dirty worktree changes intact if any appear after this handoff.

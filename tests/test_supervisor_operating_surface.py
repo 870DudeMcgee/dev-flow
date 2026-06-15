@@ -7,6 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.persistence import get_task, save_task
 from devflow.control_room.service import create_task
 from devflow.control_room.supervisor_surface import (
     APPROVAL_REQUIRED_EVIDENCE_WRITING,
@@ -428,6 +429,7 @@ def test_status_json_and_supervisor_packet_summarize_state_read_only(tmp_path: P
     assert status["closed_task_count"] == 2
     assert status["review_ready_task_count"] == 1
     assert status["verification_failed_task_count"] == 1
+    assert status["scheduler"]["counts"]["needs_retry"] == 1
     by_id = {task["id"]: task for task in status["tasks"]}
     assert by_id[active.id]["recommended_action"] == "run worker or provide patch evidence"
     assert by_id[active.id]["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
@@ -544,6 +546,20 @@ def test_local_worker_lane_summary_reaches_supervisor_surfaces(tmp_path: Path, m
     packet_task = packet["tasks"][0]
     assert packet_task["local_worker_lane"]["lane_type"] == "local-patch-worker"
     assert ".devflow/tasks/task-0001/agents/qwopus-implementer/run.json" in packet_task["evidence_paths"]
+
+
+def test_scheduler_summary_reaches_supervisor_packet(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    create_task(tmp_path, "scheduler retry")
+    task = get_task(tmp_path, "task-0001")
+    task.status = "worker_failed"
+    save_task(tmp_path / ".devflow" / "tasks" / task.id, task)
+
+    packet = _read_json(_invoke_read_only(tmp_path, ["supervisor", "packet", "--json"]))
+
+    assert packet["scheduler"]["counts"]["needs_retry"] == 1
+    assert packet["scheduler"]["next_safe_action"] == 'devflow scheduler retry task-0001 --reason "<reason>"'
+    assert ".devflow/tasks/task-0001/task.yaml" in packet["evidence_paths"]
 
 
 def test_supervisor_safe_json_commands_parse_and_do_not_mutate(tmp_path: Path, monkeypatch) -> None:

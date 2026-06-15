@@ -15,6 +15,7 @@ from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
 from devflow.control_room.persistence import get_task, list_tasks, utc_now
 from devflow.control_room.project_registry import project_task_ref
 from devflow.control_room.qwopus_evidence import read_qwopus_evidence
+from devflow.control_room.scheduler_projection import build_scheduler_snapshot
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.task_closure import read_closure
 
@@ -38,6 +39,8 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow reconcile",
     "devflow dashboard",
     "devflow dashboard --json",
+    "devflow scheduler status",
+    "devflow scheduler status --json",
     "devflow status --json",
     "devflow next",
     "devflow supervisor policy",
@@ -102,6 +105,7 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow task escalation-packet",
     "devflow task capsule --export-md",
     "devflow worker validate-outcome",
+    "devflow scheduler retry",
     "devflow knowledge capture",
     "devflow idea capture",
     "devflow idea classify",
@@ -330,6 +334,12 @@ def _classify_supervisor_command(command: str) -> str:
         return PURE_READ_ONLY if subcommand in {"policy", "packet", "route-message"} else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "hermes":
         return PURE_READ_ONLY if subcommand == "imessage-check" else FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "scheduler":
+        if subcommand == "status":
+            return PURE_READ_ONLY
+        if subcommand == "retry":
+            return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "git":
         return PURE_READ_ONLY if subcommand == "status" else FORBIDDEN_FOR_SUPERVISOR
     if command_group == "goal":
@@ -638,6 +648,7 @@ def render_supervisor_command_classification(command: str, *, json_output: bool)
 
 def build_control_room_status(root: Path) -> dict[str, Any]:
     projections = list_task_status_projections(root)
+    scheduler = build_scheduler_snapshot(root)
     task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
     active_tasks = [record for record in task_records if record["active"]]
     closed_tasks = [record for record in task_records if record["status"] == "closed"]
@@ -668,6 +679,12 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
         "verification_failed_task_count": len(failed_verification),
         "promotion_ready_task_count": len(promotion_ready),
         "stale_or_conflicted_task_count": len(stale_or_conflicted),
+        "scheduler": {
+            "status": scheduler.status,
+            "counts": scheduler.counts,
+            "next_safe_action": scheduler.next_safe_action,
+            "max_parallel_recommendation": scheduler.max_parallel_recommendation,
+        },
         "tasks": task_records,
         "generated_at": utc_now().isoformat(),
     }
@@ -680,6 +697,7 @@ def render_control_room_status(root: Path) -> str:
 def build_supervisor_packet(root: Path) -> dict[str, Any]:
     status = build_control_room_status(root)
     policy = build_supervisor_policy()
+    scheduler = build_scheduler_snapshot(root)
     tasks = [
         _compact_task_record(root, projection.task, projection, include_evidence_paths=True)
         for projection in list_task_status_projections(root)
@@ -704,6 +722,9 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
     ]
     stale_or_conflicted = [task for task in tasks if task["active"] and task["stale_or_conflicted"]]
     next_actions = _packet_next_actions(tasks)
+    evidence_paths = _dedupe_preserve_order(
+        [path for task in tasks for path in task["evidence_paths"]] + scheduler.evidence_paths
+    )
     return {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
         "project": {
@@ -737,6 +758,12 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         "tasks_stale_or_conflicted": stale_or_conflicted,
         "tasks_ready_for_preview": ready_for_preview,
         "tasks_promotion_ready": promotion_ready,
+        "scheduler": {
+            "status": scheduler.status,
+            "counts": scheduler.counts,
+            "next_safe_action": scheduler.next_safe_action,
+            "max_parallel_recommendation": scheduler.max_parallel_recommendation,
+        },
         "next_safe_action": next_actions[0]["next_safe_action"] if next_actions else "no active task action inferred",
         "next_recommended_actions": next_actions,
         "policy": {
@@ -757,7 +784,7 @@ def build_supervisor_packet(root: Path) -> dict[str, Any]:
         "suggested_read_only_commands": policy["pure_read_only"],
         "suggested_approval_required_commands": policy["commands_requiring_human_approval"],
         "forbidden_actions": policy["forbidden_actions"],
-        "evidence_paths": sorted({path for task in tasks for path in task["evidence_paths"]}),
+        "evidence_paths": evidence_paths,
         "warnings": _packet_warnings(status, tasks),
         "timestamp": utc_now().isoformat(),
     }

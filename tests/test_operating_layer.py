@@ -17,7 +17,7 @@ from devflow.control_room.operating_layer_html import INDEX_HTML as SPLIT_INDEX_
 from devflow.control_room.operating_layer_script import APP_JS as SPLIT_APP_JS
 from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer, OperatingLayerRequestHandler
 from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
-from devflow.control_room.persistence import utc_now
+from devflow.control_room.persistence import get_task, save_task, utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
 from devflow.control_room.project_registry import register_project, write_project_metadata
 from devflow.control_room.worker_evidence import write_worker_evidence
@@ -65,9 +65,11 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert ".task-review-panel" in APP_CSS
     assert ".worker-lane-block" in APP_CSS
     assert ".local-worker-lane-block" in APP_CSS
+    assert ".scheduler-block" in APP_CSS
     assert "refreshSnapshotAfterApprovedAction" in APP_JS
     assert "renderWorkerLaneBlock" in APP_JS
     assert "renderLocalWorkerLaneBlock" in APP_JS
+    assert "renderSchedulerBlock" in APP_JS
     assert "isTaskPromotionAction" in APP_JS
     assert "Approve & promote" in APP_JS
     assert "data-promotion-context" in APP_JS
@@ -173,6 +175,20 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     assert review_loop["next_safe_action"] == "devflow task promote-preview task-0001"
     assert review_loop["needs_verification_count"] == 0
     assert review_loop["ready_to_promote_count"] == 1
+
+
+def test_operating_layer_snapshot_includes_scheduler_summary(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    created = runner.invoke(app, ["task", "create", "scheduler retry"])
+    assert created.exit_code == 0, created.output
+    task = get_task(tmp_path, "task-0001")
+    task.status = "worker_failed"
+    save_task(tmp_path / ".devflow" / "tasks" / task.id, task)
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    assert payload["scheduler"]["counts"]["needs_retry"] == 1
+    assert payload["scheduler"]["next_safe_action"] == 'devflow scheduler retry task-0001 --reason "<reason>"'
 
 
 def test_operating_layer_snapshot_includes_git_worker_lane_summary(

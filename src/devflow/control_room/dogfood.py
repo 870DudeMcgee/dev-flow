@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ from devflow.control_room.paths import (
     dogfood_runs_dir,
     relative_path,
 )
-from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, utc_now
+from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, save_task, utc_now
 from devflow.control_room.patch_dry_run import preview_patch_dry_run
 from devflow.control_room.patch_review import normalize_agent_patch_candidate, review_patch_candidate
 from devflow.control_room.readiness import promotion_readiness_errors
@@ -45,6 +46,7 @@ from devflow.control_room.service import (
     run_shell_task,
     verify_task,
 )
+from devflow.control_room.scheduler_projection import build_scheduler_snapshot, request_scheduler_retry
 from devflow.control_room.supervisor_surface import build_control_room_status
 from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
@@ -58,10 +60,10 @@ SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
     "A_safety_git_discipline": 22,
-    "B_pipeline_correctness": 22,
+    "B_pipeline_correctness": 24,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 18,
-    "E_recovery_failure_handling": 18,
+    "D_worker_artifact_quality": 21,
+    "E_recovery_failure_handling": 23,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
     "H_operating_layer_visual_qa": 10,
@@ -447,6 +449,36 @@ def production_readiness_cases() -> list[dict[str, Any]]:
             scoring={
                 "A_safety_git_discipline": 3,
                 "E_recovery_failure_handling": 2,
+            },
+        ),
+        _case_definition(
+            case_id="simple-scheduler-parallel-coordination",
+            title="Simple scheduler parallel coordination",
+            category="B_pipeline_correctness",
+            task_type="scheduler_projection",
+            risk_level="medium",
+            purpose="Prove scheduler status coordinates ready, blocked, stale, retry, and batch evidence without autonomous execution.",
+            expected_behavior=[
+                "project ready parallel batches from goal slice evidence",
+                "surface dependency-blocked and question-blocked work",
+                "mark stale running tasks without cleaning locks or rerunning work",
+                "write explicit retry-request evidence without clearing old logs",
+                "avoid provider calls, background scheduling, auto-verification, auto-promotion, commits, pushes, databases, and hidden memory",
+            ],
+            command_sequence=[
+                "write deterministic goal slices and task evidence",
+                "devflow scheduler status --json",
+                "devflow scheduler retry <task-id> --reason '<reason>' --json",
+            ],
+            success_criteria=[
+                "scheduler exposes ready, blocked, stale, and retry counts",
+                "next action points to an explicit existing Dev-Flow command",
+                "retry evidence preserves prior task state",
+            ],
+            scoring={
+                "B_pipeline_correctness": 2,
+                "D_worker_artifact_quality": 3,
+                "E_recovery_failure_handling": 5,
             },
         ),
         _case_definition(
@@ -1536,6 +1568,163 @@ def _case_central_schema_risk(
     return _finalize_case(root, case, state, scores, failures)
 
 
+def _case_simple_scheduler_parallel_coordination(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "simple-scheduler-repo"
+    _init_git_native_dogfood_repo(scratch)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_command(
+        state,
+        "git init scratch simple-scheduler dogfood repo",
+        status="passed",
+        output=relative_path(root, scratch),
+    )
+
+    goal_path = scratch / ".devflow" / "goals" / "G-0001"
+    goal_path.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(goal_path / "goal.yaml", "id: G-0001\ntitle: Scheduler dogfood\nstate: active\n")
+    atomic_write_text(
+        goal_path / "goal-state.yaml",
+        "schema_version: 1\ngoal_id: G-0001\nlifecycle: active\nreason: dogfood scheduler case\n",
+    )
+    atomic_write_text(
+        goal_path / "task-slices.yaml",
+        """
+task_slices:
+  - task_id: TS-0001
+    title: Ready scheduler lane one
+    summary: Can start independently.
+    parallel_safe: true
+    shared_files: [src/a.py]
+    risk: low
+    execution_mode: AFK
+  - task_id: TS-0002
+    title: Ready scheduler lane two
+    summary: Can start independently beside TS-0001.
+    parallel_safe: true
+    shared_files: [src/b.py]
+    risk: low
+    execution_mode: AFK
+  - task_id: TS-0003
+    title: Dependency blocked scheduler lane
+    summary: Waits for TS-0001.
+    blocked_by: [TS-0001]
+    parallel_safe: true
+    shared_files: [src/c.py]
+    risk: medium
+    execution_mode: HITL
+""".lstrip(),
+    )
+    atomic_write_text(goal_path / "linked-tasks.yaml", "linked_tasks: {}\n")
+
+    retry_task = create_task(scratch, "Dogfood scheduler retry task")
+    retry_record = get_task(scratch, retry_task.id)
+    retry_record.status = "verification_failed"
+    retry_record.verification_status = "failed"
+    retry_record.verification_command = "pytest tests/test_retry.py"
+    retry_record.updated_at = utc_now()
+    save_task(scratch / ".devflow" / "tasks" / retry_record.id, retry_record)
+
+    stale_task = create_task(scratch, "Dogfood scheduler stale running task")
+    stale_record = get_task(scratch, stale_task.id)
+    stale_record.status = "running"
+    stale_record.started_at = utc_now() - timedelta(seconds=900)
+    stale_record.updated_at = stale_record.started_at
+    stale_record.timeout_seconds = 60
+    save_task(scratch / ".devflow" / "tasks" / stale_record.id, stale_record)
+
+    blocked_task = create_task(scratch, "Dogfood scheduler blocked question task")
+    agent_dir = scratch / ".devflow" / "tasks" / blocked_task.id / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    with (agent_dir / "questions.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "type": "blocked_question",
+                    "task_id": blocked_task.id,
+                    "agent_id": "devflow-manual-codex-worker",
+                    "question": "Which retry path should this dogfood task use?",
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+    snapshot_before = build_scheduler_snapshot(scratch)
+    retry = request_scheduler_retry(scratch, retry_task.id, reason="dogfood retry evidence")
+    snapshot_after = build_scheduler_snapshot(scratch)
+    summary = {
+        "before": snapshot_before.model_dump(mode="json"),
+        "retry": retry.model_dump(mode="json"),
+        "after": snapshot_after.model_dump(mode="json"),
+    }
+    summary_path = case_dir / "artifacts" / "simple-scheduler-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_command(
+        state,
+        "devflow scheduler status --json (fixture)",
+        status="passed",
+        output=relative_path(root, summary_path),
+    )
+    _record_command(
+        state,
+        "devflow scheduler retry <task-id> --reason 'dogfood retry evidence' --json",
+        status="passed",
+    )
+
+    retry_after = get_task(scratch, retry_task.id)
+    retry_preserved = (
+        retry_after.status == "verification_failed"
+        and retry_after.verification_status == "failed"
+        and retry_after.verification_command == "pytest tests/test_retry.py"
+    )
+    commands_clean = _commands_have_no_provider_calls(state["commands_run"])
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    counts = snapshot_after.counts
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        counts.get("ready", 0) >= 2
+        and counts.get("blocked", 0) >= 2
+        and counts.get("stale", 0) >= 1
+        and counts.get("needs_retry", 0) >= 1,
+        "scheduler exposed ready blocked stale and retry work",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        3,
+        snapshot_after.batches
+        and snapshot_after.next_safe_action == "devflow freshness create-batch G-0001 PB-0001"
+        and (scratch / retry.retry_request_path).exists(),
+        "scheduler wrote reviewable batch and retry evidence",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        5,
+        retry_preserved and commands_clean,
+        "retry request preserved prior task evidence",
+    )
+    if commands_clean:
+        state["lessons"].append("no background scheduler or provider calls were introduced")
+    else:
+        failures.append("no background scheduler or provider calls were introduced")
+    return _finalize_case(root, case, state, scores, failures)
+
+
 def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1676,6 +1865,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "handoff-resume": _case_handoff_resume,
     "parallelism-decision-docs-test-split": _case_parallelism_docs_test,
     "central-schema-refactor-risk": _case_central_schema_risk,
+    "simple-scheduler-parallel-coordination": _case_simple_scheduler_parallel_coordination,
     "operating-layer-visual-qa-hardening": _case_operating_layer_visual_qa,
 }
 

@@ -22,6 +22,7 @@ from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.review_readiness import build_review_readiness_projection
+from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
 from devflow.control_room.supervisor_surface import classify_supervisor_command
 
@@ -380,6 +381,16 @@ class OperatingLayerReviewLoop(BaseModel):
     evidence_summary: str = ""
 
 
+class OperatingLayerScheduler(BaseModel):
+    status: str
+    counts: dict[str, int] = Field(default_factory=dict)
+    max_parallel_recommendation: int
+    next_safe_action: str
+    stale_tasks: list[str] = Field(default_factory=list)
+    retry_candidates: list[str] = Field(default_factory=list)
+    batch_count: int = 0
+
+
 class OperatingLayerSnapshot(BaseModel):
     schema_version: int = OPERATING_LAYER_SCHEMA_VERSION
     generated_at: str
@@ -403,6 +414,7 @@ class OperatingLayerSnapshot(BaseModel):
     worker_activity: list[OperatingLayerWorkerActivity] = Field(default_factory=list)
     mission_feed: list[OperatingLayerMissionFeedItem] = Field(default_factory=list)
     review_loop: OperatingLayerReviewLoop
+    scheduler: OperatingLayerScheduler | None = None
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -413,6 +425,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
     warnings: list[str] = []
     project_id = _project_id(root, warnings)
     freshness = _try_freshness(root, warnings)
+    scheduler = _try_scheduler(root, warnings)
     tasks = [_task_card(root, projection, project_id=project_id) for projection in dashboard.tasks]
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(dashboard.tasks)
@@ -481,6 +494,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
             promotion_desk=promotion_desk,
             next_action=dashboard_next_action,
         ),
+        scheduler=_scheduler_card(scheduler),
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )
@@ -497,6 +511,28 @@ def _try_freshness(root: Path, warnings: list[str]) -> FreshnessReport | None:
     except Exception as exc:  # pragma: no cover - defensive projection boundary
         warnings.append(f"freshness unavailable: {exc}")
         return None
+
+
+def _try_scheduler(root: Path, warnings: list[str]) -> SchedulerSnapshot | None:
+    try:
+        return build_scheduler_snapshot(root)
+    except Exception as exc:  # pragma: no cover - defensive projection boundary
+        warnings.append(f"scheduler unavailable: {exc}")
+        return None
+
+
+def _scheduler_card(snapshot: SchedulerSnapshot | None) -> OperatingLayerScheduler | None:
+    if snapshot is None:
+        return None
+    return OperatingLayerScheduler(
+        status=snapshot.status,
+        counts=snapshot.counts,
+        max_parallel_recommendation=snapshot.max_parallel_recommendation,
+        next_safe_action=snapshot.next_safe_action,
+        stale_tasks=snapshot.stale_tasks,
+        retry_candidates=snapshot.retry_candidates,
+        batch_count=len(snapshot.batches),
+    )
 
 
 def _goal_cards(root: Path, freshness: FreshnessReport | None) -> list[OperatingLayerGoal]:

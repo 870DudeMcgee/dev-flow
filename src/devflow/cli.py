@@ -124,6 +124,7 @@ hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 project_app = typer.Typer(help="Create and manage registered projects")
 map_app = typer.Typer(help="Project Code Map orientation layer (Milestone 11)")
 freshness_app = typer.Typer(help="Detect stale goal/task/document guidance")
+scheduler_app = typer.Typer(help="Inspect simple scheduler queue and retry evidence")
 operating_layer_app = typer.Typer(help="Local operating-layer UI and supervisor-safe controls")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
@@ -141,7 +142,43 @@ app.add_typer(hermes_app, name="hermes")
 app.add_typer(project_app, name="project")
 app.add_typer(map_app, name="map")
 app.add_typer(freshness_app, name="freshness")
+app.add_typer(scheduler_app, name="scheduler")
 app.add_typer(operating_layer_app, name="operating-layer")
+
+
+@scheduler_app.command("status")
+def scheduler_status(
+    json_output: bool = typer.Option(False, "--json", help="Print scheduler status as JSON."),
+) -> None:
+    """Show the derived simple scheduler projection."""
+    from devflow.control_room.scheduler_projection import build_scheduler_snapshot, render_scheduler_snapshot
+
+    snapshot = build_scheduler_snapshot(Path.cwd())
+    if json_output:
+        typer.echo(json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True))
+    else:
+        typer.echo(render_scheduler_snapshot(snapshot), nl=False)
+
+
+@scheduler_app.command("retry")
+def scheduler_retry(
+    task_id: str = typer.Argument(..., help="Task ID to mark for manual retry."),
+    reason: str = typer.Option(..., "--reason", help="Human-readable retry reason."),
+    json_output: bool = typer.Option(False, "--json", help="Print retry request as JSON."),
+) -> None:
+    """Write explicit retry-request evidence without rerunning work."""
+    from devflow.control_room.scheduler_projection import request_scheduler_retry
+
+    try:
+        request = request_scheduler_retry(Path.cwd(), task_id, reason=reason)
+    except ValueError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        typer.echo(json.dumps(request.model_dump(mode="json"), indent=2, sort_keys=True))
+    else:
+        typer.echo(f"retry_request: {request.retry_request_path}")
+        typer.echo(f"next_safe_action: {request.recommended_next_command}")
 
 
 @freshness_app.command("loop")

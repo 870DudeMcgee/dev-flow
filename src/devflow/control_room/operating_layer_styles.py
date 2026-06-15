@@ -891,6 +891,40 @@ button:focus-visible {
   background: var(--panel);
 }
 
+.scheduler-block {
+  border-top: 1px solid var(--border);
+  padding: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.scheduler-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.scheduler-grid div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel);
+}
+
+.scheduler-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.scheduler-grid strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+}
+
 .action-preview-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
