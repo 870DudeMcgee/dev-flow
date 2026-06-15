@@ -35,6 +35,7 @@ from devflow.control_room.paths import (
 from devflow.control_room.persistence import atomic_write_text, get_task, list_tasks, save_task, utc_now
 from devflow.control_room.patch_dry_run import preview_patch_dry_run
 from devflow.control_room.patch_review import normalize_agent_patch_candidate, review_patch_candidate
+from devflow.control_room.question_resume import answer_question, build_question_snapshot
 from devflow.control_room.readiness import promotion_readiness_errors
 from devflow.control_room.service import (
     apply_task_patch,
@@ -60,10 +61,10 @@ SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
     "A_safety_git_discipline": 22,
-    "B_pipeline_correctness": 24,
+    "B_pipeline_correctness": 26,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 21,
-    "E_recovery_failure_handling": 23,
+    "D_worker_artifact_quality": 23,
+    "E_recovery_failure_handling": 27,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
     "H_operating_layer_visual_qa": 10,
@@ -479,6 +480,38 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "B_pipeline_correctness": 2,
                 "D_worker_artifact_quality": 3,
                 "E_recovery_failure_handling": 5,
+            },
+        ),
+        _case_definition(
+            case_id="question-blocker-resume-loop",
+            title="Question blocker resume loop",
+            category="E_recovery_failure_handling",
+            task_type="question_resume_evidence",
+            risk_level="medium",
+            purpose="Exercise explicit question answer evidence without running workers or providers.",
+            expected_behavior=[
+                "list deterministic open question evidence",
+                "surface malformed question evidence as a warning",
+                "persist a human answer without changing source worker output",
+                "let scheduler recommend a conservative explicit resume command",
+                "avoid worker resume, provider calls, verification, promotion, commits, pushes, databases, and background schedulers",
+            ],
+            command_sequence=[
+                "write deterministic worker question evidence",
+                "devflow question list --json",
+                "devflow question answer <question-id> --answer '<answer>' --json",
+                "devflow scheduler status --json",
+            ],
+            success_criteria=[
+                "question list exposes one deterministic open blocker and warning evidence",
+                "answer writes project-level and task-local records",
+                "source question evidence is preserved byte-for-byte",
+                "scheduler no longer treats the answered question as an open blocker",
+            ],
+            scoring={
+                "B_pipeline_correctness": 2,
+                "D_worker_artifact_quality": 2,
+                "E_recovery_failure_handling": 4,
             },
         ),
         _case_definition(
@@ -1725,6 +1758,114 @@ task_slices:
     return _finalize_case(root, case, state, scores, failures)
 
 
+def _case_question_blocker_resume_loop(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "question-resume-repo"
+    _init_git_native_dogfood_repo(scratch)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+
+    task = create_task(scratch, "Dogfood question blocker")
+    task.status = "blocked"
+    save_task(scratch / ".devflow" / "tasks" / task.id, task)
+    agent_dir = scratch / ".devflow" / "tasks" / task.id / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    source = agent_dir / "questions.jsonl"
+    source.write_text(
+        (
+            '{"type":"blocked_question","task_id":"task-0001","agent_id":"devflow-manual-codex-worker",'
+            '"question":"Which API should I preserve?","blocking_reason":"Need human decision."}\n'
+            "{bad json}\n"
+        ),
+        encoding="utf-8",
+    )
+    before_source = source.read_text(encoding="utf-8")
+
+    snapshot = build_question_snapshot(scratch)
+    question = next((item for item in snapshot.questions if item.status == "open"), None)
+    answered = answer_question(scratch, question.question_id, answer="Preserve the stable API.") if question else None
+    scheduler = build_scheduler_snapshot(scratch)
+    after_source = source.read_text(encoding="utf-8")
+
+    summary = {
+        "question_snapshot": snapshot.model_dump(mode="json"),
+        "answered": answered.model_dump(mode="json") if answered else None,
+        "scheduler": scheduler.model_dump(mode="json"),
+        "source_preserved": before_source == after_source,
+    }
+    summary_path = case_dir / "artifacts" / "question-resume-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+    if answered and answered.answer_path:
+        state["artifacts_created"].append(relative_path(scratch, scratch / answered.answer_path))
+    _record_command(
+        state,
+        "devflow question list --json (fixture)",
+        status="passed",
+        output=relative_path(root, summary_path),
+    )
+    _record_command(
+        state,
+        "devflow question answer <question-id> --answer '<answer>' --json",
+        status="passed" if answered else "failed",
+    )
+    _record_command(
+        state,
+        "devflow scheduler status --json (fixture)",
+        status="passed",
+    )
+
+    answer_record_exists = bool(answered and answered.answer_path and (scratch / answered.answer_path).exists())
+    mirror_exists = bool(
+        answered
+        and (scratch / ".devflow" / "tasks" / task.id / "question-answers" / f"{answered.question_id}.json").exists()
+    )
+    events_text = (scratch / ".devflow" / "tasks" / task.id / "events.jsonl").read_text(encoding="utf-8")
+    commands_clean = _commands_have_no_provider_calls(state["commands_run"])
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        2,
+        question is not None
+        and question.question_id.startswith("Q-task-0001-")
+        and snapshot.counts.get("open") == 1
+        and bool(snapshot.warnings),
+        "question list exposed deterministic open blocker",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        2,
+        bool(answered)
+        and answer_record_exists
+        and mirror_exists
+        and before_source == after_source
+        and "question_answered" in events_text,
+        "answer preserved source question evidence",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        4,
+        scheduler.counts.get("blocked", 0) == 0
+        and answered is not None
+        and answered.recommended_resume_command == f"devflow task next-action {task.id}"
+        and commands_clean,
+        "no worker resume or provider call was executed by question commands",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
 def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
@@ -1866,6 +2007,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "parallelism-decision-docs-test-split": _case_parallelism_docs_test,
     "central-schema-refactor-risk": _case_central_schema_risk,
     "simple-scheduler-parallel-coordination": _case_simple_scheduler_parallel_coordination,
+    "question-blocker-resume-loop": _case_question_blocker_resume_loop,
     "operating-layer-visual-qa-hardening": _case_operating_layer_visual_qa,
 }
 

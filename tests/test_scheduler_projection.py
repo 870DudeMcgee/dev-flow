@@ -133,6 +133,45 @@ def test_scheduler_retry_writes_request_without_clearing_evidence(tmp_path: Path
     assert "retry_requested" in events
 
 
+def test_scheduler_uses_question_answers_to_clear_open_question_blocker(tmp_path: Path, monkeypatch) -> None:
+    _init_goal(tmp_path, monkeypatch)
+    create = runner.invoke(app, ["task", "create", "blocked question"])
+    assert create.exit_code == 0, create.output
+    task = _task(tmp_path, "task-0001")
+    task.status = "blocked"
+    save_task(tmp_path / ".devflow" / "tasks" / task.id, task)
+    agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "devflow-manual-codex-worker"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "questions.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "blocked_question",
+                "task_id": task.id,
+                "agent_id": "devflow-manual-codex-worker",
+                "question": "Which API should I preserve?",
+                "blocking_reason": "Need human API decision.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    before = build_scheduler_snapshot(tmp_path)
+    blocker = [item for item in before.tasks if item.task_id == task.id][0]
+    assert blocker.scheduler_state == "blocked"
+    assert blocker.next_safe_action.startswith("devflow question answer ")
+
+    question_id = blocker.next_safe_action.split()[3]
+    answer = runner.invoke(app, ["question", "answer", question_id, "--answer", "Preserve v2.", "--json"])
+    assert answer.exit_code == 0, answer.output
+
+    after = build_scheduler_snapshot(tmp_path)
+    resumed = [item for item in after.tasks if item.task_id == task.id][0]
+    assert resumed.scheduler_state != "blocked"
+    assert resumed.next_safe_action == f"devflow task next-action {task.id}"
+
+
 def test_scheduler_cli_status_and_retry_json(tmp_path: Path, monkeypatch) -> None:
     _init_goal(tmp_path, monkeypatch)
     create = runner.invoke(app, ["task", "create", "cli retry"])
