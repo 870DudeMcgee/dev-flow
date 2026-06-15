@@ -38,7 +38,7 @@ The current milestone base is a shell-worker control-room contract plus one manu
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
-Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 is planned next to harden registry-backed local worker evidence lanes before provider adapters or autonomous routing are revisited.
+Milestone 19 makes the opt-in Git-native lane consistently visible and recoverable across CLI, supervisor, operating-layer, refusal, cleanup, and dogfood surfaces. Milestone 20 hardens registry-backed local worker evidence lanes. Milestone 21 is planned next to add a simple scheduler projection over existing task, freshness, goal, question, lock, worker, and verification evidence before provider adapters or autonomous routing are revisited.
 
 ## Code Architecture Boundary
 
@@ -196,19 +196,25 @@ Goal `G-0001` integration notes live in [docs/architecture/control-room-refactor
 
 Milestone 18 Operating-Layer Beta is merged and pushed on `main`: approved Action Rail result retention is covered, the snapshot includes a derived browser review-loop summary, active result-retention wording is no longer future-tense, and browser dogfood covers exact task verification plus exact task promotion without expanding browser mutations beyond the guarded approval path.
 
-Milestone 19 Git-Native Worker Lane Hardening is promoted on local `main`. Planning artifacts:
+Milestone 19 Git-Native Worker Lane Hardening is promoted on `main`. Planning artifacts:
 
 - [docs/superpowers/specs/2026-06-14-milestone-19-git-native-worker-lane-hardening-design.md](superpowers/specs/2026-06-14-milestone-19-git-native-worker-lane-hardening-design.md)
 - [docs/superpowers/plans/2026-06-14-milestone-19-git-native-worker-lane-hardening.md](superpowers/plans/2026-06-14-milestone-19-git-native-worker-lane-hardening.md)
 - [docs/handoffs/2026-06-14-milestone-19-git-native-worker-lane-hardening-next.md](handoffs/2026-06-14-milestone-19-git-native-worker-lane-hardening-next.md)
 
-Milestone 20 Registry-Backed Local Worker Runtime Hardening is implemented in the active branch. It adds a read-only local worker lane projection for registry-backed local patch-worker and read-only local model WorkerEvidence, then surfaces that projection through CLI, review-readiness, agent evidence, supervisor, operating-layer, and dogfood surfaces without enabling provider execution or autonomous routing. Artifacts:
+Milestone 20 Registry-Backed Local Worker Runtime Hardening is promoted and pushed on `main`. It adds a read-only local worker lane projection for registry-backed local patch-worker and read-only local model WorkerEvidence, then surfaces that projection through CLI, review-readiness, agent evidence, supervisor, operating-layer, and dogfood surfaces without enabling provider execution or autonomous routing. Artifacts:
 
 - [docs/superpowers/specs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-design.md](superpowers/specs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-design.md)
 - [docs/superpowers/plans/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening.md](superpowers/plans/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening.md)
 - [docs/handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-next.md](handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-next.md)
 - [docs/handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-implementation.md](handoffs/2026-06-14-milestone-20-registry-backed-local-worker-runtime-hardening-implementation.md)
 
+Milestone 21 Simple Scheduler / Parallel Coordination Beta is planned next. It should add a derived scheduler projection and explicit retry-request evidence over existing task, freshness, goal, question, lock, worker, and verification state without adding a background scheduler or autonomous execution. Artifacts:
+
+- [docs/superpowers/specs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-design.md](superpowers/specs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-design.md)
+- [docs/superpowers/plans/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta.md](superpowers/plans/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta.md)
+- [docs/handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md](handoffs/2026-06-15-milestone-21-simple-scheduler-parallel-coordination-beta-next.md)
+
 ## Known Worktree State At Handoff
 
-Milestone 20 implementation is in task `task-0038` on the `devflow/task-0038/shell` worktree/branch until reviewed and promoted. Future agents should continue through the Dev-Flow task promotion path and keep unrelated dirty worktree changes intact if any appear after this handoff.
+Milestone 21 planning is in task `task-0040` on the `devflow/task-0040/shell` worktree/branch until reviewed and promoted. Task `task-0039` was closed as superseded because it was created before Milestone 20 was pushed and therefore had a stale baseline. Future agents should start Milestone 21 implementation from pushed `main` after this planning branch is promoted, and must keep unrelated dirty worktree changes intact if any appear after this handoff.
