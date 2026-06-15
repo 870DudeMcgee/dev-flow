@@ -18,12 +18,12 @@ needs-review
 - `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/python -m pytest tests/test_question_resume.py tests/test_scheduler_projection.py tests/test_supervisor_operating_surface.py tests/test_operating_layer.py tests/test_dogfood_harness.py -q`: pass, `78 passed in 78.08s (0:01:18)`
 - `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow dogfood run --suite production-readiness`: pass, `score: 136/138`, `threshold: Bulletproof candidate`, `silver_met: yes`; warning: `parallelism-decision-docs-test-split` was conservatively blocked by current repo guardrails while role/context checks still ran
 - `rg -n "question answering.*future-only|question resume.*later|Milestone 22.*planned next|auto-resume is active|provider-backed question execution|browser question answer mutation" docs README.md AGENTS.md -S`: pass, hits only historical plan/spec verification text
-- `PATH=/Users/josh/Desktop/Dev-Flow/.venv/bin:$PATH ./scripts/release-check.sh`: pending until branch commit makes the worktree clean
+- `PATH=/Users/josh/Desktop/Dev-Flow/.venv/bin:$PATH ./scripts/release-check.sh`: pass, clean Git check, compileall pass, `1027 passed, 6 skipped in 278.60s (0:04:38)`, CLI smoke pass, experimental command hiding pass, distribution build pass, twine check pass, fresh wheel smoke pass
 
 ## Risks
 
-- None identified after focused verification. Full release-check is pending a clean committed branch.
+- None identified after verification.
 
 ## Next Safe Action
 
-- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task finalize task-0043 --commit`
+- `PYTHONPATH=src:. /Users/josh/Desktop/Dev-Flow/.venv/bin/devflow task promote-preview task-0043`
