@@ -433,6 +433,14 @@ Goal: promote human-blocked worker questions into explicit list, show, answer, r
 
 Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. Question answer and resolve commands write evidence only; existing task, freshness, scheduler, and trusted CLI commands remain responsible for any later work.
 
+## Milestone 23: Operating Layer State Reconciliation & Operator Readiness
+
+Status: planned. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md](superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md) and [docs/superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md](superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md). Milestone task: `task-0137`.
+
+Goal: make `status`, `scheduler`, `dashboard`, `supervisor`, and `operating-layer` agree on count semantics, goal lifecycle blockers, stale directives, and next-safe-action priority while presenting project, goal, task, and worker names in plain descriptive language before internal ids.
+
+Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. It is a read-only projection and visibility hardening slice over existing Dev-Flow evidence.
+
 ## Later, Not Now
 
 - Aider adapter
