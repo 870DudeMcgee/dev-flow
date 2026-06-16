@@ -259,6 +259,95 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
     assert review_result.exit_code == 0, review_result.output
 
 
+def test_agent_propose_patch_retries_malformed_hunk_counts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
+    assert runner.invoke(app, ["task", "create", "patch proposal"]).exit_code == 0
+    malformed_diff = """diff --git a/docs/example.md b/docs/example.md
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -1 +1 @@
+-old
++new
++extra
+"""
+    corrected_diff = """diff --git a/docs/example.md b/docs/example.md
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -1 +1 @@
+-old
++new
+"""
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "status": "ready",
+                                "diff": malformed_diff,
+                                "summary": "First attempt has malformed hunk counts.",
+                            }
+                        )
+                    }
+                }
+            ]
+        },
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "status": "ready",
+                                "diff": corrected_diff,
+                                "summary": "Corrected hunk counts.",
+                            }
+                        )
+                    }
+                }
+            ]
+        },
+    ]
+    prompts: list[str] = []
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        prompts.append(json.loads(req.data.decode("utf-8"))["messages"][1]["content"])
+        return MockResponse(responses.pop(0))
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "propose-patch",
+            "--task",
+            "task-0001",
+            "--profile",
+            "deepseek-v4-pro-patch-proposer",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(prompts) == 2
+    assert "Previous Patch Proposal Was Rejected" in prompts[1]
+    assert "Malformed hunk line counts" in prompts[1]
+    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-pro-patch-proposer"
+    assert (agent_dir / "proposal.patch").read_text(encoding="utf-8") == corrected_diff
+    raw_output = (agent_dir / "raw_output.md").read_text(encoding="utf-8")
+    assert "## Attempt 1" in raw_output
+    assert "## Attempt 2" in raw_output
+    assert "First attempt has malformed hunk counts" in raw_output
+    assert "Corrected hunk counts" in raw_output
+
+
 def test_agent_propose_patch_prompt_includes_referenced_worker_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

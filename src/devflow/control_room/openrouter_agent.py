@@ -188,6 +188,7 @@ def run_patch_proposal(
     proposal_path = agent_dir / "proposal.patch"
     metadata_path = agent_dir / "run.json"
     result_path = agent_dir / "result.md"
+    raw_outputs: list[str] = []
 
     api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
     api_key = os.environ.get(api_key_env)
@@ -216,24 +217,35 @@ def run_patch_proposal(
         return payload
 
     try:
-        response_body = _chat_completion(
-            provider=provider,
-            model=profile.model,
-            system_prompt=_patch_system_prompt(profile),
-            user_prompt=prompt,
-            api_key=api_key,
-        )
-        content = _cap_text(_assistant_content(response_body), max_response_chars)
-        parsed = _json_object_from_text(content)
-        status = str(parsed.get("status", "failed"))
-        diff_text = str(parsed.get("diff", ""))
-        summary = str(parsed.get("summary") or parsed.get("reason") or "")
-        if status != "ready":
-            raise OpenRouterAgentError(summary or f"Patch proposer returned status '{status}'.")
-        inspection = inspect_patch_proposal(diff_text)
-        if not inspection.structurally_valid:
-            raise OpenRouterAgentError(inspection.parse_error or "Patch proposal is not structurally valid.")
-        atomic_write_text(raw_output_path, content + ("\n" if content and not content.endswith("\n") else ""))
+        response_body: dict[str, Any] | None = None
+        diff_text = ""
+        summary = ""
+        user_prompt = prompt
+        for attempt in range(2):
+            response_body = _chat_completion(
+                provider=provider,
+                model=profile.model,
+                system_prompt=_patch_system_prompt(profile),
+                user_prompt=user_prompt,
+                api_key=api_key,
+            )
+            content = _cap_text(_assistant_content(response_body), max_response_chars)
+            raw_outputs.append(content)
+            parsed = _json_object_from_text(content)
+            status = str(parsed.get("status", "failed"))
+            diff_text = str(parsed.get("diff", ""))
+            summary = str(parsed.get("summary") or parsed.get("reason") or "")
+            if status != "ready":
+                raise OpenRouterAgentError(summary or f"Patch proposer returned status '{status}'.")
+            inspection = inspect_patch_proposal(diff_text)
+            if inspection.structurally_valid:
+                break
+            error = inspection.parse_error or "Patch proposal is not structurally valid."
+            if attempt == 1:
+                raise OpenRouterAgentError(error)
+            user_prompt = _patch_retry_prompt(prompt, error=error, previous_content=content)
+
+        atomic_write_text(raw_output_path, _format_raw_outputs(raw_outputs))
         atomic_write_text(proposal_path, diff_text)
         payload = _patch_payload(
             root=root,
@@ -250,10 +262,12 @@ def run_patch_proposal(
             result_path=result_path,
             summary=summary or "Patch proposal written.",
             error=None,
-            usage=response_body.get("usage") if isinstance(response_body.get("usage"), dict) else None,
+            usage=response_body.get("usage") if response_body and isinstance(response_body.get("usage"), dict) else None,
             will_call_provider=True,
         )
     except Exception as exc:
+        if raw_outputs:
+            atomic_write_text(raw_output_path, _format_raw_outputs(raw_outputs))
         error = _redact(str(exc), api_key=api_key)
         payload = _patch_payload(
             root=root,
@@ -439,9 +453,33 @@ def _patch_system_prompt(profile: AgentDefinition) -> str:
     return (
         "You are a Dev-Flow patch proposer. Output only JSON with keys: status, diff, summary. "
         "status must be ready, blocked, or failed. diff must be a standard unified diff when status is ready. "
+        "Every hunk header line count must exactly match its body: context lines count as both old and new, "
+        "minus lines count as old, and plus lines count as new. "
         "Do not include markdown fences. Do not claim application, verification, commit, push, or promotion. "
         f"Profile: {profile.id}."
     )
+
+
+def _patch_retry_prompt(base_prompt: str, *, error: str, previous_content: str) -> str:
+    retry_context = (
+        "\n\n## Previous Patch Proposal Was Rejected\n"
+        f"Validation error: {error}\n\n"
+        "Return corrected JSON only, with a structurally valid unified diff. "
+        "Do not change the requested scope. Recount every hunk header against the diff body before returning.\n\n"
+        "Previous JSON content:\n"
+        f"{_cap_text(previous_content, 12_000)}\n"
+    )
+    return _cap_prompt(base_prompt + retry_context, 48_000)[0]
+
+
+def _format_raw_outputs(raw_outputs: list[str]) -> str:
+    if len(raw_outputs) == 1:
+        content = raw_outputs[0]
+        return content + ("\n" if content and not content.endswith("\n") else "")
+    chunks: list[str] = []
+    for index, content in enumerate(raw_outputs, start=1):
+        chunks.extend([f"## Attempt {index}", "", content.rstrip(), ""])
+    return "\n".join(chunks).rstrip() + "\n"
 
 
 def _chat_completion(
