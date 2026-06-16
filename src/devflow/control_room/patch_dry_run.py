@@ -430,16 +430,13 @@ def _task_workspace_display(root: Path, task_id: str) -> str:
 
 
 def _hunk_matches(file_lines: list[str], hunk: PatchHunk) -> bool:
+    hint = hunk.old_start - 1
+    if hint < 0 or hint > len(file_lines):
+        return False
     original = hunk.original_lines
     if not original:
         return True
-    hint = max(hunk.old_start - 1, 0)
-    if _lines_match_at(file_lines, original, hint):
-        return True
-    max_start = len(file_lines) - len(original)
-    if max_start < 0:
-        return False
-    return any(_lines_match_at(file_lines, original, start) for start in range(max_start + 1))
+    return _lines_match_at(file_lines, original, hint)
 
 
 def _lines_match_at(file_lines: list[str], original: list[str], start: int) -> bool:
