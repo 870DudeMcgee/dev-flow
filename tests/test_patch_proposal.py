@@ -40,6 +40,20 @@ def test_patch_proposal_parses_touched_files_and_hunks() -> None:
     assert file_patch.hunks[0].patched_lines == ["new"]
 
 
+def test_patch_proposal_rejects_mismatched_hunk_line_counts() -> None:
+    patch = """diff --git a/docs/a.md b/docs/a.md
+--- a/docs/a.md
++++ b/docs/a.md
+@@ -1 +1 @@
+-old
++new
++extra
+"""
+
+    with pytest.raises(PatchProposalParseError, match="Malformed hunk line counts"):
+        parse_patch_proposal(patch)
+
+
 def test_patch_proposal_inspection_reports_structural_validity() -> None:
     valid = inspect_patch_proposal(_modify_patch("docs/a.md"))
     invalid = inspect_patch_proposal("not a patch")
@@ -51,16 +65,18 @@ def test_patch_proposal_inspection_reports_structural_validity() -> None:
 
 
 def test_apply_parser_can_reject_unsupported_metadata() -> None:
-    patch = """diff --git a/docs/new.md b/docs/new.md
-new file mode 100644
---- /dev/null
-+++ b/docs/new.md
-@@ -0,0 +1 @@
+    patch = """diff --git a/docs/a.md b/docs/a.md
+old mode 100644
+new mode 100755
+--- a/docs/a.md
++++ b/docs/a.md
+@@ -1 +1 @@
+-old
 +new
 """
 
-    assert parse_patch_proposal(patch).touched_files == ["docs/new.md"]
-    with pytest.raises(PatchProposalParseError, match="Unsupported metadata: new file mode"):
+    assert parse_patch_proposal(patch).touched_files == ["docs/a.md"]
+    with pytest.raises(PatchProposalParseError, match="Unsupported metadata: old mode"):
         parse_patch_proposal(patch, reject_unsupported_apply_metadata=True)
 
 

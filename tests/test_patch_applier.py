@@ -40,6 +40,21 @@ def test_parse_valid_diff_with_ignored_metadata():
     assert len(files[0].hunks) == 1
     assert files[0].hunks[0].old_start == 1
 
+
+def test_parse_rejects_mismatched_hunk_line_counts():
+    diff = (
+        "diff --git a/hello.txt b/hello.txt\n"
+        "--- a/hello.txt\n"
+        "+++ b/hello.txt\n"
+        "@@ -1 +1 @@\n"
+        "-old\n"
+        "+new\n"
+        "+extra\n"
+    )
+    with pytest.raises(PatchParseError, match="Malformed hunk line counts"):
+        parse_unified_diff(diff)
+
+
 def test_parse_rejected_metadata_raises():
     diff_with_mode = (
         "diff --git a/hello.txt b/hello.txt\n"

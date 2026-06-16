@@ -166,6 +166,7 @@ def parse_patch_proposal(
             raise PatchProposalParseError(f"Unsupported metadata: {text.strip()}")
 
         if text.startswith("diff --git "):
+            _validate_hunk_counts(current_hunk)
             if current_file and current_file.hunks:
                 files.append(current_file)
             current_file = _file_from_diff_git(text)
@@ -173,6 +174,7 @@ def parse_patch_proposal(
             continue
 
         if text.startswith("--- "):
+            _validate_hunk_counts(current_hunk)
             if current_file and current_file.hunks:
                 files.append(current_file)
                 current_file = None
@@ -192,6 +194,7 @@ def parse_patch_proposal(
         if text.startswith("@@ "):
             if current_file is None:
                 raise PatchProposalParseError("Hunk appeared before file headers.")
+            _validate_hunk_counts(current_hunk)
             current_hunk = _parse_hunk_header(text)
             current_file.hunks.append(current_hunk)
             saw_hunk = True
@@ -218,8 +221,9 @@ def parse_patch_proposal(
                 current_hunk.lines.append(line)
                 current_hunk.patched_lines.append(content)
             else:
-                current_hunk = None
+                raise PatchProposalParseError(f"Malformed hunk line: {text.strip() or '<blank line>'}")
 
+    _validate_hunk_counts(current_hunk)
     if current_file and current_file.hunks:
         files.append(current_file)
 
@@ -346,3 +350,16 @@ def _parse_hunk_header(line: str) -> PatchProposalHunk:
         )
     except ValueError as exc:
         raise PatchProposalParseError(f"Malformed hunk integers: {line.strip()}") from exc
+
+
+def _validate_hunk_counts(hunk: PatchProposalHunk | None) -> None:
+    if hunk is None:
+        return
+    actual_old_lines = len(hunk.original_lines)
+    actual_new_lines = len(hunk.patched_lines)
+    if actual_old_lines != hunk.old_lines or actual_new_lines != hunk.new_lines:
+        raise PatchProposalParseError(
+            "Malformed hunk line counts: "
+            f"header expected {hunk.old_lines} old/{hunk.new_lines} new lines, "
+            f"body has {actual_old_lines} old/{actual_new_lines} new lines"
+        )
