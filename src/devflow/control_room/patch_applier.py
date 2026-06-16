@@ -93,7 +93,7 @@ def apply_patch_files(
 
         for idx, hunk in enumerate(pf.hunks):
             # Check base index adjustment
-            expected_old_start = hunk.old_start - 1  # 0-indexed
+            expected_old_start = 0 if is_creation and hunk.old_start == 0 else hunk.old_start - 1
             actual_start = expected_old_start + line_offset
             
             if actual_start < 0 or (actual_start > len(modified_lines) and not is_creation):
@@ -200,4 +200,3 @@ def apply_patch_files(
 def _hash_patch_files(patch_files: list[PatchFile]) -> str:
     payload = json.dumps([asdict(patch_file) for patch_file in patch_files], sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-

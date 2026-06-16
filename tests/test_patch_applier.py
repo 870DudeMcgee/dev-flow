@@ -86,6 +86,25 @@ def test_apply_dry_run_returns_patch_hash(tmp_path: Path):
     assert result.patch_hash == patch_hash
     assert target.read_text(encoding="utf-8") == "one\n"
 
+
+def test_apply_new_file_hunk_start_zero(tmp_path: Path):
+    target = tmp_path / "docs" / "new.md"
+    diff = (
+        "diff --git a/docs/new.md b/docs/new.md\n"
+        "--- /dev/null\n"
+        "+++ b/docs/new.md\n"
+        "@@ -0,0 +1,2 @@\n"
+        "+# New\n"
+        "+content\n"
+    )
+    patch_files = parse_unified_diff(diff)
+
+    result = apply_patch_files(tmp_path, patch_files)
+
+    assert target.read_text(encoding="utf-8") == "# New\ncontent\n"
+    assert result.changed_files[0].operation == "created"
+
+
 def test_apply_offset_multi_hunk(tmp_path: Path):
     target = tmp_path / "hello.txt"
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")
