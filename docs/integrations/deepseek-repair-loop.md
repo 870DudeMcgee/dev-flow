@@ -1,6 +1,6 @@
 # DeepSeek Repair Loop
 
-Operator-approved autonomous repair loop for Dev-Flow tasks using DeepSeek via OpenRouter.
+Operator-approved autonomous repair loop for Dev-Flow tasks using DeepSeek via OpenRouter. The loop is driven by a recurring Hermes cron job (`9ff249f1186d`) that runs every 15 minutes by default. Each run performs at most one bounded repair task.
 
 ## Script
 
@@ -28,6 +28,14 @@ Stores per-run evidence artifacts.
 ## OpenRouter Key Loading
 
 The script loads the OpenRouter API key from the Hermes environment. Secrets are never logged.
+
+## Target Selection
+
+The cron job selects a repair target using the following precedence:
+
+1. **Explicit title** – If the environment variable `DEVFLOW_REPAIR_TITLE` is set, its value is used as the task title.
+2. **Request file** – If `DEVFLOW_REPAIR_TITLE` is not set, the job reads `/Users/jewelbait/.hermes/devflow_repair_request.txt`. If the file is present and non-empty, its content is consumed as the task title and the file is removed.
+3. **Advisory-derived** – If neither an explicit title nor a request file is available, the job consults the advisory. A repair run proceeds only when the advisory includes an exact `devflow task create` target. Otherwise the cron run skips after recording evidence.
 
 ## One-Task Flow
 
