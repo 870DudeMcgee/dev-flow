@@ -136,6 +136,36 @@ def test_task_show_includes_local_worker_lane_summary(tmp_path: Path, monkeypatc
     assert "local_worker_next_action: devflow task review-patch task-0001 --agent qwopus-implementer" in show.output
 
 
+def test_openrouter_style_run_json_without_proposal_patch_found(tmp_path: Path) -> None:
+    task = _task()
+    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/openrouter-proposer"
+    _write_json(
+        agent_dir / "run.json",
+        {
+            "schema_version": 1,
+            "task_id": "task-0001",
+            "agent_id": "openrouter-proposer",
+            "status": "success",
+            "model": "deepseek-v4-pro",
+            "adapter": "openai_compatible",
+            "proposal_patch_path": ".devflow/tasks/task-0001/agents/openrouter-proposer/proposal.patch",
+        },
+    )
+    (agent_dir / "proposal.patch").write_text("diff --git a/hello.txt b/hello.txt\n", encoding="utf-8")
+    (agent_dir / "result.md").write_text("Patch proposed\n", encoding="utf-8")
+    (agent_dir / "logs").mkdir(parents=True, exist_ok=True)
+    (agent_dir / "logs/worker.log").write_text("ok\n", encoding="utf-8")
+
+    summary = local_worker_lane_summary(tmp_path, task)
+
+    assert summary is not None
+    assert summary["lane_type"] == "local-patch-worker"
+    assert summary["worker_id"] == "openrouter-proposer"
+    assert summary["latest_status"] == "success"
+    assert summary["patch_candidate"] is True
+    assert summary["readiness_status"] == "needs_review"
+    assert summary["next_safe_action"].startswith("devflow task review-patch task-0001 --agent openrouter-proposer")
+
 def test_review_ready_includes_local_worker_lane_summary(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["task", "create", "local lane"])

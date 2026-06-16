@@ -74,7 +74,7 @@ def _latest_patch_worker_summary(root: Path, base: Path, task: TaskRecord, worke
         "permission_mode": "workspace_write",
         "latest_run_id": run_dir.name,
         "latest_status": str(run_json.get("status") or "unknown"),
-        "patch_candidate": bool(run_json.get("proposal_patch_found") and (run_dir / "proposal.patch").exists()),
+        "patch_candidate": (run_dir / "proposal.patch").exists() and (bool(run_json.get("proposal_patch_found")) or (run_json.get("status") == "success" and "proposal_patch_path" in run_json)),
         "patch_review_status": readiness.get("patch_review_status"),
         "patch_dry_run_status": readiness.get("patch_dry_run_status"),
         "patch_application_status": readiness.get("patch_application_status"),
