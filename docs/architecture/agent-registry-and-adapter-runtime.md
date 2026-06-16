@@ -1,16 +1,16 @@
 # Agent Registry And Adapter Runtime
 
-Status: active architecture with current registry/adapter guardrails plus deferred provider-routing sequence. This document does not expand the shell-worker MVP or enable remote provider execution.
+Status: active architecture with current registry/adapter guardrails plus bounded OpenRouter evidence lanes. This document does not expand the shell-worker MVP or enable remote provider task-run execution.
 
 Dev-Flow is a local-first control room for replaceable coding workers. Shell remains the stable direct-edit runtime, while manual proof-agent handoffs, local patch workers, and local WorkerEvidence profiles are permissioned evidence surfaces. Future worker types need one stable layer for registration, invocation, permissions, routing, and evidence. This document defines that target architecture without making agents the source of truth.
 
 Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents are replaceable runtimes. Workers propose. Dev-Flow records. Verification verifies. Humans promote.
 
-Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are experimental read-only in normal worker lookup. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
+Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are not executable through normal `task run` worker lookup. The current OpenRouter exception is Dev-Flow-owned evidence generation: `agent advise` writes advisory reports and `agent propose-patch` writes explicit patch proposals for existing review/dry-run/apply gates. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
 
-Milestone 16 implemented the model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Milestone 17 adds evidence-only task-fit/context routing: stable fit, scout, route, and scorecard commands write derived artifacts and recommended next commands. These surfaces are not autonomous routing and do not run workers, call providers, verify, promote, commit, push, or publish.
+Milestone 16 implemented the model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Milestone 17 adds evidence-only task-fit/context routing: stable fit, scout, route, and scorecard commands write derived artifacts and recommended next commands. The DeepSeek/OpenRouter slice adds registry-visible remote advisory and explicit patch-proposal evidence without making those profiles `task run` workers. These surfaces are not autonomous routing and do not create tasks, run workers, apply patches, verify, promote, commit, push, or publish.
 
-Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, provider-backed execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
+Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, provider-backed task-run execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
 
 ## 1. Problem
 
@@ -39,6 +39,7 @@ A provider is how Dev-Flow talks to a backend. Provider configuration answers "w
 - `anthropic`
 - `xai`
 - `google`
+- `openrouter`
 - `ollama`
 - `lmstudio`
 - `llama_cpp`
@@ -86,6 +87,7 @@ Agent configuration should be durable and separate from per-task evidence. Regis
       performance.md
   providers/
     openai.yaml
+    openrouter.yaml
     anthropic.yaml
     xai.yaml
     google.yaml
@@ -125,6 +127,7 @@ Permission modes define the maximum authority an agent can receive for a run:
 - `verify_only`: run explicit verification commands inside the assigned workspace.
 - `docs_only`: write approved documentation artifacts only, usually inside the task workspace or approved docs path.
 - `frontier_read_only`: send bounded context to a remote or expensive model for analysis without direct repository mutation.
+- `patch_proposal_only`: write patch-proposal evidence only; existing Dev-Flow review, dry-run, apply, verification, and promotion gates remain mandatory.
 - `manual_packet_only`: generate a copy-paste packet for a human-mediated model or manual reviewer.
 
 Rules:
@@ -249,6 +252,17 @@ default_timeout_seconds: 120
 ```
 
 ```yaml
+# .devflow/providers/openrouter.yaml
+version: 1
+provider: openrouter
+adapter: openai_compatible
+base_url: https://openrouter.ai/api/v1
+api_key_env: OPENROUTER_API_KEY
+default_timeout_seconds: 300
+enabled: true
+```
+
+```yaml
 # .devflow/providers/google.yaml
 provider: google
 adapter: gemini
@@ -333,10 +347,20 @@ Current local lifecycle:
 3. Build role-scoped context-pack evidence when `devflow agent context-pack` is invoked.
 4. Summarize existing shell/manual/local-patch/local-model evidence when `devflow agent evidence` or operating-layer projections need it.
 5. Discover installed local Ollama models and write selected-agent evidence only when the human or dogfood ladder invokes `agent discover-local` / `agent select-local`.
-6. Run explicit shell/manual/local-patch/local-evidence commands only when the command itself is invoked; no selector runs a worker by itself.
+6. Run explicit shell/manual/local-patch/local-evidence/OpenRouter-evidence commands only when the command itself is invoked; no selector runs a worker by itself.
 7. Leave verification and promotion to separate Dev-Flow commands.
 
-Future provider lifecycle:
+Current OpenRouter evidence lifecycle:
+
+1. Resolve the DeepSeek profile from the registry and the `openrouter` provider config.
+2. Refuse missing or literal secrets; provider files store only `OPENROUTER_API_KEY`.
+3. Build bounded repo or task context from supervisor packets, task packets, verification-ledger summaries, and targeted stale-context evidence.
+4. For `agent advise`, write prompt, response, raw response, `run.json`, usage when returned, recommendations, and false `will_*` mutation flags under repo-scope or task-scope advisory run directories.
+5. For `agent propose-patch`, write only `proposal.patch`, raw output, `run.json`, and summary evidence under the task's DeepSeek patch-proposer agent directory.
+6. Refuse `task run --worker deepseek-*`; remote profiles are evidence surfaces, not task-run workers.
+7. Leave patch review, dry-run, application, verification, and promotion to separate Dev-Flow commands.
+
+Future task-run provider lifecycle:
 
 1. Resolve `agent_id` from the registry.
 2. Resolve provider config and adapter type.
@@ -353,7 +377,7 @@ Future provider lifecycle:
 
 Dev-Flow should route by task fit and capability, not by agent name first. The current local selector is intentionally narrower: it ranks installed registry agents for an explicit role and records selected-agent evidence, but it does not infer task fit or run workers. The broader routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
 
-Milestone 17 implements the first evidence-only task-fit/context-routing slice: task-fit, scout, routing-decision, and routing-quality artifacts are stable derived evidence, while autonomous worker assignment and provider-backed execution remain excluded.
+Milestone 17 implements the first evidence-only task-fit/context-routing slice: task-fit, scout, routing-decision, and routing-quality artifacts are stable derived evidence, while autonomous worker assignment and provider-backed task-run execution remain excluded.
 
 Minimum routing artifacts:
 
@@ -402,13 +426,16 @@ Implemented through Milestone 17:
 12. Evidence-only local scout signal capture through `devflow task scout`.
 13. Evidence-only candidate eligibility, rejection, unresolved-role, and next-command routing decisions through `devflow task route`.
 14. Evidence-only post-run routing-quality scorecards through `devflow task scorecard`.
+15. OpenRouter provider seed and registry-visible DeepSeek profiles for advisory and explicit patch-proposal evidence.
+16. `devflow agent advise --profile <id> [--task <task_id>] --job <gap-analysis|review|status> --json`.
+17. `devflow agent propose-patch --task <task_id> --profile deepseek-v4-pro-patch-proposer --json`, still gated by existing patch review/dry-run/apply/verification/promotion commands.
 
 Deferred until future specs promote them:
 
 1. Full arbitrary-task context-size estimation beyond the Milestone 17 deterministic evidence slice.
 2. Autonomous best-available model routing by task and role.
-3. OpenAI-compatible adapter execution for LM Studio and Grok-style APIs.
-4. Native OpenAI, Anthropic, and Gemini execution adapters.
+3. General OpenAI-compatible adapter task-run execution for LM Studio, Grok-style APIs, or additional remote providers.
+4. Native OpenAI, Anthropic, and Gemini task-run execution adapters.
 5. Routing engines that assign workers, invoke workers, or verify/promote based on routing evidence.
 6. Metrics that drive autonomous routing policy, cost optimization, or provider selection beyond the Milestone 17 scorecard artifacts.
 

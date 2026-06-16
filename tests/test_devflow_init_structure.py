@@ -68,6 +68,7 @@ REQUIRED_SEED_PATHS = [
     ".devflow/providers/anthropic.yaml",
     ".devflow/providers/gemini.yaml",
     ".devflow/providers/openai_compatible.yaml",
+    ".devflow/providers/openrouter.yaml",
     ".devflow/agents/roles.yaml",
     ".devflow/agents/registry.yaml",
     ".devflow/locks/README.md",
@@ -88,6 +89,7 @@ YAML_SEED_PATHS = [
     ".devflow/providers/anthropic.yaml",
     ".devflow/providers/gemini.yaml",
     ".devflow/providers/openai_compatible.yaml",
+    ".devflow/providers/openrouter.yaml",
     ".devflow/agents/roles.yaml",
     ".devflow/agents/registry.yaml",
 ]

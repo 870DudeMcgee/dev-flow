@@ -89,6 +89,8 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow agent policy --json",
     "devflow agent run --dry-run",
     "devflow agent run --dry-run --json",
+    "devflow agent advise --dry-run",
+    "devflow agent advise --dry-run --json",
     "devflow agent packet",
     "devflow knowledge list",
     "devflow knowledge show",
@@ -156,6 +158,7 @@ APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS = [
     "devflow task local",
     "devflow task local-review",
     "devflow agent run",
+    "devflow agent advise",
     "devflow task verify",
     "devflow dogfood run",
 ]
@@ -191,7 +194,7 @@ FORBIDDEN_SUPERVISOR_ACTIONS = [
     "mixing personal/factory/iMessage automation authority with Dev-Flow repo authority",
     "exposing secrets or message contents unnecessarily in logs",
     "autonomous provider routing",
-    "remote provider execution unless explicitly promoted into the stable contract",
+    "remote provider task-run execution unless explicitly promoted into the stable contract",
     "any command not recognized by the supervisor policy",
 ]
 
@@ -394,6 +397,10 @@ def _classify_supervisor_command(command: str) -> str:
             return PURE_READ_ONLY
         if subcommand == "run":
             return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
+        if subcommand == "advise":
+            return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
+        if subcommand == "propose-patch":
+            return FORBIDDEN_FOR_SUPERVISOR
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "worker":
         return APPROVAL_REQUIRED_EVIDENCE_WRITING if subcommand == "validate-outcome" else FORBIDDEN_FOR_SUPERVISOR

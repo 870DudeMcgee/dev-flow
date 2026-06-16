@@ -11,6 +11,8 @@ from devflow.control_room.agent_registry import (
     adapter_maturity,
     is_executable_agent_runtime,
     is_local_model_worker_pool_agent,
+    is_remote_advisory_agent,
+    is_remote_patch_proposal_agent,
     load_agent_registry,
     load_provider_registry,
 )
@@ -44,7 +46,7 @@ class ResolvedAgentRuntime:
 
 
 LOCAL_PROVIDERS = {"shell", "manual", "ollama", "local"}
-PACKET_PERMISSION_MODES = {"manual_packet_only", "read_only", "docs_only", "frontier_read_only"}
+PACKET_PERMISSION_MODES = {"manual_packet_only", "read_only", "docs_only", "frontier_read_only", "patch_proposal_only"}
 
 
 def resolve_agent_runtime(root: Path, agent_id: str) -> ResolvedAgentRuntime:
@@ -75,6 +77,27 @@ def resolve_agent_runtime_definition(
             "not task worker adapter execution."
         )
         next_command = f"devflow agent run --task <task-id> --profile {agent.id} --json"
+    elif is_remote_advisory_agent(agent, provider=provider):
+        execution_surface = "agent_advise"
+        task_run_allowed = False
+        agent_run_allowed = False
+        packet_allowed = True
+        default_job = "review" if "review" in " ".join(agent.secondary_roles).lower() else "gap-analysis"
+        refusal_reason = (
+            f"Agent '{agent.id}' is a remote advisory profile. "
+            "Use `devflow agent advise` for bounded recommendation evidence; task worker execution is not allowed."
+        )
+        next_command = f"devflow agent advise --profile {agent.id} --job {default_job} --json"
+    elif is_remote_patch_proposal_agent(agent, provider=provider):
+        execution_surface = "agent_propose_patch"
+        task_run_allowed = False
+        agent_run_allowed = False
+        packet_allowed = True
+        refusal_reason = (
+            f"Agent '{agent.id}' is an explicit patch-proposal profile. "
+            "Use `devflow agent propose-patch` only after human approval; task worker execution is not allowed."
+        )
+        next_command = f"devflow agent propose-patch --task <task-id> --profile {agent.id} --json"
     elif is_executable_agent_runtime(agent, provider=provider):
         execution_surface = "task_run"
         task_run_allowed = True

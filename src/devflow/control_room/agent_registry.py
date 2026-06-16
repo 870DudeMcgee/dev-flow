@@ -15,6 +15,7 @@ AgentPermissionMode = Literal[
     "docs_only",
     "frontier_read_only",
     "manual_packet_only",
+    "patch_proposal_only",
 ]
 AdapterMaturity = Literal["stable_runtime", "local_patch_runtime", "experimental_readonly", "planned_not_executable"]
 MachineClass = Literal["mac_mini", "mac_studio", "either"]
@@ -224,6 +225,38 @@ def is_local_ollama_base_url(base_url: str | None) -> bool:
         return True
     parsed = urlparse(base_url)
     return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def is_remote_advisory_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
+    if not agent.enabled:
+        return False
+    if agent.provider != "openrouter" or agent.adapter != "openai_compatible":
+        return False
+    if agent.default_mode not in {"read_only", "frontier_read_only", "docs_only"}:
+        return False
+    if agent.can_promote or agent.can_run_shell:
+        return False
+    if any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes):
+        return False
+    if provider is None:
+        return True
+    return provider.enabled and provider.provider == "openrouter" and provider.adapter == "openai_compatible"
+
+
+def is_remote_patch_proposal_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
+    if not agent.enabled:
+        return False
+    if agent.provider != "openrouter" or agent.adapter != "openai_compatible":
+        return False
+    if agent.default_mode != "patch_proposal_only":
+        return False
+    if agent.hermes_delegable or agent.can_promote or agent.can_run_shell:
+        return False
+    if not any(path.endswith("/proposal.patch") for path in agent.allowed_writes):
+        return False
+    if provider is None:
+        return True
+    return provider.enabled and provider.provider == "openrouter" and provider.adapter == "openai_compatible"
 
 
 class ProviderRegistry(BaseModel):
@@ -998,6 +1031,196 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             enabled=True,
         )
 
+    remote_advisory_profiles = [
+        {
+            "id": "deepseek-v4-flash-planner",
+            "model": "deepseek/deepseek-v4-flash",
+            "role": "frontier_planner_architect_reviewer",
+            "tier": "frontier",
+            "default_mode": "frontier_read_only",
+            "purpose": "Cheap OpenRouter DeepSeek advisory profile for bounded gap analysis and status recommendations.",
+            "model_role_name": "deepseek-flash-advisor",
+            "secondary_roles": ["gap-analysis", "status", "cheap-advisory"],
+            "use_caution": [
+                "Advisory evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, or push."
+            ],
+            "hermes_delegable": True,
+        },
+        {
+            "id": "deepseek-v4-pro-reviewer",
+            "model": "deepseek/deepseek-v4-pro",
+            "role": "frontier_planner_architect_reviewer",
+            "tier": "frontier",
+            "default_mode": "frontier_read_only",
+            "purpose": "OpenRouter DeepSeek Pro advisory profile for architecture, model-routing, and high-risk review.",
+            "model_role_name": "deepseek-pro-reviewer",
+            "secondary_roles": ["architecture-review", "model-routing-review", "high-risk-review"],
+            "use_caution": [
+                "Use by explicit profile/job selection only; keep cron default on Flash unless a human selects Pro."
+            ],
+            "hermes_delegable": False,
+        },
+    ]
+
+    for profile in remote_advisory_profiles:
+        agent_id = str(profile["id"])
+        agents[agent_id] = AgentDefinition(
+            id=agent_id,
+            provider="openrouter",
+            model=str(profile["model"]),
+            adapter="openai_compatible",
+            adapter_maturity=adapter_maturity("openai_compatible"),
+            role=str(profile["role"]),
+            tier=str(profile["tier"]),
+            default_mode=profile["default_mode"],
+            execution_mode="automated",
+            purpose=str(profile["purpose"]),
+            model_role_name=str(profile["model_role_name"]),
+            secondary_roles=list(profile["secondary_roles"]),
+            use_caution=list(profile["use_caution"]),
+            required_verification_command=None,
+            manifest_notes=["Model slug must be validated against OpenRouter at runtime before relying on it."],
+            workspace="isolated_task_workspace",
+            can_see=[
+                "supervisor_packet",
+                "task_packet",
+                "status_projection",
+                "verification_ledger_summary",
+            ],
+            can_touch=[
+                "<task>/agent-advisory-runs/**",
+            ],
+            cannot_touch=[
+                "<main_checkout>/**",
+                "<workspace>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                "<task>/agents/**/proposal.patch",
+                ".git/**",
+            ],
+            allowed_reads=[
+                "<task>/packet.json",
+                "<task>/events.jsonl",
+                "<task>/questions.jsonl",
+                "<workspace>/**",
+                "<repo>/docs/verification-ledger.md",
+            ],
+            allowed_writes=[
+                "<reports>/agent-advisory-runs/**",
+                "<task>/agent-advisory-runs/**",
+            ],
+            forbidden_writes=[
+                "<main_checkout>/**",
+                "<workspace>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                "<task>/packet.json",
+                "<task>/agents/**/proposal.patch",
+                ".git/**",
+            ],
+            required_outputs=[
+                "Write advisory prompt, response, run metadata, usage when returned, recommendations, and safety flags under agent-advisory-runs.",
+                "Treat all recommendations as evidence only; Dev-Flow and the human operator own task creation, worker execution, verification, promotion, commit, and push.",
+            ],
+            completion_rules=[
+                "Use bounded Dev-Flow state only; do not scan the full repository blindly.",
+                "Do not create tasks, run workers, apply patches, verify, promote, commit, push, or mutate canonical state.",
+                "Return one highest-impact next safe action grounded in the supplied evidence.",
+            ],
+            can_run_shell=False,
+            can_use_network=False,
+            can_promote=False,
+            hermes_delegable=bool(profile["hermes_delegable"]),
+            enabled=True,
+        )
+
+    patch_agent_id = "deepseek-v4-pro-patch-proposer"
+    agents[patch_agent_id] = AgentDefinition(
+        id=patch_agent_id,
+        provider="openrouter",
+        model="deepseek/deepseek-v4-pro",
+        adapter="openai_compatible",
+        adapter_maturity=adapter_maturity("openai_compatible"),
+        role="implementation_worker",
+        tier="frontier",
+        default_mode="patch_proposal_only",
+        execution_mode="automated",
+        purpose=(
+            "Explicit OpenRouter DeepSeek Pro patch proposal lane. It writes proposal.patch evidence only; "
+            "Dev-Flow review, dry-run, apply, verification, and promotion gates remain separate."
+        ),
+        model_role_name="deepseek-pro-patch-proposer",
+        secondary_roles=["patch-proposal", "explicit-human-approved-lane"],
+        use_caution=[
+            "Not Hermes-delegable and not cron-callable.",
+            "Do not use through task run or generic agent run.",
+        ],
+        manifest_notes=["Model slug must be validated against OpenRouter at runtime before relying on it."],
+        workspace="isolated_task_workspace",
+        can_see=[
+            "task_packet",
+            "assigned_workspace",
+            "recent_events",
+            "verification_plan",
+        ],
+        can_touch=[
+            f"<task>/agents/{patch_agent_id}/proposal.patch",
+            f"<task>/agents/{patch_agent_id}/raw_output.md",
+            f"<task>/agents/{patch_agent_id}/run.json",
+            f"<task>/agents/{patch_agent_id}/result.md",
+        ],
+        cannot_touch=[
+            "<main_checkout>/**",
+            "<workspace>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            ".git/**",
+        ],
+        allowed_reads=[
+            "<task>/packet.json",
+            "<task>/events.jsonl",
+            "<task>/questions.jsonl",
+            "<workspace>/**",
+        ],
+        allowed_writes=[
+            f"<task>/agents/{patch_agent_id}/proposal.patch",
+            f"<task>/agents/{patch_agent_id}/raw_output.md",
+            f"<task>/agents/{patch_agent_id}/run.json",
+            f"<task>/agents/{patch_agent_id}/result.md",
+        ],
+        forbidden_writes=[
+            "<main_checkout>/**",
+            "<workspace>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            "<task>/packet.json",
+            ".git/**",
+        ],
+        required_outputs=[
+            f"Write <task>/agents/{patch_agent_id}/proposal.patch with a unified diff.",
+            f"Write <task>/agents/{patch_agent_id}/raw_output.md, run.json, and result.md as proposal evidence.",
+            "Do not apply patches, run verification, promote, commit, or push.",
+        ],
+        completion_rules=[
+            "Only run by explicit human-selected propose-patch command.",
+            "Never run from Hermes cron or supervisor auto-run.",
+            "Existing review-patch, patch-dry-run, apply-patch, verification, and promotion gates remain required.",
+        ],
+        can_run_shell=False,
+        can_use_network=False,
+        can_promote=False,
+        hermes_delegable=False,
+        enabled=True,
+    )
+
     return agents
 
 
@@ -1047,7 +1270,12 @@ def _validate_agent_policy(
             f"{prefix}.adapter_maturity '{agent.adapter_maturity}' does not match adapter '{agent.adapter}' maturity '{adapter_maturity(agent.adapter)}'"
         )
 
-    if agent.tier == "frontier" and agent.default_mode not in {"read_only", "frontier_read_only", "manual_packet_only"}:
+    if agent.tier == "frontier" and agent.default_mode not in {
+        "read_only",
+        "frontier_read_only",
+        "manual_packet_only",
+        "patch_proposal_only",
+    }:
         errors.append(f"{prefix}.default_mode '{agent.default_mode}' is not compatible with frontier tier")
 
     for path in agent.can_touch:

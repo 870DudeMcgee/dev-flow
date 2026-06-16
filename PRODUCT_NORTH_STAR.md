@@ -386,7 +386,7 @@ The current shell-worker control-room contract is documented in [docs/mvp-contra
 
 The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker evidence, verification, questions, and promotion readiness without reading huge logs, execute supervisor-classified read-only commands from Advanced Commands, and run the normal local loop through exact approval-gated task creation, shell worker execution, task verification, and task promotion. Broad mutating commands still stop at trusted CLI execution. This slice does not add a database, autonomous routing, provider-backed worker calls, hidden memory, or direct merge/push/PR automation.
 
-The active registry and routing architecture is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md). Registry/runtime guardrails define agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. Milestone 17 implements evidence-only task-fit scoring, context estimation, scout signals, route decisions, and routing-quality scorecards. Autonomous worker assignment, provider-backed execution, worker-owned verification, promotion, commit, push, and publication remain excluded.
+The active registry and routing architecture is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md). Registry/runtime guardrails define agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. Milestone 17 implements evidence-only task-fit scoring, context estimation, scout signals, route decisions, and routing-quality scorecards. The current OpenRouter/DeepSeek lane is explicit evidence generation for advisory reports and patch proposals, not provider-backed worker execution. Autonomous worker assignment, provider-backed task-run execution, worker-owned verification, promotion, commit, push, and publication remain excluded.
 
 Required commands:
 
@@ -627,7 +627,7 @@ Build in this order:
 - local scout reports (implemented as Milestone 17 evidence through `devflow task scout`)
 - evidence-only route decisions and next-command recommendations (implemented through `devflow task route`)
 - routing-quality scorecards (implemented through `devflow task scorecard`)
-- autonomous routing engine, provider-backed execution, and metrics-driven policy changes remain later autonomy/provider work
+- autonomous routing engine, provider-backed task-run execution, and metrics-driven policy changes remain later autonomy/provider work
 
 Success check:
 

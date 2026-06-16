@@ -37,6 +37,7 @@ Hermes may run these for inspection, summarization, and non-promoting preview wo
 - `devflow agent show <profile-id> --json`
 - `devflow agent policy --json`
 - `devflow agent run --task <task-id> --profile <profile-id> --dry-run --json`
+- `devflow agent advise --profile <profile-id> --job <gap-analysis|review|status> --dry-run --json`
 - `devflow knowledge list`
 - `devflow knowledge show <knowledge-id>`
 - `devflow knowledge search <query>`
@@ -60,6 +61,8 @@ Hermes may recommend these commands only after explicit human approval. They can
 - `devflow task apply-patch <task-id>`
 - `devflow task verify <task-id>`
 - `devflow agent run --task <task-id> --profile <profile-id> --json`
+- `devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json`
+- `devflow agent advise --profile deepseek-v4-pro-reviewer --task <task-id> --job review --json`
 
 ## High-Risk Explicit Approval
 
@@ -86,6 +89,7 @@ Hermes must never do these:
 - create a hidden state layer or competing orchestration brain
 - bypass `devflow task promote-preview`
 - spawn unbounded parallel workers
+- execute `devflow agent propose-patch`; Hermes may quote the exact command for a human to run directly, but the patch-proposer profile is not Hermes-delegable
 - let multiple writer agents edit one task/worktree
 - mix personal/factory/iMessage automation authority with Dev-Flow repo authority
 - expose secrets or message contents unnecessarily in logs

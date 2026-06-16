@@ -49,7 +49,7 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, registry-backed Qwopus/Gemma patch-proposal paths, a practical registry-backed local model worker-pool evidence slice, explicit local Ollama discovery/selection evidence, read-only model audition planning/execution/scoring evidence, role-scoped context-pack evidence, derived agent evidence summaries, task-fit/context-routing derived evidence, centralized runtime eligibility/refusal projection, a passive review-readiness scorecard, local Idea Foundry intake evidence, the explicit idea-to-execution bridge, a simple scheduler projection with explicit retry-request evidence, an explicit question/blocker resume loop, and shared operator-readiness reconciliation across status, scheduler, dashboard, supervisor, and operating-layer projections. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`, generalized WorkerEvidence from read-only local model profiles, local manifest-backed capability classification, selected-agent evidence under task state, scheduler status over ready/blocked/stale/retry/batch state, question list/show projections, explicit question answer/resolve evidence, operator-facing lifecycle blockers/stale-directive warnings/plain-language names, human-reviewed idea capture/classification/promotion decisions, and explicit `idea create-goal` / `idea create-task` commands that require prior promotion evidence.
+The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, registry-backed Qwopus/Gemma patch-proposal paths, a practical registry-backed local model worker-pool evidence slice, explicit local Ollama discovery/selection evidence, read-only model audition planning/execution/scoring evidence, OpenRouter-backed DeepSeek advisory and explicit patch-proposal evidence lanes, role-scoped context-pack evidence, derived agent evidence summaries, task-fit/context-routing derived evidence, centralized runtime eligibility/refusal projection, a passive review-readiness scorecard, local Idea Foundry intake evidence, the explicit idea-to-execution bridge, a simple scheduler projection with explicit retry-request evidence, an explicit question/blocker resume loop, and shared operator-readiness reconciliation across status, scheduler, dashboard, supervisor, and operating-layer projections. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`, generalized WorkerEvidence from read-only local model profiles, OpenRouter DeepSeek reports that preserve prompt/response/run evidence with false mutation flags, local manifest-backed capability classification, selected-agent evidence under task state, scheduler status over ready/blocked/stale/retry/batch state, question list/show projections, explicit question answer/resolve evidence, operator-facing lifecycle blockers/stale-directive warnings/plain-language names, human-reviewed idea capture/classification/promotion decisions, and explicit `idea create-goal` / `idea create-task` commands that require prior promotion evidence.
 
 Stable commands:
 
@@ -221,6 +221,10 @@ devflow agent audition <task_id> --job review-debug --dry-run --json
 devflow agent audition <task_id> --job review-debug --execute --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --json
+devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json
+devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json
+devflow agent advise --profile deepseek-v4-pro-reviewer --task <task_id> --job review --json
+devflow agent propose-patch --task <task_id> --profile deepseek-v4-pro-patch-proposer --json
 devflow agent packet <task_id> devflow-shell-worker
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-shell-worker -- <command>
@@ -248,6 +252,10 @@ The registry-backed local patch form is `devflow task run <task_id> --worker qwo
 The local agent discovery form is `devflow agent discover-local --json` and `devflow agent select-local <task_id> --role implementation_worker --json`. Discovery calls only local Ollama, parses installed model manifests, and derives conservative capability profiles. Selection ranks installed registry agents for the requested role and writes `.devflow/tasks/<task_id>/agent-selection.json`. This is the current model-agnostic selection boundary: Dev-Flow should choose the best eligible installed profile for the explicit role from registry and manifest evidence, not from hard-coded model names. It does not run a worker, silently substitute a model, create registry entries for unregistered models, apply patches, verify, promote, merge, push, or call remote providers. `task run` remains explicit and uses the selected worker only when the human or dogfood ladder invokes it.
 
 The task-fit/context-routing evidence form writes derived artifacts only. It classifies task fit, context size, scout signals, candidate eligibility, rejected candidates, unresolved roles, and post-run quality signals. It does not run workers, call remote providers, silently substitute models, verify, promote, commit, push, or create pull requests.
+
+The OpenRouter advisory form is `devflow agent advise --profile <profile_id> [--task <task_id>] --job <gap-analysis|review|status> --json`. Advisory runs are remote model evidence, not worker execution. They build bounded repo or task context, call the configured OpenRouter provider only when not in `--dry-run`, and write prompt, response, raw response, and `run.json` evidence under `.devflow/reports/agent-advisory-runs/<run_id>/` for repo-scope runs or `.devflow/tasks/<task_id>/agent-advisory-runs/<run_id>/` for task-scope runs. Run metadata records provider, model, prompt/response paths, usage when returned, recommendations, and `will_create_tasks`, `will_run_workers`, `will_apply_patch`, `will_verify`, `will_promote`, `will_commit`, `will_push`, and `will_write_source` as false. OpenRouter provider config stores only the `OPENROUTER_API_KEY` environment variable name, never the key.
+
+The OpenRouter patch-proposal form is `devflow agent propose-patch --task <task_id> --profile deepseek-v4-pro-patch-proposer --json`. It is explicit human-invoked evidence, not a Hermes cron command and not a task-run worker. It writes only `proposal.patch`, raw output, `run.json`, and summary evidence under `.devflow/tasks/<task_id>/agents/deepseek-v4-pro-patch-proposer/`. The proposal must still pass the existing `task review-patch`, `task patch-dry-run`, `task apply-patch`, verification, and promotion gates before source changes can land.
 
 The role-scoped context-pack form is `devflow agent context-pack <task_id> <agent_id> --role <role> --json`. It writes derived context-pack evidence under `.devflow/tasks/<task_id>/context-packs/` from canonical TaskPacket data, without becoming canonical task state or routing authority. The derived agent-evidence form is `devflow agent evidence <task_id> --json`; it summarizes shell, manual proof-agent, local patch, and local model WorkerEvidence paths for inspection and operating-layer projection without mutating task state.
 
@@ -279,7 +287,8 @@ Do not implement these in the first milestone:
 - memory
 - complex scheduling
 - autonomous routing
-- remote provider-backed adapter calls before explicit promotion into the runtime contract
+- remote provider-backed task-run adapter calls before explicit promotion into the runtime contract
+- autonomous remote provider escalation beyond explicit `agent advise` / `agent propose-patch` evidence commands
 - old task-packet workflow orchestration
 - PR automation
 - autonomous browser/web dashboard mutation surfaces
@@ -313,6 +322,21 @@ Do not implement these in the first milestone:
       response.md
       raw_output.txt
       error.txt
+    agent-advisory-runs/<run-id>/
+      prompt.md
+      response.md
+      response.raw.json
+      run.json
+    agents/deepseek-v4-pro-patch-proposer/
+      proposal.patch
+      raw_output.md
+      result.md
+      run.json
+  reports/agent-advisory-runs/<run-id>/
+    prompt.md
+    response.md
+    response.raw.json
+    run.json
   prune-runs/<run-id>.json
   workspaces/<task_id>/
     local-workers/<worker-name>/
@@ -414,7 +438,7 @@ For default copy-workspace tasks, the explicit `devflow task promote <task_id>` 
 
 ## Acceptance Gauntlet
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed adapters, database, autonomous browser dashboard mutation surface, or worktree orchestration are part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed task-run adapter, database, autonomous browser dashboard mutation surface, or worktree orchestration is part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
 
 ## Current Implementation Status
 
@@ -453,6 +477,10 @@ Implemented:
 - `devflow task run --worker qwopus-implementer` and `devflow task run --worker gemma4-12b-qat-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
 - `devflow agent context-pack` and `devflow agent evidence` for derived, non-canonical role context and task-local worker evidence summaries
 - `devflow agent discover-local` and `devflow agent select-local` for model-agnostic installed local agent ranking by explicit role
+- OpenRouter provider seed config using `https://openrouter.ai/api/v1`, `openai_compatible`, and `OPENROUTER_API_KEY`
+- registry-visible DeepSeek profiles for Flash advisory, Pro review advisory, and explicit Pro patch proposal evidence
+- `devflow agent advise` for dry-run or explicit OpenRouter advisory evidence without task creation, worker runs, patch application, verification, promotion, commit, or push
+- `devflow agent propose-patch` for explicit DeepSeek patch proposal evidence that still depends on existing patch review/dry-run/apply/verification/promotion gates
 - `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence
 - `devflow worker validate-outcome` for structured guardrail outcome metadata validation
 - Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes
@@ -464,9 +492,9 @@ Outside the current product contract:
 - autonomous browser/web dashboard mutation surface
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
 - autonomous task-fit/context routing runtime beyond the Milestone 17 evidence-only commands. The current local selector ranks eligible installed agents for an explicit role, and the routing evidence commands write derived fit, scout, route, and scorecard artifacts only; they do not autonomously pick the best model for arbitrary tasks, invoke workers, or change shell-worker behavior.
-- provider-backed non-shell worker adapters
+- provider-backed non-shell task-run adapters
 - Ollama keep-alive/model-stop controls for local resource pressure
-- remote provider-backed registry and adapter-runtime execution beyond the current shell/manual/local-patch/local-evidence guardrails
+- remote provider-backed registry and adapter-runtime task execution beyond the current shell/manual/local-patch/local-evidence/OpenRouter-evidence guardrails
 - SQLite or other databases
 - provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
 - multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
@@ -474,7 +502,7 @@ Outside the current product contract:
 
 > [!IMPORTANT]
 > **Current Status**: Milestone 26 Operational Baseline / Trust Pass is complete.
-> Milestone 25 Stop The Task/Data Sprawl remains the prior hardening baseline: explicit maintenance reset/repair commands, complete task baseline artifacts, scratch-root dogfood defaults, clean prune previews, and clean-dashboard next actions after runtime reset. Milestone 26 proved the daily shell-worker loop in a disposable scratch project and repaired one concrete control-room bug found by that proof: default copy-workspace promotion now works in non-git scratch projects after verification and promotion preview. Current model selection remains registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-resume, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, hidden memory, RAG, embeddings, training, or making Git-native worktrees the default runtime.
+> Milestone 25 Stop The Task/Data Sprawl remains the prior hardening baseline: explicit maintenance reset/repair commands, complete task baseline artifacts, scratch-root dogfood defaults, clean prune previews, and clean-dashboard next actions after runtime reset. Milestone 26 proved the daily shell-worker loop in a disposable scratch project and repaired one concrete control-room bug found by that proof: default copy-workspace promotion now works in non-git scratch projects after verification and promotion preview. Current model selection remains registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, derived routing evidence, and explicit OpenRouter evidence commands. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider task-run execution, autonomous routing, auto-resume, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, hidden memory, RAG, embeddings, training, or making Git-native worktrees the default runtime.
 
 ## Operational Baseline
 
@@ -540,7 +568,7 @@ The following areas are out-of-scope for the completed MVP and deferred:
 
 ### Dogfooding Requirement
 
-Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed adapters, autonomous routing, scheduling, or old workflow machinery before the shell-worker and manual proof-agent loop stays stable.
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed task-run adapters, autonomous routing, scheduling, or old workflow machinery before the shell-worker and manual proof-agent loop stays stable.
 
 Run `devflow dogfood run --suite production-readiness` as the lightweight milestone readiness harness when changing the control-room pipeline. Silver is the current local readiness gate; lower scores should drive the smallest real improvement rather than weaker cases. Operating-layer changes must preserve the visual QA case, including desktop/mobile evidence, no-overflow checks, guided first viewport, active work cards, approval states, Advanced Commands, and current/baseline status.
 

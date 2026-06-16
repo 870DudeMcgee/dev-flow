@@ -97,7 +97,13 @@ Bad Hermes use cases:
 
 ## Scheduled Briefs
 
-Hermes cron jobs are allowed only as read-only status/reporting loops unless Josh explicitly approves a separate mutation command.
+Hermes cron jobs are allowed only as bounded status/reporting loops unless Josh explicitly approves a separate mutation command. When remote advisory is explicitly enabled for a cron profile, the allowed provider call is one default Flash advisory run:
+
+```bash
+devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json
+```
+
+The cron heartbeat should gather bounded evidence first: `devflow status --json`, `devflow supervisor packet --json`, `devflow git status`, the latest verification-ledger summary, and targeted stale-context search results. The advisory run may write recommendation evidence under `.devflow/reports/agent-advisory-runs/<run_id>/`, including an exact suggested `devflow task create ...` command, but Hermes must not execute that suggestion. Pro advisory runs require explicit job/profile selection, not automatic escalation. `devflow agent propose-patch` is human-direct patch evidence only; it is not Hermes-delegable and must never be run from unattended Hermes automation.
 
 ### Morning Dev-Flow Brief
 
@@ -163,4 +169,4 @@ Use `<repo-root>` for portable command examples. This checkout is referred to as
 
 ## Non-Goals
 
-This integration does not add a Hermes worker adapter, provider-backed execution, a dashboard server, a database, autonomous routing, hidden memory, or a competing orchestration loop. Future non-shell worker runtime work must follow the registry and adapter sequence documented in the active architecture notes.
+This integration does not add a Hermes worker adapter, provider-backed task-run execution, a dashboard server, a database, autonomous routing, hidden memory, or a competing orchestration loop. The OpenRouter/DeepSeek advisory lane is Dev-Flow-owned report evidence that Hermes may schedule only under the bounded cron rule above. Future non-shell worker runtime work must follow the registry and adapter sequence documented in the active architecture notes.

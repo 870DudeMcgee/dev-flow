@@ -4646,6 +4646,102 @@ def agent_audition(
 
 
 
+@agent_app.command("advise")
+def agent_advise(
+    profile_id: str = typer.Option(..., "--profile", help="Remote advisory profile id."),
+    task_id: str | None = typer.Option(None, "--task", help="Optional Dev-Flow task id for task-scoped advice."),
+    job: str = typer.Option(..., "--job", help="Advisory job: gap-analysis, review, or status."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Build the bounded prompt plan without calling OpenRouter."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    max_prompt_chars: int = typer.Option(20_000, "--max-prompt-chars", min=1),
+) -> None:
+    """Write bounded remote advisory evidence through an OpenRouter profile."""
+    from devflow.control_room.openrouter_agent import (
+        OpenRouterAgentError,
+        dry_run_advice,
+        run_advice,
+    )
+
+    try:
+        payload = (
+            dry_run_advice(
+                root=Path.cwd(),
+                profile_id=profile_id,
+                task_id=task_id,
+                job=job,
+                max_prompt_chars=max_prompt_chars,
+            )
+            if dry_run
+            else run_advice(
+                root=Path.cwd(),
+                profile_id=profile_id,
+                task_id=task_id,
+                job=job,
+                max_prompt_chars=max_prompt_chars,
+            )
+        )
+    except OpenRouterAgentError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"status: {payload['status']}")
+        typer.echo(f"profile_id: {payload['profile_id']}")
+        typer.echo(f"job: {payload['job']}")
+        typer.echo(f"provider: {payload['provider']}")
+        typer.echo(f"model: {payload['model']}")
+        typer.echo(f"dry_run: {str(payload['dry_run']).lower()}")
+        typer.echo(f"evidence_dir: {payload['evidence_dir']}")
+        typer.echo(f"will_call_provider: {str(payload['will_call_provider']).lower()}")
+        if payload.get("recommendations"):
+            typer.echo("recommendations:")
+            for recommendation in payload["recommendations"]:
+                typer.echo(f"- {recommendation['next_safe_action']}")
+        if payload.get("error"):
+            typer.echo(f"error: {payload['error']}")
+    if payload.get("status") == "failed":
+        raise typer.Exit(code=1)
+
+
+@agent_app.command("propose-patch")
+def agent_propose_patch(
+    task_id: str = typer.Option(..., "--task", help="Dev-Flow task id for explicit patch proposal evidence."),
+    profile_id: str = typer.Option(..., "--profile", help="Patch-proposal profile id."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    max_prompt_chars: int = typer.Option(24_000, "--max-prompt-chars", min=1),
+) -> None:
+    """Write explicit remote patch proposal evidence without applying it."""
+    from devflow.control_room.openrouter_agent import OpenRouterAgentError, run_patch_proposal
+
+    try:
+        payload = run_patch_proposal(
+            root=Path.cwd(),
+            task_id=task_id,
+            profile_id=profile_id,
+            max_prompt_chars=max_prompt_chars,
+        )
+    except OpenRouterAgentError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(f"status: {payload['status']}")
+        typer.echo(f"task_id: {payload['task_id']}")
+        typer.echo(f"profile_id: {payload['profile_id']}")
+        typer.echo(f"proposal_patch_path: {payload['proposal_patch_path'] or 'none'}")
+        typer.echo(f"run_metadata_path: {payload['run_metadata_path']}")
+        typer.echo(f"result_path: {payload['result_path']}")
+        typer.echo(f"next_safe_action: {payload['next_safe_action']}")
+        if payload.get("error"):
+            typer.echo(f"error: {payload['error']}")
+    if payload.get("status") != "success":
+        raise typer.Exit(code=1)
+
+
 @agent_app.command("ask")
 def agent_ask(
     agent_id: str = typer.Argument(..., help="The local agent name."),

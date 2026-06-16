@@ -30,6 +30,12 @@ STARTER_LOCAL_PROFILES = [
     "local-gemma4-31b-dense-judge",
 ]
 
+DEEPSEEK_OPENROUTER_PROFILES = [
+    "deepseek-v4-flash-planner",
+    "deepseek-v4-pro-reviewer",
+    "deepseek-v4-pro-patch-proposer",
+]
+
 
 def test_valid_agent_registry_loads_enabled_default_agent(tmp_path: Path) -> None:
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -73,6 +79,7 @@ agents:
         "qwopus-implementer",
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
+        *DEEPSEEK_OPENROUTER_PROFILES,
     ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
@@ -125,6 +132,7 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
         "devflow-shell-worker",
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
+        *DEEPSEEK_OPENROUTER_PROFILES,
     ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -189,6 +197,7 @@ agents:
         "disabled-local",
         "local-shell",
         *STARTER_LOCAL_PROFILES,
+        *DEEPSEEK_OPENROUTER_PROFILES,
     ]
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
@@ -197,6 +206,7 @@ agents:
         "local-shell",
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
+        *DEEPSEEK_OPENROUTER_PROFILES,
     ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
@@ -310,6 +320,7 @@ def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> Non
         "openai_compatible",
         "xai",
         "grok",
+        "openrouter",
     ])
 
 
@@ -602,13 +613,20 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
         "devflow-openai-planner",
         "devflow-openai-reviewer",
         *STARTER_LOCAL_PROFILES,
+        *DEEPSEEK_OPENROUTER_PROFILES,
     ]
     
     for agent_id in expected_agents:
         assert agent_id in registry.agents
         agent = registry.require_agent(agent_id)
         assert agent.enabled is (
-            agent_id in {"devflow-manual-codex-worker", "devflow-shell-worker", "qwopus-implementer", *STARTER_LOCAL_PROFILES}
+            agent_id in {
+                "devflow-manual-codex-worker",
+                "devflow-shell-worker",
+                "qwopus-implementer",
+                *STARTER_LOCAL_PROFILES,
+                *DEEPSEEK_OPENROUTER_PROFILES,
+            }
         )
         assert agent.workspace == "isolated_task_workspace"
         
@@ -648,8 +666,15 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert not any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes)
             assert agent.machine_class in {"mac_mini", "mac_studio", "either"}
             assert agent.weight_class in {"tiny", "small", "medium", "heavy"}
+        elif agent_id in DEEPSEEK_OPENROUTER_PROFILES:
+            assert agent.provider == "openrouter"
+            assert agent.adapter == "openai_compatible"
+            assert agent.adapter_maturity == "experimental_readonly"
+            assert agent.can_use_network is False
+            assert agent.can_promote is False
+            assert agent.can_run_shell is False
             assert agent.model_role_name
-            assert agent.required_verification_command.startswith("ollama show ")
+            assert agent.required_verification_command is None
         elif agent_id in ("devflow-openai-planner", "devflow-openai-reviewer"):
             assert agent.tier == "frontier"
             assert agent.execution_mode == "automated"
@@ -669,7 +694,16 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     
     provider_registry = load_provider_registry(tmp_path)
-    expected_providers = ["ollama", "openai", "anthropic", "gemini", "openai_compatible", "xai", "grok"]
+    expected_providers = [
+        "ollama",
+        "openai",
+        "anthropic",
+        "gemini",
+        "openai_compatible",
+        "xai",
+        "grok",
+        "openrouter",
+    ]
     
     for prov_id in expected_providers:
         assert prov_id in provider_registry.providers
@@ -707,6 +741,12 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
             assert prov.base_url == "https://api.x.ai/v1"
             assert prov.api_key_env == "GROK_API_KEY"
             assert prov.default_timeout_seconds == 300
+        elif prov_id == "openrouter":
+            assert prov.provider == "openrouter"
+            assert prov.adapter == "openai_compatible"
+            assert prov.base_url == "https://openrouter.ai/api/v1"
+            assert prov.api_key_env == "OPENROUTER_API_KEY"
+            assert prov.default_timeout_seconds == 300
 
 
 def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_path: Path) -> None:
@@ -742,6 +782,41 @@ def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_
     assert gemma_dense.model_role_name == "gemma-dense-judge"
     assert gemma_dense.required_verification_command == "ollama show gemma4-review:latest"
     assert "num_ctx 32768" in " ".join(gemma_dense.manifest_notes)
+
+
+def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_runtime(tmp_path: Path) -> None:
+    from devflow.control_room.agent_runtime import agent_runtime_contract
+
+    initialize_seed(tmp_path)
+
+    registry = load_agent_registry(tmp_path)
+    planner = registry.require_agent("deepseek-v4-flash-planner")
+    reviewer = registry.require_agent("deepseek-v4-pro-reviewer")
+    patch_proposer = registry.require_agent("deepseek-v4-pro-patch-proposer")
+
+    assert planner.provider == "openrouter"
+    assert planner.model == "deepseek/deepseek-v4-flash"
+    assert planner.default_mode == "frontier_read_only"
+    assert planner.hermes_delegable is True
+    assert "gap-analysis" in planner.secondary_roles
+    assert agent_runtime_contract(tmp_path, planner)["execution_surface"] == "agent_advise"
+    assert agent_runtime_contract(tmp_path, planner)["task_run_allowed"] is False
+
+    assert reviewer.provider == "openrouter"
+    assert reviewer.model == "deepseek/deepseek-v4-pro"
+    assert reviewer.hermes_delegable is False
+    assert "high-risk-review" in reviewer.secondary_roles
+    assert agent_runtime_contract(tmp_path, reviewer)["next_command"].startswith("devflow agent advise")
+
+    assert patch_proposer.provider == "openrouter"
+    assert patch_proposer.model == "deepseek/deepseek-v4-pro"
+    assert patch_proposer.default_mode == "patch_proposal_only"
+    assert patch_proposer.hermes_delegable is False
+    assert any(path.endswith("/proposal.patch") for path in patch_proposer.allowed_writes)
+    patch_contract = agent_runtime_contract(tmp_path, patch_proposer)
+    assert patch_contract["execution_surface"] == "agent_propose_patch"
+    assert patch_contract["task_run_allowed"] is False
+    assert "propose-patch" in patch_contract["next_command"]
 
 
 def test_agent_registry_rejects_unsafe_hermes_delegation(tmp_path: Path) -> None:

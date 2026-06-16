@@ -174,6 +174,47 @@ class TestClassifyAgentCommands:
         assert real_payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
         assert real_payload["requires_human_approval"] is True
 
+    def test_agent_advise_is_dry_run_read_only_and_real_run_is_model_runtime(self):
+        dry_run = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json",
+                "--json",
+            ],
+        )
+        dry_payload = _json_output(dry_run)
+        assert dry_payload["safety_class"] == PURE_READ_ONLY
+        assert dry_payload["supervisor_may_auto_run"] is True
+
+        real_run = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json",
+                "--json",
+            ],
+        )
+        real_payload = _json_output(real_run)
+        assert real_payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+        assert real_payload["requires_human_approval"] is True
+
+    def test_agent_propose_patch_is_forbidden_for_supervisor_cron(self):
+        result = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent propose-patch --task task-0001 --profile deepseek-v4-pro-patch-proposer --json",
+                "--json",
+            ],
+        )
+        payload = _json_output(result)
+        assert payload["safety_class"] == FORBIDDEN_FOR_SUPERVISOR
+        assert payload["supervisor_may_auto_run"] is False
+
 
 # ---------------------------------------------------------------------------
 # Approval-required: task state mutation
