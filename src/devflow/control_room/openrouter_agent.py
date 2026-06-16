@@ -18,8 +18,15 @@ from devflow.control_room.agent_registry import (
     load_agent_registry,
     load_provider_registry,
 )
+from devflow.control_room.models import TaskRecord
+from devflow.control_room.patch_applier import (
+    PatchApplicationError,
+    PatchParseError,
+    apply_patch_files,
+    parse_unified_diff,
+)
 from devflow.control_room.patch_proposal import inspect_patch_proposal
-from devflow.control_room.paths import relative_path
+from devflow.control_room.paths import absolute_path, relative_path
 from devflow.control_room.persistence import atomic_write_text, get_task
 from devflow.control_room.supervisor_surface import build_supervisor_packet
 from devflow.control_room.task_packet import build_agent_packet
@@ -239,8 +246,11 @@ def run_patch_proposal(
                 raise OpenRouterAgentError(summary or f"Patch proposer returned status '{status}'.")
             inspection = inspect_patch_proposal(diff_text)
             if inspection.structurally_valid:
-                break
-            error = inspection.parse_error or "Patch proposal is not structurally valid."
+                error = _patch_workspace_validation_error(root, task, diff_text)
+                if error is None:
+                    break
+            else:
+                error = inspection.parse_error or "Patch proposal is not structurally valid."
             if attempt == 1:
                 raise OpenRouterAgentError(error)
             user_prompt = _patch_retry_prompt(prompt, error=error, previous_content=content)
@@ -470,6 +480,21 @@ def _patch_retry_prompt(base_prompt: str, *, error: str, previous_content: str) 
         f"{_cap_text(previous_content, 12_000)}\n"
     )
     return _cap_prompt(base_prompt + retry_context, 48_000)[0]
+
+
+def _patch_workspace_validation_error(root: Path, task: TaskRecord, diff_text: str) -> str | None:
+    workspace_value = task.workspace_path or task.workspace
+    if not workspace_value:
+        return "Task workspace path is missing."
+    workspace = absolute_path(root, workspace_value).resolve()
+    if not workspace.exists() or not workspace.is_dir():
+        return f"Task workspace is missing: {relative_path(root, workspace)}"
+    try:
+        patch_files = parse_unified_diff(diff_text)
+        apply_patch_files(workspace, patch_files, dry_run=True)
+    except (PatchParseError, PatchApplicationError, ValueError) as exc:
+        return str(exc)
+    return None
 
 
 def _format_raw_outputs(raw_outputs: list[str]) -> str:
