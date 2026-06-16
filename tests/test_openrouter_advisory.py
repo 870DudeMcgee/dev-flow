@@ -183,9 +183,18 @@ def test_task_scoped_agent_advise_missing_key_fails_safely_without_provider_call
     assert "sk-or" not in (tmp_path / payload["run_metadata_path"]).read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    ("profile_id", "model"),
+    [
+        ("deepseek-v4-pro-patch-proposer", "deepseek/deepseek-v4-pro"),
+        ("deepseek-v4-flash-patch-proposer", "deepseek/deepseek-v4-flash"),
+    ],
+)
 def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates_required(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    profile_id: str,
+    model: str,
 ) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -240,7 +249,7 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
             "--task",
             "task-0001",
             "--profile",
-            "deepseek-v4-pro-patch-proposer",
+            profile_id,
             "--json",
         ],
     )
@@ -249,9 +258,10 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
     payload = json.loads(result.output)
     assert payload["status"] == "success"
     assert captured_requests[0]["timeout"] == 90
+    assert captured_requests[0]["payload"]["model"] == model
     assert captured_requests[0]["payload"]["max_tokens"] == 2048
     assert captured_requests[0]["payload"]["reasoning"] == {"effort": "minimal", "exclude": True}
-    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-pro-patch-proposer"
+    agent_dir = tmp_path / f".devflow/tasks/task-0001/agents/{profile_id}"
     assert sorted(path.name for path in agent_dir.iterdir()) == [
         "proposal.patch",
         "raw_output.md",
@@ -263,14 +273,14 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
 
     apply_result = runner.invoke(
         app,
-        ["task", "apply-patch", "task-0001", "--agent", "deepseek-v4-pro-patch-proposer"],
+        ["task", "apply-patch", "task-0001", "--agent", profile_id],
     )
     assert apply_result.exit_code != 0
     assert "review-patch" in apply_result.output or "dry-run" in apply_result.output
 
     review_result = runner.invoke(
         app,
-        ["task", "review-patch", "task-0001", "--agent", "deepseek-v4-pro-patch-proposer"],
+        ["task", "review-patch", "task-0001", "--agent", profile_id],
     )
     assert review_result.exit_code == 0, review_result.output
 

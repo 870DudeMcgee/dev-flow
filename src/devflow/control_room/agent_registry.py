@@ -1138,88 +1138,104 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             enabled=True,
         )
 
-    patch_agent_id = "deepseek-v4-pro-patch-proposer"
-    agents[patch_agent_id] = AgentDefinition(
-        id=patch_agent_id,
-        provider="openrouter",
-        model="deepseek/deepseek-v4-pro",
-        adapter="openai_compatible",
-        adapter_maturity=adapter_maturity("openai_compatible"),
-        role="implementation_worker",
-        tier="frontier",
-        default_mode="patch_proposal_only",
-        execution_mode="automated",
-        purpose=(
-            "Explicit OpenRouter DeepSeek Pro patch proposal lane. It writes proposal.patch evidence only; "
-            "Dev-Flow review, dry-run, apply, verification, and promotion gates remain separate."
-        ),
-        model_role_name="deepseek-pro-patch-proposer",
-        secondary_roles=["patch-proposal", "explicit-human-approved-lane"],
-        use_caution=[
-            "Not Hermes-delegable and not cron-callable.",
-            "Do not use through task run or generic agent run.",
-        ],
-        manifest_notes=["Model slug must be validated against OpenRouter at runtime before relying on it."],
-        workspace="isolated_task_workspace",
-        can_see=[
-            "task_packet",
-            "assigned_workspace",
-            "recent_events",
-            "verification_plan",
-        ],
-        can_touch=[
-            f"<task>/agents/{patch_agent_id}/proposal.patch",
-            f"<task>/agents/{patch_agent_id}/raw_output.md",
-            f"<task>/agents/{patch_agent_id}/run.json",
-            f"<task>/agents/{patch_agent_id}/result.md",
-        ],
-        cannot_touch=[
-            "<main_checkout>/**",
-            "<workspace>/**",
-            "<task>/task.yaml",
-            "<task>/events.jsonl",
-            "<task>/verification.json",
-            "<task>/merge-readiness.json",
-            ".git/**",
-        ],
-        allowed_reads=[
-            "<task>/packet.json",
-            "<task>/events.jsonl",
-            "<task>/questions.jsonl",
-            "<workspace>/**",
-        ],
-        allowed_writes=[
-            f"<task>/agents/{patch_agent_id}/proposal.patch",
-            f"<task>/agents/{patch_agent_id}/raw_output.md",
-            f"<task>/agents/{patch_agent_id}/run.json",
-            f"<task>/agents/{patch_agent_id}/result.md",
-        ],
-        forbidden_writes=[
-            "<main_checkout>/**",
-            "<workspace>/**",
-            "<task>/task.yaml",
-            "<task>/events.jsonl",
-            "<task>/verification.json",
-            "<task>/merge-readiness.json",
-            "<task>/packet.json",
-            ".git/**",
-        ],
-        required_outputs=[
-            f"Write <task>/agents/{patch_agent_id}/proposal.patch with a unified diff.",
-            f"Write <task>/agents/{patch_agent_id}/raw_output.md, run.json, and result.md as proposal evidence.",
-            "Do not apply patches, run verification, promote, commit, or push.",
-        ],
-        completion_rules=[
-            "Only run by explicit human-selected propose-patch command.",
-            "Never run from Hermes cron or supervisor auto-run.",
-            "Existing review-patch, patch-dry-run, apply-patch, verification, and promotion gates remain required.",
-        ],
-        can_run_shell=False,
-        can_use_network=False,
-        can_promote=False,
-        hermes_delegable=False,
-        enabled=True,
-    )
+    patch_profiles = [
+        {
+            "id": "deepseek-v4-pro-patch-proposer",
+            "model": "deepseek/deepseek-v4-pro",
+            "label": "Pro",
+            "model_role_name": "deepseek-pro-patch-proposer",
+        },
+        {
+            "id": "deepseek-v4-flash-patch-proposer",
+            "model": "deepseek/deepseek-v4-flash",
+            "label": "Flash",
+            "model_role_name": "deepseek-flash-patch-proposer",
+        },
+    ]
+    for patch_profile in patch_profiles:
+        patch_agent_id = patch_profile["id"]
+        agents[patch_agent_id] = AgentDefinition(
+            id=patch_agent_id,
+            provider="openrouter",
+            model=patch_profile["model"],
+            adapter="openai_compatible",
+            adapter_maturity=adapter_maturity("openai_compatible"),
+            role="implementation_worker",
+            tier="frontier",
+            default_mode="patch_proposal_only",
+            execution_mode="automated",
+            purpose=(
+                f"Explicit OpenRouter DeepSeek {patch_profile['label']} patch proposal lane. It writes "
+                "proposal.patch evidence only; Dev-Flow review, dry-run, apply, verification, and "
+                "promotion gates remain separate."
+            ),
+            model_role_name=patch_profile["model_role_name"],
+            secondary_roles=["patch-proposal", "explicit-human-approved-lane"],
+            use_caution=[
+                "Not Hermes-delegable and not cron-callable by default.",
+                "Do not use through task run or generic agent run.",
+            ],
+            manifest_notes=["Model slug must be validated against OpenRouter at runtime before relying on it."],
+            workspace="isolated_task_workspace",
+            can_see=[
+                "task_packet",
+                "assigned_workspace",
+                "recent_events",
+                "verification_plan",
+            ],
+            can_touch=[
+                f"<task>/agents/{patch_agent_id}/proposal.patch",
+                f"<task>/agents/{patch_agent_id}/raw_output.md",
+                f"<task>/agents/{patch_agent_id}/run.json",
+                f"<task>/agents/{patch_agent_id}/result.md",
+            ],
+            cannot_touch=[
+                "<main_checkout>/**",
+                "<workspace>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                ".git/**",
+            ],
+            allowed_reads=[
+                "<task>/packet.json",
+                "<task>/events.jsonl",
+                "<task>/questions.jsonl",
+                "<workspace>/**",
+            ],
+            allowed_writes=[
+                f"<task>/agents/{patch_agent_id}/proposal.patch",
+                f"<task>/agents/{patch_agent_id}/raw_output.md",
+                f"<task>/agents/{patch_agent_id}/run.json",
+                f"<task>/agents/{patch_agent_id}/result.md",
+            ],
+            forbidden_writes=[
+                "<main_checkout>/**",
+                "<workspace>/**",
+                "<task>/task.yaml",
+                "<task>/events.jsonl",
+                "<task>/verification.json",
+                "<task>/merge-readiness.json",
+                "<task>/packet.json",
+                ".git/**",
+            ],
+            required_outputs=[
+                f"Write <task>/agents/{patch_agent_id}/proposal.patch with a unified diff.",
+                f"Write <task>/agents/{patch_agent_id}/raw_output.md, run.json, and result.md as proposal evidence.",
+                "Do not apply patches, run verification, promote, commit, or push.",
+            ],
+            completion_rules=[
+                "Only run by explicit human-selected propose-patch command.",
+                "Never run from Hermes cron or supervisor auto-run unless a human explicitly selects this profile.",
+                "Existing review-patch, patch-dry-run, apply-patch, verification, and promotion gates remain required.",
+            ],
+            can_run_shell=False,
+            can_use_network=False,
+            can_promote=False,
+            hermes_delegable=False,
+            enabled=True,
+        )
 
     return agents
 

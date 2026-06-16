@@ -34,6 +34,7 @@ DEEPSEEK_OPENROUTER_PROFILES = [
     "deepseek-v4-flash-planner",
     "deepseek-v4-pro-reviewer",
     "deepseek-v4-pro-patch-proposer",
+    "deepseek-v4-flash-patch-proposer",
 ]
 
 
@@ -793,6 +794,7 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     planner = registry.require_agent("deepseek-v4-flash-planner")
     reviewer = registry.require_agent("deepseek-v4-pro-reviewer")
     patch_proposer = registry.require_agent("deepseek-v4-pro-patch-proposer")
+    flash_patch_proposer = registry.require_agent("deepseek-v4-flash-patch-proposer")
 
     assert planner.provider == "openrouter"
     assert planner.model == "deepseek/deepseek-v4-flash"
@@ -817,6 +819,16 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     assert patch_contract["execution_surface"] == "agent_propose_patch"
     assert patch_contract["task_run_allowed"] is False
     assert "propose-patch" in patch_contract["next_command"]
+
+    assert flash_patch_proposer.provider == "openrouter"
+    assert flash_patch_proposer.model == "deepseek/deepseek-v4-flash"
+    assert flash_patch_proposer.default_mode == "patch_proposal_only"
+    assert flash_patch_proposer.hermes_delegable is False
+    assert any(path.endswith("/proposal.patch") for path in flash_patch_proposer.allowed_writes)
+    flash_patch_contract = agent_runtime_contract(tmp_path, flash_patch_proposer)
+    assert flash_patch_contract["execution_surface"] == "agent_propose_patch"
+    assert flash_patch_contract["task_run_allowed"] is False
+    assert "propose-patch" in flash_patch_contract["next_command"]
 
 
 def test_agent_registry_rejects_unsafe_hermes_delegation(tmp_path: Path) -> None:

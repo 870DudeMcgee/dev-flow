@@ -36,7 +36,6 @@ from devflow.control_room.task_packet import build_agent_packet
 
 
 ADVISORY_JOBS = {"gap-analysis", "review", "status"}
-PATCH_PROPOSER_PROFILE_ID = "deepseek-v4-pro-patch-proposer"
 SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{6,}")
 PATCH_REQUEST_TIMEOUT_SECONDS = 90
 PATCH_MAX_TOKENS = 2048
@@ -323,9 +322,9 @@ def _load_advisory_profile(root: Path, profile_id: str) -> tuple[AgentDefinition
 
 def _load_patch_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
     profile, provider = _load_openrouter_profile(root, profile_id)
-    if profile.id != PATCH_PROPOSER_PROFILE_ID or not is_remote_patch_proposal_agent(profile, provider):
+    if not is_remote_patch_proposal_agent(profile, provider):
         raise OpenRouterAgentError(
-            "Only deepseek-v4-pro-patch-proposer is approved for explicit OpenRouter patch proposals."
+            f"Profile '{profile_id}' is not approved for explicit OpenRouter patch proposals."
         )
     return profile, provider
 
