@@ -132,6 +132,7 @@ The operating-layer entrypoints are:
 ```bash
 devflow operating-layer snapshot --json
 devflow operating-layer serve --host 127.0.0.1 --port 8765
+devflow operating-layer install-service
 ```
 
 The snapshot must:
@@ -174,6 +175,7 @@ Implemented pieces:
 - Mission feed projection: `operating_layer.py` derives plain-language Orchestrator updates such as "Task progress", "Task update", "Evidence", "Question", and "Ready for review" from existing Dev-Flow artifacts; the browser shell only renders this list.
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
 - `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
+- `operating_layer_service.py`: installs a per-user macOS LaunchAgent that starts the local operating-layer server at login from the current project root. The default binding stays on `127.0.0.1`; non-loopback hosts require explicit `--allow-network-host`.
 - Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The approved browser mutations are limited to exact human-approved idea capture, task creation, shell worker execution, task verification, and task promotion, with the server rechecking the classifier, requiring the exact approval phrase, refusing placeholder idea/title/command text, limiting browser worker runs to `--worker shell`, blocking local/provider model commands, and preserving the existing verification and promotion safety gates.
 - Verification refresh: after an executed approved task-verification action, the browser re-fetches `/api/snapshot` so task lanes, status, progress receipts, and evidence panes update from filesystem truth without a manual page reload.
 - UI assets: `operating_layer_assets.py` remains the public facade, while `operating_layer_html.py`, `operating_layer_styles.py`, and `operating_layer_script.py` own the bundled HTML, CSS, and JavaScript for the local browser shell.

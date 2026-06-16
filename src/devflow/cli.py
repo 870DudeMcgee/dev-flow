@@ -1072,6 +1072,53 @@ def operating_layer_serve_command(
         typer.echo("Stopped Dev-Flow Operating Layer")
 
 
+@operating_layer_app.command("install-service")
+def operating_layer_install_service_command(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host for the login service UI server."),
+    port: int = typer.Option(8765, "--port", min=1, max=65535, help="Port for the login service UI server."),
+    label: str = typer.Option("com.devflow.operating-layer", "--label", help="macOS LaunchAgent label."),
+    launch_agents_dir: Path | None = typer.Option(None, "--launch-agents-dir", help="LaunchAgents directory override."),
+    logs_dir: Path | None = typer.Option(None, "--logs-dir", help="Service log directory override."),
+    python_executable: Path | None = typer.Option(None, "--python", help="Python executable for launchd."),
+    load: bool = typer.Option(False, "--load", help="Load the LaunchAgent immediately with launchctl."),
+    open_browser: bool = typer.Option(False, "--open", help="Open the browser when launchd starts the service."),
+    allow_network_host: bool = typer.Option(
+        False,
+        "--allow-network-host",
+        help="Allow installing a service bound to a non-loopback host for a trusted private network.",
+    ),
+) -> None:
+    """Install a macOS LaunchAgent for the local operating-layer UI."""
+    from devflow.control_room.operating_layer_service import install_operating_layer_launch_agent
+
+    try:
+        result = install_operating_layer_launch_agent(
+            Path.cwd(),
+            host=host,
+            port=port,
+            label=label,
+            launch_agents_dir=launch_agents_dir,
+            logs_dir=logs_dir,
+            python_executable=python_executable,
+            load=load,
+            open_browser=open_browser,
+            allow_network_host=allow_network_host,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Installed LaunchAgent: {result.plist_path}")
+    typer.echo(f"Label: {result.label}")
+    typer.echo(f"URL: {result.url}")
+    typer.echo(f"Starts at login: yes")
+    typer.echo(f"Loaded now: {'yes' if result.loaded else 'no'}")
+    typer.echo(f"Stdout log: {result.stdout_path}")
+    typer.echo(f"Stderr log: {result.stderr_path}")
+    if not result.loaded:
+        typer.echo("To start now, rerun with --load or log out and back in.")
+
+
 @operating_layer_app.command("visual-qa")
 def operating_layer_visual_qa_command(
     json_output: bool = typer.Option(False, "--json", help="Print the visual QA plan as JSON."),
