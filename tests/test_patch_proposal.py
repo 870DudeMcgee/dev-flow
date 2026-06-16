@@ -9,6 +9,7 @@ from devflow.control_room.patch_proposal import (
     inspect_patch_proposal,
     is_dangerous_patch_path,
     is_high_risk_patch_path,
+    normalize_hunk_line_counts,
     parse_patch_proposal,
     resolve_workspace_patch_target,
 )
@@ -52,6 +53,24 @@ def test_patch_proposal_rejects_mismatched_hunk_line_counts() -> None:
 
     with pytest.raises(PatchProposalParseError, match="Malformed hunk line counts"):
         parse_patch_proposal(patch)
+
+
+def test_hunk_count_normalizer_repairs_header_counts() -> None:
+    patch = """diff --git a/docs/a.md b/docs/a.md
+--- a/docs/a.md
++++ b/docs/a.md
+@@ -1 +1 @@
+-old
++new
++extra
+"""
+
+    normalized = normalize_hunk_line_counts(patch)
+
+    assert "@@ -1 +1,2 @@" in normalized
+    proposal = parse_patch_proposal(normalized)
+    assert proposal.files[0].hunks[0].old_lines == 1
+    assert proposal.files[0].hunks[0].new_lines == 2
 
 
 def test_patch_proposal_inspection_reports_structural_validity() -> None:

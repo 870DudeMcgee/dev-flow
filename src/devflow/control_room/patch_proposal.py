@@ -254,6 +254,59 @@ def inspect_patch_proposal(patch_text: str) -> PatchProposalInspection:
     )
 
 
+def normalize_hunk_line_counts(patch_text: str) -> str:
+    lines = patch_text.splitlines(keepends=True)
+    normalized: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        text = line.rstrip("\r\n")
+        match = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$", text)
+        if not match:
+            normalized.append(line)
+            index += 1
+            continue
+
+        old_start = int(match.group(1))
+        new_start = int(match.group(2))
+        suffix = match.group(3)
+        newline = "\n" if line.endswith("\n") else ""
+        if line.endswith("\r\n"):
+            newline = "\r\n"
+        body: list[str] = []
+        old_count = 0
+        new_count = 0
+        index += 1
+        while index < len(lines):
+            body_line = lines[index]
+            body_text = body_line.rstrip("\r\n")
+            if body_text.startswith(("diff --git ", "@@ ")) or _starts_file_header(lines, index):
+                break
+            if body_text.startswith("\\ No newline at end of file"):
+                body.append(body_line)
+                index += 1
+                continue
+            prefix = body_line[0] if body_line else " "
+            if prefix == " ":
+                old_count += 1
+                new_count += 1
+            elif prefix == "-":
+                old_count += 1
+            elif prefix == "+":
+                new_count += 1
+            else:
+                break
+            body.append(body_line)
+            index += 1
+
+        normalized.append(
+            f"@@ -{old_start}{_hunk_count_suffix(old_count)} "
+            f"+{new_start}{_hunk_count_suffix(new_count)} @@{suffix}{newline}"
+        )
+        normalized.extend(body)
+    return "".join(normalized)
+
+
 def extract_touched_files(patch_text: str) -> list[str]:
     files: list[str] = []
     for line in patch_text.splitlines():
@@ -363,3 +416,14 @@ def _validate_hunk_counts(hunk: PatchProposalHunk | None) -> None:
             f"header expected {hunk.old_lines} old/{hunk.new_lines} new lines, "
             f"body has {actual_old_lines} old/{actual_new_lines} new lines"
         )
+
+
+def _starts_file_header(lines: list[str], index: int) -> bool:
+    text = lines[index].rstrip("\r\n")
+    if not text.startswith("--- "):
+        return False
+    return index + 1 < len(lines) and lines[index + 1].rstrip("\r\n").startswith("+++ ")
+
+
+def _hunk_count_suffix(count: int) -> str:
+    return "" if count == 1 else f",{count}"

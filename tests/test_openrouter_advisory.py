@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.patch_proposal import normalize_hunk_line_counts
 from tests.helpers import setup_temp_git_repo
 
 
@@ -264,7 +265,7 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
     assert review_result.exit_code == 0, review_result.output
 
 
-def test_agent_propose_patch_retries_malformed_hunk_counts(
+def test_agent_propose_patch_normalizes_malformed_hunk_counts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -285,13 +286,6 @@ def test_agent_propose_patch_retries_malformed_hunk_counts(
 +new
 +extra
 """
-    corrected_diff = """diff --git a/docs/example.md b/docs/example.md
---- a/docs/example.md
-+++ b/docs/example.md
-@@ -1 +1 @@
--old
-+new
-"""
     responses = [
         {
             "choices": [
@@ -302,21 +296,6 @@ def test_agent_propose_patch_retries_malformed_hunk_counts(
                                 "status": "ready",
                                 "diff": malformed_diff,
                                 "summary": "First attempt has malformed hunk counts.",
-                            }
-                        )
-                    }
-                }
-            ]
-        },
-        {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {
-                                "status": "ready",
-                                "diff": corrected_diff,
-                                "summary": "Corrected hunk counts.",
                             }
                         )
                     }
@@ -346,16 +325,13 @@ def test_agent_propose_patch_retries_malformed_hunk_counts(
     )
 
     assert result.exit_code == 0, result.output
-    assert len(prompts) == 2
-    assert "Previous Patch Proposal Was Rejected" in prompts[1]
-    assert "Malformed hunk line counts" in prompts[1]
+    assert len(prompts) == 1
     agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-pro-patch-proposer"
-    assert (agent_dir / "proposal.patch").read_text(encoding="utf-8") == corrected_diff
+    assert (agent_dir / "proposal.patch").read_text(encoding="utf-8") == normalize_hunk_line_counts(malformed_diff)
     raw_output = (agent_dir / "raw_output.md").read_text(encoding="utf-8")
-    assert "## Attempt 1" in raw_output
-    assert "## Attempt 2" in raw_output
     assert "First attempt has malformed hunk counts" in raw_output
-    assert "Corrected hunk counts" in raw_output
+    assert "@@ -1 +1 @@" in raw_output
+    assert "@@ -1 +1,2 @@" not in raw_output
 
 
 def test_agent_propose_patch_retries_patch_that_does_not_apply_to_workspace(

@@ -25,7 +25,7 @@ from devflow.control_room.patch_applier import (
     apply_patch_files,
     parse_unified_diff,
 )
-from devflow.control_room.patch_proposal import inspect_patch_proposal
+from devflow.control_room.patch_proposal import inspect_patch_proposal, normalize_hunk_line_counts
 from devflow.control_room.paths import absolute_path, relative_path
 from devflow.control_room.persistence import atomic_write_text, get_task
 from devflow.control_room.supervisor_surface import build_supervisor_packet
@@ -228,7 +228,7 @@ def run_patch_proposal(
         diff_text = ""
         summary = ""
         user_prompt = prompt
-        for attempt in range(2):
+        for attempt in range(3):
             response_body = _chat_completion(
                 provider=provider,
                 model=profile.model,
@@ -240,7 +240,7 @@ def run_patch_proposal(
             raw_outputs.append(content)
             parsed = _json_object_from_text(content)
             status = str(parsed.get("status", "failed"))
-            diff_text = str(parsed.get("diff", ""))
+            diff_text = normalize_hunk_line_counts(str(parsed.get("diff", "")))
             summary = str(parsed.get("summary") or parsed.get("reason") or "")
             if status != "ready":
                 raise OpenRouterAgentError(summary or f"Patch proposer returned status '{status}'.")
@@ -251,7 +251,7 @@ def run_patch_proposal(
                     break
             else:
                 error = inspection.parse_error or "Patch proposal is not structurally valid."
-            if attempt == 1:
+            if attempt == 2:
                 raise OpenRouterAgentError(error)
             user_prompt = _patch_retry_prompt(prompt, error=error, previous_content=content)
 
