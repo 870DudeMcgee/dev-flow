@@ -310,7 +310,7 @@ def test_git_worktree_promote_preview_prompts_for_hitl_goal_approval() -> None:
             assert "human_approval_prompt: Review HITL goal G-0001 / TS-0005 before promotion." in preview.output
             assert (
                 "next_action: Human approval required; review this preview, then run "
-                "'devflow task promote task-0001' and confirm the prompt."
+                "'devflow task promote task-0001'."
             ) in preview.output
             assert "Decision needed:\nHuman approval required before promotion." in preview.output
 

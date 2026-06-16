@@ -208,17 +208,18 @@ def promote_task(
     if readiness_errors:
         raise ValueError(format_promotion_refusal(task, task_path, allow_stale_baseline=force_stale_baseline))
 
-    baseline = promotion_baseline(root, task)
-    if baseline["baseline_status"] == "unavailable":
-        refusal = format_stale_baseline_refusal(root, task)
-        raise ValueError(refusal or "Refusing promotion: task baseline cannot be verified.")
-    if baseline["baseline_status"] == "changed" and not force_stale_baseline:
-        refusal = format_stale_baseline_refusal(root, task)
-        raise ValueError(refusal or "Refusing promotion: task baseline is stale.")
+    if git_state.is_repo:
+        baseline = promotion_baseline(root, task)
+        if baseline["baseline_status"] == "unavailable":
+            refusal = format_stale_baseline_refusal(root, task)
+            raise ValueError(refusal or "Refusing promotion: task baseline cannot be verified.")
+        if baseline["baseline_status"] == "changed" and not force_stale_baseline:
+            refusal = format_stale_baseline_refusal(root, task)
+            raise ValueError(refusal or "Refusing promotion: task baseline is stale.")
 
-    # Double check dirty repository status to ensure safety
-    if not force and main_checkout_has_uncommitted_changes(root):
-        raise ValueError("Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.")
+        # Double check dirty repository status to ensure safety
+        if not force and main_checkout_has_uncommitted_changes(root):
+            raise ValueError("Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.")
 
     if is_git_worktree_task(task):
         preview = promote_git_worktree(root, task)

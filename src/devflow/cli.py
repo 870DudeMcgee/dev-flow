@@ -2695,12 +2695,12 @@ def task_promote_preview(
     if scope.project_id:
         next_action = (
             f"Review this preview, then run 'devflow task promote {task_id}' "
-            f"from the project_root above and confirm the prompt."
+            f"from the project_root above."
         )
     elif human_approval_required:
         next_action = (
             f"Human approval required; review this preview, then run "
-            f"'devflow task promote {task_id}' and confirm the prompt."
+            f"'devflow task promote {task_id}'."
         )
     else:
         next_action = f"devflow task promote {task_id}"
@@ -2809,6 +2809,7 @@ def task_promote(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
+        from devflow.control_room.git_state import inspect_git_state
         from devflow.control_room.service import (
             format_promotion_refusal,
             format_stale_baseline_refusal,
@@ -2820,16 +2821,18 @@ def task_promote(
             promotion_readiness_errors,
         )
         # 1. Safety check for dirty main checkout
-        dirty = main_checkout_has_uncommitted_changes(root)
-        if dirty:
-            if not force:
-                typer.echo(
-                    "Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.",
-                    err=True,
-                )
-                raise typer.Exit(code=1)
-            else:
-                typer.echo("Warning: Bypassing safety check for uncommitted changes in main checkout.")
+        git_state = inspect_git_state(root)
+        if git_state.is_repo:
+            dirty = main_checkout_has_uncommitted_changes(root)
+            if dirty:
+                if not force:
+                    typer.echo(
+                        "Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.",
+                        err=True,
+                    )
+                    raise typer.Exit(code=1)
+                else:
+                    typer.echo("Warning: Bypassing safety check for uncommitted changes in main checkout.")
 
         task = get_task(root, task_id)
         task_path = root / ".devflow" / "tasks" / task.id
@@ -2846,16 +2849,17 @@ def task_promote(
             raise typer.Exit(code=1)
 
         baseline = promotion_baseline(root, task)
-        if baseline["baseline_status"] == "unavailable":
-            typer.echo(format_stale_baseline_refusal(root, task), err=True)
-            raise typer.Exit(code=1)
-        if baseline["baseline_status"] == "changed":
-            if not force_stale_baseline:
+        if git_state.is_repo:
+            if baseline["baseline_status"] == "unavailable":
                 typer.echo(format_stale_baseline_refusal(root, task), err=True)
                 raise typer.Exit(code=1)
-            typer.echo("Warning: Forcing promotion with stale task baseline.")
-            typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
-            typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
+            if baseline["baseline_status"] == "changed":
+                if not force_stale_baseline:
+                    typer.echo(format_stale_baseline_refusal(root, task), err=True)
+                    raise typer.Exit(code=1)
+                typer.echo("Warning: Forcing promotion with stale task baseline.")
+                typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
+                typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
 
         res = preview_task_promotion(root, task_id)
     except KeyError as exc:
@@ -2923,10 +2927,11 @@ def task_promote(
         if diff_text:
             typer.echo(diff_text, nl=False)
 
-    confirmed = typer.confirm("Promote these changes to the main checkout?", default=False)
-    if not confirmed:
-        typer.echo("Promotion aborted.")
-        return
+    if apply_deletions or res.get("git"):
+        confirmed = typer.confirm("Promote these changes to the main checkout?", default=False)
+        if not confirmed:
+            typer.echo("Promotion aborted.")
+            return
 
     try:
         before_main_head = current_head(root)

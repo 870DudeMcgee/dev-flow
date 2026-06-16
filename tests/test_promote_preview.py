@@ -351,7 +351,7 @@ def test_promote_refuses_stale_verification_json_even_when_task_yaml_is_verified
             os.chdir(old_cwd)
 
 
-def test_promote_declined_confirmation() -> None:
+def test_promote_command_invocation_is_explicit_approval_for_copy_workspace() -> None:
     import subprocess
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
@@ -372,14 +372,14 @@ def test_promote_declined_confirmation() -> None:
 
             _mark_task_verified_with_evidence()
 
-            res = runner.invoke(app, ["task", "promote", "task-0001"], input="n\n")
-            assert res.exit_code == 0
-            assert "Promotion aborted." in res.output
+            res = runner.invoke(app, ["task", "promote", "task-0001"])
+            assert res.exit_code == 0, res.output
+            assert "Promotion complete." in res.output
 
-            assert Path("file.txt").read_text(encoding="utf-8") == "old\n"
+            assert Path("file.txt").read_text(encoding="utf-8") == "new\n"
 
             task = get_task(Path.cwd(), "task-0001")
-            assert task.status == "verified"
+            assert task.status == "promoted"
         finally:
             os.chdir(old_cwd)
 
@@ -526,7 +526,7 @@ def test_promote_devflow_only_dirtiness_does_not_block() -> None:
             os.chdir(old_cwd)
 
 
-def test_promote_outside_git_repo_fails_safely() -> None:
+def test_promote_outside_git_repo_copies_after_verification() -> None:
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
         try:
@@ -534,11 +534,18 @@ def test_promote_outside_git_repo_fails_safely() -> None:
             created = runner.invoke(app, ["task", "create", "non-git-test"])
             assert created.exit_code == 0
 
+            workspace_dir = Path(".devflow/workspaces/task-0001")
+            Path(workspace_dir / "result.txt").write_text("non-git\n", encoding="utf-8")
+
             _mark_task_verified_with_evidence()
 
             res = runner.invoke(app, ["task", "promote", "task-0001"])
-            assert res.exit_code == 1
-            assert "Repository root is not a git repository" in res.output
+            assert res.exit_code == 0, res.output
+            assert "Promotion complete." in res.output
+            assert Path("result.txt").read_text(encoding="utf-8") == "non-git\n"
+
+            task = get_task(Path.cwd(), "task-0001")
+            assert task.status == "promoted"
         finally:
             os.chdir(old_cwd)
 

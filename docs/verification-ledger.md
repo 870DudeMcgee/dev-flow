@@ -1,6 +1,6 @@
 # Verification Ledger
 
-Date: 2026-06-15
+Date: 2026-06-16
 Status: Active verification reference
 
 Use this ledger before running expensive verification. If the question can be answered from recent evidence plus lightweight read-only checks, do not rerun full pytest or dogfood.
@@ -16,6 +16,19 @@ Use this ledger before running expensive verification. If the question can be an
   - Scorecard path: `.devflow/dogfood/runs/dogfood-20260615T165239Z/scorecard.yaml`.
   - Duration: `8.908s`.
   - Boundary confirmation: no provider API calls, autonomous routing, auto-promotion, push, database, vector DB/RAG/embeddings, dashboard/daemon, or ML training.
+
+## Milestone 26 Operational Baseline / Trust Pass
+
+- Scratch daily shell loop: passed on 2026-06-16.
+  - Entry point: `env PYTHONPATH=<repo-root>/src:<repo-root> <repo-root>/.venv/bin/python -m devflow.cli`.
+  - Scratch root: `/var/folders/rl/9__qbthj5pj3s5xszbnfzsq40000gn/T//devflow-m26.SW5Xi6`.
+  - Covered commands: `init`, `doctor`, `dashboard`, `task create`, `task run --worker shell`, workspace isolation checks, `task verify`, `task list`, `task show`, second `dashboard`, `task promote-preview`, `task promote`, final `task show`, final `dashboard`, and `git status --short` from the real repo.
+  - Result: `task-0001` reached `promoted`; `result.txt` was absent from the scratch project root before promotion, present only under `.devflow/workspaces/task-0001/result.txt`, then present in the scratch root after promotion.
+  - Real repo after proof: dirty only from the intentional Milestone 26 code, tests, docs, and handoff edits.
+- Focused repair evidence after the proof exposed a copy-workspace promotion bug: passed, `39 passed in 25.01s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_promote_preview.py tests/test_git_worktree_promotion.py tests/test_operating_layer.py::test_operating_layer_server_runs_approved_task_promotion -q`.
+  - Scope: non-git scratch promotion, copy-workspace promotion approval semantics, dirty/stale Git guards, deletion confirmation, Git-native promotion flow, and browser-approved promotion execution.
+  - Boundary confirmation: no public APIs, new workers, adapters, routing, databases, auto-resume, auto-promotion, provider calls, push, or pull-request automation were added.
 
 ## Verification Escalation Rule
 

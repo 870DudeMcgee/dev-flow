@@ -404,6 +404,8 @@ The first code patch should prove a single vertical slice:
 
 Only after that slice stays stable should new runtime behavior be promoted into the contract.
 
+For default copy-workspace tasks, the explicit `devflow task promote <task_id>` command after a reviewed preview is the human approval act. Deletion-applying promotions and Git-native promotions keep the additional confirmation prompt because they can remove files or merge refs.
+
 ## Acceptance Gauntlet
 
 Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed adapters, database, autonomous browser dashboard mutation surface, or worktree orchestration are part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
@@ -465,14 +467,16 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Status**: Operational Baseline / Trust Pass is the current slice.
-> Milestone 25 Stop The Task/Data Sprawl is implemented as the prior hardening baseline: explicit maintenance reset/repair commands, complete task baseline artifacts, scratch-root dogfood defaults, clean prune previews, and clean-dashboard next actions after runtime reset. The current work is to prove the daily operator loop is trustworthy before adding new runtime capability. Current model selection remains registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-resume, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, hidden memory, RAG, embeddings, training, or making Git-native worktrees the default runtime.
+> **Current Status**: Milestone 26 Operational Baseline / Trust Pass is complete.
+> Milestone 25 Stop The Task/Data Sprawl remains the prior hardening baseline: explicit maintenance reset/repair commands, complete task baseline artifacts, scratch-root dogfood defaults, clean prune previews, and clean-dashboard next actions after runtime reset. Milestone 26 proved the daily shell-worker loop in a disposable scratch project and repaired one concrete control-room bug found by that proof: default copy-workspace promotion now works in non-git scratch projects after verification and promotion preview. Current model selection remains registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, and derived routing evidence. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider execution, autonomous routing, auto-resume, auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, hidden memory, RAG, embeddings, training, or making Git-native worktrees the default runtime.
 
 ## Operational Baseline
 
-The next milestone is an Operational Baseline / Trust Pass, not another adapter or runtime expansion. Dev-Flow should first make the daily operator loop obvious: current goal lifecycle state, readiness evidence, verification policy, task status, review readiness, and promotion safety must be fast to inspect without rerunning expensive suites or reading long logs.
+Milestone 26 closed the Operational Baseline / Trust Pass. The accepted proof used the Python module entrypoint from a disposable scratch root, ran `init`, `doctor`, `dashboard`, `task create`, `task run --worker shell`, workspace isolation checks, `task verify`, `task list`, `task show`, `promote-preview`, and `promote`, then confirmed the scratch task reached `promoted`. `result.txt` stayed out of the scratch root before promotion, existed under `.devflow/workspaces/task-0001/`, and appeared in the scratch root only after explicit promotion.
 
-Until this baseline is trustworthy, do not add new provider adapters, autonomous routing, scheduler complexity, or runtime worker features. Prefer small fixes that make existing shell-worker, goal, scheduler, freshness, dashboard, and verification surfaces agree on the next safe action.
+The proof originally failed because non-git copy-workspace promotion reused Git-only baseline and dirty-check guards. The closure repair keeps Git baseline/dirty checks for Git projects, keeps extra confirmation for deletion-applying and Git-native promotions, and allows default copy-workspace promotion in non-git scratch projects after verification and promotion preview.
+
+The next safe product direction is conservative: preserve this baseline, keep verification evidence easy to find, and only start future worker/runtime work through the documented registry sequence. Do not jump directly to provider adapters, autonomous routing, scheduler complexity, databases, auto-resume, auto-promotion, or new worker capability. If the next milestone moves toward non-shell workers, begin with architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, and context pack building before any local/OpenAI-compatible/native provider adapter.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
