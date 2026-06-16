@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from devflow.control_room.agent_registry import (
     AgentDefinition,
@@ -43,7 +44,7 @@ class ResolvedAgentRuntime:
 
 
 LOCAL_PROVIDERS = {"shell", "manual", "ollama", "local"}
-PACKET_PERMISSION_MODES = {"manual_packet_only", "read_only", "docs_only"}
+PACKET_PERMISSION_MODES = {"manual_packet_only", "read_only", "docs_only", "frontier_read_only"}
 
 
 def resolve_agent_runtime(root: Path, agent_id: str) -> ResolvedAgentRuntime:
@@ -56,7 +57,14 @@ def resolve_agent_runtime_definition(
     agent: AgentDefinition,
     provider: ProviderDefinition | None = None,
 ) -> ResolvedAgentRuntime:
-    if is_local_model_worker_pool_agent(agent, provider=provider):
+    if not agent.enabled:
+        execution_surface = "blocked"
+        task_run_allowed = False
+        agent_run_allowed = False
+        packet_allowed = False
+        refusal_reason = f"Agent '{agent.id}' is disabled and cannot execute."
+        next_command = None
+    elif is_local_model_worker_pool_agent(agent, provider=provider):
         execution_surface = "agent_run"
         task_run_allowed = False
         agent_run_allowed = True
@@ -73,7 +81,10 @@ def resolve_agent_runtime_definition(
         agent_run_allowed = False
         packet_allowed = True
         refusal_reason = None
-        next_command = f"devflow task run <task-id> --worker {agent.id}"
+        if agent.adapter == "shell":
+            next_command = f"devflow task run <task-id> --worker {agent.id} -- <command>"
+        else:
+            next_command = f"devflow task run <task-id> --worker {agent.id}"
     elif agent.default_mode == "manual_packet_only" or agent.adapter == "manual_packet":
         execution_surface = "packet_only"
         task_run_allowed = False
@@ -114,6 +125,27 @@ def resolve_agent_runtime_definition(
             forbidden_outputs=list(agent.forbidden_writes or agent.cannot_touch),
         ),
     )
+
+
+def agent_runtime_contract(root: Path, agent: AgentDefinition) -> dict[str, Any]:
+    provider = _provider_for(root, agent)
+    return runtime_contract_payload(resolve_agent_runtime_definition(agent, provider))
+
+
+def runtime_contract_payload(runtime: ResolvedAgentRuntime) -> dict[str, Any]:
+    return {
+        "execution_surface": runtime.execution_surface,
+        "task_run_allowed": runtime.task_run_allowed,
+        "agent_run_allowed": runtime.agent_run_allowed,
+        "packet_allowed": runtime.packet_allowed,
+        "refusal_reason": runtime.refusal_reason,
+        "next_command": runtime.next_command,
+        "evidence_contract": {
+            "required_outputs": runtime.evidence_contract.required_outputs,
+            "optional_outputs": runtime.evidence_contract.optional_outputs,
+            "forbidden_outputs": runtime.evidence_contract.forbidden_outputs,
+        },
+    }
 
 
 def _required_evidence_outputs(agent: AgentDefinition) -> list[str]:

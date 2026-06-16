@@ -44,6 +44,14 @@ def test_agent_list_show_policy_json_for_local_worker_pool(tmp_path: Path, monke
     assert profile["default_mode"] == "read_only"
     assert profile["machine_class"] == "mac_studio"
     assert profile["model_alias_group"] == "qwopus-qwen36-07d35212591f"
+    assert profile["runtime_contract"]["execution_surface"] == "agent_run"
+    assert profile["runtime_contract"]["task_run_allowed"] is False
+    assert profile["runtime_contract"]["agent_run_allowed"] is True
+
+    shell_profile = next(agent for agent in list_payload["agents"] if agent["id"] == "devflow-shell-worker")
+    assert shell_profile["runtime_contract"]["execution_surface"] == "task_run"
+    assert shell_profile["runtime_contract"]["task_run_allowed"] is True
+    assert shell_profile["runtime_contract"]["next_command"] == "devflow task run <task-id> --worker devflow-shell-worker -- <command>"
 
     show_result = runner.invoke(app, ["agent", "show", "local-qwopus-inspector", "--json"])
     assert show_result.exit_code == 0, show_result.output
@@ -51,6 +59,8 @@ def test_agent_list_show_policy_json_for_local_worker_pool(tmp_path: Path, monke
     assert show_payload["model"] == "qwopus:latest"
     assert show_payload["local_model_worker_pool_runnable"] is True
     assert show_payload["required_verification_command"] == "ollama show qwopus:latest"
+    assert show_payload["runtime_contract"]["packet_allowed"] is True
+    assert "read-only local model worker-pool profile" in show_payload["runtime_contract"]["refusal_reason"]
 
     policy_result = runner.invoke(app, ["agent", "policy", "--json"])
     assert policy_result.exit_code == 0, policy_result.output

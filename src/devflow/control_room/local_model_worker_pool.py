@@ -14,7 +14,7 @@ from devflow.control_room.agent_registry import (
     load_agent_registry,
     load_provider_registry,
 )
-from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
+from devflow.control_room.agent_runtime import agent_runtime_contract, resolve_agent_runtime_definition
 from devflow.control_room.local_model_client import LocalModelClient, LocalModelClientError
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import get_task, utc_now
@@ -549,5 +549,6 @@ def _agent_payload(agent: AgentDefinition, *, root: Path) -> dict[str, Any]:
     payload = agent.model_dump(mode="json")
     payload["adapter_maturity"] = payload.get("adapter_maturity") or adapter_maturity(agent.adapter)
     payload["local_model_worker_pool_runnable"] = is_local_model_worker_pool_agent(agent)
+    payload["runtime_contract"] = agent_runtime_contract(root, agent)
     payload["registry_source"] = "builtin" if not (root / ".devflow/agents/registry.yaml").exists() else ".devflow/agents/registry.yaml"
     return payload

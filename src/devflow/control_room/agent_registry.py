@@ -562,7 +562,80 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
         can_promote=False,
         enabled=True,
     )
-    agents = {proof_agent.id: proof_agent}
+    shell_agent = AgentDefinition(
+        id="devflow-shell-worker",
+        provider="shell",
+        model="posix-shell",
+        adapter="shell",
+        adapter_maturity="stable_runtime",
+        role="implementation_worker",
+        tier="local",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        purpose=(
+            "Registry-visible stable shell worker alias. Daily operator use should prefer "
+            "`devflow task run <task_id> --worker shell -- <command>`; this alias exists so "
+            "agent registry, packet, and runtime contract surfaces can describe the shell lane."
+        ),
+        workspace="isolated_task_workspace",
+        can_see=[
+            "task_packet",
+            "assigned_workspace",
+            "recent_events",
+            "verification_plan",
+            "verification_summary",
+        ],
+        can_touch=[
+            "<workspace>/**",
+            "<task>/agents/devflow-shell-worker/packet.json",
+            "<task>/agents/devflow-shell-worker/logs/**",
+            "<task>/agents/devflow-shell-worker/result.md",
+        ],
+        cannot_touch=[
+            "<main_checkout>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            ".git/**",
+        ],
+        allowed_reads=[
+            "<task>/packet.json",
+            "<task>/events.jsonl",
+            "<task>/questions.jsonl",
+            "<workspace>/**",
+        ],
+        allowed_writes=[
+            "<workspace>/**",
+            "<task>/agents/devflow-shell-worker/packet.json",
+            "<task>/agents/devflow-shell-worker/logs/**",
+            "<task>/agents/devflow-shell-worker/result.md",
+        ],
+        forbidden_writes=[
+            "<main_checkout>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            ".git/**",
+        ],
+        required_outputs=[
+            "Dev-Flow writes <task>/agents/devflow-shell-worker/packet.json before execution.",
+            "Dev-Flow writes <task>/agents/devflow-shell-worker/logs/worker.log from the shell command.",
+            "Dev-Flow writes <task>/agents/devflow-shell-worker/result.md with command status and log path.",
+        ],
+        completion_rules=[
+            "Run only the explicit command supplied after `--`.",
+            "Mutate only files under <workspace>.",
+            "Never edit the main checkout, .git, <task>/task.yaml, <task>/events.jsonl, <task>/verification.json, or promotion artifacts.",
+            "Dev-Flow verification is required after result.md; worker completion is not promotion readiness.",
+        ],
+        can_run_shell=True,
+        can_use_network=False,
+        can_promote=False,
+        enabled=True,
+    )
+    agents = {proof_agent.id: proof_agent, shell_agent.id: shell_agent}
 
     # Define standard automated agents mapping to each new execution runtime.
     # Only local Ollama patch agents may execute; remote provider agents stay disabled.

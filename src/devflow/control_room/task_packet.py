@@ -12,6 +12,7 @@ from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import relative_path
 from devflow.control_room.status_projection import TaskStatusProjection, build_task_status_projection
 from devflow.control_room.agent_registry import AgentDefinition
+from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.devmode_bridge import devmode_discipline_lines
 
 _relative = relative_path
@@ -60,6 +61,7 @@ class TaskPacket(BaseModel):
     required_outputs: list[str] = Field(default_factory=list)
     completion_rules: list[str] = Field(default_factory=list)
     manual_instructions: str | None = None
+    runtime_contract: dict[str, Any] | None = None
     task: dict[str, Any]
     summary: str | None
     recent_events: list[dict[str, Any]]
@@ -754,6 +756,7 @@ def build_agent_packet(
             "required_outputs": agent.required_outputs,
             "completion_rules": completion_rules,
             "manual_instructions": _manual_instructions(agent, root or Path.cwd()),
+            "runtime_contract": agent_runtime_contract(root or Path.cwd(), agent),
         }
     )
 

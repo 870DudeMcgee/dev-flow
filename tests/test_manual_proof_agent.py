@@ -41,6 +41,8 @@ def test_manual_codex_worker_run_creates_codex_ready_handoff(tmp_path: Path, mon
 
     packet = json.loads((agent_dir / "packet.json").read_text(encoding="utf-8"))
     assert packet["agent_id"] == "devflow-manual-codex-worker"
+    assert packet["runtime_contract"]["execution_surface"] == "task_run"
+    assert packet["runtime_contract"]["packet_allowed"] is True
     assert packet["allowed_writes"] == [
         "<workspace>/**",
         "<task>/agents/devflow-manual-codex-worker/result.md",

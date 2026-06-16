@@ -41,12 +41,13 @@ def _init_dogfood_repo(root: Path) -> None:
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
-    assert len(cases) == 18
+    assert len(cases) == 19
     assert {case["id"] for case in cases} >= {
         "tiny-deterministic-docs-task",
         "unsafe-worker-outcome",
         "git-native-worker-lane-hardening",
         "local-worker-lane-hardening",
+        "registry-runtime-contract",
         "model-audition-evidence",
         "intent-scaffold-approval-path",
         "operator-readiness-reconciliation",
@@ -78,7 +79,7 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
-    assert len(result["run"]["cases_run"]) == 18
+    assert len(result["run"]["cases_run"]) == 19
     assert list_tasks(tmp_path) == []
 
     report = (run_dir / "report.md").read_text(encoding="utf-8")
@@ -264,6 +265,29 @@ def test_local_worker_lane_dogfood_case_exercises_evidence_ladder(tmp_path: Path
     assert any("read-only local worker evidence was summarized" in lesson for lesson in case_result["lessons"])
     assert any("local patch worker evidence reached apply/verify gates" in lesson for lesson in case_result["lessons"])
     assert any("no provider API calls or autonomous routing were introduced" in lesson for lesson in case_result["lessons"])
+
+
+def test_registry_runtime_contract_dogfood_case_proves_runtime_surfaces(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+
+    result = run_dogfood_suite(tmp_path, case_ids=["registry-runtime-contract"])
+    case_result = result["results"][0]
+
+    assert case_result["status"] == "passed"
+    assert case_result["score"] == case_result["max_score"]
+    assert any("list/show runtime contracts exposed run and packet eligibility" in lesson for lesson in case_result["lessons"])
+    assert any("remote/provider-backed agent refused before provider execution" in lesson for lesson in case_result["lessons"])
+    summary_path = next(path for path in case_result["artifacts_created"] if path.endswith("registry-runtime-contract-summary.json"))
+    summary = yaml.safe_load((tmp_path / summary_path).read_text(encoding="utf-8"))
+    assert summary["shell_agent_dir"].endswith(".devflow/tasks/task-0001/agents/devflow-shell-worker")
+    assert summary["shell_agent_evidence"] == {"packet_json": True, "result_md": True, "worker_log": True}
+    assert summary["workspace_file_exists"] is True
+    assert summary["root_file_exists"] is False
+    assert all(summary["manual_packet_contracts"].values())
+    assert summary["remote_runtime_contract"]["task_run_allowed"] is False
+    assert summary["remote_runtime_contract"]["packet_allowed"] is True
+    assert "experimental_readonly" in summary["remote_refusal"]
+    assert summary["provider_api_calls_attempted"] is False
 
 
 def test_model_audition_dogfood_case_proves_evidence_ladder(tmp_path: Path) -> None:

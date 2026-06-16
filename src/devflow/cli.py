@@ -56,6 +56,7 @@ from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_on
 from devflow.control_room.token_context import write_context_packet
 from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
+from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.task_packet import build_agent_packet
 from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
 from devflow.control_room.patch_dry_run import latest_patch_dry_run, preview_patch_dry_run
@@ -3780,6 +3781,40 @@ def _echo_list(label: str, values: list[str]) -> None:
         typer.echo(f"  - {value}")
 
 
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
+
+
+def _runtime_status_line(contract: dict[str, Any], *, include_refusal: bool) -> str:
+    parts = [
+        f"runtime: {contract['execution_surface']}",
+        f"task_run: {_yes_no(bool(contract['task_run_allowed']))}",
+        f"agent_run: {_yes_no(bool(contract['agent_run_allowed']))}",
+        f"packet: {_yes_no(bool(contract['packet_allowed']))}",
+    ]
+    if contract.get("next_command"):
+        parts.append(f"next: {contract['next_command']}")
+    elif include_refusal and contract.get("refusal_reason"):
+        parts.append(f"refusal: {contract['refusal_reason']}")
+    elif contract.get("refusal_reason"):
+        parts.append("refusal: see agent show")
+    return "  " + " | ".join(parts)
+
+
+def _echo_runtime_contract(contract: dict[str, Any]) -> None:
+    typer.echo("runtime_contract:")
+    typer.echo(f"  execution_surface: {contract['execution_surface']}")
+    typer.echo(f"  task_run_allowed: {str(contract['task_run_allowed']).lower()}")
+    typer.echo(f"  agent_run_allowed: {str(contract['agent_run_allowed']).lower()}")
+    typer.echo(f"  packet_allowed: {str(contract['packet_allowed']).lower()}")
+    typer.echo(f"  refusal_reason: {contract.get('refusal_reason') or 'none'}")
+    typer.echo(f"  next_command: {contract.get('next_command') or 'none'}")
+    evidence = contract.get("evidence_contract") or {}
+    _echo_list("  evidence_required_outputs", list(evidence.get("required_outputs") or []))
+    _echo_list("  evidence_optional_outputs", list(evidence.get("optional_outputs") or []))
+    _echo_list("  evidence_forbidden_outputs", list(evidence.get("forbidden_outputs") or []))
+
+
 def _get_latest_promoted_event(task_path: Path) -> dict[str, Any] | None:
     events_file = task_path / "events.jsonl"
     if not events_file.exists():
@@ -4306,9 +4341,11 @@ def agent_list(
         agent = agents[agent_id]
         enabled_str = "yes" if agent.enabled else "no"
         hermes_str = "yes" if agent.hermes_delegable else "no"
+        contract = agent_runtime_contract(Path.cwd(), agent)
         typer.echo(
             f"{agent.id:<42} {agent.provider:<10} {agent.model:<34} {agent.role:<30} {agent.default_mode:<14} {hermes_str:<8} {enabled_str:<8}"
         )
+        typer.echo(_runtime_status_line(contract, include_refusal=False))
 
 
 @agent_app.command("show")
@@ -4358,6 +4395,7 @@ def agent_show(
     typer.echo(f"can_promote: {str(agent.can_promote).lower()}")
     typer.echo(f"hermes_delegable: {str(agent.hermes_delegable).lower()}")
     typer.echo(f"enabled: {str(agent.enabled).lower()}")
+    _echo_runtime_contract(agent_runtime_contract(Path.cwd(), agent))
 
 
 @agent_app.command("policy")

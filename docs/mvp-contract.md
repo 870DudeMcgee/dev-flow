@@ -147,8 +147,10 @@ devflow worktree list
 devflow worktree prune --dry-run
 devflow branch list
 devflow branch archive <branch> --dry-run
+devflow agent show devflow-shell-worker
 devflow agent show devflow-manual-codex-worker
 devflow agent list --json
+devflow agent show devflow-shell-worker --json
 devflow agent show local-qwopus-inspector --json
 devflow agent policy --json
 devflow agent context-pack <task-id> qwopus-implementer --role implementation_worker --json
@@ -157,7 +159,9 @@ devflow agent discover-local --json
 devflow agent select-local <task-id> --role implementation_worker --json
 devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
 devflow agent run --task <task-id> --profile local-qwopus-inspector --json
+devflow agent packet <task-id> devflow-shell-worker
 devflow agent packet <task-id> devflow-manual-codex-worker
+devflow task run <task-id> --worker devflow-shell-worker -- <command>
 devflow task run <task-id> --worker devflow-manual-codex-worker
 ```
 
@@ -165,16 +169,18 @@ devflow task run <task-id> --worker devflow-manual-codex-worker
 The following CLI commands remain experimental and restricted to read-only/manual planning/auditing aids:
 
 ```bash
-devflow agent packet <task-id> <non-proof-agent-id>
+devflow agent packet <task-id> <transition-agent-id>
 devflow task pack <task-id> <role>
 ```
+
+This excludes stable `devflow-shell-worker` and `devflow-manual-codex-worker` packets, which are part of the current registry/runtime contract.
 
 ### Command Maturity Classifications
 
 To guarantee execution safety and prevent automated agents from operating on unstable transition layers, all CLI commands are classified under a strict maturity hierarchy:
 
-- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task fit`, `task scout`, `task route`, `task scorecard`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/create-goal/create-task/archive`, `goal init/list/show/status/next/slices/activate/pause/block/complete/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent context-pack`, `agent evidence`, `agent discover-local --json`, `agent select-local <task-id> --role <role> --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent run --task <task-id> --profile <profile-id> --json`, `agent packet <task-id> devflow-manual-codex-worker`).
-- **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task pack`, non-proof-agent registry inspection).
+- **Stable**: Authorized local control-room commands (e.g., `init`, `doctor`, `reconcile`, `dashboard`, `status --json`, `supervisor policy`, `supervisor packet`, `hermes imessage-check --json`, `map init`, `map show`, `map check`, `task create`, `task list`, `task show`, `task review`, `task next-action`, `task review-ready`, `task capsule`, `task run`, `task verify`, `task local`, `task fit`, `task scout`, `task route`, `task scorecard`, `task packet`, `task log`, `task orchestrate --plan-only`, `worker validate-outcome`, `knowledge capture/list/show/promote/reject/search`, `idea capture/list/show/classify/promote/create-goal/create-task/archive`, `goal init/list/show/status/next/slices/activate/pause/block/complete/archive`, `dogfood list/show/run/score/report`, `task promote-preview`, `task promote`, `task cleanup`, `worktree list`, `worktree prune`, `branch list`, `branch archive`, `agent show devflow-shell-worker`, `agent show devflow-manual-codex-worker`, `agent list --json`, `agent show <profile-id> --json`, `agent policy --json`, `agent context-pack`, `agent evidence`, `agent discover-local --json`, `agent select-local <task-id> --role <role> --json`, `agent run --task <task-id> --profile <profile-id> --dry-run --json`, `agent run --task <task-id> --profile <profile-id> --json`, `agent packet <task-id> devflow-shell-worker`, `agent packet <task-id> devflow-manual-codex-worker`).
+- **Experimental-ReadOnly**: Read-only diagnostic and context-assembly aids (e.g., `context`, `task pack`, transition-agent registry inspection).
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
@@ -222,7 +228,7 @@ The task-fit/context-routing evidence form writes derived artifacts only. It cla
 
 The Idea Foundry form is `devflow idea capture/list/show/classify/promote/create-goal/create-task/archive`. It stores project-local intake evidence under `.devflow/ideas/<idea-id>/`, keeps raw ideas separate from goals and tasks until an explicit bridge command is run, and records human classification and promotion decisions. `devflow idea create-goal` and `devflow idea create-task` require prior matching human promotion evidence, write bidirectional idea-to-goal/task links, and create Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 
-`devflow dogfood run --suite production-readiness` runs deterministic local production-readiness cases and writes `.devflow/dogfood/runs/<run-id>/run.yaml`, `scorecard.yaml`, and `report.md`. Task-producing cases execute in a temporary scratch project by default, so the active project does not gain root `.devflow/tasks/task-*`, workspaces, or worktrees from dogfood. `--write-root-runtime-evidence` is an explicit unsafe/noisy opt-in for root-state evidence and closes any task records it creates with the `evidence-only` outcome. The suite measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, operating-layer visual QA, and lightweight behavior. It reuses existing task, orchestration, worker outcome validation, verification, promotion-readiness, knowledge, and operating-layer visual QA surfaces. The visual QA case accepts deterministic fallback PNG/SVG evidence as the minimum, external/Appshot PNG drop-ins when present, and optional Playwright browser rasters when available. It does not execute providers, route autonomously, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models. Silver is the default pass gate for the production-readiness run.
+`devflow dogfood run --suite production-readiness` runs deterministic local production-readiness cases and writes `.devflow/dogfood/runs/<run-id>/run.yaml`, `scorecard.yaml`, and `report.md`. Task-producing cases execute in a temporary scratch project by default, so the active project does not gain root `.devflow/tasks/task-*`, workspaces, or worktrees from dogfood. `--write-root-runtime-evidence` is an explicit unsafe/noisy opt-in for root-state evidence and closes any task records it creates with the `evidence-only` outcome. The suite measures safety, pipeline correctness, context efficiency, worker artifact quality, recovery handling, knowledge capture, operating-layer visual QA, registry/runtime contract visibility, and lightweight behavior. It reuses existing task, orchestration, worker outcome validation, verification, promotion-readiness, knowledge, agent registry/packet, and operating-layer visual QA surfaces. The visual QA case accepts deterministic fallback PNG/SVG evidence as the minimum, external/Appshot PNG drop-ins when present, and optional Playwright browser rasters when available. It does not execute providers, route autonomously, promote, push, create a database, create a dashboard, run a daemon, use vector search/RAG/embeddings, or train models. Silver is the default pass gate for the production-readiness run.
 
 `devflow task close` marks a task inactive without deleting evidence. It requires an explicit outcome and reason, writes `.devflow/tasks/<task-id>/closure.json`, appends a close event, and preserves logs, proposal patches, verification, finalization, and promotion artifacts. `devflow task show` and `devflow task list` surface closed tasks with their outcome. `devflow task cleanup <task-id> --preview` refuses active tasks, reports conservative task-owned runtime cleanup candidates, and deletes nothing. `--apply` reruns the same safety analysis, removes only safe `.devflow/workspaces/<task-id>` or `.devflow/worktrees/<task-id>/<worker>` runtime targets, writes `cleanup.json`, and appends cleanup evidence. The older `--dry-run` spelling remains a compatibility preview for existing Git-native cleanup reporting.
 
@@ -241,6 +247,8 @@ The Idea Foundry form is `devflow idea capture/list/show/classify/promote/create
 `devflow agent packet <task-id> devflow-manual-codex-worker` prints a bounded packet with role, allowed reads, allowed writes, forbidden writes, required outputs, completion rules, and Codex-ready manual instructions.
 
 `devflow task run <task-id> --worker devflow-manual-codex-worker` creates `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/handoff.md` and packet evidence for a human-launched Codex or IDE agent, then leaves the task blocked with `manual_agent_state: awaiting_human`. It does not call a provider API, choose a model, schedule another agent, verify work, promote work, or mutate the main checkout. Pressing Enter in an interactive terminal is not completion evidence.
+
+`devflow agent list --json`, `devflow agent show <agent-id> --json`, and `devflow agent packet <task-id> <agent-id>` expose `runtime_contract` with execution surface, `task_run_allowed`, `agent_run_allowed`, `packet_allowed`, refusal reason, next command, and evidence contract. `devflow-shell-worker` is the registry-visible stable shell alias: it can run through `devflow task run <task-id> --worker devflow-shell-worker -- <command>`, writes packet/log/result evidence under `.devflow/tasks/<task-id>/agents/devflow-shell-worker/`, and may mutate only the isolated task workspace. The preferred daily shell form remains `devflow task run <task-id> --worker shell -- <command>`. Provider-backed and frontier read-only agents remain non-executable through `task run`; frontier read-only agents may still produce bounded local packets when their contract reports `packet_allowed: true`.
 
 ## Stable Filesystem Artifacts
 

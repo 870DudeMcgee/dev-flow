@@ -69,6 +69,7 @@ agents:
     assert registry.default_agent().id == "local-shell"
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "local-shell",
+        "devflow-shell-worker",
         "qwopus-implementer",
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
@@ -121,6 +122,7 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
     assert seeded_registry.default_agent().id == "devflow-manual-codex-worker"
     assert sorted(seeded_registry.enabled_agent_ids()) == sorted([
         "qwopus-implementer",
+        "devflow-shell-worker",
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
     ])
@@ -175,6 +177,7 @@ agents:
 
     expected_agents = [
         "devflow-manual-codex-worker",
+        "devflow-shell-worker",
         "qwopus-implementer",
         "devflow-ollama-worker",
         "devflow-openai-worker",
@@ -190,6 +193,7 @@ agents:
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "qwopus-implementer",
+        "devflow-shell-worker",
         "local-shell",
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
@@ -493,6 +497,8 @@ def test_agent_cli_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     result = runner.invoke(app, ["agent", "list"])
     assert result.exit_code == 0
     assert "devflow-manual-codex-worker" in result.output
+    assert "devflow-shell-worker" in result.output
+    assert "runtime:" in result.output
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -534,6 +540,8 @@ agents:
     assert "provider: ollama" in show_result.output
     assert "model: qwen3:36b" in show_result.output
     assert "role: local_senior_worker" in show_result.output
+    assert "runtime_contract:" in show_result.output
+    assert "task_run_allowed: true" in show_result.output
 
     task = create_task(tmp_path, "Agent CLI packet task")
     packet_result = runner.invoke(app, ["agent", "packet", task.id, "qwen-agent"])
@@ -548,47 +556,20 @@ def test_shell_alignment_resolves_and_logs_under_agent_dir(tmp_path: Path) -> No
     initialize_seed(tmp_path)
     task = create_task(tmp_path, "Shell alignment test")
 
-    registry_path = tmp_path / ".devflow/agents/registry.yaml"
-    registry_path.parent.mkdir(parents=True, exist_ok=True)
-    registry_path.write_text(
-        """version: 1
-default_agent: qwen-agent
-agents:
-  qwen-agent:
-    provider: shell
-    model: qwen-coder
-    adapter: shell
-    role: local_senior_worker
-    tier: local
-    default_mode: workspace_write
-    workspace: isolated_task_workspace
-    can_see:
-      - task_packet
-      - assigned_workspace
-    can_touch:
-      - "<workspace>/**"
-    cannot_touch:
-      - "<main_checkout>/**"
-    can_run_shell: true
-    can_use_network: false
-    can_promote: false
-    enabled: true
-""",
-        encoding="utf-8",
-    )
-
     from devflow.control_room.service import run_shell_task
     task_res = run_shell_task(
         tmp_path,
         task.id,
-        ["echo", "aligned"],
-        worker_adapter="qwen-agent"
+        ["/bin/sh", "-c", "printf aligned > shell-alias.txt"],
+        worker_adapter="devflow-shell-worker"
     )
 
     assert task_res.status == "complete"
-    assert task_res.worker == "qwen-agent"
+    assert task_res.worker == "devflow-shell-worker"
+    assert (tmp_path / ".devflow/workspaces" / task.id / "shell-alias.txt").read_text(encoding="utf-8") == "aligned"
+    assert not (tmp_path / "shell-alias.txt").exists()
 
-    agent_dir = tmp_path / ".devflow/tasks" / task.id / "agents" / "qwen-agent"
+    agent_dir = tmp_path / ".devflow/tasks" / task.id / "agents" / "devflow-shell-worker"
     assert agent_dir.exists()
     assert (agent_dir / "logs" / "worker.log").exists()
     assert (agent_dir / "result.md").exists()
@@ -598,6 +579,8 @@ agents:
     assert packet_json["task_id"] == task.id
     assert packet_json["task"] != {}
     assert packet_json["workspace_path"] != "[REDACTED]"
+    assert packet_json["runtime_contract"]["execution_surface"] == "task_run"
+    assert packet_json["runtime_contract"]["task_run_allowed"] is True
 
 
 def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
@@ -609,6 +592,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
     
     expected_agents = [
         "devflow-manual-codex-worker",
+        "devflow-shell-worker",
         "qwopus-implementer",
         "devflow-ollama-worker",
         "devflow-openai-worker",
@@ -623,7 +607,9 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
     for agent_id in expected_agents:
         assert agent_id in registry.agents
         agent = registry.require_agent(agent_id)
-        assert agent.enabled is (agent_id in {"devflow-manual-codex-worker", "qwopus-implementer", *STARTER_LOCAL_PROFILES})
+        assert agent.enabled is (
+            agent_id in {"devflow-manual-codex-worker", "devflow-shell-worker", "qwopus-implementer", *STARTER_LOCAL_PROFILES}
+        )
         assert agent.workspace == "isolated_task_workspace"
         
         # Verify specific fields
@@ -631,6 +617,15 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.tier == "manual"
             assert agent.can_use_network is False
             assert agent.role == "implementation_worker"
+        elif agent_id == "devflow-shell-worker":
+            assert agent.tier == "local"
+            assert agent.provider == "shell"
+            assert agent.adapter == "shell"
+            assert agent.adapter_maturity == "stable_runtime"
+            assert agent.can_run_shell is True
+            assert agent.can_use_network is False
+            assert "<workspace>/**" in agent.allowed_writes
+            assert "<task>/agents/devflow-shell-worker/logs/**" in agent.allowed_writes
         elif agent_id == "qwopus-implementer":
             assert agent.tier == "strong_local"
             assert agent.execution_mode == "automated"

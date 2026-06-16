@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from devflow.control_room.agent_registry import load_agent_registry
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.git_worktree import (
     cleanup_task_git_resources,
@@ -27,6 +28,7 @@ from devflow.control_room.idea_execution_bridge import create_goal_from_idea
 from devflow.control_room.idea_foundry import capture_idea, classify_idea, promote_idea
 from devflow.control_room.intent_scaffold import preview_scaffold_from_idea, write_scaffold_from_idea
 from devflow.control_room.local_agent_discovery import LocalDiscoveryReport, parse_ollama_list
+from devflow.control_room.local_model_worker_pool import agent_json_payload, registry_json_payload
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.model_audition import execute_model_audition, write_model_audition_dry_run_plan
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
@@ -58,7 +60,7 @@ from devflow.control_room.service import (
 from devflow.control_room.scheduler_projection import build_scheduler_snapshot, request_scheduler_retry
 from devflow.control_room.supervisor_surface import build_control_room_status, build_supervisor_packet
 from devflow.control_room.task_closure import close_task
-from devflow.control_room.task_packet import TaskPacketLimits, build_task_packet
+from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packet, build_task_packet
 from devflow.control_room.worker_evidence import write_worker_evidence
 from devflow.control_room.worker_outcome import validate_worker_outcome, validate_worker_outcome_file
 
@@ -69,11 +71,11 @@ DEFAULT_DOGFOOD_RUN_RETENTION = 1
 SILVER_THRESHOLD = 82
 
 CATEGORY_MAX: dict[str, int] = {
-    "A_safety_git_discipline": 24,
-    "B_pipeline_correctness": 35,
+    "A_safety_git_discipline": 26,
+    "B_pipeline_correctness": 38,
     "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 33,
-    "E_recovery_failure_handling": 32,
+    "D_worker_artifact_quality": 36,
+    "E_recovery_failure_handling": 34,
     "F_knowledge_capture": 10,
     "G_performance_lightweight": 5,
     "H_operating_layer_visual_qa": 10,
@@ -263,6 +265,48 @@ def production_readiness_cases() -> list[dict[str, Any]]:
                 "B_pipeline_correctness": 2,
                 "D_worker_artifact_quality": 3,
                 "E_recovery_failure_handling": 3,
+            },
+        ),
+        _case_definition(
+            case_id="registry-runtime-contract",
+            title="Registry runtime contract",
+            category="D_worker_artifact_quality",
+            task_type="registry_runtime_contract",
+            risk_level="medium",
+            purpose=(
+                "Prove agent registry list/show/packet surfaces expose runnable, evidence-only, "
+                "packet-only/read-only, and provider-refusal contracts without provider calls."
+            ),
+            expected_behavior=[
+                "create a scratch repo and initialize Dev-Flow",
+                "create a task and inspect agent list/show JSON runtime contracts",
+                "build shell and manual packets with evidence boundaries",
+                "run the devflow-shell-worker registry alias only inside the isolated workspace",
+                "attempt and refuse an enabled remote/provider-backed agent before any provider call",
+                "write registry-runtime-contract-summary.json evidence",
+            ],
+            command_sequence=[
+                "devflow init (scratch repo)",
+                "devflow task create 'Dogfood registry runtime contract'",
+                "devflow agent list --json",
+                "devflow agent show devflow-shell-worker --json",
+                "devflow agent packet <task-id> devflow-shell-worker",
+                "devflow agent packet <task-id> devflow-manual-codex-worker",
+                "devflow task run <task-id> --worker devflow-shell-worker -- /bin/sh -c 'printf ...'",
+                "devflow task run <task-id> --worker remote-provider-worker (refused)",
+            ],
+            success_criteria=[
+                "runtime_contract JSON has execution surface, run allowances, packet allowance, refusal, next command, and evidence contract",
+                "shell alias writes agent-local packet/log/result evidence and mutates only the workspace",
+                "manual packet keeps handoff, result, question, and failure contracts",
+                "remote/provider-backed run refuses with experimental_readonly or equivalent runtime refusal",
+                "no provider APIs, routing, verification, promotion, commit, push, database, RAG, embeddings, or hidden memory are used",
+            ],
+            scoring={
+                "A_safety_git_discipline": 2,
+                "B_pipeline_correctness": 3,
+                "D_worker_artifact_quality": 3,
+                "E_recovery_failure_handling": 2,
             },
         ),
         _case_definition(
@@ -1393,6 +1437,195 @@ def _case_local_worker_lane(
         and len(operating_lanes) >= 2
         and not any(token in commands_text for token in forbidden_tokens),
         "no provider API calls or autonomous routing were introduced",
+    )
+    return _finalize_case(root, case, state, scores, failures)
+
+
+def _case_registry_runtime_contract(
+    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
+) -> dict[str, Any]:
+    state = _new_case_state(root, run_id, case, case_dir)
+    scratch = case_dir / "artifacts" / "registry-runtime-contract-repo"
+    scratch.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=scratch, check=True, capture_output=True, text=True, timeout=20)
+    init_control_room(scratch)
+    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_command(state, "devflow init (scratch registry-runtime-contract repo)", status="passed", output=relative_path(root, scratch))
+
+    registry_path = scratch / ".devflow/agents/registry.yaml"
+    atomic_write_text(
+        registry_path,
+        """version: 1
+agents:
+  remote-provider-worker:
+    provider: openai
+    model: gpt-5
+    adapter: openai_chat
+    role: frontier_planner_architect_reviewer
+    tier: frontier
+    default_mode: frontier_read_only
+    execution_mode: automated
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+    allowed_reads:
+      - "<task>/packet.json"
+    forbidden_writes:
+      - "<main_checkout>/**"
+      - "<workspace>/**"
+      - "<task>/task.yaml"
+      - "<task>/events.jsonl"
+      - "<task>/verification.json"
+      - "<task>/merge-readiness.json"
+      - ".git/**"
+    can_run_shell: false
+    can_use_network: true
+    can_promote: false
+    enabled: true
+""",
+    )
+    _record_command(state, "write enabled remote-provider-worker registry fixture", status="passed")
+
+    task = create_task(scratch, "Dogfood registry runtime contract")
+    _record_command(state, "devflow task create 'Dogfood registry runtime contract' (scratch)", status="passed", output=task.id)
+
+    list_payload = registry_json_payload(scratch)
+    shell_show = agent_json_payload(scratch, "devflow-shell-worker")
+    manual_show = agent_json_payload(scratch, "devflow-manual-codex-worker")
+    remote_show = agent_json_payload(scratch, "remote-provider-worker")
+    _record_command(state, "devflow agent list --json (scratch)", status="passed")
+    _record_command(state, "devflow agent show devflow-shell-worker --json (scratch)", status="passed")
+    _record_command(state, "devflow agent show remote-provider-worker --json (scratch)", status="passed")
+
+    registry = load_agent_registry(scratch)
+    shell_packet = build_agent_packet(task.id, registry.require_agent("devflow-shell-worker"), root=scratch).model_dump(mode="json")
+    manual_packet = build_agent_packet(task.id, registry.require_agent("devflow-manual-codex-worker"), root=scratch).model_dump(mode="json")
+    _record_command(state, f"devflow agent packet {task.id} devflow-shell-worker (scratch)", status="passed")
+    _record_command(state, f"devflow agent packet {task.id} devflow-manual-codex-worker (scratch)", status="passed")
+
+    shell_result = run_shell_task(
+        scratch,
+        task.id,
+        ["/bin/sh", "-c", "printf registry-runtime-contract > registry-runtime.txt"],
+        worker_adapter="devflow-shell-worker",
+        timeout_seconds=20,
+    )
+    _record_command(
+        state,
+        f"devflow task run {task.id} --worker devflow-shell-worker -- /bin/sh -c 'printf ...' (scratch)",
+        status=shell_result.status,
+    )
+
+    remote_refusal = ""
+    try:
+        run_shell_task(
+            scratch,
+            task.id,
+            ["/bin/sh", "-c", "printf should-not-run > provider-ran.txt"],
+            worker_adapter="remote-provider-worker",
+            timeout_seconds=20,
+        )
+    except ValueError as exc:
+        remote_refusal = str(exc)
+    _record_command(
+        state,
+        f"devflow task run {task.id} --worker remote-provider-worker (scratch)",
+        status="refused" if remote_refusal else "unexpected_success",
+        output=remote_refusal,
+    )
+
+    agent_dir = scratch / ".devflow/tasks" / task.id / "agents" / "devflow-shell-worker"
+    workspace_file = scratch / ".devflow/workspaces" / task.id / "registry-runtime.txt"
+    root_file = scratch / "registry-runtime.txt"
+    provider_ran_file = scratch / ".devflow/workspaces" / task.id / "provider-ran.txt"
+    shell_contract = shell_show["runtime_contract"]
+    manual_contract = manual_show["runtime_contract"]
+    remote_contract = remote_show["runtime_contract"]
+    list_shell = next(agent for agent in list_payload["agents"] if agent["id"] == "devflow-shell-worker")
+    manual_instructions = manual_packet.get("manual_instructions") or ""
+    manual_required = " ".join(manual_packet.get("required_outputs") or [])
+    summary = {
+        "scratch_repo": relative_path(root, scratch),
+        "task_id": task.id,
+        "list_shell_runtime_contract": list_shell["runtime_contract"],
+        "shell_runtime_contract": shell_contract,
+        "manual_runtime_contract": manual_contract,
+        "remote_runtime_contract": remote_contract,
+        "shell_packet_runtime_contract": shell_packet["runtime_contract"],
+        "manual_packet_runtime_contract": manual_packet["runtime_contract"],
+        "shell_agent_dir": relative_path(root, agent_dir),
+        "shell_agent_evidence": {
+            "packet_json": (agent_dir / "packet.json").exists(),
+            "worker_log": (agent_dir / "logs" / "worker.log").exists(),
+            "result_md": (agent_dir / "result.md").exists(),
+        },
+        "workspace_file_exists": workspace_file.exists(),
+        "root_file_exists": root_file.exists(),
+        "provider_ran_file_exists": provider_ran_file.exists(),
+        "manual_packet_contracts": {
+            "handoff": "handoff.md" in manual_instructions or "handoff.md" in " ".join(manual_packet.get("allowed_reads") or []),
+            "result": "result.md" in manual_required and "result.md" in manual_instructions,
+            "question": "questions.jsonl" in manual_required and "questions.jsonl" in manual_instructions,
+            "failure": "worker_failed.json" in manual_required and "worker_failed.json" in manual_instructions,
+        },
+        "remote_refusal": remote_refusal,
+        "provider_api_calls_attempted": False,
+        "autonomous_routing_used": False,
+        "auto_verification_used": False,
+        "auto_promotion_used": False,
+    }
+    summary_path = case_dir / "artifacts" / "registry-runtime-contract-summary.json"
+    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    state["artifacts_created"].append(relative_path(root, summary_path))
+
+    commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
+    forbidden_tokens = ("push-main", "promote", "verify", "route", "agent run")
+    runtime_fields = {"execution_surface", "task_run_allowed", "agent_run_allowed", "packet_allowed", "refusal_reason", "next_command", "evidence_contract"}
+    scores: dict[str, int] = {}
+    failures: list[str] = []
+    _award(
+        state,
+        scores,
+        failures,
+        "A_safety_git_discipline",
+        2,
+        workspace_file.exists() and not root_file.exists() and not provider_ran_file.exists(),
+        "shell alias mutated only the isolated workspace and provider run did not execute",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "B_pipeline_correctness",
+        3,
+        runtime_fields.issubset(shell_contract)
+        and shell_contract["task_run_allowed"] is True
+        and manual_contract["task_run_allowed"] is True
+        and remote_contract["task_run_allowed"] is False
+        and remote_contract["packet_allowed"] is True,
+        "list/show runtime contracts exposed run and packet eligibility",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "D_worker_artifact_quality",
+        3,
+        all(summary["shell_agent_evidence"].values())
+        and shell_packet["runtime_contract"]["execution_surface"] == "task_run"
+        and all(summary["manual_packet_contracts"].values()),
+        "shell and manual packets exposed evidence contracts",
+    )
+    _award(
+        state,
+        scores,
+        failures,
+        "E_recovery_failure_handling",
+        2,
+        "experimental_readonly" in remote_refusal
+        and not summary["provider_api_calls_attempted"]
+        and not any(token in commands_text for token in forbidden_tokens),
+        "remote/provider-backed agent refused before provider execution",
     )
     return _finalize_case(root, case, state, scores, failures)
 
@@ -2704,6 +2937,7 @@ _RUNNERS: dict[str, CaseRunner] = {
     "unsafe-worker-outcome": _case_unsafe_worker_outcome,
     "git-native-worker-lane-hardening": _case_git_native_worker_lane,
     "local-worker-lane-hardening": _case_local_worker_lane,
+    "registry-runtime-contract": _case_registry_runtime_contract,
     "success-empty-worker-outcome": _case_success_empty,
     "model-audition-evidence": _case_model_audition_evidence,
     "plan-only-unsafe-git-state": _case_plan_only_unsafe_git,
