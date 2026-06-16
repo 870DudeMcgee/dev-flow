@@ -61,8 +61,6 @@ UNSUPPORTED_APPLY_METADATA_PREFIXES = (
     "Binary files ",
     "old mode ",
     "new mode ",
-    "deleted file mode ",
-    "new file mode ",
     "rename from ",
     "rename to ",
     "similarity index ",

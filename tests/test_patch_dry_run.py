@@ -108,6 +108,18 @@ def _append_beyond_eof_patch(path: str) -> str:
 """
 
 
+def _mode_change_patch(path: str) -> str:
+    return f"""diff --git a/{path} b/{path}
+old mode 100644
+new mode 100755
+--- a/{path}
++++ b/{path}
+@@ -1 +1 @@
+-old
++new
+"""
+
+
 def _delete_patch(path: str) -> str:
     return f"""diff --git a/{path} b/{path}
 --- a/{path}
@@ -281,6 +293,19 @@ def test_append_hunk_beyond_eof_is_rejected(tmp_path: Path, monkeypatch: pytest.
     assert data["dry_run_status"] == "hunk_mismatch"
     assert data["hunks_failed"] == 1
     assert data["hunk_results"][0]["old_start"] == 200
+
+
+def test_unsupported_apply_metadata_is_invalid_patch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _create_task(tmp_path, monkeypatch)
+    _write_workspace_file(tmp_path, "docs/existing.md", "old\n")
+    _write_run(tmp_path, patch=_mode_change_patch("docs/existing.md"))
+
+    result = runner.invoke(app, ["task", "patch-dry-run", "task-0001", "--run-id", "run-1"])
+
+    assert result.exit_code == 0, result.output
+    data = _dry_run_json(tmp_path)
+    assert data["dry_run_status"] == "invalid_patch"
+    assert "Unsupported metadata: old mode" in data["warnings"][0]
 
 
 def test_deletion_patch_preview_does_not_delete_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

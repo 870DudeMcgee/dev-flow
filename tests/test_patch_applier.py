@@ -43,12 +43,28 @@ def test_parse_valid_diff_with_ignored_metadata():
 def test_parse_rejected_metadata_raises():
     diff_with_mode = (
         "diff --git a/hello.txt b/hello.txt\n"
-        "new file mode 100644\n"
-        "--- /dev/null\n"
+        "old mode 100644\n"
+        "new mode 100755\n"
+        "--- a/hello.txt\n"
         "+++ b/hello.txt\n"
     )
-    with pytest.raises(PatchParseError, match="Unsupported metadata: new file mode"):
+    with pytest.raises(PatchParseError, match="Unsupported metadata: old mode"):
         parse_unified_diff(diff_with_mode)
+
+
+def test_parse_allows_new_file_mode_metadata():
+    diff = (
+        "diff --git a/docs/new.md b/docs/new.md\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/docs/new.md\n"
+        "@@ -0,0 +1 @@\n"
+        "+content\n"
+    )
+    files = parse_unified_diff(diff)
+    assert files[0].is_new_file is True
+    assert files[0].target_file == "docs/new.md"
+
 
 def test_apply_modify_exact_match(tmp_path: Path):
     target = tmp_path / "hello.txt"

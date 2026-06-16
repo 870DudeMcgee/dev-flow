@@ -214,7 +214,7 @@ def preview_patch_dry_run(
 
 def parse_unified_diff(patch_text: str) -> list[PatchFile]:
     try:
-        return parse_patch_proposal(patch_text).files
+        return parse_patch_proposal(patch_text, reject_unsupported_apply_metadata=True).files
     except PatchProposalParseError as exc:
         raise ValueError(str(exc)) from exc
 
