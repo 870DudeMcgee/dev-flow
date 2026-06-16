@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -256,3 +257,68 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
         ["task", "review-patch", "task-0001", "--agent", "deepseek-v4-pro-patch-proposer"],
     )
     assert review_result.exit_code == 0, review_result.output
+
+
+def test_agent_propose_patch_prompt_includes_referenced_worker_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    (docs_dir / "example.md").write_text("# Operator Notes\n\nOriginal operator docs.\n", encoding="utf-8")
+    subprocess.run(["git", "add", "docs/example.md"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "add docs example"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
+    assert runner.invoke(app, ["task", "create", "patch docs/example.md documentation"]).exit_code == 0
+
+    captured_prompts: list[str] = []
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        body = json.loads(req.data.decode("utf-8"))
+        captured_prompts.append(body["messages"][1]["content"])
+        return MockResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "status": "ready",
+                                    "diff": """diff --git a/docs/example.md b/docs/example.md
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -3 +3 @@
+-Original operator docs.
++Updated operator docs.
+""",
+                                    "summary": "Proposed a focused docs patch.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "propose-patch",
+            "--task",
+            "task-0001",
+            "--profile",
+            "deepseek-v4-pro-patch-proposer",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured_prompts
+    assert "## Bounded Worker Context Sources" in captured_prompts[0]
+    assert "docs/example.md" in captured_prompts[0]
+    assert "Original operator docs." in captured_prompts[0]

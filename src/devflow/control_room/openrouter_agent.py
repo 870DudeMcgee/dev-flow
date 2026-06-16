@@ -358,6 +358,7 @@ def _build_advisory_prompt(
 
 def _build_patch_prompt(root: Path, profile: AgentDefinition, *, task_id: str, max_chars: int) -> tuple[str, bool]:
     packet = build_agent_packet(task_id, profile, root=root).model_dump(mode="json")
+    context = _build_patch_context_excerpt(root, task_id)
     prompt = (
         "# Dev-Flow Explicit Patch Proposal Request\n\n"
         f"- Profile: {profile.id}\n"
@@ -367,10 +368,61 @@ def _build_patch_prompt(root: Path, profile: AgentDefinition, *, task_id: str, m
         "- Return a unified diff as proposal evidence only.\n"
         "- Do not claim the patch was applied, verified, promoted, committed, or pushed.\n"
         "- Dev-Flow review-patch, patch-dry-run, apply-patch, verification, and promotion gates remain required.\n\n"
+        "## Bounded Worker Context Sources\n"
+        f"{json.dumps(context, indent=2, sort_keys=True)}\n\n"
         "## Bounded Task Packet\n"
         f"{json.dumps(packet, indent=2, sort_keys=True)}\n"
     )
     return _cap_prompt(prompt, max_chars)
+
+
+def _build_patch_context_excerpt(root: Path, task_id: str) -> dict[str, Any]:
+    try:
+        from devflow.control_room.context_pack import build_context_pack
+
+        pack_data = build_context_pack(root, task_id, "worker", persist_task_fit=False)
+    except Exception as exc:
+        return {"status": "unavailable", "error": str(exc), "included_sources": []}
+
+    context_pack = pack_data.get("context_pack", {}) if isinstance(pack_data, dict) else {}
+    sources_metadata = context_pack.get("sources_metadata") if isinstance(context_pack, dict) else []
+    included_sources: list[dict[str, Any]] = []
+    total_chars = 0
+    max_total_chars = 16_000
+    max_source_chars = 6_000
+
+    if isinstance(sources_metadata, list):
+        for source in sources_metadata:
+            if not isinstance(source, dict) or source.get("mode") != "full":
+                continue
+            content = source.get("content")
+            if not isinstance(content, str) or not content:
+                continue
+            remaining = max_total_chars - total_chars
+            if remaining <= 0:
+                break
+            included = content[: min(max_source_chars, remaining)]
+            total_chars += len(included)
+            included_sources.append(
+                {
+                    "path": source.get("path"),
+                    "authority": source.get("authority"),
+                    "reason_included": source.get("reason_included"),
+                    "content": included,
+                    "truncated": len(included) < len(content),
+                    "original_chars": len(content),
+                    "included_chars": len(included),
+                }
+            )
+
+    return {
+        "status": "ready",
+        "context_layer": context_pack.get("context_layer") if isinstance(context_pack, dict) else None,
+        "estimated_tokens": context_pack.get("estimated_tokens") if isinstance(context_pack, dict) else None,
+        "included_sources": included_sources,
+        "included_source_count": len(included_sources),
+        "included_chars": total_chars,
+    }
 
 
 def _advisory_system_prompt(profile: AgentDefinition, job: str) -> str:
