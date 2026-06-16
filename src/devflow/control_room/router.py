@@ -313,6 +313,8 @@ def _worker_rejection_reason(
         return _runtime_block_reason(runtime, provider)
     if runtime.adapter_maturity in {"experimental_readonly", "planned_not_executable"}:
         return _runtime_block_reason(runtime, provider)
+    if agent.provider == "shell":
+        return "shell worker requires an explicit operator command; evidence-only routing cannot synthesize shell commands"
 
     if agent.default_mode in _READ_ONLY_MODES or agent.default_mode not in _IMPLEMENTATION_MODES:
         return f"read-only profile cannot serve as implementation worker (default_mode={agent.default_mode})"

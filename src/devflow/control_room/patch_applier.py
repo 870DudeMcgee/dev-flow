@@ -242,7 +242,7 @@ def _resolve_hunk_start(
         return matches[0]
     if not matches:
         raise PatchApplicationError(
-            f"File {rel_target_path} Hunk #{hunk_number} mismatch: original context did not match"
+            _hunk_context_mismatch_message(file_lines, original, hint_start, rel_target_path, hunk_number)
         )
     raise PatchApplicationError(
         f"File {rel_target_path} Hunk #{hunk_number} mismatch: original context matched multiple locations"
@@ -253,3 +253,25 @@ def _original_matches_at(file_lines: list[str], original: list[str], start: int)
     if start < 0 or start + len(original) > len(file_lines):
         return False
     return [line.rstrip("\r\n") for line in file_lines[start : start + len(original)]] == original
+
+
+def _hunk_context_mismatch_message(
+    file_lines: list[str],
+    original: list[str],
+    hint_start: int,
+    rel_target_path: str,
+    hunk_number: int,
+) -> str:
+    expected = original[0].strip() if original else ""
+    if not file_lines:
+        line_number = 1
+        found = "EOF"
+    else:
+        line_index = min(max(hint_start, 0), len(file_lines) - 1)
+        line_number = line_index + 1
+        found = file_lines[line_index].strip()
+    return (
+        f"File {rel_target_path} Hunk #{hunk_number} mismatch: original context did not match at line {line_number}:\n"
+        f"  Expected: '{expected}'\n"
+        f"  Found:    '{found}'"
+    )

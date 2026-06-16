@@ -298,6 +298,22 @@ def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
     )
 
 
+def test_router_does_not_auto_select_builtin_shell_worker_without_command(tmp_path: Path) -> None:
+    (tmp_path / ".devflow/tasks").mkdir(parents=True)
+    (tmp_path / ".devflow/workspaces").mkdir(parents=True)
+    task = create_task(tmp_path, "Implement a small worker feature")
+
+    routing_res = route_task(tmp_path, task.id)
+    rd = routing_res["routing_decision"]
+
+    assert "worker" not in rd["selected"]
+    assert "worker" not in rd["recommended_next_commands"]
+    assert any(
+        item["agent"] == "devflow-shell-worker" and "explicit operator command" in item["reason"]
+        for item in rd["rejected"]
+    )
+
+
 def test_router_requires_explicit_local_selection_for_local_model_worker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
