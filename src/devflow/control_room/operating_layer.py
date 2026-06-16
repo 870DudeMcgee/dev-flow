@@ -425,11 +425,11 @@ class OperatingLayerSnapshot(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLayerSnapshot:
+def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id: str | None = None) -> OperatingLayerSnapshot:
     root = (repo_root or Path.cwd()).resolve()
     dashboard = collect_dashboard_state(root)
     warnings: list[str] = []
-    project_id = _project_id(root, warnings)
+    project_id = project_id or _project_id(root, warnings)
     freshness = _try_freshness(root, warnings)
     scheduler = _try_scheduler(root, warnings)
     question_snapshot = build_question_snapshot(root)
@@ -510,8 +510,8 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
     )
 
 
-def render_operating_layer_snapshot_json(repo_root: Path | None = None) -> str:
-    snapshot = build_operating_layer_snapshot(repo_root)
+def render_operating_layer_snapshot_json(repo_root: Path | None = None, *, project_id: str | None = None) -> str:
+    snapshot = build_operating_layer_snapshot(repo_root, project_id=project_id)
     return json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
 
 

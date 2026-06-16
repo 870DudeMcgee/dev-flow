@@ -35,7 +35,7 @@ INDEX_HTML = """<!doctype html>
     </aside>
 
     <!-- Main content landmark -->
-    <main id="main-panel" role="main" aria-label="Main content">
+    <main id="main-panel" role="main" aria-label="Main content" tabindex="-1">
       <!-- Command Center / topbar -->
       <header id="command" class="topbar" data-section="command" aria-labelledby="repo-title">
         <div class="topbar-left">

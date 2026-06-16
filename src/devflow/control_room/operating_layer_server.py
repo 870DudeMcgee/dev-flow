@@ -64,7 +64,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
                 return
             self._send_text(
-                render_operating_layer_snapshot_json(root),
+                render_operating_layer_snapshot_json(root, project_id=project_id),
                 "application/json; charset=utf-8",
             )
             return

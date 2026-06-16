@@ -1191,13 +1191,26 @@ function renderModelCatalog() {
   const actions = catalog.actions || [];
   count.textContent = `${profiles.length} ${profiles.length === 1 ? "profile" : "profiles"}`;
   list.innerHTML = "";
-  const rows = profiles.slice(0, 8);
+  const evidenceProfileIds = new Set(
+    (snapshot.tasks || [])
+      .flatMap((task) => task.local_worker_lane ? [task.local_worker_lane.profile_id, task.local_worker_lane.worker_id] : [])
+      .filter(Boolean)
+  );
+  const rows = [...profiles].sort((left, right) => {
+    const leftEvidence = evidenceProfileIds.has(left.id) ? 0 : 1;
+    const rightEvidence = evidenceProfileIds.has(right.id) ? 0 : 1;
+    if (leftEvidence !== rightEvidence) return leftEvidence - rightEvidence;
+    const leftLocal = left.provider === "ollama" ? 0 : 1;
+    const rightLocal = right.provider === "ollama" ? 0 : 1;
+    if (leftLocal !== rightLocal) return leftLocal - rightLocal;
+    return String(left.id).localeCompare(String(right.id));
+  }).slice(0, 8);
   if (!rows.length) {
     list.innerHTML = `<div class="empty">No model profiles registered</div>`;
   } else {
     rows.forEach((profile) => {
       const contract = profile.runtime_contract || {};
-      const command = contract.next_command || `devflow agent show ${profile.id} --json`;
+      const command = commandForSelectedTask(contract.next_command || `devflow agent show ${profile.id} --json`);
       const modelRuntime = ["agent_run", "agent_advise", "agent_propose_patch", "task_run"].includes(contract.execution_surface);
       const action = {
         label: contract.execution_surface === "agent_propose_patch" ? "Use patch proposal" : "Use model",
@@ -1782,6 +1795,7 @@ function renderTaskDetail(task) {
   const detail = task.detail;
   [
     ["Verification", verificationLabel(detail.verification)],
+    ["Local worker", task.local_worker_lane ? (task.local_worker_lane.profile_id || task.local_worker_lane.worker_id) : "None"],
     ["Worker log", detail.latest_worker_line || "None"],
     ["Verify log", detail.latest_verification_line || "None"],
     ["Result", detail.result_preview || "None"],
@@ -1935,6 +1949,11 @@ function renderActions() {
 function renderActionsWithOverride(action) {
   transientAction = action;
   render();
+}
+
+function commandForSelectedTask(command) {
+  if (!command || !selectedTaskId) return command;
+  return String(command).replace(/<task-id>/g, selectedTaskId);
 }
 
 function renderActionPreview(action) {
