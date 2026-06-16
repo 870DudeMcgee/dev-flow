@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -23,7 +24,7 @@ from tests.helpers import init_test_git_repo
 pytestmark = pytest.mark.ui_browser
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+PYTHON = Path(sys.executable)
 APPROVAL_PHRASE = "I approve this exact Dev-Flow command"
 
 

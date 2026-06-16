@@ -286,7 +286,8 @@ def test_registry_runtime_contract_dogfood_case_proves_runtime_surfaces(tmp_path
     assert all(summary["manual_packet_contracts"].values())
     assert summary["remote_runtime_contract"]["task_run_allowed"] is False
     assert summary["remote_runtime_contract"]["packet_allowed"] is True
-    assert "experimental_readonly" in summary["remote_refusal"]
+    assert summary["remote_refusal"] == summary["remote_runtime_contract"]["refusal_reason"]
+    assert "task worker execution is not allowed" in summary["remote_refusal"]
     assert summary["provider_api_calls_attempted"] is False
 
 

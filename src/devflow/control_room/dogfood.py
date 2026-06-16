@@ -1581,6 +1581,12 @@ agents:
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("push-main", "promote", "verify", "route", "agent run")
     runtime_fields = {"execution_surface", "task_run_allowed", "agent_run_allowed", "packet_allowed", "refusal_reason", "next_command", "evidence_contract"}
+    remote_refusal_matches_contract = (
+        bool(remote_refusal)
+        and remote_refusal == remote_contract["refusal_reason"]
+        and remote_contract["task_run_allowed"] is False
+        and remote_contract["execution_surface"] in {"agent_advise", "agent_propose_patch"}
+    )
     scores: dict[str, int] = {}
     failures: list[str] = []
     _award(
@@ -1622,7 +1628,7 @@ agents:
         failures,
         "E_recovery_failure_handling",
         2,
-        "experimental_readonly" in remote_refusal
+        remote_refusal_matches_contract
         and not summary["provider_api_calls_attempted"]
         and not any(token in commands_text for token in forbidden_tokens),
         "remote/provider-backed agent refused before provider execution",
