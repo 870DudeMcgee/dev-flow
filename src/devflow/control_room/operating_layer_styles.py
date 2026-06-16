@@ -42,7 +42,7 @@ APP_CSS = """:root {
   background: #ffffff;
   color: #172026;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: auto;
   transform: translateY(-150%);
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
@@ -2866,8 +2866,8 @@ h2 {
 
 .topbar-left {
   flex: 1 1 auto;
-  align-content: space-between;
-  gap: 20px;
+  align-content: start;
+  gap: 12px;
 }
 
 .topbar-left .label {
@@ -2875,7 +2875,7 @@ h2 {
 }
 
 .topbar-right {
-  flex: 0 0 292px;
+  flex: 0 0 280px;
   align-content: start;
   align-items: stretch;
   justify-content: flex-end;
@@ -2884,16 +2884,16 @@ h2 {
 
 .metrics-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(94px, 126px)) minmax(280px, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(74px, 104px)) minmax(240px, 1fr);
+  gap: 8px;
   color: var(--muted);
 }
 
 .metrics-row > span {
   display: grid;
-  min-height: 70px;
+  min-height: 54px;
   align-content: center;
-  padding: 11px 12px;
+  padding: 9px 10px;
   border: 1px solid rgba(168, 156, 222, 0.17);
   border-top-color: rgba(102, 240, 209, 0.72);
   border-radius: 8px;
@@ -2913,9 +2913,9 @@ h2 {
 
 .metrics-row strong {
   display: block;
-  margin: 5px 0 0;
+  margin: 3px 0 0;
   color: #ffffff;
-  font-size: 24px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -2927,8 +2927,8 @@ h2 {
 
 .metrics-row code {
   max-width: 100%;
-  margin-top: 5px;
-  padding: 5px 8px;
+  margin-top: 3px;
+  padding: 4px 7px;
   color: var(--teal);
   background: rgba(5, 8, 14, 0.58);
   border: 1px solid rgba(102, 240, 209, 0.14);
@@ -4270,8 +4270,8 @@ nav a:focus-visible {
   50% { transform: translateX(30%) scaleX(0.72); opacity: 0.9; }
 }
 
-#command { order: 1; }
-#guided { order: 2; }
+#guided { order: 1; }
+#command { order: 2; }
 #orchestrator { order: 3; }
 #map { order: 4; }
 #lanes { order: 5; }
@@ -4288,13 +4288,14 @@ nav a:focus-visible {
 
 .guided-control-room {
   display: grid;
-  grid-template-columns: minmax(280px, 1.15fr) minmax(260px, 0.85fr);
+  grid-template-columns: minmax(320px, 1.12fr) minmax(300px, 0.88fr);
   gap: 12px;
+  align-items: start;
   min-width: 0;
 }
 
 .idea-intake-panel {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .guided-panel {
@@ -4309,6 +4310,15 @@ nav a:focus-visible {
 .active-work-panel,
 .review-queue-panel {
   min-height: 280px;
+}
+
+.active-work-panel {
+  grid-column: 1 / -1;
+}
+
+.review-queue-panel {
+  grid-column: 1 / -1;
+  min-height: 0;
 }
 
 .next-step-panel h2 {
@@ -4491,12 +4501,23 @@ nav a:focus-visible {
   margin: 2px 0 0;
   font-size: 15px;
   line-height: 1.2;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .guided-task-top strong {
   flex: 0 0 auto;
   color: var(--teal);
   font-size: var(--type-caption);
+}
+
+.guided-task-card p {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .guided-task-actions {
@@ -4621,16 +4642,18 @@ nav a:focus-visible {
   }
 
   h1 {
-    font-size: 34px;
+    font-size: 26px;
+    line-height: 1.05;
   }
 
   .topbar h1 {
-    font-size: 34px;
+    font-size: 26px;
+    line-height: 1.05;
   }
 
   .topbar {
     min-height: 0;
-    padding: 22px;
+    padding: 14px;
   }
 
   .topbar-right {
@@ -4765,11 +4788,11 @@ nav a:focus-visible {
   }
 
   h1 {
-    font-size: 30px;
+    font-size: 24px;
   }
 
   .topbar h1 {
-    font-size: 30px;
+    font-size: 24px;
   }
 
   .metrics-row,

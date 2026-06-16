@@ -195,6 +195,28 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     assert console_errors == []
 
 
+def test_home_prioritizes_idea_capture_without_closed_history_noise(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    desktop = _home_layout_metrics(page)
+    assert desktop["scroll_y"] == 0
+    assert desktop["idea_top"] < 220
+    assert desktop["next_top"] < desktop["viewport_height"]
+    assert desktop["active_height"] <= desktop["viewport_height"] * 1.35
+    assert desktop["closed_guided_cards"] == 0
+
+    page.set_viewport_size({"width": 390, "height": 900})
+    mobile = _home_layout_metrics(page)
+    assert mobile["scroll_y"] == 0
+    assert mobile["idea_top"] < 220
+    assert mobile["next_top"] < mobile["viewport_height"]
+    assert mobile["active_height"] <= mobile["viewport_height"] * 1.35
+    assert mobile["closed_guided_cards"] == 0
+    assert _no_horizontal_overflow(page)
+
+
 def test_navigation_hash_history_and_mobile_viewport(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
 
@@ -520,6 +542,30 @@ def _no_horizontal_overflow(page: Page) -> bool:
             """() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
               && document.body.scrollWidth <= document.body.clientWidth + 1"""
         )
+    )
+
+
+def _home_layout_metrics(page: Page) -> dict[str, int]:
+    return page.evaluate(
+        """() => {
+          const rect = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return { top: 99999, height: 0 };
+            const box = element.getBoundingClientRect();
+            return { top: Math.round(box.top), height: Math.round(box.height) };
+          };
+          const idea = rect(".idea-intake-panel");
+          const next = rect(".next-step-panel");
+          const active = rect(".active-work-panel");
+          return {
+            scroll_y: Math.round(window.scrollY),
+            viewport_height: Math.round(window.innerHeight),
+            idea_top: idea.top,
+            next_top: next.top,
+            active_height: active.height,
+            closed_guided_cards: document.querySelectorAll("#active-work-groups .guided-task-card.closed").length,
+          };
+        }"""
     )
 
 

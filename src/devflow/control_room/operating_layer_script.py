@@ -406,13 +406,20 @@ function renderActiveWorkGroups() {
     { key: "needs-verification", label: "Needs verification", lanes: ["needs_verification"] },
     { key: "ready-review", label: "Ready to review", lanes: ["ready_to_promote", "needs_review"] },
     { key: "blocked", label: "Blocked", lanes: ["blocked", "failed"] },
-    { key: "closed", label: "Closed", lanes: ["closed"] },
   ];
-  const visibleTasks = applyGlobalTaskFilter(snapshot.tasks || []);
-  const openCount = visibleTasks.filter((task) => task.lane !== "closed").length;
+  const visibleTasks = applyGlobalTaskFilter(snapshot.tasks || [])
+    .filter((task) => task.lane !== "closed");
+  const openCount = visibleTasks.length;
   byId("active-work-count").textContent = `${openCount} active`;
-  container.innerHTML = groups.map((group) => {
-    const tasks = visibleTasks.filter((task) => group.lanes.includes(task.lane)).slice(0, 6);
+  const groupsWithTasks = groups
+    .map((group) => ({ ...group, tasks: visibleTasks.filter((task) => group.lanes.includes(task.lane)).slice(0, 6) }))
+    .filter((group) => group.tasks.length);
+  if (!groupsWithTasks.length) {
+    container.innerHTML = '<div class="empty">No active work is waiting</div>';
+    return;
+  }
+  container.innerHTML = groupsWithTasks.map((group) => {
+    const tasks = group.tasks;
     return `
       <div class="guided-work-group ${group.key}" role="listitem">
         <div class="guided-group-heading">
@@ -420,7 +427,7 @@ function renderActiveWorkGroups() {
           <strong>${tasks.length}</strong>
         </div>
         <div class="guided-task-stack">
-          ${tasks.map((task) => guidedTaskCard(task)).join("") || '<div class="empty">None</div>'}
+          ${tasks.map((task) => guidedTaskCard(task)).join("")}
         </div>
       </div>
     `;
@@ -3213,7 +3220,6 @@ function setCurrentPage(page, { updateHash = false, scrollTop = true } = {}) {
   if (snapshot) render();
   if (scrollTop) {
     requestAnimationFrame(() => {
-      byId("main-panel")?.scrollIntoView({ block: "start" });
       window.scrollTo({ top: 0, behavior: "auto" });
     });
   }
@@ -3413,5 +3419,5 @@ const _ap = byId("all-projects-button"); _ap?.addEventListener("click", async ()
   await loadSnapshot(null);
 });
 currentPage = pageFromHash();
-loadSnapshot().then(() => setCurrentPage(currentPage, { updateHash: window.location.hash !== `#${currentPage}`, scrollTop: false })).catch(() => {});
+loadSnapshot().then(() => setCurrentPage(currentPage, { updateHash: window.location.hash !== `#${currentPage}`, scrollTop: true })).catch(() => {});
 """
