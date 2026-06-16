@@ -58,6 +58,7 @@ For each repair attempt, the loop executes exactly one task through these gates:
 - Kill switches allow immediate operator disable.
 - Secrets are never written to logs or evidence.
 - Each task flows through the full gate sequence; no gate is skipped.
+- Malformed patch hunks are rejected before apply so dry-run and apply gates stay aligned.
 
 ## Failed Probe Cleanup
 
