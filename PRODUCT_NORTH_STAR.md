@@ -382,7 +382,7 @@ The first production-worthy MVP is not a full AI swarm.
 
 The first MVP is a non-AI control room that proves the infrastructure works.
 
-The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration as the default path, enabled non-shell adapters, autonomous routing, and automatic merge or pull-request behavior.
+The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration as the default path, enabled non-shell adapters, autonomous provider routing, auto-push, publication, and pull-request behavior. The approved automation direction is a DevFlow-native local loop that may create ready tasks, run shell workers, run verification, run promotion preview, and promote verified safe local work only when both durable loop policy and the run command explicitly allow it.
 
 The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker evidence, verification, questions, and promotion readiness without reading huge logs, execute supervisor-classified read-only commands from Advanced Commands, and run the normal local loop through exact approval-gated task creation, shell worker execution, task verification, and task promotion. Broad mutating commands still stop at trusted CLI execution. This slice does not add a database, autonomous routing, provider-backed worker calls, hidden memory, or direct merge/push/PR automation.
 
@@ -427,7 +427,7 @@ Required capabilities:
 - refuse tampered workspace paths
 - skip symlinks during scratchpad copy
 - preview promotion from isolated workspace changes
-- promote verified changes only after explicit human approval
+- promote verified changes through either explicit human approval or a durable loop policy that also requires an `--allow-promote` run flag, passed verification, a clean promotion preview, no open questions/blockers, and no high-risk lane unless the loop policy explicitly allows it
 - for default MVP tasks, avoid SQLite databases and `.devflow/worktrees/`
 
 Required runtime shape:
@@ -462,6 +462,7 @@ Do not build these until the control room works:
 - direct Codex integration before registry/manual/shell alignment
 - multi-agent reasoning
 - PR automation
+- ungated promotion, auto-push, or publication
 - cloud deployment
 - fancy dashboard design
 - plugin marketplace

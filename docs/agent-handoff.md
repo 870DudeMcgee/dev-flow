@@ -34,7 +34,7 @@ Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, OpenRouter-backed DeepSeek advisory and explicit patch-proposal evidence, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, Milestone 19 Git-native worker lane hardening, Milestone 20 registry-backed local worker evidence hardening, Milestone 21 simple scheduler projection, Milestone 22 question/blocker resume visibility, Milestone 23 operating-layer state reconciliation/operator readiness, Milestone 24 intent-to-goal/task scaffold, Milestone 25 task/data-sprawl hardening, Milestone 26 Operational Baseline / Trust Pass closure, Milestone 27 registry/runtime contract visibility with the `devflow-shell-worker` alias, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, OpenRouter advisory reports, explicit remote patch proposal evidence that still passes existing patch gates, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, Git-native lane recovery visibility, registry-backed local worker evidence, explicit scheduler retry evidence, question answer/resolve evidence, shared operator-readiness count/lifecycle/stale-directive projections, reviewable intent scaffold evidence, scratch-proven daily shell-worker promotion, registry-visible runtime contracts, and human-controlled promotion.
+The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, OpenRouter-backed DeepSeek advisory and explicit patch-proposal evidence, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, Milestone 19 Git-native worker lane hardening, Milestone 20 registry-backed local worker evidence hardening, Milestone 21 simple scheduler projection, Milestone 22 question/blocker resume visibility, Milestone 23 operating-layer state reconciliation/operator readiness, Milestone 24 intent-to-goal/task scaffold, Milestone 25 task/data-sprawl hardening, Milestone 26 Operational Baseline / Trust Pass closure, Milestone 27 registry/runtime contract visibility with the `devflow-shell-worker` alias, the DevFlow loop engine for gated local automation, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, OpenRouter advisory reports, explicit remote patch proposal evidence that still passes existing patch gates, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, Git-native lane recovery visibility, registry-backed local worker evidence, explicit scheduler retry evidence, question answer/resolve evidence, shared operator-readiness count/lifecycle/stale-directive projections, reviewable intent scaffold evidence, scratch-proven daily shell-worker promotion, registry-visible runtime contracts, human-controlled promotion, and loop-policy-controlled local promotion when config, run flags, verification, preview, blocker, and risk gates pass.
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
@@ -66,6 +66,10 @@ Current product contract:
 - `devflow doctor`
 - `devflow reconcile`
 - `devflow freshness loop`
+- `devflow loop init <loop_id> --template goal-autopilot`
+- `devflow loop show <loop_id>`
+- `devflow loop list`
+- `devflow loop run <loop_id> --max-iterations 5 --allow-workers --allow-verify --allow-promote`
 - `devflow dashboard`
 - `devflow task --help`
 - `devflow task create "title"`
@@ -104,12 +108,14 @@ Current product contract:
 - strict doctor read-only diagnostics for stale locks, unsafe workspace paths, invalid JSON artifacts, missing logs, malformed manual-agent evidence, missing patch evidence, promoted-task consistency, and Git-native worker branch sharing across tasks
 - read-only reconciliation reporting for partial task/system event writes, task/system event divergence, interrupted promotion evidence, and inconsistent task artifacts
 - freshness loop snapshots under `.devflow/freshness/latest.json` that compare canonical goal/task state with linked task slices and handoffs, then stop for a human decision when repair is ambiguous
+- durable loop definitions under `.devflow/loops/<loop_id>/loop.yaml` and loop run evidence under `.devflow/loops/<loop_id>/runs/<run_id>.json`
 - copied scratchpad workspaces under `.devflow/workspaces/<task_id>/`
 - verification command execution inside task workspaces
 - POSIX process-group cleanup for shell and verification timeout paths
 - `verified` and `verification_failed` task statuses from verification
 - text-only terminal dashboard from canonical task artifacts
 - human-controlled promotion preview and promotion from isolated workspaces
+- gated loop promotion for verified local work only when durable config allows promotion, the run includes `--allow-promote`, promotion preview is clean, no open questions/blockers exist, and no high-risk lane is promoted unless policy explicitly allows it
 - no SQLite database; default copy-workspace tasks do not create `.devflow/worktrees/`
 - read-only `TaskPacket` builder in `src/devflow/control_room/task_packet.py`; it is a derived projection only and is consumed by the manual proof-agent handoff without becoming canonical state
 - registry-backed Agent Registry and Adapter Runtime guardrails, with provider-backed task-run execution still excluded from stable task runs
@@ -260,7 +266,7 @@ Milestone 26 Operational Baseline / Trust Pass is complete. It proved the daily 
 
 - [docs/handoffs/2026-06-16-milestone-26-operational-baseline-trust-pass.md](handoffs/2026-06-16-milestone-26-operational-baseline-trust-pass.md)
 
-The next safe product direction is to preserve the operational baseline and only start future runtime work through the registry sequence: architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, context pack building, and evidence-only provider lanes before any provider-backed task-run adapter. Do not jump straight to autonomous provider workers, autonomous routing, databases, auto-resume, auto-promotion, push/PR automation, or scheduler complexity.
+The next safe product direction is to automate as much routine DevFlow-native work as possible through the explicit loop engine while preserving hard stop gates. Future runtime work still follows the registry sequence: architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, context pack building, and evidence-only provider lanes before any provider-backed task-run adapter. Do not jump straight to autonomous provider workers, autonomous routing, databases, auto-resume, ungated auto-promotion, push/PR automation, or hidden scheduler complexity.
 
 ## Known Worktree State At Handoff
 
