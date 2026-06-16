@@ -40,6 +40,11 @@ SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{6,}")
 PATCH_REQUEST_TIMEOUT_SECONDS = 90
 PATCH_MAX_TOKENS = 2048
 PATCH_REASONING_EFFORT = "minimal"
+PATCH_PROMPT_MODE_ENV = "DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE"
+PATCH_PROMPT_MODES = {"standard", "minimal"}
+MINIMAL_PATCH_SNIPPET_MAX_FILES = 3
+MINIMAL_PATCH_SNIPPET_MAX_CHARS_PER_FILE = 2_500
+MINIMAL_PATCH_SNIPPET_MAX_CHARS_TOTAL = 4_500
 
 
 class OpenRouterAgentError(ValueError):
@@ -193,7 +198,15 @@ def run_patch_proposal(
     root = root.resolve()
     profile, provider = _load_patch_profile(root, profile_id)
     task = get_task(root, task_id)
-    prompt, truncated = _build_patch_prompt(root, profile, task_id=task.id, max_chars=max_prompt_chars)
+    prompt_mode = _patch_prompt_mode()
+    prompt, truncated = _build_patch_prompt(
+        root,
+        profile,
+        task=task,
+        prompt_mode=prompt_mode,
+        max_chars=max_prompt_chars,
+    )
+    prompt_chars = len(prompt)
     run_id = _new_run_id(profile.id)
     agent_dir = root / ".devflow" / "tasks" / task.id / "agents" / profile.id
     raw_output_path = agent_dir / "raw_output.md"
@@ -214,6 +227,8 @@ def run_patch_proposal(
             task_title=task.title,
             profile=profile,
             provider=provider,
+            prompt_mode=prompt_mode,
+            prompt_chars=prompt_chars,
             prompt_truncated=truncated,
             raw_output_path=None,
             proposal_path=None,
@@ -242,10 +257,7 @@ def run_patch_proposal(
                 api_key=api_key,
                 timeout_seconds=_env_int("DEVFLOW_OPENROUTER_PATCH_TIMEOUT_SECONDS", PATCH_REQUEST_TIMEOUT_SECONDS),
                 max_tokens=_env_int("DEVFLOW_OPENROUTER_PATCH_MAX_TOKENS", PATCH_MAX_TOKENS),
-                reasoning={
-                    "effort": os.environ.get("DEVFLOW_OPENROUTER_PATCH_REASONING_EFFORT", PATCH_REASONING_EFFORT),
-                    "exclude": True,
-                },
+                reasoning=_patch_reasoning(prompt_mode),
             )
             content = _cap_text(_assistant_content(response_body), max_response_chars)
             raw_outputs.append(content)
@@ -276,6 +288,8 @@ def run_patch_proposal(
             task_title=task.title,
             profile=profile,
             provider=provider,
+            prompt_mode=prompt_mode,
+            prompt_chars=prompt_chars,
             prompt_truncated=truncated,
             raw_output_path=raw_output_path,
             proposal_path=proposal_path,
@@ -298,6 +312,8 @@ def run_patch_proposal(
             task_title=task.title,
             profile=profile,
             provider=provider,
+            prompt_mode=prompt_mode,
+            prompt_chars=prompt_chars,
             prompt_truncated=truncated,
             raw_output_path=raw_output_path if raw_output_path.exists() else None,
             proposal_path=None,
@@ -391,14 +407,45 @@ def _build_advisory_prompt(
     return _cap_prompt("\n".join(lines) + "\n", max_chars)
 
 
-def _build_patch_prompt(root: Path, profile: AgentDefinition, *, task_id: str, max_chars: int) -> tuple[str, bool]:
-    packet = build_agent_packet(task_id, profile, root=root).model_dump(mode="json")
-    context = _build_patch_context_excerpt(root, task_id)
+def _patch_prompt_mode() -> str:
+    raw = os.environ.get(PATCH_PROMPT_MODE_ENV, "standard").strip().lower() or "standard"
+    if raw not in PATCH_PROMPT_MODES:
+        allowed = ", ".join(sorted(PATCH_PROMPT_MODES))
+        raise OpenRouterAgentError(f"Invalid {PATCH_PROMPT_MODE_ENV}={raw!r}. Allowed values: {allowed}.")
+    return raw
+
+
+def _patch_reasoning(prompt_mode: str) -> dict[str, Any]:
+    if prompt_mode == "minimal":
+        # DeepSeek Flash can otherwise spend the whole small patch budget on hidden reasoning
+        # and return content=null even though OpenRouter succeeded.
+        return {"enabled": False, "exclude": True}
+    return {
+        "effort": os.environ.get("DEVFLOW_OPENROUTER_PATCH_REASONING_EFFORT", PATCH_REASONING_EFFORT),
+        "exclude": True,
+    }
+
+
+def _build_patch_prompt(
+    root: Path,
+    profile: AgentDefinition,
+    *,
+    task: TaskRecord,
+    prompt_mode: str,
+    max_chars: int,
+) -> tuple[str, bool]:
+    if prompt_mode == "minimal":
+        return _build_minimal_patch_prompt(root, profile, task=task, max_chars=max_chars)
+    if prompt_mode != "standard":
+        raise OpenRouterAgentError(f"Unsupported OpenRouter patch prompt mode: {prompt_mode}")
+
+    packet = build_agent_packet(task.id, profile, root=root).model_dump(mode="json")
+    context = _build_patch_context_excerpt(root, task.id)
     prompt = (
         "# Dev-Flow Explicit Patch Proposal Request\n\n"
         f"- Profile: {profile.id}\n"
         f"- Model: {profile.model}\n"
-        f"- Task ID: {task_id}\n\n"
+        f"- Task ID: {task.id}\n\n"
         "## Hard Safety Contract\n"
         "- Return a unified diff as proposal evidence only.\n"
         "- Do not claim the patch was applied, verified, promoted, committed, or pushed.\n"
@@ -409,6 +456,129 @@ def _build_patch_prompt(root: Path, profile: AgentDefinition, *, task_id: str, m
         f"{json.dumps(packet, indent=2, sort_keys=True)}\n"
     )
     return _cap_prompt(prompt, max_chars)
+
+
+def _build_minimal_patch_prompt(
+    root: Path,
+    profile: AgentDefinition,
+    *,
+    task: TaskRecord,
+    max_chars: int,
+) -> tuple[str, bool]:
+    from devflow.control_room.scout import RepoScout
+
+    scout = RepoScout(root)
+    description = scout.get_task_description(task.id)
+    referenced_files = scout.get_referenced_files(task.title, description)
+    snippets = _minimal_patch_snippets(root, task, referenced_files)
+    verification_instruction = _minimal_verification_instruction(task, description)
+
+    lines = [
+        "# Dev-Flow Minimal Patch Proposal Request",
+        "",
+        f"- Profile: {profile.id}",
+        f"- Model: {profile.model}",
+        f"- Task ID: {task.id}",
+        f"- Task title: {task.title}",
+    ]
+    if description:
+        lines.append(f"- description: {description}")
+    lines.extend(
+        [
+            "",
+            "## Hard Safety Contract",
+            "- Return a unified diff as proposal evidence only.",
+            "- Do not claim the patch was applied, verified, promoted, committed, or pushed.",
+            "- Dev-Flow review-patch, patch-dry-run, apply-patch, verification, and promotion gates remain required.",
+            "- Use only the explicit task text and target snippets below.",
+            "",
+            "## Required JSON Schema",
+            'Return only one JSON object: {"status": "ready|blocked|failed", "diff": "<unified diff>", "summary": "<short summary>"}.',
+            '- Use status "ready" only when diff is a non-empty standard unified diff.',
+            '- Use status "blocked" or "failed" with an empty diff when the requested patch cannot be proposed safely.',
+            "",
+            "## Target Snippets",
+        ]
+    )
+    if snippets:
+        for snippet in snippets:
+            lines.extend(
+                [
+                    f"### {snippet['path']}",
+                    f"- Source: {snippet['source']}",
+                    f"- Included chars: {snippet['included_chars']}",
+                    f"- Truncated: {str(snippet['truncated']).lower()}",
+                    "```text",
+                    str(snippet["content"]).rstrip(),
+                    "```",
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["- No explicitly referenced existing files were found.", ""])
+
+    if verification_instruction:
+        lines.extend(["## Verification", f"- {verification_instruction}", ""])
+
+    return _cap_prompt("\n".join(lines).rstrip() + "\n", max_chars)
+
+
+def _minimal_patch_snippets(root: Path, task: TaskRecord, referenced_files: list[Path]) -> list[dict[str, Any]]:
+    workspace_value = task.workspace_path or task.workspace
+    workspace = absolute_path(root, workspace_value).resolve() if workspace_value else None
+    snippets: list[dict[str, Any]] = []
+    total_chars = 0
+
+    for referenced_file in referenced_files:
+        if len(snippets) >= MINIMAL_PATCH_SNIPPET_MAX_FILES:
+            break
+        try:
+            relative = referenced_file.resolve().relative_to(root)
+        except ValueError:
+            continue
+
+        workspace_candidate = workspace / relative if workspace else None
+        source_path = workspace_candidate if workspace_candidate and workspace_candidate.is_file() else referenced_file
+        if not source_path.exists() or not source_path.is_file():
+            continue
+
+        try:
+            content = source_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        remaining = MINIMAL_PATCH_SNIPPET_MAX_CHARS_TOTAL - total_chars
+        if remaining <= 0:
+            break
+        included = content[: min(MINIMAL_PATCH_SNIPPET_MAX_CHARS_PER_FILE, remaining)]
+        total_chars += len(included)
+        snippets.append(
+            {
+                "path": relative.as_posix(),
+                "source": "task workspace" if workspace_candidate and source_path == workspace_candidate else "repo root",
+                "content": included,
+                "truncated": len(included) < len(content),
+                "included_chars": len(included),
+            }
+        )
+
+    return snippets
+
+
+def _minimal_verification_instruction(task: TaskRecord, description: str) -> str | None:
+    if task.verification_command and task.verification_command.strip():
+        return f"Verification command: {task.verification_command.strip()}"
+
+    task_text = f"{task.title}\n{description}"
+    match = re.search(r"\bVerify with\s+([^\r\n]+)", task_text, re.IGNORECASE)
+    if not match:
+        return None
+    command = match.group(1).strip().strip(".")
+    if not command:
+        return None
+    return f"Verify with {command}"
 
 
 def _build_patch_context_excerpt(root: Path, task_id: str) -> dict[str, Any]:
@@ -723,6 +893,8 @@ def _patch_payload(
     task_title: str,
     profile: AgentDefinition,
     provider: ProviderDefinition,
+    prompt_mode: str,
+    prompt_chars: int,
     prompt_truncated: bool,
     raw_output_path: Path | None,
     proposal_path: Path | None,
@@ -744,6 +916,8 @@ def _patch_payload(
         "model": profile.model,
         "adapter": profile.adapter,
         "provider_base_url": provider.base_url,
+        "prompt_mode": prompt_mode,
+        "prompt_chars": prompt_chars,
         "raw_output_path": relative_path(root, raw_output_path) if raw_output_path else None,
         "proposal_patch_path": relative_path(root, proposal_path) if proposal_path else None,
         "run_metadata_path": relative_path(root, metadata_path),
@@ -767,6 +941,7 @@ def _patch_result_markdown(payload: dict[str, Any]) -> str:
         f"Status: {payload['status']}",
         f"Task: {payload['task_id']}",
         f"Profile: {payload['profile_id']}",
+        f"Prompt mode: {payload.get('prompt_mode', 'standard')}",
         f"Summary: {payload['summary']}",
         "",
         "Next safe action:",

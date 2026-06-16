@@ -461,11 +461,11 @@ def test_agent_propose_patch_prompt_includes_referenced_worker_context(
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
     assert runner.invoke(app, ["task", "create", "patch docs/example.md documentation"]).exit_code == 0
 
-    captured_prompts: list[str] = []
+    captured_requests: list[dict[str, Any]] = []
 
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
         body = json.loads(req.data.decode("utf-8"))
-        captured_prompts.append(body["messages"][1]["content"])
+        captured_requests.append(body)
         return MockResponse(
             {
                 "choices": [
@@ -506,7 +506,144 @@ def test_agent_propose_patch_prompt_includes_referenced_worker_context(
     )
 
     assert result.exit_code == 0, result.output
-    assert captured_prompts
-    assert "## Bounded Worker Context Sources" in captured_prompts[0]
-    assert "docs/example.md" in captured_prompts[0]
-    assert "Original operator docs." in captured_prompts[0]
+    assert captured_requests
+    prompt = captured_requests[0]["messages"][1]["content"]
+    assert "## Bounded Worker Context Sources" in prompt
+    assert "docs/example.md" in prompt
+    assert "Original operator docs." in prompt
+
+
+def test_agent_propose_patch_minimal_prompt_uses_explicit_file_context_without_packets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    (docs_dir / "example.md").write_text("# Tiny Example\n\nOriginal tiny docs.\n", encoding="utf-8")
+    subprocess.run(["git", "add", "docs/example.md"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "add docs example"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
+    monkeypatch.setenv("DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE", "minimal")
+    assert (
+        runner.invoke(
+            app,
+            ["task", "create", "Update docs/example.md tiny wording. Verify with git diff --check"],
+        ).exit_code
+        == 0
+    )
+    task_yaml = tmp_path / ".devflow/tasks/task-0001/task.yaml"
+    task_yaml.write_text(
+        task_yaml.read_text(encoding="utf-8")
+        + "description: Keep docs/example.md clear without broad context.\n",
+        encoding="utf-8",
+    )
+
+    def fail_build_agent_packet(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("minimal prompt must not build a TaskPacket")
+
+    monkeypatch.setattr("devflow.control_room.openrouter_agent.build_agent_packet", fail_build_agent_packet)
+
+    captured_requests: list[dict[str, Any]] = []
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        body = json.loads(req.data.decode("utf-8"))
+        captured_requests.append(body)
+        return MockResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "status": "ready",
+                                    "diff": """diff --git a/docs/example.md b/docs/example.md
+--- a/docs/example.md
++++ b/docs/example.md
+@@ -3 +3 @@
+-Original tiny docs.
++Updated tiny docs.
+""",
+                                    "summary": "Proposed a focused docs patch.",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "propose-patch",
+            "--task",
+            "task-0001",
+            "--profile",
+            "deepseek-v4-flash-patch-proposer",
+            "--max-prompt-chars",
+            "6000",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    prompt = captured_requests[0]["messages"][1]["content"]
+    assert payload["prompt_mode"] == "minimal"
+    assert payload["prompt_chars"] == len(prompt)
+    assert captured_requests[0]["reasoning"] == {"enabled": False, "exclude": True}
+    assert "docs/example.md" in prompt
+    assert "Original tiny docs." in prompt
+    assert '"status"' in prompt
+    assert '"diff"' in prompt
+    assert '"summary"' in prompt
+    assert "Verify with git diff --check" in prompt
+    assert "## Bounded Task Packet" not in prompt
+    assert "## Bounded Worker Context Sources" not in prompt
+    assert "allowed_artifacts" not in prompt
+    assert "events.jsonl" not in prompt
+    assert "task_created" not in prompt
+
+    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-flash-patch-proposer"
+    assert (agent_dir / "proposal.patch").exists()
+    run_payload = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
+    assert run_payload["prompt_mode"] == "minimal"
+    assert run_payload["prompt_chars"] == len(prompt)
+
+
+def test_agent_propose_patch_invalid_prompt_mode_fails_before_openrouter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
+    monkeypatch.setenv("DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE", "bulky")
+    assert runner.invoke(app, ["task", "create", "patch docs/example.md"]).exit_code == 0
+
+    def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        raise AssertionError("invalid prompt mode must fail before OpenRouter")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "propose-patch",
+            "--task",
+            "task-0001",
+            "--profile",
+            "deepseek-v4-flash-patch-proposer",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE" in result.output
+    assert not (tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-flash-patch-proposer/run.json").exists()

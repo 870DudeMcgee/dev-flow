@@ -224,7 +224,7 @@ devflow agent run --task <task_id> --profile local-qwopus-inspector --json
 devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json
 devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json
 devflow agent advise --profile deepseek-v4-pro-reviewer --task <task_id> --job review --json
-devflow agent propose-patch --task <task_id> --profile deepseek-v4-pro-patch-proposer --json
+devflow agent propose-patch --task <task_id> --profile <openrouter-patch-profile> --json
 devflow agent packet <task_id> devflow-shell-worker
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-shell-worker -- <command>
@@ -255,7 +255,9 @@ The task-fit/context-routing evidence form writes derived artifacts only. It cla
 
 The OpenRouter advisory form is `devflow agent advise --profile <profile_id> [--task <task_id>] --job <gap-analysis|review|status> --json`. Advisory runs are remote model evidence, not worker execution. They build bounded repo or task context, call the configured OpenRouter provider only when not in `--dry-run`, and write prompt, response, raw response, and `run.json` evidence under `.devflow/reports/agent-advisory-runs/<run_id>/` for repo-scope runs or `.devflow/tasks/<task_id>/agent-advisory-runs/<run_id>/` for task-scope runs. Run metadata records provider, model, prompt/response paths, usage when returned, recommendations, and `will_create_tasks`, `will_run_workers`, `will_apply_patch`, `will_verify`, `will_promote`, `will_commit`, `will_push`, and `will_write_source` as false. OpenRouter provider config stores only the `OPENROUTER_API_KEY` environment variable name, never the key.
 
-The OpenRouter patch-proposal form is `devflow agent propose-patch --task <task_id> --profile deepseek-v4-pro-patch-proposer --json`. It is explicit human-invoked evidence, not a Hermes cron command and not a task-run worker. It writes only `proposal.patch`, raw output, `run.json`, and summary evidence under `.devflow/tasks/<task_id>/agents/deepseek-v4-pro-patch-proposer/`. The proposal must still pass the existing `task review-patch`, `task patch-dry-run`, `task apply-patch`, verification, and promotion gates before source changes can land.
+The OpenRouter patch-proposal form is `devflow agent propose-patch --task <task_id> --profile <openrouter-patch-profile> --json`, with registry-swappable profiles such as `deepseek-v4-pro-patch-proposer` and `deepseek-v4-flash-patch-proposer`. It is explicit human-invoked evidence, not a Hermes cron command and not a task-run worker. It writes only `proposal.patch`, raw output, `run.json`, and summary evidence under `.devflow/tasks/<task_id>/agents/<profile_id>/`. The default `DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE=standard` path uses bounded TaskPacket/context-pack evidence; `DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE=minimal` is an opt-in path for tiny explicit repair proposals that sends only task identity, referenced target snippets, verification guidance, and the JSON patch schema. The proposal must still pass the existing `task review-patch`, `task patch-dry-run`, `task apply-patch`, verification, and promotion gates before source changes can land.
+
+OpenRouter operator note: Hermes may be working with OpenRouter while a Codex/Desktop shell still reports `OPENROUTER_API_KEY` as unset, because Hermes keeps its local env in `~/.hermes/.env` and that file is not automatically inherited by Codex subprocesses, `launchctl`, or normal shell startup files. For one-off direct CLI proofs, load only the `OPENROUTER_API_KEY` value from `~/.hermes/.env`; do not source the whole Hermes env file because unrelated values may contain spaces or shell-sensitive paths. Minimal Flash patch proposals must disable provider-side reasoning with `{"enabled": false, "exclude": true}`. Do not use `reasoning.effort=minimal` for the minimal patch path: it can spend the entire 2,048-token completion budget on hidden reasoning, return `finish_reason: length`, `content: null`, and write failed evidence even though OpenRouter itself is working.
 
 The role-scoped context-pack form is `devflow agent context-pack <task_id> <agent_id> --role <role> --json`. It writes derived context-pack evidence under `.devflow/tasks/<task_id>/context-packs/` from canonical TaskPacket data, without becoming canonical task state or routing authority. The derived agent-evidence form is `devflow agent evidence <task_id> --json`; it summarizes shell, manual proof-agent, local patch, and local model WorkerEvidence paths for inspection and operating-layer projection without mutating task state.
 
@@ -478,9 +480,9 @@ Implemented:
 - `devflow agent context-pack` and `devflow agent evidence` for derived, non-canonical role context and task-local worker evidence summaries
 - `devflow agent discover-local` and `devflow agent select-local` for model-agnostic installed local agent ranking by explicit role
 - OpenRouter provider seed config using `https://openrouter.ai/api/v1`, `openai_compatible`, and `OPENROUTER_API_KEY`
-- registry-visible DeepSeek profiles for Flash advisory, Pro review advisory, and explicit Pro patch proposal evidence
+- registry-visible DeepSeek profiles for Flash advisory, Pro review advisory, and explicit patch proposal evidence
 - `devflow agent advise` for dry-run or explicit OpenRouter advisory evidence without task creation, worker runs, patch application, verification, promotion, commit, or push
-- `devflow agent propose-patch` for explicit DeepSeek patch proposal evidence that still depends on existing patch review/dry-run/apply/verification/promotion gates
+- `devflow agent propose-patch` for explicit registry-backed OpenRouter patch proposal evidence that still depends on existing patch review/dry-run/apply/verification/promotion gates
 - `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence
 - `devflow worker validate-outcome` for structured guardrail outcome metadata validation
 - Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes

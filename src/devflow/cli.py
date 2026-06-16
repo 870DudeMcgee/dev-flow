@@ -4732,6 +4732,8 @@ def agent_propose_patch(
         typer.echo(f"status: {payload['status']}")
         typer.echo(f"task_id: {payload['task_id']}")
         typer.echo(f"profile_id: {payload['profile_id']}")
+        typer.echo(f"prompt_mode: {payload.get('prompt_mode', 'standard')}")
+        typer.echo(f"prompt_chars: {payload.get('prompt_chars', 0)}")
         typer.echo(f"proposal_patch_path: {payload['proposal_patch_path'] or 'none'}")
         typer.echo(f"run_metadata_path: {payload['run_metadata_path']}")
         typer.echo(f"result_path: {payload['result_path']}")
