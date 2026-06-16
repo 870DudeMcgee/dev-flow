@@ -201,7 +201,7 @@ class TestClassifyAgentCommands:
         assert real_payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
         assert real_payload["requires_human_approval"] is True
 
-    def test_agent_propose_patch_is_forbidden_for_supervisor_cron(self):
+    def test_agent_propose_patch_requires_explicit_human_approval(self):
         result = runner.invoke(
             app,
             [
@@ -212,8 +212,54 @@ class TestClassifyAgentCommands:
             ],
         )
         payload = _json_output(result)
-        assert payload["safety_class"] == FORBIDDEN_FOR_SUPERVISOR
+        assert payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+        assert payload["requires_human_approval"] is True
         assert payload["supervisor_may_auto_run"] is False
+
+    def test_agent_catalog_and_onboarding_commands_have_bounded_policy(self):
+        catalog = runner.invoke(
+            app,
+            ["supervisor", "classify", "devflow agent catalog --json", "--json"],
+        )
+        catalog_payload = _json_output(catalog)
+        assert catalog_payload["safety_class"] == PURE_READ_ONLY
+
+        dry_provider = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent add-provider local_gateway --adapter openai_compatible --base-url http://127.0.0.1:8000/v1 --dry-run --json",
+                "--json",
+            ],
+        )
+        assert _json_output(dry_provider)["safety_class"] == PURE_READ_ONLY
+
+        add_provider = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent add-provider local_gateway --adapter openai_compatible --base-url http://127.0.0.1:8000/v1 --json",
+                "--json",
+            ],
+        )
+        add_provider_payload = _json_output(add_provider)
+        assert add_provider_payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+        assert add_provider_payload["requires_human_approval"] is True
+
+        add_model = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent add-model --provider ollama --model llama3.2:latest --authority read-only --role local_senior_worker --json",
+                "--json",
+            ],
+        )
+        add_model_payload = _json_output(add_model)
+        assert add_model_payload["safety_class"] == APPROVAL_REQUIRED_TASK_STATE
+        assert add_model_payload["requires_human_approval"] is True
 
 
 # ---------------------------------------------------------------------------

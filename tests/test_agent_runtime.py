@@ -60,7 +60,7 @@ def test_resolve_read_only_local_profile_uses_agent_run(tmp_path: Path) -> None:
     assert "read-only local model worker-pool profile" in runtime.refusal_reason
 
 
-def test_resolve_remote_profile_is_blocked(tmp_path: Path) -> None:
+def test_resolve_remote_profile_uses_agent_advise_surface(tmp_path: Path) -> None:
     agents_dir = tmp_path / ".devflow" / "agents"
     agents_dir.mkdir(parents=True)
     (agents_dir / "registry.yaml").write_text(
@@ -83,12 +83,13 @@ def test_resolve_remote_profile_is_blocked(tmp_path: Path) -> None:
 
     runtime = resolve_agent_runtime(tmp_path, "remote-worker")
 
-    assert runtime.execution_surface == "blocked"
+    assert runtime.execution_surface == "agent_advise"
     assert runtime.task_run_allowed is False
     assert runtime.agent_run_allowed is False
     assert runtime.packet_allowed is True
     assert runtime.remote_provider is True
-    assert "experimental_readonly" in runtime.refusal_reason
+    assert runtime.next_command == "devflow agent advise --profile remote-worker --job gap-analysis --json"
+    assert "remote advisory profile" in runtime.refusal_reason
 
 
 def test_resolve_disabled_agent_is_not_runnable_or_packetable(tmp_path: Path) -> None:

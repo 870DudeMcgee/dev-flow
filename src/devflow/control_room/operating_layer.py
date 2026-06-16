@@ -15,6 +15,7 @@ from devflow.control_room.dashboard import (
     collect_multi_project_dashboard_state,
 )
 from devflow.control_room.agent_evidence import compact_agent_evidence_summary
+from devflow.control_room.agent_onboarding import build_agent_catalog
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
@@ -419,6 +420,7 @@ class OperatingLayerSnapshot(BaseModel):
     review_loop: OperatingLayerReviewLoop
     scheduler: OperatingLayerScheduler | None = None
     operator_readiness: OperatorReadinessSnapshot | None = None
+    agent_catalog: dict[str, Any] = Field(default_factory=dict)
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -502,6 +504,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None) -> OperatingLa
         ),
         scheduler=_scheduler_card(scheduler),
         operator_readiness=dashboard.operator_readiness,
+        agent_catalog=_agent_catalog_card(root, warnings),
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )
@@ -540,6 +543,20 @@ def _scheduler_card(snapshot: SchedulerSnapshot | None) -> OperatingLayerSchedul
         retry_candidates=snapshot.retry_candidates,
         batch_count=len(snapshot.batches),
     )
+
+
+def _agent_catalog_card(root: Path, warnings: list[str]) -> dict[str, Any]:
+    try:
+        return build_agent_catalog(root)
+    except Exception as exc:  # pragma: no cover - defensive dashboard projection
+        warnings.append(f"agent catalog unavailable: {exc}")
+        return {
+            "schema_version": 1,
+            "providers": [],
+            "profiles": [],
+            "local_ollama": {"status": "unavailable", "error": str(exc), "installed_models": [], "unregistered_models": []},
+            "actions": [],
+        }
 
 
 def _goal_cards(root: Path, freshness: FreshnessReport | None) -> list[OperatingLayerGoal]:

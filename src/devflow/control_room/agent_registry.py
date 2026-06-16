@@ -42,6 +42,7 @@ EXPERIMENTAL_READONLY_ADAPTERS = tuple(
 PLANNED_NOT_EXECUTABLE_ADAPTERS = tuple(
     sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "planned_not_executable")
 )
+REMOTE_MODEL_ADAPTERS = {"openai_compatible", "openai_chat", "anthropic_messages", "gemini"}
 
 
 def adapter_maturity(adapter: str) -> AdapterMaturity:
@@ -230,7 +231,9 @@ def is_local_ollama_base_url(base_url: str | None) -> bool:
 def is_remote_advisory_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
     if not agent.enabled:
         return False
-    if agent.provider != "openrouter" or agent.adapter != "openai_compatible":
+    if agent.provider in {"ollama", "shell", "manual", "local"}:
+        return False
+    if agent.adapter not in REMOTE_MODEL_ADAPTERS:
         return False
     if agent.default_mode not in {"read_only", "frontier_read_only", "docs_only"}:
         return False
@@ -240,13 +243,15 @@ def is_remote_advisory_agent(agent: AgentDefinition, provider: ProviderDefinitio
         return False
     if provider is None:
         return True
-    return provider.enabled and provider.provider == "openrouter" and provider.adapter == "openai_compatible"
+    return provider.enabled and provider.adapter == agent.adapter and provider.provider not in {"ollama", "shell", "manual", "local"}
 
 
 def is_remote_patch_proposal_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
     if not agent.enabled:
         return False
-    if agent.provider != "openrouter" or agent.adapter != "openai_compatible":
+    if agent.provider in {"ollama", "shell", "manual", "local"}:
+        return False
+    if agent.adapter not in REMOTE_MODEL_ADAPTERS:
         return False
     if agent.default_mode != "patch_proposal_only":
         return False
@@ -256,7 +261,7 @@ def is_remote_patch_proposal_agent(agent: AgentDefinition, provider: ProviderDef
         return False
     if provider is None:
         return True
-    return provider.enabled and provider.provider == "openrouter" and provider.adapter == "openai_compatible"
+    return provider.enabled and provider.adapter == agent.adapter and provider.provider not in {"ollama", "shell", "manual", "local"}
 
 
 class ProviderRegistry(BaseModel):

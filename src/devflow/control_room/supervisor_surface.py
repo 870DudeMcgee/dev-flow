@@ -87,10 +87,16 @@ PURE_READ_ONLY_COMMANDS = [
     "devflow agent show --json",
     "devflow agent policy",
     "devflow agent policy --json",
+    "devflow agent catalog",
+    "devflow agent catalog --json",
     "devflow agent run --dry-run",
     "devflow agent run --dry-run --json",
     "devflow agent advise --dry-run",
     "devflow agent advise --dry-run --json",
+    "devflow agent add-provider --dry-run",
+    "devflow agent add-provider --dry-run --json",
+    "devflow agent add-model --dry-run",
+    "devflow agent add-model --dry-run --json",
     "devflow agent packet",
     "devflow knowledge list",
     "devflow knowledge show",
@@ -137,6 +143,8 @@ APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
     "devflow project import",
     "devflow project archive",
     "devflow project remove",
+    "devflow agent add-provider",
+    "devflow agent add-model",
     "devflow task create",
     "devflow task close",
     "devflow task finalize",
@@ -159,6 +167,7 @@ APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS = [
     "devflow task local-review",
     "devflow agent run",
     "devflow agent advise",
+    "devflow agent propose-patch",
     "devflow task verify",
     "devflow dogfood run",
 ]
@@ -284,6 +293,7 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "idea capture",
                 "task creation",
                 "shell worker execution",
+                "model/provider onboarding",
                 "task verification",
                 "task promotion",
             ],
@@ -393,14 +403,16 @@ def _classify_supervisor_command(command: str) -> str:
             return APPROVAL_REQUIRED_GIT
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "agent":
-        if subcommand in {"list", "show", "policy", "packet"}:
+        if subcommand in {"list", "show", "policy", "packet", "catalog"}:
             return PURE_READ_ONLY
         if subcommand == "run":
             return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
         if subcommand == "advise":
             return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
+        if subcommand in {"add-provider", "add-model"}:
+            return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_TASK_STATE
         if subcommand == "propose-patch":
-            return FORBIDDEN_FOR_SUPERVISOR
+            return APPROVAL_REQUIRED_WORKER_RUNTIME
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "worker":
         return APPROVAL_REQUIRED_EVIDENCE_WRITING if subcommand == "validate-outcome" else FORBIDDEN_FOR_SUPERVISOR

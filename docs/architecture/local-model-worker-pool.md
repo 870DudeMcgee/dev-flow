@@ -107,6 +107,9 @@ JSON surfaces for Hermes/supervisor use:
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent catalog --provider ollama --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent add-model --provider ollama --model <model-id> --authority read-only --role local_senior_worker --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent add-model --provider ollama --model <model-id> --authority patch-proposer --role implementation_worker --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent discover-local --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent select-local <task-id> --role implementation_worker --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent audition <task-id> --job review-debug --dry-run --json
@@ -115,9 +118,13 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --prof
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
 ```
 
+`agent catalog --provider ollama --json` is the read-only inventory surface for local model onboarding. It shows configured Ollama provider settings, registered profiles, runtime contracts, missing env vars, installed local Ollama models, manifests when `ollama show` is available, and unregistered installed models.
+
+`agent add-model --provider ollama ...` is the supported way to turn an installed local model into a registry profile. `--authority read-only` generates a WorkerEvidence-only profile for `agent run`; `--authority patch-proposer` generates a local `proposal.patch` evidence profile for the existing patch review/dry-run/apply gates. It writes/upserts `.devflow/agents/registry.yaml` from safe templates and refuses unknown roles, unsafe profile ids, duplicate conflicting profiles, and unsupported provider/authority combinations.
+
 `agent discover-local` calls local Ollama only. It parses `ollama list`, calls `ollama show` for installed models, records manifest facts, and derives conservative capability profiles such as summarizer, reviewer, bounded worker, or patch-proposer candidate. Public model-name assumptions are advisory only; actual local manifests win.
 
-`agent select-local <task-id> --role <role> --json` ranks installed registry agents for the requested role and writes `.devflow/tasks/<task-id>/agent-selection.json`. It does not run a worker, edit source, apply patches, verify, promote, or silently fall back to another model. Installed models that are not represented by a registry agent are reported as unregistered local models; they are not executable through `task run` until a registry entry grants the needed permission surface.
+`agent select-local <task-id> --role <role> --json` ranks installed registry agents for the requested role and writes `.devflow/tasks/<task-id>/agent-selection.json`. It does not run a worker, edit source, apply patches, verify, promote, or silently fall back to another model. Installed models that are not represented by a registry agent are reported as unregistered local models; they are not executable through `task run` or `agent run` until explicit `agent add-model` grants the needed permission surface.
 
 Dry-run does not call the model and does not write evidence. It reports task id, profile id, model, adapter, runtime, maturity, permission mode, Hermes delegation, machine class, weight class, packet sizing, expected evidence paths, safety warnings, and mutation refusals.
 

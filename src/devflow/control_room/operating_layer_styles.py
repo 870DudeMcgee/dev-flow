@@ -3175,6 +3175,7 @@ button:hover {
 
 .workspace.agents-collapsed .inspector,
 .agents-canvas.collapsed .agent-cards,
+.agents-canvas.collapsed .model-catalog-panel,
 .agents-canvas.collapsed .agent-log-panel,
 .agents-canvas.collapsed .lane-board {
   display: none;
@@ -3273,6 +3274,67 @@ button:hover {
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 12px;
   min-width: 0;
+}
+
+.model-catalog-panel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(168, 156, 222, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.model-catalog-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.model-catalog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(168, 156, 222, 0.12);
+  border-radius: 6px;
+  background: rgba(12, 14, 24, 0.44);
+}
+
+.model-catalog-row div {
+  min-width: 0;
+}
+
+.model-catalog-row strong,
+.model-catalog-row span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-catalog-row strong {
+  color: #fff;
+  font-size: 13px;
+}
+
+.model-catalog-row span {
+  color: rgba(224, 225, 246, 0.68);
+  font-size: 11px;
+}
+
+.model-catalog-row button,
+.model-catalog-add {
+  min-height: 34px;
+  border-color: rgba(102, 240, 209, 0.24);
+  background: rgba(102, 240, 209, 0.08);
+  color: var(--teal);
+}
+
+.model-catalog-add {
+  justify-self: start;
 }
 
 .agent-card {

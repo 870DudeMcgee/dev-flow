@@ -4411,6 +4411,121 @@ def idea_archive(
     typer.echo("evidence_deleted: no")
 
 
+@agent_app.command("catalog")
+def agent_catalog(
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    provider: str | None = typer.Option(None, "--provider", help="Filter catalog to one provider id."),
+) -> None:
+    """Show providers, profiles, runtime contracts, env readiness, and local model discovery."""
+    from devflow.control_room.agent_onboarding import AgentOnboardingError, build_agent_catalog
+
+    try:
+        payload = build_agent_catalog(Path.cwd(), provider_id=provider)
+    except (AgentRegistryError, AgentOnboardingError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo("providers:")
+    for item in payload["providers"]:
+        missing = " missing-env" if item["api_key_env_missing"] else ""
+        typer.echo(f"- {item['id']} ({item['adapter']}){missing}")
+    typer.echo("profiles:")
+    for profile in payload["profiles"]:
+        contract = profile["runtime_contract"]
+        typer.echo(
+            f"- {profile['id']}: {profile['provider']}/{profile['model']} "
+            f"{profile['authority']} -> {contract['execution_surface']}"
+        )
+    local = payload["local_ollama"]
+    typer.echo(f"local_ollama: {local['status']}")
+    if local.get("unregistered_models"):
+        typer.echo("unregistered_local_models:")
+        for model in local["unregistered_models"]:
+            typer.echo(f"- {model}")
+
+
+@agent_app.command("add-provider")
+def agent_add_provider(
+    provider_id: str,
+    adapter: str = typer.Option(..., "--adapter", help="Provider adapter, such as ollama_chat or openai_compatible."),
+    base_url: str = typer.Option(..., "--base-url", help="Provider base URL."),
+    api_key_env: str | None = typer.Option(None, "--api-key-env", help="Environment variable name for the API key."),
+    timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1, help="Default timeout in seconds."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate and preview without writing."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Register a provider config under .devflow/providers."""
+    from devflow.control_room.agent_onboarding import AgentOnboardingError, add_provider
+
+    try:
+        result = add_provider(
+            Path.cwd(),
+            provider_id,
+            adapter=adapter,
+            base_url=base_url,
+            api_key_env=api_key_env,
+            timeout_seconds=timeout_seconds,
+            dry_run=dry_run,
+        )
+    except AgentOnboardingError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = result.to_payload(Path.cwd())
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    typer.echo(f"status: {payload['status']}")
+    typer.echo(f"provider_id: {payload['provider']['id']}")
+    typer.echo(f"adapter: {payload['provider']['adapter']}")
+    typer.echo(f"path: {payload['path']}")
+    typer.echo(f"dry_run: {str(payload['dry_run']).lower()}")
+
+
+@agent_app.command("add-model")
+def agent_add_model(
+    provider_id: str = typer.Option(..., "--provider", help="Existing provider id."),
+    model_id: str = typer.Option(..., "--model", help="Model slug or local Ollama model id."),
+    authority: str = typer.Option(..., "--authority", help="read-only, advisory, patch-proposer, or disabled."),
+    role: str = typer.Option(..., "--role", help="Registered role id for this profile."),
+    profile_id: str | None = typer.Option(None, "--profile-id", help="Optional safe explicit profile id."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate and preview without writing."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Register or upsert a safe model profile under .devflow/agents/registry.yaml."""
+    from devflow.control_room.agent_onboarding import AgentOnboardingError, add_model
+
+    try:
+        result = add_model(
+            Path.cwd(),
+            provider_id=provider_id,
+            model_id=model_id,
+            authority=authority,
+            role=role,
+            profile_id=profile_id,
+            dry_run=dry_run,
+        )
+    except (AgentRegistryError, AgentOnboardingError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = result.to_payload(Path.cwd())
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    typer.echo(f"status: {payload['status']}")
+    typer.echo(f"profile_id: {payload['profile_id']}")
+    typer.echo(f"provider: {payload['agent']['provider']}")
+    typer.echo(f"model: {payload['agent']['model']}")
+    typer.echo(f"runtime: {payload['runtime_contract']['execution_surface']}")
+    typer.echo(f"path: {payload['path']}")
+    typer.echo(f"dry_run: {str(payload['dry_run']).lower()}")
+
+
 @agent_app.command("list")
 def agent_list(
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),

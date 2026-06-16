@@ -271,6 +271,13 @@ INDEX_HTML = """<!doctype html>
             </div>
           </div>
           <div id="agent-cards" class="agent-cards" role="list" aria-label="Worker detail cards"></div>
+          <div class="model-catalog-panel" role="region" aria-label="Models and workers">
+            <div class="section-heading">
+              <span>Models / Workers</span>
+              <output id="model-catalog-count" aria-live="polite" aria-atomic="true">0 profiles</output>
+            </div>
+            <div id="model-catalog-list" class="model-catalog-list" role="list" aria-label="Registered model profiles"></div>
+          </div>
           <div class="agent-log-panel" role="region" aria-label="Worker logs">
             <div class="section-heading">
               <span>Worker Logs</span>

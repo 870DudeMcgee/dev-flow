@@ -96,6 +96,11 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         approved_shell_worker_run = False
         approved_verification = False
         approved_promotion = False
+        approved_agent_add_provider = False
+        approved_agent_add_model = False
+        approved_agent_run = False
+        approved_agent_advise = False
+        approved_agent_propose_patch = False
         if classification["safety_class"] != PURE_READ_ONLY:
             try:
                 approved_idea_capture = _is_approved_idea_capture(payload, command, classification)
@@ -103,6 +108,11 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 approved_shell_worker_run = _is_approved_shell_worker_run(payload, command, classification)
                 approved_verification = _is_approved_task_verification(payload, command, classification)
                 approved_promotion = _is_approved_task_promotion(payload, command, classification)
+                approved_agent_add_provider = _is_approved_agent_add_provider(payload, command, classification)
+                approved_agent_add_model = _is_approved_agent_add_model(payload, command, classification)
+                approved_agent_run = _is_approved_agent_run(payload, command, classification)
+                approved_agent_advise = _is_approved_agent_advise(payload, command, classification)
+                approved_agent_propose_patch = _is_approved_agent_propose_patch(payload, command, classification)
             except ValueError as exc:
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
                 return
@@ -112,6 +122,11 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             or approved_shell_worker_run
             or approved_verification
             or approved_promotion
+            or approved_agent_add_provider
+            or approved_agent_add_model
+            or approved_agent_run
+            or approved_agent_advise
+            or approved_agent_propose_patch
         ):
             self._send_json(
                 {
@@ -130,19 +145,28 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             root = self.server.repo_root
             if isinstance(project_id, str) and project_id.strip():
                 root = resolve_project_root(self.server.repo_root, project_id.strip()).root
-            args = (
-                _approved_idea_capture_command_args(command)
-                if approved_idea_capture
-                else _approved_task_creation_command_args(command)
-                if approved_task_creation
-                else _approved_shell_worker_run_command_args(command)
-                if approved_shell_worker_run
-                else _approved_task_verification_command_args(command)
-                if approved_verification
-                else _approved_task_promotion_command_args(command)
-                if approved_promotion
-                else _supervisor_read_only_command_args(command)
-            )
+            if approved_idea_capture:
+                args = _approved_idea_capture_command_args(command)
+            elif approved_task_creation:
+                args = _approved_task_creation_command_args(command)
+            elif approved_agent_add_provider:
+                args = _approved_agent_add_provider_command_args(command)
+            elif approved_agent_add_model:
+                args = _approved_agent_add_model_command_args(command)
+            elif approved_agent_run:
+                args = _approved_agent_run_command_args(command)
+            elif approved_agent_advise:
+                args = _approved_agent_advise_command_args(command)
+            elif approved_agent_propose_patch:
+                args = _approved_agent_propose_patch_command_args(command)
+            elif approved_shell_worker_run:
+                args = _approved_shell_worker_run_command_args(command)
+            elif approved_verification:
+                args = _approved_task_verification_command_args(command)
+            elif approved_promotion:
+                args = _approved_task_promotion_command_args(command)
+            else:
+                args = _supervisor_read_only_command_args(command)
             context_path = _write_promotion_context(root, command, payload) if approved_promotion else None
         except (ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
@@ -420,6 +444,136 @@ def _approved_task_promotion_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
+def _approved_agent_add_provider_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 4 or normalized[1:3] != ["agent", "add-provider"]:
+        raise ValueError("only approved agent add-provider may run from the operating layer")
+    provider_id = normalized[3]
+    if _is_placeholder_text(provider_id, field="provider"):
+        raise ValueError("approved provider onboarding requires a concrete provider id")
+    values = _parse_exact_options(
+        normalized[4:],
+        value_options={"--adapter", "--base-url", "--api-key-env", "--timeout-seconds"},
+        flags={"--json"},
+        command_label="approved provider onboarding",
+    )
+    if "--adapter" not in values or "--base-url" not in values:
+        raise ValueError("approved provider onboarding requires --adapter and --base-url")
+    if _is_placeholder_text(values["--adapter"], field="adapter"):
+        raise ValueError("approved provider onboarding requires a concrete adapter")
+    if _is_placeholder_text(values["--base-url"], field="url"):
+        raise ValueError("approved provider onboarding requires a concrete base URL")
+    if "--timeout-seconds" in values and not values["--timeout-seconds"].isdigit():
+        raise ValueError("approved provider onboarding requires a numeric --timeout-seconds value")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_agent_add_model_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 3 or normalized[1:3] != ["agent", "add-model"]:
+        raise ValueError("only approved agent add-model may run from the operating layer")
+    values = _parse_exact_options(
+        normalized[3:],
+        value_options={"--provider", "--model", "--authority", "--role", "--profile-id"},
+        flags={"--json"},
+        command_label="approved model onboarding",
+    )
+    for option in ("--provider", "--model", "--authority", "--role"):
+        if option not in values:
+            raise ValueError(f"approved model onboarding requires {option}")
+    if values["--authority"] not in {"read-only", "advisory", "patch-proposer", "disabled"}:
+        raise ValueError("approved model onboarding authority must be read-only, advisory, patch-proposer, or disabled")
+    for option, field in (("--provider", "provider"), ("--model", "model"), ("--role", "role")):
+        if _is_placeholder_text(values[option], field=field):
+            raise ValueError(f"approved model onboarding requires a concrete {field}")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_agent_run_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 3 or normalized[1:3] != ["agent", "run"]:
+        raise ValueError("only approved agent run may run from the operating layer")
+    values = _parse_exact_options(
+        normalized[3:],
+        value_options={"--task", "--profile"},
+        flags={"--json"},
+        command_label="approved model run",
+    )
+    if "--task" not in values or "--profile" not in values:
+        raise ValueError("approved model run requires --task and --profile")
+    if _is_placeholder_text(values["--task"], field="task-id") or _is_placeholder_text(values["--profile"], field="profile"):
+        raise ValueError("approved model run requires concrete task and profile ids")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_agent_advise_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 3 or normalized[1:3] != ["agent", "advise"]:
+        raise ValueError("only approved agent advise may run from the operating layer")
+    values = _parse_exact_options(
+        normalized[3:],
+        value_options={"--profile", "--job", "--task"},
+        flags={"--json"},
+        command_label="approved advisory model run",
+    )
+    if "--profile" not in values or "--job" not in values:
+        raise ValueError("approved advisory model run requires --profile and --job")
+    if values["--job"] not in {"gap-analysis", "review", "status"}:
+        raise ValueError("approved advisory job must be gap-analysis, review, or status")
+    if _is_placeholder_text(values["--profile"], field="profile"):
+        raise ValueError("approved advisory model run requires a concrete profile id")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_agent_propose_patch_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 3 or normalized[1:3] != ["agent", "propose-patch"]:
+        raise ValueError("only approved agent propose-patch may run from the operating layer")
+    values = _parse_exact_options(
+        normalized[3:],
+        value_options={"--task", "--profile"},
+        flags={"--json"},
+        command_label="approved patch-proposal model run",
+    )
+    if "--task" not in values or "--profile" not in values:
+        raise ValueError("approved patch proposal requires --task and --profile")
+    if _is_placeholder_text(values["--task"], field="task-id") or _is_placeholder_text(values["--profile"], field="profile"):
+        raise ValueError("approved patch proposal requires concrete task and profile ids")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _parse_exact_options(
+    tokens: list[str],
+    *,
+    value_options: set[str],
+    flags: set[str],
+    command_label: str,
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in flags:
+            index += 1
+            continue
+        if token in value_options:
+            if index + 1 >= len(tokens) or tokens[index + 1].startswith("-"):
+                raise ValueError(f"{command_label} requires a value after {token}")
+            values[token] = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("-"):
+            allowed = ", ".join(sorted(value_options | flags))
+            raise ValueError(f"{command_label} allows only {allowed}")
+        raise ValueError(f"{command_label} does not allow positional value '{token}'")
+    return values
+
+
 def _write_promotion_context(root: Path, command: str, payload: dict[str, object]) -> str | None:
     note = payload.get("context_note")
     if not isinstance(note, str) or not note.strip():
@@ -505,6 +659,56 @@ def _is_approved_task_promotion(payload: dict[str, object], command: str, classi
     return _approval_payload_matches(payload, command)
 
 
+def _is_approved_agent_add_provider(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_TASK_STATE:
+        return False
+    try:
+        _approved_agent_add_provider_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_agent_add_model(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_TASK_STATE:
+        return False
+    try:
+        _approved_agent_add_model_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_agent_run(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
+        return False
+    try:
+        _approved_agent_run_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_agent_advise(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
+        return False
+    try:
+        _approved_agent_advise_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_agent_propose_patch(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
+        return False
+    try:
+        _approved_agent_propose_patch_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
 def _approval_payload_matches(payload: dict[str, object], command: str) -> bool:
     if payload.get("human_approved") is not True:
         return False
@@ -532,6 +736,14 @@ def _is_placeholder_text(value: str, *, field: str) -> bool:
         placeholders.update({"your idea", "rough idea", "brainstorm", "brainstorm here"})
     if field == "title":
         placeholders.update({"task title", "untitled", "new task"})
+    if field in {"provider", "model", "profile", "task-id", "adapter", "url", "role"}:
+        placeholders.update({
+            f"<{field}>",
+            field.replace("-", " "),
+            f"your {field}",
+            f"{field} id",
+            f"{field}-id",
+        })
     return normalized in placeholders
 
 
@@ -543,6 +755,14 @@ def _looks_like_provider_or_local_model_command(command_tokens: list[str]) -> bo
     if lowered[:3] == ["devflow", "task", "local"]:
         return True
     if lowered[:3] == ["devflow", "agent", "run"]:
+        return True
+    if lowered[:3] == ["devflow", "agent", "advise"]:
+        return True
+    if lowered[:3] == ["devflow", "agent", "propose-patch"]:
+        return True
+    if lowered[:3] == ["devflow", "agent", "add-model"]:
+        return True
+    if lowered[:3] == ["devflow", "agent", "add-provider"]:
         return True
     provider_markers = (
         "ollama",

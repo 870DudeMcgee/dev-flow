@@ -330,6 +330,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
         "idea capture",
         "task creation",
         "shell worker execution",
+        "model/provider onboarding",
         "task verification",
         "task promotion",
     ]

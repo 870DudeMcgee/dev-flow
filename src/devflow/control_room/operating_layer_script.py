@@ -8,6 +8,7 @@ let selectedProjectId = null;
 let selectedProjectName = null;
 let selectedProjectPathStatus = null;
 let selectedActionCommand = null;
+let transientAction = null;
 let actionRunState = null;
 let lastApprovedActionResult = null;
 let verificationCommandInputs = {};
@@ -274,6 +275,7 @@ function render() {
   renderOperatingMap();
   renderContextBar();
   renderLanes();
+  renderModelCatalog();
   renderInspector();
   renderActions();
   renderReviewLoopSummary();
@@ -1179,6 +1181,82 @@ function renderAgentCollective(activeLaneTasks, activityTasks) {
   renderAgentLog(activityTasks);
 }
 
+function renderModelCatalog() {
+  const list = byId("model-catalog-list");
+  const count = byId("model-catalog-count");
+  if (!list || !count) return;
+  const catalog = snapshot.agent_catalog || {};
+  const profiles = catalog.profiles || [];
+  const providers = catalog.providers || [];
+  const actions = catalog.actions || [];
+  count.textContent = `${profiles.length} ${profiles.length === 1 ? "profile" : "profiles"}`;
+  list.innerHTML = "";
+  const rows = profiles.slice(0, 8);
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty">No model profiles registered</div>`;
+  } else {
+    rows.forEach((profile) => {
+      const contract = profile.runtime_contract || {};
+      const command = contract.next_command || `devflow agent show ${profile.id} --json`;
+      const modelRuntime = ["agent_run", "agent_advise", "agent_propose_patch", "task_run"].includes(contract.execution_surface);
+      const action = {
+        label: contract.execution_surface === "agent_propose_patch" ? "Use patch proposal" : "Use model",
+        command,
+        scope: "agent_catalog",
+        safety_class: modelRuntime
+          ? "approval_required_worker_runtime"
+          : "pure_read_only",
+        requires_human_approval: modelRuntime,
+        supervisor_may_auto_run: false,
+        reason: contract.refusal_reason || "Exact model action from registry runtime contract.",
+      };
+      const item = document.createElement("div");
+      item.className = "model-catalog-row";
+      item.setAttribute("role", "listitem");
+      item.innerHTML = `
+        <div>
+          <strong>${escapeHtml(profile.id)}</strong>
+          <span>${escapeHtml(profile.provider)} / ${escapeHtml(profile.model)}</span>
+        </div>
+        <div>
+          <span class="label">${escapeHtml(profile.authority || profile.default_mode)} / ${escapeHtml(contract.execution_surface || "unknown")}</span>
+          <button type="button" data-model-action="${escapeHtml(profile.id)}">${escapeHtml(action.label)}</button>
+        </div>
+      `;
+      item.querySelector("button").addEventListener("click", () => {
+        selectedActionCommand = action.command;
+        sectionState.actions = "expanded";
+        setCurrentPage("actions", { updateHash: true });
+        renderActionsWithOverride(action);
+      });
+      list.appendChild(item);
+    });
+  }
+  const addAction = actions.find((action) => /agent add-model/.test(action.command || ""));
+  if (addAction || providers.length) {
+    const action = addAction || {
+      label: "Add model",
+      command: "devflow agent add-model --provider ollama --model <model-id> --authority read-only --role local_senior_worker",
+      scope: "agent_catalog",
+      safety_class: "approval_required_task_state",
+      requires_human_approval: true,
+      supervisor_may_auto_run: false,
+      reason: "Writes one registry profile after exact approval.",
+    };
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "model-catalog-add";
+    add.textContent = "Add model";
+    add.addEventListener("click", () => {
+      selectedActionCommand = action.command;
+      sectionState.actions = "expanded";
+      setCurrentPage("actions", { updateHash: true });
+      renderActionsWithOverride(action);
+    });
+    list.appendChild(add);
+  }
+}
+
 function agentSummaries(activeLaneTasks, activityTasks) {
   const activeIds = new Set(activeLaneTasks.map((task) => task.id));
   const grouped = new Map();
@@ -1805,13 +1883,16 @@ function renderActions() {
   const task = taskById(selectedTaskId);
   const selection = goalSelectionPayload();
   const scopedActions = mapScopedActions();
-  const actions = selection
+  const baseActions = selection
     ? selection.item.actions || []
     : selectedMapNode && scopedActions.length
       ? scopedActions
       : task
         ? task.actions || []
         : snapshot.action_rail || [];
+  const actions = transientAction
+    ? [transientAction, ...baseActions.filter((action) => action.command !== transientAction.command)]
+    : baseActions;
   byId("action-count").textContent = actions.length;
   const list = byId("action-list");
   const preview = byId("action-preview");
@@ -1849,6 +1930,11 @@ function renderActions() {
     list.appendChild(item);
   });
   renderActionPreview(renderedActions.find((action) => action.command === selectedActionCommand) || renderedActions[0]);
+}
+
+function renderActionsWithOverride(action) {
+  transientAction = action;
+  render();
 }
 
 function renderActionPreview(action) {

@@ -169,6 +169,66 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
 
 
+def test_operating_layer_approved_model_onboarding_actions_execute(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        add_provider = (
+            "devflow agent add-provider local_gateway --adapter openai_compatible "
+            "--base-url http://127.0.0.1:8000/v1 --api-key-env LOCAL_GATEWAY_API_KEY --json"
+        )
+        status, payload = _post_action(host, port, add_provider)
+        assert status == 200, payload
+        assert payload["executed"] is True
+        assert payload["exit_code"] == 0
+        assert (tmp_path / ".devflow/providers/local_gateway.yaml").exists()
+
+        add_model = (
+            "devflow agent add-model --provider local_gateway --model local/test-model "
+            "--authority advisory --role frontier_planner_architect_reviewer --json"
+        )
+        status, payload = _post_action(host, port, add_model)
+        assert status == 200, payload
+        assert payload["executed"] is True
+        assert payload["exit_code"] == 0
+        assert "local_gateway-local-test-model-advisory-frontier_planner_architect_reviewer" in (
+            tmp_path / ".devflow/agents/registry.yaml"
+        ).read_text(encoding="utf-8")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_blocks_broad_agent_command_but_allows_exact_patch_proposal_attempt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["init"]).exit_code == 0
+    assert runner.invoke(app, ["task", "create", "patch proposal from browser"]).exit_code == 0
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        broad = "devflow agent run local-qwopus-inspector --prompt hello --json"
+        status, payload = _post_action(host, port, broad)
+        assert status == 409, payload
+        assert payload["executed"] is False
+
+        exact = "devflow agent propose-patch --task task-0001 --profile deepseek-v4-pro-patch-proposer --json"
+        status, payload = _post_action(host, port, exact)
+        assert status == 200, payload
+        assert payload["executed"] is True
+        assert payload["exit_code"] != 0
+        assert "OPENROUTER_API_KEY" in payload["stdout"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     tmp_path: Path,
     monkeypatch,
@@ -1298,7 +1358,7 @@ def test_operating_layer_server_refuses_invalid_shell_worker_browser_runs(
             "devflow task run task-0001 --worker shell -- <command>",
             "devflow task run task-0001 --worker qwopus-implementer",
             "devflow task local task-0001 --worker qwen-planner",
-            "devflow agent run --task task-0001 --profile local-qwopus-inspector --json",
+            "devflow agent run local-qwopus-inspector --prompt hello --json",
             "devflow task run task-0001 --worker shell -- ollama run qwen",
         ]
         for command in commands:

@@ -148,8 +148,8 @@ def test_task_run_remote_provider_agent_still_fails_closed(
     result = runner.invoke(app, ["task", "run", "task-0001", "--worker", "remote-worker"])
 
     assert result.exit_code != 0
-    assert "cannot execute" in result.output
-    assert "experimental_readonly" in result.output
+    assert "remote advisory profile" in result.output
+    assert "task worker execution is not allowed" in result.output
 
 
 def test_agent_run_local_patch_profile_reports_task_run_next_action(

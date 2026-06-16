@@ -106,10 +106,10 @@ def run_advice(
     metadata_path = evidence_dir / "run.json"
     atomic_write_text(prompt_path, prompt)
 
-    api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
+    api_key_env = provider.api_key_env or _default_api_key_env(provider)
     api_key = os.environ.get(api_key_env)
     if not api_key:
-        error = f"Provider 'openrouter' requires {api_key_env}, but that environment variable is not set."
+        error = f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set."
         payload = _advice_payload(
             root=root,
             status="failed",
@@ -215,10 +215,10 @@ def run_patch_proposal(
     result_path = agent_dir / "result.md"
     raw_outputs: list[str] = []
 
-    api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
+    api_key_env = provider.api_key_env or _default_api_key_env(provider)
     api_key = os.environ.get(api_key_env)
     if not api_key:
-        error = f"Provider 'openrouter' requires {api_key_env}, but that environment variable is not set."
+        error = f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set."
         payload = _patch_payload(
             root=root,
             status="failed",
@@ -330,31 +330,35 @@ def run_patch_proposal(
 
 
 def _load_advisory_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
-    profile, provider = _load_openrouter_profile(root, profile_id)
+    profile, provider = _load_remote_profile(root, profile_id)
     if not is_remote_advisory_agent(profile, provider):
         raise OpenRouterAgentError(f"Profile '{profile_id}' is not approved for remote advisory runs.")
     return profile, provider
 
 
 def _load_patch_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
-    profile, provider = _load_openrouter_profile(root, profile_id)
+    profile, provider = _load_remote_profile(root, profile_id)
     if not is_remote_patch_proposal_agent(profile, provider):
         raise OpenRouterAgentError(
-            f"Profile '{profile_id}' is not approved for explicit OpenRouter patch proposals."
+            f"Profile '{profile_id}' is not approved for explicit remote patch proposals."
         )
     return profile, provider
 
 
-def _load_openrouter_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
+def _load_remote_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
     try:
         profile = load_agent_registry(root).require_agent(profile_id)
         provider = load_provider_registry(root).require_provider(profile.provider)
     except (AgentRegistryError, KeyError) as exc:
         raise OpenRouterAgentError(str(exc)) from exc
-    if provider.provider != "openrouter" or provider.adapter != "openai_compatible":
-        raise OpenRouterAgentError(f"Profile '{profile_id}' is not backed by the OpenRouter provider.")
+    if provider.provider in {"ollama", "shell", "manual", "local"}:
+        raise OpenRouterAgentError(f"Profile '{profile_id}' is not backed by a remote model provider.")
+    if provider.adapter not in {"openai_compatible", "openai_chat", "anthropic_messages", "gemini"}:
+        raise OpenRouterAgentError(
+            f"Profile '{profile_id}' provider adapter '{provider.adapter}' is not supported by agent advise/propose-patch."
+        )
     if not provider.enabled:
-        raise OpenRouterAgentError("OpenRouter provider is disabled.")
+        raise OpenRouterAgentError(f"Provider '{provider.id}' is disabled.")
     return profile, provider
 
 
@@ -700,29 +704,20 @@ def _chat_completion(
     reasoning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not provider.base_url:
-        raise OpenRouterAgentError("OpenRouter provider base_url is missing.")
-    url = f"{provider.base_url.rstrip('/')}/chat/completions"
-    body = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.2,
-        "response_format": {"type": "json_object"},
-    }
-    if max_tokens is not None:
-        body["max_tokens"] = max_tokens
-    if reasoning is not None:
-        body["reasoning"] = reasoning
+        raise OpenRouterAgentError(f"Provider '{provider.id}' base_url is missing.")
+    url, body, headers = _provider_request_parts(
+        provider=provider,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        api_key=api_key,
+        max_tokens=max_tokens,
+        reasoning=reasoning,
+    )
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "X-OpenRouter-Title": "DevFlow",
-        },
+        headers=headers,
         method="POST",
     )
     request_timeout = timeout_seconds or provider.default_timeout_seconds or 300
@@ -731,16 +726,92 @@ def _chat_completion(
             with urllib.request.urlopen(request, timeout=request_timeout) as response:
                 decoded = response.read().decode("utf-8")
     except TimeoutError as exc:
-        raise OpenRouterAgentError(f"OpenRouter request timed out after {request_timeout}s.") from exc
+        raise OpenRouterAgentError(f"Provider '{provider.id}' request timed out after {request_timeout}s.") from exc
     except urllib.error.URLError as exc:
-        raise OpenRouterAgentError(f"OpenRouter request failed: {_redact(str(exc), api_key=api_key)}") from exc
+        raise OpenRouterAgentError(
+            f"Provider '{provider.id}' request failed: {_redact(str(exc), api_key=api_key)}"
+        ) from exc
     try:
         payload = json.loads(decoded)
     except json.JSONDecodeError as exc:
-        raise OpenRouterAgentError(f"OpenRouter returned invalid JSON: {exc.msg}") from exc
+        raise OpenRouterAgentError(f"Provider '{provider.id}' returned invalid JSON: {exc.msg}") from exc
     if not isinstance(payload, dict):
-        raise OpenRouterAgentError("OpenRouter response root was not a JSON object.")
+        raise OpenRouterAgentError(f"Provider '{provider.id}' response root was not a JSON object.")
     return payload
+
+
+def _provider_request_parts(
+    *,
+    provider: ProviderDefinition,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    api_key: str,
+    max_tokens: int | None,
+    reasoning: dict[str, Any] | None,
+) -> tuple[str, dict[str, Any], dict[str, str]]:
+    base_url = (provider.base_url or "").rstrip("/")
+    if provider.adapter in {"openai_compatible", "openai_chat"}:
+        url = f"{base_url}/chat/completions"
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        if reasoning is not None and provider.adapter == "openai_compatible":
+            body["reasoning"] = reasoning
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+        if provider.provider == "openrouter" or provider.id == "openrouter":
+            headers["X-OpenRouter-Title"] = "DevFlow"
+        return url, body, headers
+    if provider.adapter == "anthropic_messages":
+        url = f"{base_url}/v1/messages"
+        body = {
+            "model": model,
+            "max_tokens": max_tokens or PATCH_MAX_TOKENS,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "temperature": 0.2,
+        }
+        return (
+            url,
+            body,
+            {
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+        )
+    if provider.adapter == "gemini":
+        url = f"{base_url}/v1beta/models/{model}:generateContent"
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+            },
+        }
+        if max_tokens is not None:
+            body["generationConfig"]["maxOutputTokens"] = max_tokens
+        return (
+            url,
+            body,
+            {
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+        )
+    raise OpenRouterAgentError(f"Provider adapter '{provider.adapter}' is not supported.")
 
 
 @contextmanager
@@ -773,6 +844,18 @@ def _env_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+def _default_api_key_env(provider: ProviderDefinition) -> str:
+    if provider.provider == "openrouter" or provider.id == "openrouter":
+        return "OPENROUTER_API_KEY"
+    if provider.adapter == "anthropic_messages":
+        return "ANTHROPIC_API_KEY"
+    if provider.adapter == "gemini":
+        return "GEMINI_API_KEY"
+    if provider.adapter == "openai_chat":
+        return "OPENAI_API_KEY"
+    return f"{provider.id.upper()}_API_KEY"
+
+
 def _assistant_content(response_body: dict[str, Any]) -> str:
     choices = response_body.get("choices")
     if isinstance(choices, list) and choices:
@@ -786,7 +869,21 @@ def _assistant_content(response_body: dict[str, Any]) -> str:
             text = first.get("text")
             if isinstance(text, str):
                 return text.strip()
-    raise OpenRouterAgentError("OpenRouter response did not include assistant content.")
+    content = response_body.get("content")
+    if isinstance(content, list) and content:
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
+                chunks.append(item["text"])
+        if chunks:
+            return "\n".join(chunks).strip()
+    candidates = response_body.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        parts = candidates[0].get("content", {}).get("parts", []) if isinstance(candidates[0], dict) else []
+        chunks = [part.get("text", "") for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)]
+        if chunks:
+            return "\n".join(chunks).strip()
+    raise OpenRouterAgentError("Provider response did not include assistant content.")
 
 
 def _extract_recommendations(content: str) -> list[dict[str, str]]:
