@@ -94,13 +94,22 @@ def apply_patch_files(
         for idx, hunk in enumerate(pf.hunks):
             # Check base index adjustment
             expected_old_start = 0 if is_creation and hunk.old_start == 0 else hunk.old_start - 1
-            actual_start = expected_old_start + line_offset
+            hint_start = expected_old_start + line_offset
             
-            if actual_start < 0 or (actual_start > len(modified_lines) and not is_creation):
+            if hint_start < 0 or (hint_start > len(modified_lines) and not is_creation and not hunk.original_lines):
                 raise PatchApplicationError(
                     f"File {rel_target_path} Hunk #{idx+1} matching failed: "
-                    f"Expected start {actual_start} beyond file length {len(modified_lines)}"
+                    f"Expected start {hint_start} beyond file length {len(modified_lines)}"
                 )
+
+            actual_start = _resolve_hunk_start(
+                modified_lines,
+                hunk,
+                hint_start,
+                rel_target_path,
+                idx + 1,
+                is_creation,
+            )
 
             # Match lines and apply diff
             source_cursor = actual_start
@@ -200,3 +209,47 @@ def apply_patch_files(
 def _hash_patch_files(patch_files: list[PatchFile]) -> str:
     payload = json.dumps([asdict(patch_file) for patch_file in patch_files], sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _resolve_hunk_start(
+    file_lines: list[str],
+    hunk: Hunk,
+    hint_start: int,
+    rel_target_path: str,
+    hunk_number: int,
+    is_creation: bool,
+) -> int:
+    original = [line.rstrip("\r\n") for line in hunk.original_lines]
+    if not original:
+        if hint_start < 0 or (hint_start > len(file_lines) and not is_creation):
+            raise PatchApplicationError(
+                f"File {rel_target_path} Hunk #{hunk_number} matching failed: "
+                f"Expected start {hint_start} beyond file length {len(file_lines)}"
+            )
+        return hint_start
+
+    if 0 <= hint_start <= len(file_lines) and _original_matches_at(file_lines, original, hint_start):
+        return hint_start
+
+    max_start = len(file_lines) - len(original)
+    if max_start < 0:
+        raise PatchApplicationError(
+            f"File {rel_target_path} Hunk #{hunk_number} mismatch: original context is longer than the file"
+        )
+
+    matches = [start for start in range(max_start + 1) if _original_matches_at(file_lines, original, start)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise PatchApplicationError(
+            f"File {rel_target_path} Hunk #{hunk_number} mismatch: original context did not match"
+        )
+    raise PatchApplicationError(
+        f"File {rel_target_path} Hunk #{hunk_number} mismatch: original context matched multiple locations"
+    )
+
+
+def _original_matches_at(file_lines: list[str], original: list[str], start: int) -> bool:
+    if start < 0 or start + len(original) > len(file_lines):
+        return False
+    return [line.rstrip("\r\n") for line in file_lines[start : start + len(original)]] == original

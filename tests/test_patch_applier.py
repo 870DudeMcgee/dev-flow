@@ -151,8 +151,45 @@ def test_apply_hunk_mismatch_raises_application_error(tmp_path: Path):
         "+inserted\n"
     )
     patch_files = parse_unified_diff(diff)
-    with pytest.raises(PatchApplicationError, match="mismatch at line 2"):
+    with pytest.raises(PatchApplicationError, match="original context did not match"):
         apply_patch_files(tmp_path, patch_files)
+
+
+def test_apply_uses_unique_context_when_hunk_header_is_off_by_one(tmp_path: Path):
+    target = tmp_path / "docs.md"
+    target.write_text("intro\n\n- one\n- two\n- three\n", encoding="utf-8")
+    diff = (
+        "--- a/docs.md\n"
+        "+++ b/docs.md\n"
+        "@@ -2,3 +2,4 @@\n"
+        " - one\n"
+        " - two\n"
+        " - three\n"
+        "+- four\n"
+    )
+    patch_files = parse_unified_diff(diff)
+
+    apply_patch_files(tmp_path, patch_files)
+
+    assert target.read_text(encoding="utf-8") == "intro\n\n- one\n- two\n- three\n- four\n"
+
+
+def test_apply_rejects_ambiguous_fuzzy_context(tmp_path: Path):
+    target = tmp_path / "docs.md"
+    target.write_text("a\nb\na\nb\n", encoding="utf-8")
+    diff = (
+        "--- a/docs.md\n"
+        "+++ b/docs.md\n"
+        "@@ -2,2 +2,3 @@\n"
+        " a\n"
+        " b\n"
+        "+c\n"
+    )
+    patch_files = parse_unified_diff(diff)
+
+    with pytest.raises(PatchApplicationError, match="multiple locations"):
+        apply_patch_files(tmp_path, patch_files)
+
 
 def test_symlink_rejection(tmp_path: Path):
     outside = tmp_path / "outside.txt"

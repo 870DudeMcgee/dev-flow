@@ -108,6 +108,18 @@ def _append_beyond_eof_patch(path: str) -> str:
 """
 
 
+def _off_by_one_context_patch(path: str) -> str:
+    return f"""diff --git a/{path} b/{path}
+--- a/{path}
++++ b/{path}
+@@ -2,3 +2,4 @@
+ - one
+ - two
+ - three
++- four
+"""
+
+
 def _mode_change_patch(path: str) -> str:
     return f"""diff --git a/{path} b/{path}
 old mode 100644
@@ -293,6 +305,19 @@ def test_append_hunk_beyond_eof_is_rejected(tmp_path: Path, monkeypatch: pytest.
     assert data["dry_run_status"] == "hunk_mismatch"
     assert data["hunks_failed"] == 1
     assert data["hunk_results"][0]["old_start"] == 200
+
+
+def test_unique_context_hunk_can_match_off_by_one_header(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _create_task(tmp_path, monkeypatch)
+    _write_workspace_file(tmp_path, "docs/existing.md", "intro\n\n- one\n- two\n- three\n")
+    _write_run(tmp_path, patch=_off_by_one_context_patch("docs/existing.md"))
+
+    result = runner.invoke(app, ["task", "patch-dry-run", "task-0001", "--run-id", "run-1"])
+
+    assert result.exit_code == 0, result.output
+    data = _dry_run_json(tmp_path)
+    assert data["dry_run_status"] == "would_apply_cleanly"
+    assert data["hunks_matched"] == 1
 
 
 def test_unsupported_apply_metadata_is_invalid_patch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
