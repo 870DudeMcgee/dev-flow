@@ -64,8 +64,8 @@ For each repair attempt, the loop executes exactly one task through these gates:
 
 When a repair probe task fails (e.g., a patch cannot be generated, review rejects the change, or verification fails), the failed task remains in the task list and can pollute advisory context for subsequent repair runs. To prevent this, operators should close failed probe tasks after a later successful repair has been promoted:
 
+bash
+devflow task close <task-id> --outcome rejected --reason "superseded by <successful-task-id>"
 
-devflow task close <task-id> --outcome rejected --reason "<reason>"
 
-
-Closing as `rejected` (or `superseded` if a newer task replaces it) removes the stale probe from the active task set and keeps the advisory clean. This cleanup step is separate from the one-task repair loop; the cron loop itself must still run at most one bounded repair task per tick. Pruning or bulk cleanup of old tasks remains an independent operation outside the repair loop.
+Closing as `rejected` removes the stale probe from the active task set and keeps the advisory clean. The `--reason` text should include `superseded by <successful-task-id>` when a newer successful task replaces the failed probe. This cleanup step is separate from the one-task repair loop; the cron loop itself must still run at most one bounded repair task per tick. Pruning or bulk cleanup of old tasks remains an independent operation outside the repair loop.
