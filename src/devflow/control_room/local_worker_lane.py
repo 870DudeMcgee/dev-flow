@@ -74,7 +74,7 @@ def _latest_patch_worker_summary(root: Path, base: Path, task: TaskRecord, worke
         "permission_mode": "workspace_write",
         "latest_run_id": run_dir.name,
         "latest_status": str(run_json.get("status") or "unknown"),
-        "patch_candidate": (run_dir / "proposal.patch").exists() and (bool(run_json.get("proposal_patch_found")) or (run_json.get("status") == "success" and "proposal_patch_path" in run_json)),
+        "patch_candidate": _has_patch_candidate(run_dir, run_json),
         "patch_review_status": readiness.get("patch_review_status"),
         "patch_dry_run_status": readiness.get("patch_dry_run_status"),
         "patch_application_status": readiness.get("patch_application_status"),
@@ -152,7 +152,7 @@ def _patch_readiness(base: Path, task: TaskRecord, run_dir: Path, run_json: dict
     warnings: list[str] = []
     if run_json.get("status") in {"failed", "error"}:
         return {"status": "failed", "errors": [str(run_json.get("summary") or "local patch worker failed")], "warnings": warnings}
-    if not (run_json.get("proposal_patch_found") and (run_dir / "proposal.patch").exists()):
+    if not _has_patch_candidate(run_dir, run_json):
         return {"status": "failed", "errors": ["proposal.patch is missing"], "warnings": warnings}
     review = _latest_json(base / "local-model-runs", "patch-review.json")
     if not review:
@@ -190,6 +190,18 @@ def _patch_readiness(base: Path, task: TaskRecord, run_dir: Path, run_json: dict
         "patch_application_status": application.get("status") or application.get("application_status"),
         "promotion_readiness": promotion_readiness,
     }
+
+
+def _has_patch_candidate(run_dir: Path, run_json: dict[str, Any]) -> bool:
+    if run_json.get("status") in {"failed", "error"}:
+        return False
+    if not (run_dir / "proposal.patch").exists():
+        return False
+    return (
+        bool(run_json.get("proposal_patch_found"))
+        or bool(run_json.get("proposal_patch_path"))
+        or "proposal_patch_found" not in run_json
+    )
 
 
 def _next_action(task_id: str, worker_id: str, status: str) -> str:

@@ -203,8 +203,15 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
 -old
 +new
 """
+    captured_requests: list[dict[str, Any]] = []
 
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        captured_requests.append(
+            {
+                "timeout": timeout,
+                "payload": json.loads(req.data.decode("utf-8")),
+            }
+        )
         return MockResponse(
             {
                 "choices": [
@@ -241,6 +248,9 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["status"] == "success"
+    assert captured_requests[0]["timeout"] == 90
+    assert captured_requests[0]["payload"]["max_tokens"] == 2048
+    assert captured_requests[0]["payload"]["reasoning"] == {"effort": "minimal", "exclude": True}
     agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-pro-patch-proposer"
     assert sorted(path.name for path in agent_dir.iterdir()) == [
         "proposal.patch",

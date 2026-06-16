@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
+import threading
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +38,9 @@ from devflow.control_room.task_packet import build_agent_packet
 ADVISORY_JOBS = {"gap-analysis", "review", "status"}
 PATCH_PROPOSER_PROFILE_ID = "deepseek-v4-pro-patch-proposer"
 SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{6,}")
+PATCH_REQUEST_TIMEOUT_SECONDS = 90
+PATCH_MAX_TOKENS = 2048
+PATCH_REASONING_EFFORT = "minimal"
 
 
 class OpenRouterAgentError(ValueError):
@@ -235,6 +241,12 @@ def run_patch_proposal(
                 system_prompt=_patch_system_prompt(profile),
                 user_prompt=user_prompt,
                 api_key=api_key,
+                timeout_seconds=_env_int("DEVFLOW_OPENROUTER_PATCH_TIMEOUT_SECONDS", PATCH_REQUEST_TIMEOUT_SECONDS),
+                max_tokens=_env_int("DEVFLOW_OPENROUTER_PATCH_MAX_TOKENS", PATCH_MAX_TOKENS),
+                reasoning={
+                    "effort": os.environ.get("DEVFLOW_OPENROUTER_PATCH_REASONING_EFFORT", PATCH_REASONING_EFFORT),
+                    "exclude": True,
+                },
             )
             content = _cap_text(_assistant_content(response_body), max_response_chars)
             raw_outputs.append(content)
@@ -514,6 +526,9 @@ def _chat_completion(
     system_prompt: str,
     user_prompt: str,
     api_key: str,
+    timeout_seconds: int | None = None,
+    max_tokens: int | None = None,
+    reasoning: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not provider.base_url:
         raise OpenRouterAgentError("OpenRouter provider base_url is missing.")
@@ -527,6 +542,10 @@ def _chat_completion(
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
     }
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
+    if reasoning is not None:
+        body["reasoning"] = reasoning
     request = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
@@ -537,9 +556,13 @@ def _chat_completion(
         },
         method="POST",
     )
+    request_timeout = timeout_seconds or provider.default_timeout_seconds or 300
     try:
-        with urllib.request.urlopen(request, timeout=provider.default_timeout_seconds or 300) as response:
-            decoded = response.read().decode("utf-8")
+        with _total_deadline(request_timeout):
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
+                decoded = response.read().decode("utf-8")
+    except TimeoutError as exc:
+        raise OpenRouterAgentError(f"OpenRouter request timed out after {request_timeout}s.") from exc
     except urllib.error.URLError as exc:
         raise OpenRouterAgentError(f"OpenRouter request failed: {_redact(str(exc), api_key=api_key)}") from exc
     try:
@@ -549,6 +572,36 @@ def _chat_completion(
     if not isinstance(payload, dict):
         raise OpenRouterAgentError("OpenRouter response root was not a JSON object.")
     return payload
+
+
+@contextmanager
+def _total_deadline(seconds: int):
+    if seconds <= 0 or threading.current_thread() is not threading.main_thread() or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def raise_timeout(signum: int, frame: object) -> None:
+        raise TimeoutError
+
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 def _assistant_content(response_body: dict[str, Any]) -> str:
