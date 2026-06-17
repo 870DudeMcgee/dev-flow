@@ -35,6 +35,20 @@ devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
 devflow dashboard
 ```
 
+### Starting the Dev-Flow UI Server
+
+The Dev-Flow operating layer web UI runs on `devflow operating-layer serve`:
+
+```bash
+source .venv/bin/activate
+devflow operating-layer serve              # http://127.0.0.1:8765/
+devflow operating-layer serve --port 0      # ephemeral port
+devflow operating-layer serve --open        # open browser
+devflow operating-layer install-service     # macOS login LaunchAgent
+```
+
+This serves a control room UI with project snapshot, task lane visualization, brainstorm panel, and supervisor-safe command execution. See `.codex/optional-project-notes.md` for the full endpoint reference.
+
 Do not implement Aider, Hermes worker/runtime adapters, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Hermes may be documented as an external read-only operator/chat gateway over supervisor-safe commands only. Future non-shell work beyond the narrow local Ollama evidence wrapper must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
 
 ---
