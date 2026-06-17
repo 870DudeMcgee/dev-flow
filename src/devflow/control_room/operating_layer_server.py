@@ -14,6 +14,11 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, urlsplit
 
+from devflow.control_room.brainstorm import (
+    BrainstormError,
+    escalate_brainstorm_session,
+    run_brainstorm_message,
+)
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
@@ -75,6 +80,12 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request = urlsplit(self.path)
+        if request.path == "/api/brainstorm/message":
+            self._handle_brainstorm_message()
+            return
+        if request.path == "/api/brainstorm/escalate":
+            self._handle_brainstorm_escalation()
+            return
         if request.path != "/api/actions/run":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -218,6 +229,48 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         return
+
+    def _handle_brainstorm_message(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            message = payload.get("message")
+            if not isinstance(message, str):
+                raise BrainstormError("message is required")
+            session_id = payload.get("session_id")
+            if session_id is not None and not isinstance(session_id, str):
+                raise BrainstormError("session_id must be a string")
+            result = run_brainstorm_message(root=root, message=message, session_id=session_id)
+        except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_brainstorm_escalation(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            session_id = payload.get("session_id")
+            stage = payload.get("stage")
+            title = payload.get("title")
+            if not isinstance(session_id, str):
+                raise BrainstormError("session_id is required")
+            if not isinstance(stage, str):
+                raise BrainstormError("stage is required")
+            if title is not None and not isinstance(title, str):
+                raise BrainstormError("title must be a string")
+            result = escalate_brainstorm_session(root=root, session_id=session_id, stage=stage, title=title)
+        except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _payload_project_root(self, payload: dict[str, object]) -> Path:
+        project_id = payload.get("project")
+        root = self.server.repo_root
+        if isinstance(project_id, str) and project_id.strip():
+            root = resolve_project_root(self.server.repo_root, project_id.strip()).root
+        return root
 
     def _read_json_body(self) -> dict[str, object]:
         length_header = self.headers.get("Content-Length")

@@ -27,8 +27,8 @@ VIEWPORTS: tuple[dict[str, int | str], ...] = (
 
 
 VISUAL_FLOW = (
-    "app loads -> first viewport renders Capture idea, Next step, Active work cards, "
-    "and Review queue approval states without horizontal overflow"
+    "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Worker lanes, "
+    "Review queue, and Evidence stream without horizontal overflow"
 )
 
 
@@ -250,13 +250,13 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "pass" if _index_before('id="guided"', 'id="orchestrator"') else "fail",
         ),
         _check(
-            "idea-intake",
-            "#idea-intake-form",
-            "Brainstorm intake is available in the normal first-viewport loop.",
+            "brainstorm-chat",
+            "#brainstorm-chat-form",
+            "DeepSeek brainstorm chat is available in the normal first-viewport loop.",
             "pass"
             if all(
                 token in INDEX_HTML + APP_CSS + APP_JS
-                for token in ("idea-intake-form", "idea-intake-text", "approvedIdeaCaptureCommand")
+                for token in ("brainstorm-chat-form", "brainstorm-message", "sendBrainstormMessage", "escalateBrainstormStage")
             )
             else "fail",
         ),
@@ -307,8 +307,8 @@ def _playwright_assertions() -> list[dict[str, str]]:
             "script": "document.querySelector('main > section')?.id === 'guided'",
         },
         {
-            "id": "idea-intake",
-            "script": "Boolean(document.querySelector('#idea-intake-form textarea'))",
+            "id": "brainstorm-chat",
+            "script": "Boolean(document.querySelector('#brainstorm-chat-form textarea'))",
         },
         {
             "id": "active-work-cards",
@@ -333,7 +333,7 @@ def _fallback_visual_checks() -> dict[str, bool]:
     return {
         "no_horizontal_overflow": check_ids.get("no_horizontal_overflow", False),
         "guided_first_viewport": check_ids.get("guided_first_viewport", False),
-        "idea_intake": check_ids.get("idea_intake", False),
+        "brainstorm_chat": check_ids.get("brainstorm_chat", False),
         "active_work_cards": check_ids.get("active_work_cards", False),
         "approval_states": check_ids.get("approval_states", False),
         "advanced_commands_contained": check_ids.get("advanced_commands_contained", False),
@@ -421,7 +421,7 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
         """() => {
           const doc = document.documentElement;
           const guided = document.querySelector('#guided');
-          const ideaIntake = document.querySelector('#idea-intake-form textarea');
+          const brainstormChat = document.querySelector('#brainstorm-chat-form textarea');
           const activeCards = document.querySelectorAll('#active-work-groups .guided-task-card');
           const reviewQueue = document.querySelector('#guided-review-queue');
           const commandPreview = document.querySelector('#action-preview');
@@ -432,7 +432,7 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
             guided_first_viewport: document.querySelector('main > section')?.id === 'guided',
-            idea_intake: Boolean(ideaIntake),
+            brainstorm_chat: Boolean(brainstormChat),
             active_work_cards: activeCards.length >= 1,
             approval_states: Boolean(
               reviewQueue &&
@@ -483,11 +483,11 @@ def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:
         '<rect width="100%" height="100%" fill="url(#bg)"/>',
         _text(left, top + 24, "Dev-Flow Operating Layer", 28 * scale, "#f6f3ff", 800),
         _text(left, top + 54, f"{snapshot.health.total_tasks} tasks / {snapshot.health.active_tasks} active / {snapshot.health.needs_verification} need verification", 15 * scale, "#9fb0c7", 600),
-        _panel(left, top + 82, card_width, 190, "Next step", snapshot.next_action.command or "None", "#66f0d1"),
+        _panel(left, top + 82, card_width, 190, "Brainstorm", "DeepSeek V4 Flash Free / Local evidence only", "#66f0d1"),
     ]
 
     y = top + 306
-    rows.append(_text(left, y, "Active work", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Worker lanes", 18 * scale, "#f6f3ff", 800))
     y += 16
     for worker in workers:
         y += 34

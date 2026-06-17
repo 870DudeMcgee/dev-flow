@@ -21,6 +21,7 @@ from devflow.control_room.persistence import get_task, save_task, utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
 from devflow.control_room.project_registry import register_project, write_project_metadata
 from devflow.control_room.worker_evidence import write_worker_evidence
+from tests.helpers import setup_temp_git_repo
 
 
 runner = CliRunner()
@@ -792,12 +793,15 @@ def test_operating_layer_server_serves_app_and_snapshot(
         body = response.read().decode("utf-8")
         assert response.status == 200
         assert "Dev-Flow Operating Layer" in body
-        assert "Next step" in body
-        assert "Capture idea" in body
-        assert "idea-intake-text" in body
-        assert "Create an immediate task instead" in body
-        assert "Active work" in body
+        assert "Brainstorm" in body
+        assert "DeepSeek V4 Flash Free" in body
+        assert "Escalate to Spec" in body
+        assert "Generate Plan" in body
+        assert "Open Implementation Task" in body
+        assert "Local evidence only" in body
+        assert "Worker lanes" in body
         assert "Review queue" in body
+        assert "Evidence stream" in body
         assert "Advanced Commands" in body
         assert "Operating Map" in body
         assert "Goal Board" in body
@@ -829,7 +833,9 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "map-list" in css
         assert "map-node" in css
         assert "guided-control-room" in css
-        assert "idea-intake-panel" in css
+        assert "brainstorm-chat-panel" in css
+        assert "pipeline-panel" in css
+        assert "operations-tray" in css
         assert "guided-task-card" in css
         assert "review-queue-list" in css
         assert "context-bar" in css
@@ -853,8 +859,9 @@ def test_operating_layer_server_serves_app_and_snapshot(
         js = response.read().decode("utf-8")
         assert response.status == 200
         assert "renderGuidedControlRoom" in js
-        assert "approvedIdeaCaptureCommand" in js
-        assert "isIdeaCaptureAction" in js
+        assert "sendBrainstormMessage" in js
+        assert "escalateBrainstormStage" in js
+        assert "renderBrainstormTranscript" in js
         assert "guidedTaskActions" in js
         assert "readableSafetyLabel" in js
         assert "approvedShellRunCommand" in js
@@ -916,6 +923,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "gateSummary" in js
         assert "evidenceSummary" in js
         assert "/api/snapshot?project=" in js
+        assert "/api/brainstorm/message" in js
+        assert "/api/brainstorm/escalate" in js
         assert "all-projects-button" in js
         assert "/api/actions/run" in js
         assert "executeAction" in js
@@ -927,17 +936,67 @@ def test_operating_layer_server_serves_app_and_snapshot(
         thread.join(timeout=5)
 
 
+def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        connection.request(
+            "POST",
+            "/api/brainstorm/message",
+            body=json.dumps({"session_id": "browser-session", "message": "Make the UI a real chat."}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert payload["status"] == "failed"
+        assert "OPENROUTER_API_KEY" in payload["error"]
+        assert (tmp_path / payload["transcript_path"]).exists()
+
+        connection.request(
+            "POST",
+            "/api/brainstorm/escalate",
+            body=json.dumps(
+                {
+                    "session_id": "browser-session",
+                    "stage": "implementation",
+                    "title": "Build brainstorm workbench",
+                }
+            ),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert payload["status"] == "ready"
+        assert payload["action"]["command"] == "devflow task create 'Build brainstorm workbench'"
+        assert payload["action"]["safety_class"] == "approval_required_task_state"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_operating_layer_guided_sections_render_before_advanced_sections() -> None:
     assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="orchestrator"')
     assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="actions"')
     assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="specs"')
     assert INDEX_HTML.index('id="guided"') < INDEX_HTML.index('id="evidence"')
-    assert "Next step" in INDEX_HTML
-    assert "Capture idea" in INDEX_HTML
-    assert "idea-intake-form" in INDEX_HTML
-    assert "Create an immediate task instead" in INDEX_HTML
-    assert "Active work" in INDEX_HTML
+    assert "Brainstorm" in INDEX_HTML
+    assert "DeepSeek V4 Flash Free" in INDEX_HTML
+    assert "brainstorm-chat-form" in INDEX_HTML
+    assert "Escalate to Spec" in INDEX_HTML
+    assert "Generate Plan" in INDEX_HTML
+    assert "Open Implementation Task" in INDEX_HTML
+    assert "Worker lanes" in INDEX_HTML
     assert "Review queue" in INDEX_HTML
+    assert "Evidence stream" in INDEX_HTML
     assert "Advanced Commands" in INDEX_HTML
     assert 'aria-label="Advanced commands"' in INDEX_HTML
 
@@ -1003,7 +1062,7 @@ def test_operating_layer_visual_qa_plan_covers_core_regression_contracts(
         "mobile-screenshot",
         "no-horizontal-overflow",
         "guided-first-viewport",
-        "idea-intake",
+        "brainstorm-chat",
         "active-work-cards",
         "approval-states",
         "advanced-commands-contained",
@@ -1024,8 +1083,8 @@ def test_operating_layer_visual_qa_cli_renders_json_plan(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["visual_flow"] == (
-        "app loads -> first viewport renders Capture idea, Next step, Active work cards, "
-        "and Review queue approval states without horizontal overflow"
+        "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Worker lanes, "
+        "Review queue, and Evidence stream without horizontal overflow"
     )
     assert payload["browser_runtime"] == "codex-in-app-browser"
     assert payload["serve_command"] == "devflow operating-layer serve --host 127.0.0.1 --port 8765"

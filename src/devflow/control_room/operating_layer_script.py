@@ -15,8 +15,16 @@ let verificationCommandInputs = {};
 let promotionContextInputs = {};
 let shellCommandInputs = {};
 let workerTimeoutInputs = {};
-let ideaIntakeText = "";
-let ideaIntakeTitle = "";
+let brainstormSessionId = `browser-${Date.now().toString(36)}`;
+let brainstormMessage = "";
+let brainstormTranscript = [
+  {
+    role: "assistant",
+    content: "Tell me what you want to build. I will help shape it, then you can escalate to spec, planning, and implementation.",
+    kind: "local",
+  },
+];
+let brainstormRunState = { status: "idle", message: "Local evidence only" };
 let startWorkTitle = "";
 let startWorkGitWorktree = false;
 let selectedSpecDocumentKey = null;
@@ -254,16 +262,27 @@ function repoLabel(path) {
   return parts[parts.length - 1] || path || "Repository";
 }
 
+function compactPath(path) {
+  const value = String(path || "");
+  if (!value) return "";
+  const homePrefix = "/Users/josh/";
+  if (value.startsWith(homePrefix)) return `~/${value.slice(homePrefix.length)}`;
+  const parts = value.split("/").filter(Boolean);
+  return parts.length > 2 ? `.../${parts.slice(-2).join("/")}` : value;
+}
+
 function render() {
   if (!snapshot) return;
   currentPage = normalizePage(currentPage);
   byId("repo-label").textContent = selectedProjectId ? "Selected Project" : "Repository";
   byId("repo-title").textContent = repoLabel(snapshot.project.root);
   byId("repo-title").title = snapshot.project.root;
-  byId("branch-pill").textContent = `branch ${snapshot.project.branch || "unknown"}`;
+  byId("repo-path").textContent = compactPath(snapshot.project.root);
+  byId("branch-pill").textContent = snapshot.project.branch || "unknown";
   byId("tree-pill").textContent = snapshot.project.working_tree === "clean"
-    ? "all systems operational"
-    : `tree ${snapshot.project.working_tree || "unknown"}`;
+    ? "Clean"
+    : String(snapshot.project.working_tree || "unknown").replaceAll("_", " ");
+  byId("last-sync").textContent = shortTime(snapshot.generated_at);
   byId("total-tasks").textContent = snapshot.health.total_tasks;
   byId("active-tasks").textContent = snapshot.health.active_tasks;
   byId("blocked-tasks").textContent = snapshot.health.blocked_tasks;
@@ -296,157 +315,73 @@ function render() {
 
 function renderGuidedControlRoom() {
   if (!byId("guided")) return;
-  const next = guidedRecommendedAction();
-  byId("guided-next-state").textContent = readableSafetyLabel(next.action.safety_class);
-  byId("guided-next-title").textContent = next.title;
-  byId("guided-next-detail").textContent = next.detail;
-  byId("guided-next-command").textContent = next.command || "None";
-  byId("guided-primary-action").textContent = next.button;
-  byId("guided-primary-action").disabled = !next.command;
-  byId("guided-primary-note").textContent = next.note;
-  byId("idea-intake-text").value = ideaIntakeText;
-  byId("idea-intake-title").value = ideaIntakeTitle;
+  byId("brainstorm-message").value = brainstormMessage;
+  byId("brainstorm-status").textContent = brainstormRunState.message || "Local evidence only";
+  byId("brainstorm-provider-state").textContent = brainstormRunState.status === "running"
+    ? "Thinking"
+    : "DeepSeek V4 Flash Free";
+  byId("brainstorm-session-label").textContent = brainstormSessionId;
+  byId("brainstorm-send").disabled = brainstormRunState.status === "running" || !brainstormMessage.trim();
+  byId("pipeline-state").textContent = pipelineStateLabel();
   byId("start-work-title").value = startWorkTitle;
   byId("start-work-git-worktree").checked = startWorkGitWorktree;
+  renderBrainstormTranscript();
   renderGuidedActionResult();
   renderActiveWorkGroups();
   renderGuidedReviewQueue();
+  renderGuidedEvidenceStream();
 }
 
-function guidedRecommendedAction() {
-  const command = (snapshot.review_loop && snapshot.review_loop.next_safe_action)
-    || (snapshot.next_action && snapshot.next_action.command)
-    || "";
-  const action = actionByCommand(command) || fallbackActionForCommand(command);
-  if (!command) {
-    return {
-      title: "No action waiting",
-      detail: "The current snapshot has no recommended local action.",
-      command: "",
-      button: "Refresh snapshot",
-      note: "No mutation will run",
-      action,
-    };
-  }
-  if (isShellWorkerRunAction(action)) {
-    return {
-      title: "Add a shell command",
-      detail: "This task is ready for an isolated shell worker run.",
-      command,
-      button: "Go to command entry",
-      note: "Only shell workers are browser-runnable",
-      action,
-    };
-  }
-  if (isTaskVerificationAction(action)) {
-    return {
-      title: "Run verification",
-      detail: "Worker output is recorded. Add the exact verification command on the task card.",
-      command,
-      button: "Go to verification",
-      note: "Verification runs only after explicit approval",
-      action,
-    };
-  }
-  if (isTaskPromotionAction(action)) {
-    return {
-      title: "Approve promotion",
-      detail: "Verified work can be promoted after the exact command is approved.",
-      command,
-      button: "Review approval",
-      note: "Promotion remains human-controlled",
-      action,
-    };
-  }
-  return {
-    title: action.label || "Inspect next command",
-    detail: action.supervisor_may_auto_run
-      ? "This read-only command can run in the browser."
-      : "This command needs review before it can run.",
-    command,
-    button: action.supervisor_may_auto_run ? "Run read-only command" : "Open command preview",
-    note: readableSafetyLabel(action.safety_class),
-    action,
-  };
+function pipelineStateLabel() {
+  if (brainstormRunState.status === "running") return "Brainstorming";
+  if (brainstormRunState.stage) return String(brainstormRunState.stage);
+  return "Brainstorm";
 }
 
-function handleGuidedPrimaryAction() {
-  const next = guidedRecommendedAction();
-  const action = next.action;
-  if (!action || !action.command) {
-    loadSnapshot(selectedProjectId).catch(() => {});
-    return;
-  }
-  if (isShellWorkerRunAction(action) || isTaskVerificationAction(action)) {
-    const task = (snapshot.tasks || []).find((item) => (item.actions || []).some((candidate) => candidate.command === action.command));
-    if (task) selectedTaskId = task.id;
-    renderGuidedControlRoom();
-    byId("active-work-groups")?.scrollIntoView({ block: "nearest" });
-    return;
-  }
-  if (isTaskPromotionAction(action)) {
-    executeAction(action, { approvedPromotion: true });
-    return;
-  }
-  if (action.supervisor_may_auto_run) {
-    executeAction(action);
-    return;
-  }
-  selectedActionCommand = action.command;
-  sectionState.actions = "expanded";
-  setCurrentPage("actions", { updateHash: true });
+function renderBrainstormTranscript() {
+  const transcript = byId("brainstorm-transcript");
+  if (!transcript) return;
+  transcript.innerHTML = brainstormTranscript.map((message) => `
+    <article class="brainstorm-message ${escapeHtml(message.role || "system")}">
+      ${message.role === "assistant" ? '<span class="brainstorm-avatar" aria-hidden="true">DS</span>' : ""}
+      <div class="brainstorm-bubble">
+        <span>${escapeHtml(message.role === "user" ? "You" : message.role === "assistant" ? "DeepSeek V4 Flash Free" : "Dev-Flow")}</span>
+        <p>${escapeHtml(message.content || "")}</p>
+      </div>
+    </article>
+  `).join("");
+  requestAnimationFrame(() => {
+    transcript.scrollTop = transcript.scrollHeight;
+  });
 }
 
 function renderActiveWorkGroups() {
   const container = byId("active-work-groups");
   if (!container) return;
-  const groups = [
-    { key: "needs-command", label: "Needs command", lanes: ["new", "idle"] },
-    { key: "running", label: "Running", lanes: ["running"] },
-    { key: "needs-verification", label: "Needs verification", lanes: ["needs_verification"] },
-    { key: "ready-review", label: "Ready to review", lanes: ["ready_to_promote", "needs_review"] },
-    { key: "blocked", label: "Blocked", lanes: ["blocked", "failed"] },
-  ];
   const visibleTasks = applyGlobalTaskFilter(snapshot.tasks || [])
     .filter((task) => task.lane !== "closed");
   const openCount = visibleTasks.length;
   byId("active-work-count").textContent = `${openCount} active`;
-  const groupsWithTasks = groups
-    .map((group) => ({ ...group, tasks: visibleTasks.filter((task) => group.lanes.includes(task.lane)).slice(0, 6) }))
-    .filter((group) => group.tasks.length);
-  if (!groupsWithTasks.length) {
+  const rows = visibleTasks.slice(0, 6);
+  if (!rows.length) {
     container.innerHTML = '<div class="empty">No active work is waiting</div>';
     return;
   }
-  container.innerHTML = groupsWithTasks.map((group) => {
-    const tasks = group.tasks;
-    return `
-      <div class="guided-work-group ${group.key}" role="listitem">
-        <div class="guided-group-heading">
-          <span>${escapeHtml(group.label)}</span>
-          <strong>${tasks.length}</strong>
-        </div>
-        <div class="guided-task-stack">
-          ${tasks.map((task) => guidedTaskCard(task)).join("")}
-        </div>
-      </div>
-    `;
-  }).join("");
+  container.innerHTML = rows.map((task) => guidedTaskCard(task)).join("");
   bindGuidedTaskControls(container);
 }
 
 function guidedTaskCard(task) {
   const actions = guidedTaskActions(task);
+  const worker = normalizedWorker(task.worker) || task.id;
+  const scope = task.workspace || task.lane || "workspace";
   return `
     <article class="guided-task-card ${escapeHtml(task.lane || "unknown")}" data-guided-task="${escapeHtml(task.id)}">
-      <div class="guided-task-top">
-        <div>
-          <span>${escapeHtml(task.id)}</span>
-          <h3>${escapeHtml(task.title)}</h3>
-        </div>
-        <strong>${escapeHtml(plainTaskStatusLabel(task))}</strong>
-      </div>
-      <p>${escapeHtml(plainTaskStatusLine(task))}</p>
+      <span class="lane-dot" aria-hidden="true"></span>
+      <strong class="guided-worker-name">${escapeHtml(worker)}</strong>
+      <span class="guided-task-title">${escapeHtml(task.title)}</span>
+      <code>${escapeHtml(scope)}</code>
+      <span class="guided-task-age">${escapeHtml(plainTaskStatusLabel(task))}</span>
       <div class="guided-task-actions">
         ${actions.map((item) => guidedActionControl(task, item)).join("")}
       </div>
@@ -585,6 +520,19 @@ function renderGuidedReviewQueue() {
   `).join("") || '<div class="empty">Nothing is waiting for review</div>';
 }
 
+function renderGuidedEvidenceStream() {
+  const stream = byId("guided-evidence-stream");
+  if (!stream) return;
+  const evidence = visibleEvidence().slice(0, 8);
+  byId("evidence-stream-count").textContent = `${evidence.length} ${evidence.length === 1 ? "item" : "items"}`;
+  stream.innerHTML = evidence.map((item) => `
+    <article class="evidence-stream-card">
+      <span>${escapeHtml(item.task_id || "project")}</span>
+      <strong>${escapeHtml(evidenceSummary(item))}</strong>
+    </article>
+  `).join("") || '<div class="empty">No evidence has landed yet</div>';
+}
+
 function renderGuidedActionResult() {
   const target = byId("guided-action-result");
   if (!target) return;
@@ -594,6 +542,94 @@ function renderGuidedActionResult() {
     return;
   }
   target.innerHTML = renderActionResult(result);
+}
+
+async function sendBrainstormMessage() {
+  const text = brainstormMessage.trim();
+  if (!text || brainstormRunState.status === "running") return;
+  brainstormTranscript.push({ role: "user", kind: "message", content: text });
+  brainstormMessage = "";
+  brainstormRunState = { status: "running", message: "DeepSeek is thinking..." };
+  renderGuidedControlRoom();
+  try {
+    const response = await fetch("/api/brainstorm/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: brainstormSessionId, message: text, project: selectedProjectId }),
+    });
+    const payload = await response.json().catch(() => ({ error: "Brainstorm unavailable" }));
+    if (!response.ok || payload.status === "failed") {
+      const message = payload.error || "DeepSeek response failed.";
+      brainstormTranscript.push({ role: "system", kind: "provider_error", content: message });
+      brainstormRunState = { status: "failed", message };
+    } else {
+      brainstormTranscript.push({
+        role: "assistant",
+        kind: "message",
+        content: payload.assistant_message || "DeepSeek returned an empty response.",
+      });
+      brainstormRunState = {
+        status: "success",
+        message: payload.transcript_path ? `Saved ${payload.transcript_path}` : "Transcript saved",
+        stage: "Brainstorm",
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Brainstorm request failed.";
+    brainstormTranscript.push({ role: "system", kind: "provider_error", content: message });
+    brainstormRunState = { status: "failed", message };
+  }
+  renderGuidedControlRoom();
+}
+
+async function escalateBrainstormStage(stage) {
+  const title = startWorkTitle.trim();
+  if (stage === "implementation" && !title) {
+    brainstormRunState = { status: "failed", message: "Implementation title is required." };
+    renderGuidedControlRoom();
+    return;
+  }
+  brainstormRunState = { status: "running", message: `Writing ${stage} evidence...`, stage };
+  renderGuidedControlRoom();
+  try {
+    const response = await fetch("/api/brainstorm/escalate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: brainstormSessionId, stage, title, project: selectedProjectId }),
+    });
+    const payload = await response.json().catch(() => ({ error: "Escalation unavailable" }));
+    if (!response.ok || payload.status === "failed") {
+      const message = payload.error || `Could not write ${stage} evidence.`;
+      brainstormTranscript.push({ role: "system", kind: "provider_error", content: message });
+      brainstormRunState = { status: "failed", message, stage };
+      renderGuidedControlRoom();
+      return;
+    }
+    brainstormTranscript.push({
+      role: "system",
+      kind: "stage",
+      content: `${stageLabel(stage)} evidence saved: ${payload.artifact_path || "local artifact"}`,
+    });
+    brainstormRunState = {
+      status: "success",
+      message: payload.artifact_path ? `Saved ${payload.artifact_path}` : `${stageLabel(stage)} evidence saved`,
+      stage: stageLabel(stage),
+    };
+    if (stage === "implementation" && payload.action) {
+      executeAction(payload.action, { approvedTaskCreation: true });
+      return;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Escalation failed.";
+    brainstormTranscript.push({ role: "system", kind: "provider_error", content: message });
+    brainstormRunState = { status: "failed", message, stage };
+  }
+  renderGuidedControlRoom();
+}
+
+function stageLabel(stage) {
+  const labels = { spec: "Spec", plan: "Plan", implementation: "Implementation" };
+  return labels[stage] || String(stage || "Brainstorm");
 }
 
 function actionByCommand(command) {
@@ -2167,25 +2203,6 @@ function isTaskPromotionAction(action) {
   );
 }
 
-function approvedIdeaCaptureCommand() {
-  const text = ideaIntakeText.trim();
-  const title = ideaIntakeTitle.trim();
-  const titlePart = title ? ` --title ${quoteShellArgument(title)}` : "";
-  return `devflow idea capture --source browser${titlePart} ${quoteShellArgument(text)}`;
-}
-
-function createIdeaCaptureAction() {
-  return {
-    label: "Save idea",
-    command: approvedIdeaCaptureCommand(),
-    scope: "idea",
-    safety_class: "approval_required_evidence_writing",
-    requires_human_approval: true,
-    supervisor_may_auto_run: false,
-    reason: "Captures raw local idea evidence. It does not create a task, run a worker, or call a model.",
-  };
-}
-
 function approvedTaskCreationCommand() {
   const title = startWorkTitle.trim();
   const projectPart = selectedProjectId ? ` --project ${quoteShellArgument(selectedProjectId)}` : "";
@@ -2282,9 +2299,7 @@ function preservedActionResultForSelectedTask(actions) {
 }
 
 async function executeAction(action, options = {}) {
-  const command = options.approvedIdeaCapture
-    ? action.command
-    : options.approvedTaskCreation
+  const command = options.approvedTaskCreation
     ? action.command
     : options.approvedShellRun
       ? approvedShellRunCommand(action)
@@ -2294,7 +2309,6 @@ async function executeAction(action, options = {}) {
   const body = { command, project: selectedProjectId };
   let refreshedSnapshot = false;
   if (
-    options.approvedIdeaCapture ||
     options.approvedTaskCreation ||
     options.approvedShellRun ||
     options.approvedVerification ||
@@ -2338,7 +2352,6 @@ async function executeAction(action, options = {}) {
     }
     if (
       (
-        options.approvedIdeaCapture ||
         options.approvedTaskCreation ||
         options.approvedShellRun ||
         options.approvedVerification ||
@@ -2346,10 +2359,6 @@ async function executeAction(action, options = {}) {
       )
       && payload.executed === true
     ) {
-      if (options.approvedIdeaCapture) {
-        ideaIntakeText = "";
-        ideaIntakeTitle = "";
-      }
       await refreshSnapshotAfterApprovedAction(action);
       refreshedSnapshot = true;
     }
@@ -3298,44 +3307,25 @@ function isTypingTarget(target) {
 }
 
 const _rb = byId("refresh-button"); _rb?.addEventListener("click", () => loadSnapshot());
-const _gpa = byId("guided-primary-action"); _gpa?.addEventListener("click", () => handleGuidedPrimaryAction());
-const _iif = byId("idea-intake-form"); _iif?.addEventListener("submit", (event) => {
+const _bcf = byId("brainstorm-chat-form"); _bcf?.addEventListener("submit", (event) => {
   event.preventDefault();
-  ideaIntakeText = byId("idea-intake-text").value;
-  ideaIntakeTitle = byId("idea-intake-title").value;
-  if (!ideaIntakeText.trim()) {
-    actionRunState = {
-      command: "devflow idea capture",
-      displayCommand: "devflow idea capture",
-      status: "error",
-      message: "Brainstorm text is required.",
-    };
-    renderGuidedControlRoom();
-    return;
-  }
-  executeAction(createIdeaCaptureAction(), { approvedIdeaCapture: true });
+  brainstormMessage = byId("brainstorm-message").value;
+  sendBrainstormMessage();
 });
-const _iit = byId("idea-intake-text"); _iit?.addEventListener("input", (event) => {
-  ideaIntakeText = event.target.value;
+const _bm = byId("brainstorm-message"); _bm?.addEventListener("input", (event) => {
+  brainstormMessage = event.target.value;
+  byId("brainstorm-send").disabled = brainstormRunState.status === "running" || !brainstormMessage.trim();
 });
-const _iititle = byId("idea-intake-title"); _iititle?.addEventListener("input", (event) => {
-  ideaIntakeTitle = event.target.value;
+document.querySelectorAll("[data-brainstorm-stage]").forEach((button) => {
+  button.addEventListener("click", () => {
+    escalateBrainstormStage(button.dataset.brainstormStage);
+  });
 });
 const _swf = byId("start-work-form"); _swf?.addEventListener("submit", (event) => {
   event.preventDefault();
   startWorkTitle = byId("start-work-title").value;
   startWorkGitWorktree = byId("start-work-git-worktree").checked;
-  if (!startWorkTitle.trim()) {
-    actionRunState = {
-      command: "devflow task create",
-      displayCommand: "devflow task create",
-      status: "error",
-      message: "Task title is required.",
-    };
-    renderGuidedControlRoom();
-    return;
-  }
-  executeAction(createTaskAction(), { approvedTaskCreation: true });
+  escalateBrainstormStage("implementation");
 });
 const _swt = byId("start-work-title"); _swt?.addEventListener("input", (event) => {
   startWorkTitle = event.target.value;

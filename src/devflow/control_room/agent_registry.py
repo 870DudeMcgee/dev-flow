@@ -1065,6 +1065,27 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             ],
             "hermes_delegable": False,
         },
+        {
+            "id": "deepseek-v4-flash-free-brainstormer",
+            "model": "deepseek/deepseek-v4-flash:free",
+            "role": "frontier_planner_architect_reviewer",
+            "tier": "frontier",
+            "default_mode": "frontier_read_only",
+            "purpose": "OpenRouter DeepSeek V4 Flash Free profile for browser brainstorming chat evidence.",
+            "model_role_name": "deepseek-flash-free-brainstormer",
+            "secondary_roles": ["brainstorm", "spec-intake", "cheap-advisory"],
+            "use_caution": [
+                "Brainstorming evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, or push."
+            ],
+            "hermes_delegable": False,
+            "allowed_reads": [
+                "<repo>/docs/verification-ledger.md",
+                "<brainstorms>/**",
+            ],
+            "allowed_writes": [
+                "<brainstorms>/**",
+            ],
+        },
     ]
 
     for profile in remote_advisory_profiles:
@@ -1111,11 +1132,15 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
                 "<task>/questions.jsonl",
                 "<workspace>/**",
                 "<repo>/docs/verification-ledger.md",
-            ],
+            ]
+            if "allowed_reads" not in profile
+            else list(profile["allowed_reads"]),
             allowed_writes=[
                 "<reports>/agent-advisory-runs/**",
                 "<task>/agent-advisory-runs/**",
-            ],
+            ]
+            if "allowed_writes" not in profile
+            else list(profile["allowed_writes"]),
             forbidden_writes=[
                 "<main_checkout>/**",
                 "<workspace>/**",

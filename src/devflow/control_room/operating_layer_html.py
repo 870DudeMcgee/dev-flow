@@ -19,35 +19,71 @@ INDEX_HTML = """<!doctype html>
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">DF</div>
         <div>
-          <strong>Dev-Flow</strong>
+          <strong>DEV-FLOW</strong>
           <span>Operating Layer</span>
         </div>
       </div>
       <nav aria-label="Primary" role="navigation">
         <ul>
-          <li><a href="#orchestrator" data-action="go-orchestrator" aria-current="page">Home</a></li>
-          <li><a href="#lanes" data-action="go-lanes">Work</a></li>
-          <li><a href="#promotion" data-action="go-promotion">Review</a></li>
-          <li><a href="#projects" data-action="go-projects">Projects</a></li>
-          <li><a href="#actions" data-action="go-actions">Advanced</a></li>
+          <li><a href="#orchestrator" data-action="go-orchestrator" aria-current="page"><span aria-hidden="true">⌂</span>Home</a></li>
+          <li><a href="#lanes" data-action="go-lanes"><span aria-hidden="true">☷</span>Work</a></li>
+          <li><a href="#promotion" data-action="go-promotion"><span aria-hidden="true">◇</span>Review</a></li>
+          <li><a href="#projects" data-action="go-projects"><span aria-hidden="true">□</span>Projects</a></li>
+          <li><a href="#actions" data-action="go-actions"><span aria-hidden="true">≡</span>Advanced</a></li>
         </ul>
       </nav>
+      <div class="sidebar-lower" aria-label="Local control room status">
+        <div class="sidebar-status-card">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong>Control Room</strong>
+            <span>Local-first</span>
+          </div>
+        </div>
+        <div class="sidebar-links">
+          <span><span aria-hidden="true">⚙</span> Settings</span>
+          <span><span aria-hidden="true">?</span> Help</span>
+        </div>
+        <div class="sidebar-mode">
+          <span aria-hidden="true">▣</span>
+          <span>Local-first mode</span>
+        </div>
+      </div>
     </aside>
 
     <!-- Main content landmark -->
     <main id="main-panel" role="main" aria-label="Main content" tabindex="-1">
       <!-- Command Center / topbar -->
       <header id="command" class="topbar" data-section="command" aria-labelledby="repo-title">
-        <div class="topbar-left">
-          <p id="repo-label" class="label" hidden>Repository</p>
-          <h1 id="repo-title">Loading...</h1>
-          <div class="metrics-row" aria-label="Command Center metrics">
-            <span id="metrics-heading" class="sr-only">Metrics: total, active, blocked task, verify counts</span>
-            <span>Total <output id="total-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-            <span>Active <output id="active-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-            <span class="attention">Task blocks <output id="blocked-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-            <span class="verify">Verify <output id="verify-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-            <span class="metric-action">Next <code id="next-action" aria-label="Next action" tabindex="-1">Loading...</code></span>
+        <div class="topbar-left command-strip" aria-label="Control room summary">
+          <div class="command-tile repository-tile">
+            <span class="tile-icon" aria-hidden="true">⚑</span>
+            <div>
+              <p id="repo-label" class="label">Repository</p>
+              <h1 id="repo-title">Loading...</h1>
+              <small id="repo-path">~/Dev-Flow</small>
+            </div>
+          </div>
+          <div class="command-tile">
+            <span class="tile-icon" aria-hidden="true">⑂</span>
+            <div>
+              <span class="label">Branch</span>
+              <strong id="branch-pill" class="pill" aria-label="Current branch">branch</strong>
+            </div>
+          </div>
+          <div class="command-tile">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div>
+              <span class="label">State</span>
+              <strong id="tree-pill" class="pill" aria-label="Repository state">state</strong>
+            </div>
+          </div>
+          <div class="command-tile">
+            <span class="tile-icon" aria-hidden="true">◴</span>
+            <div>
+              <span class="label">Last sync</span>
+              <strong id="last-sync">Loading</strong>
+            </div>
           </div>
         </div>
         <div class="topbar-right">
@@ -57,79 +93,114 @@ INDEX_HTML = """<!doctype html>
             <span id="filter-legend" class="sr-only">Filter tasks by name, status, or assigned worker</span>
             <strong id="filter-count" aria-live="polite" aria-atomic="true">All</strong>
           </div>
-          <span id="branch-pill" class="pill" aria-label="Current branch">branch</span>
-          <span id="tree-pill" class="pill" aria-label="Repository state">state</span>
           <button id="all-projects-button" type="button" title="Show host repository">Host</button>
           <button id="refresh-button" type="button" title="Refresh snapshot">Refresh</button>
+          <span class="control-status-pill"><span class="status-dot" aria-hidden="true"></span>Control Room Online</span>
+        </div>
+        <div class="metrics-row sr-only" aria-label="Command Center metrics">
+          <span id="metrics-heading">Metrics: total, active, blocked task, verify counts</span>
+          <span>Total <output id="total-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
+          <span>Active <output id="active-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
+          <span class="attention">Task blocks <output id="blocked-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
+          <span class="verify">Verify <output id="verify-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
+          <span class="metric-action">Next <code id="next-action" aria-label="Next action" tabindex="-1">Loading...</code></span>
         </div>
       </header>
 
       <!-- Guided control room -->
       <section id="guided" class="guided-control-room" data-section="guided" aria-label="Guided control room">
-        <section class="guided-panel idea-intake-panel" aria-labelledby="idea-intake-heading">
+        <section class="guided-panel brainstorm-chat-panel" aria-labelledby="brainstorm-heading">
           <div class="section-heading">
-            <span id="idea-intake-heading">Capture idea</span>
-            <output id="idea-intake-state" aria-live="polite" aria-atomic="true">Brainstorm</output>
+            <span id="brainstorm-heading">Brainstorm</span>
+            <output id="brainstorm-provider-state" aria-live="polite" aria-atomic="true">DeepSeek V4 Flash Free</output>
           </div>
-          <form id="idea-intake-form" class="idea-intake-form">
-            <label>
-              <span class="label">Brainstorm, request, or rough thought</span>
-              <textarea id="idea-intake-text" autocomplete="off" placeholder="Type the messy version here. Dev-Flow will save it as idea evidence, not run it."></textarea>
-            </label>
-            <label>
-              <span class="label">Optional short title</span>
-              <input id="idea-intake-title" type="text" autocomplete="off" placeholder="e.g. Better project onboarding">
-            </label>
-            <div class="guided-action-row">
-              <button id="idea-intake-submit" class="primary-action" type="submit">Save idea</button>
-              <span class="label">Creates local idea evidence only</span>
+          <div class="brainstorm-model-bar" aria-label="Brainstorm model and evidence state">
+            <span>DeepSeek V4 Flash Free</span>
+            <strong id="brainstorm-session-label">Local evidence only</strong>
+          </div>
+          <div id="brainstorm-transcript" class="brainstorm-transcript" role="log" aria-live="polite" aria-label="Brainstorm transcript"></div>
+          <form id="brainstorm-chat-form" class="brainstorm-chat-form">
+            <label class="sr-only" for="brainstorm-message">Message DeepSeek V4 Flash Free</label>
+            <textarea id="brainstorm-message" autocomplete="off" placeholder="Chat with DeepSeek about what to build, then escalate to spec, plan, or implementation."></textarea>
+            <div class="brainstorm-composer-row">
+              <span class="composer-shortcuts" aria-hidden="true">@ &nbsp; /</span>
+              <span id="brainstorm-status" class="label" aria-live="polite" aria-atomic="true">Local evidence only</span>
+              <button id="brainstorm-send" class="primary-action" type="submit">Send</button>
             </div>
           </form>
-          <details class="advanced-toggle task-create-toggle">
-            <summary>Create an immediate task instead</summary>
-            <form id="start-work-form" class="start-work-form">
-              <label>
-                <span class="label">Task title</span>
-                <input id="start-work-title" type="text" autocomplete="off" placeholder="e.g. Fix import sorting">
-              </label>
-              <label class="inline-control">
-                <input id="start-work-git-worktree" type="checkbox">
-                <span>Create Git worktree lane</span>
-              </label>
-              <button id="start-work-submit" class="secondary-action" type="submit">Create task</button>
-            </form>
-          </details>
         </section>
 
-        <section class="guided-panel next-step-panel" aria-labelledby="guided-next-heading">
+        <section class="guided-panel pipeline-panel" aria-labelledby="pipeline-heading">
           <div class="section-heading">
-            <span id="guided-next-heading">Next step</span>
-            <output id="guided-next-state" aria-live="polite" aria-atomic="true">Loading</output>
+            <span id="pipeline-heading">Pipeline</span>
+            <output id="pipeline-state" aria-live="polite" aria-atomic="true">Brainstorm</output>
           </div>
-          <h2 id="guided-next-title">Loading recommended action...</h2>
-          <p id="guided-next-detail">Reading the current snapshot.</p>
-          <code id="guided-next-command">Loading...</code>
-          <div class="guided-action-row">
-            <button id="guided-primary-action" class="primary-action" type="button">Open next action</button>
-            <span id="guided-primary-note" class="label">Filesystem state remains the source of truth</span>
+          <div class="pipeline-stage-list" role="list" aria-label="Brainstorm escalation pipeline">
+            <article class="pipeline-stage active" role="listitem">
+              <span>01</span>
+              <strong>Brainstorm</strong>
+              <em>Active</em>
+              <p>Chat with DeepSeek before committing to task shape.</p>
+            </article>
+            <article class="pipeline-stage" role="listitem">
+              <span>02</span>
+              <strong>Spec</strong>
+              <em>Pending</em>
+              <p>Freeze the intent as local spec evidence.</p>
+              <button type="button" data-brainstorm-stage="spec">Escalate to Spec</button>
+            </article>
+            <article class="pipeline-stage" role="listitem">
+              <span>03</span>
+              <strong>Plan</strong>
+              <em>Pending</em>
+              <p>Convert the transcript into an implementation plan artifact.</p>
+              <button type="button" data-brainstorm-stage="plan">Generate Plan</button>
+            </article>
+            <article class="pipeline-stage implementation-stage" role="listitem">
+              <span>04</span>
+              <strong>Implement</strong>
+              <em>Pending</em>
+              <p>Create a reviewed Dev-Flow task without running a worker.</p>
+              <form id="start-work-form" class="start-work-form">
+                <label>
+                  <span class="label">Implementation title</span>
+                  <input id="start-work-title" type="text" autocomplete="off" placeholder="e.g. Build brainstorm workbench">
+                </label>
+                <label class="inline-control">
+                  <input id="start-work-git-worktree" type="checkbox">
+                  <span>Create Git worktree lane</span>
+                </label>
+                <button id="start-work-submit" class="secondary-action" type="submit">Open Implementation Task</button>
+              </form>
+            </article>
           </div>
           <div id="guided-action-result" class="guided-action-result" aria-live="polite" aria-atomic="true"></div>
         </section>
 
-        <section class="guided-panel active-work-panel" aria-labelledby="active-work-heading">
-          <div class="section-heading">
-            <span id="active-work-heading">Active work</span>
-            <output id="active-work-count" aria-live="polite" aria-atomic="true">0 tasks</output>
-          </div>
-          <div id="active-work-groups" class="active-work-groups" role="list" aria-label="Task cards grouped by state"></div>
-        </section>
+        <section class="operations-tray" aria-label="Control room operations">
+          <section class="guided-panel active-work-panel" aria-labelledby="active-work-heading">
+            <div class="section-heading">
+              <span id="active-work-heading">Worker lanes</span>
+              <output id="active-work-count" aria-live="polite" aria-atomic="true">0 tasks</output>
+            </div>
+            <div id="active-work-groups" class="active-work-groups" role="list" aria-label="Task cards grouped by state"></div>
+          </section>
 
-        <section class="guided-panel review-queue-panel" aria-labelledby="review-queue-heading">
-          <div class="section-heading">
-            <span id="review-queue-heading">Review queue</span>
-            <output id="review-queue-count" aria-live="polite" aria-atomic="true">0 items</output>
-          </div>
-          <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Verification and promotion queue"></div>
+          <section class="guided-panel review-queue-panel" aria-labelledby="review-queue-heading">
+            <div class="section-heading">
+              <span id="review-queue-heading">Review queue</span>
+              <output id="review-queue-count" aria-live="polite" aria-atomic="true">0 items</output>
+            </div>
+            <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Verification and promotion queue"></div>
+          </section>
+
+          <section class="guided-panel evidence-stream-panel" aria-labelledby="evidence-stream-heading">
+            <div class="section-heading">
+              <span id="evidence-stream-heading">Evidence stream</span>
+              <output id="evidence-stream-count" aria-live="polite" aria-atomic="true">0 items</output>
+            </div>
+            <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Recent evidence"></div>
+          </section>
         </section>
       </section>
 

@@ -33,6 +33,7 @@ STARTER_LOCAL_PROFILES = [
 DEEPSEEK_OPENROUTER_PROFILES = [
     "deepseek-v4-flash-planner",
     "deepseek-v4-pro-reviewer",
+    "deepseek-v4-flash-free-brainstormer",
     "deepseek-v4-pro-patch-proposer",
     "deepseek-v4-flash-patch-proposer",
 ]
@@ -793,6 +794,7 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     registry = load_agent_registry(tmp_path)
     planner = registry.require_agent("deepseek-v4-flash-planner")
     reviewer = registry.require_agent("deepseek-v4-pro-reviewer")
+    brainstormer = registry.require_agent("deepseek-v4-flash-free-brainstormer")
     patch_proposer = registry.require_agent("deepseek-v4-pro-patch-proposer")
     flash_patch_proposer = registry.require_agent("deepseek-v4-flash-patch-proposer")
 
@@ -809,6 +811,16 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     assert reviewer.hermes_delegable is False
     assert "high-risk-review" in reviewer.secondary_roles
     assert agent_runtime_contract(tmp_path, reviewer)["next_command"].startswith("devflow agent advise")
+
+    assert brainstormer.provider == "openrouter"
+    assert brainstormer.model == "deepseek/deepseek-v4-flash:free"
+    assert brainstormer.default_mode == "frontier_read_only"
+    assert brainstormer.hermes_delegable is False
+    assert "brainstorm" in brainstormer.secondary_roles
+    assert any(path == "<brainstorms>/**" for path in brainstormer.allowed_writes)
+    brainstorm_contract = agent_runtime_contract(tmp_path, brainstormer)
+    assert brainstorm_contract["execution_surface"] == "agent_advise"
+    assert brainstorm_contract["task_run_allowed"] is False
 
     assert patch_proposer.provider == "openrouter"
     assert patch_proposer.model == "deepseek/deepseek-v4-pro"

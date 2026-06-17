@@ -89,17 +89,17 @@ Multi-project      project_registry.py, multi_project_freshness.py
 | Option | Shape | Strength | Risk | Decision |
 | --- | --- | --- | --- | --- |
 | Kanban-first dashboard | Lanes dominate first viewport; Orchestrator is secondary | Familiar task-management pattern | Hides the actual directive/output and makes agent OS feel like a generic board | Reject as primary layout |
-| Chat-first command center | Thread/output dominates; boards are secondary | Matches agent collaboration surfaces | Can obscure parallel state if telemetry is not compact | Use only as supporting context |
-| Guided control room | Capture idea, Next step, Active work, and Review queue dominate first viewport | Best match for the normal local intake/create/run/verify/promote loop | Requires disciplined progressive disclosure to avoid visual noise | Recommended |
+| Chat-first brainstorm workbench | DeepSeek advisory chat and escalation pipeline dominate; worker lanes, review, and evidence remain visible below | Matches agent collaboration surfaces while keeping Dev-Flow state inspectable | Can obscure parallel state if telemetry is not compact | Recommended first viewport |
+| Guided control room | Brainstorm chat, Pipeline, Worker lanes, Review queue, and Evidence stream dominate first viewport | Best match for the normal local brainstorm/spec/plan/create/run/verify/promote loop | Requires disciplined progressive disclosure to avoid visual noise | Recommended |
 
 ## Recommended Direction
 
 Dev-Flow should be a guided local control room:
 
-- Overview page: a guided first viewport with `Capture idea`, `Next step`, `Active work`, and `Review queue`, followed by project-wide worker activity, system health, compact counters, and repository/project chrome.
+- Overview page: a guided first viewport with `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`, followed by project-wide worker activity, system health, compact counters, and repository/project chrome.
 - Drilldown pages: Workers, Goals, Specs, Progress, Alerts, Projects, Inbox, Actions, Evidence, and Review each show only the panels that belong to that work mode.
 - Navigation: the browser shell uses hash-based page routing over one derived snapshot. Page changes must not spawn workers, mutate canonical state, or require a server-side route.
-- Controls: Advanced Commands execution supports supervisor-classified `pure_read_only` Dev-Flow commands plus exact approval-gated idea capture, task creation, shell worker execution, task verification, and task promotion. Non-shell workers, local/provider model runs, patch application, cleanup apply, sync, push, project publication, and broad mutations remain blocked in the browser.
+- Controls: Advanced Commands execution supports supervisor-classified `pure_read_only` Dev-Flow commands plus exact approval-gated idea capture, task creation, shell worker execution, task verification, and task promotion. The Brainstorm panel may call the configured DeepSeek V4 Flash Free OpenRouter profile for advisory chat and write local transcript/spec/plan evidence, but it must not execute provider-backed workers or mutate project code. Non-shell workers, local/provider model runs as task execution, patch application, cleanup apply, sync, push, project publication, and broad mutations remain blocked in the browser.
 
 ## UI Spec
 
@@ -175,6 +175,8 @@ Implemented pieces:
 - Mission feed projection: `operating_layer.py` derives plain-language Orchestrator updates such as "Task progress", "Task update", "Evidence", "Question", and "Ready for review" from existing Dev-Flow artifacts; the browser shell only renders this list.
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
 - `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.
+- `brainstorm.py`: records advisory DeepSeek V4 Flash Free brainstorm transcripts under `.devflow/brainstorms/<session_id>/`, writes spec/plan/implementation escalation artifacts, and returns approval-gated task creation actions without editing files or running workers.
+- Brainstorm endpoints: `/api/brainstorm/message` calls only the configured advisory OpenRouter profile and fails closed when the provider key is unavailable; `/api/brainstorm/escalate` writes local evidence artifacts and returns a task creation action for explicit human approval.
 - `operating_layer_service.py`: installs a per-user macOS LaunchAgent that starts the local operating-layer server at login from the current project root. The default binding stays on `127.0.0.1`; non-loopback hosts require explicit `--allow-network-host`.
 - Action execution: `/api/actions/run` classifies the requested command with the supervisor policy, executes `pure_read_only` Dev-Flow commands through a bounded local subprocess, caps output, and returns approval-gate JSON for unsafe commands. The approved browser mutations are limited to exact human-approved idea capture, task creation, shell worker execution, task verification, and task promotion, with the server rechecking the classifier, requiring the exact approval phrase, refusing placeholder idea/title/command text, limiting browser worker runs to `--worker shell`, blocking local/provider model commands, and preserving the existing verification and promotion safety gates.
 - Verification refresh: after an executed approved task-verification action, the browser re-fetches `/api/snapshot` so task lanes, status, progress receipts, and evidence panes update from filesystem truth without a manual page reload.
@@ -185,7 +187,7 @@ Implemented pieces:
 - Global filter: narrows visible worker-lane tasks and Progress readiness receipts client-side by task id, title, status, worker, workspace, verification state, and latest event text without changing canonical state.
 - Operating Map: scoped map nodes for goals, inbox, workers, progress, review, and projects.
 - Selection Context Bar: names active map/goal scope and provides a Clear control.
-- Guided control room: the first viewport now prioritizes Capture idea, Next step, Active work, and Review queue so the normal local loop is visible before advanced surfaces.
+- Guided control room: the first viewport now prioritizes Brainstorm chat, Pipeline stages, Worker lanes, Review queue, and Evidence stream so the normal local loop is visible before advanced surfaces.
 - Advanced Commands: supervisor-classified commands for project, task, goal, lane, and batch contexts, with a collapsible command preview, read-only command execution, approval-gated task creation/shell-run/verification/promotion controls, bounded command output, and explicit refusal for unsafe commands.
 - Question & Blocker Inbox: groups manual worker questions, blocked tasks, failed/attention tasks, and freshness findings needing human decisions.
 - Goals page: shows goal loop state, completion progress, all projected slices, linked task ids, risk, recommendations, ready/blocked lanes, conflict-aware parallel/worker/verification batches, and safe commands.

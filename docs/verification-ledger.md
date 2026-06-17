@@ -47,21 +47,36 @@ Use this ledger before running expensive verification. If the question can be an
 
 ## Focused Operating-Layer Evidence
 
-- Browser idea intake + UI simplification: passed, `65 passed in 18.81s`.
+- Brainstorm workbench + DeepSeek advisory chat UI: passed, `80 passed, 11 skipped, 2 warnings in 82.19s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_openrouter_advisory.py tests/test_operating_layer.py tests/test_operator_ui_browser.py -q`.
+  - Scope: DeepSeek V4 Flash Free brainstorm profile, missing-key failure without fake assistant output, mocked OpenRouter chat transcript evidence, spec/plan/task escalation artifacts, operating-layer API/UI contracts, registry visibility, and browser UI selectors.
+- Premium brainstorm workbench layout repair: passed, `44 passed, 11 skipped, 2 warnings in 74.69s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py tests/test_operator_ui_browser.py -q`.
+  - Scope: preview-like dark sidebar/topbar plus light chat/pipeline workbench, guided first viewport, browser selectors, responsive overflow checks, and task/review/evidence controls.
+- Brainstorm registry/dogfood after layout repair: passed, `58 passed in 83.79s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_openrouter_advisory.py tests/test_dogfood_harness.py -q`.
+- Brainstorm workbench visual QA: passed.
+  - Command: `PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json`.
+  - Flow covered: Brainstorm chat, Pipeline stages, Worker lanes, Review queue, Evidence stream, guided first viewport, desktop/mobile screenshot paths, and no horizontal overflow.
+- Dogfood harness metadata after brainstorm workbench: passed, `22 passed in 80.33s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_dogfood_harness.py -q`.
+- Live in-app browser smoke for brainstorm workbench: passed on `http://127.0.0.1:8766/#orchestrator`.
+  - Observed: Home route opens at the top of the chat-first workbench, DeepSeek V4 Flash Free label is visible, pipeline escalation controls are visible, operations tray follows below, desktop/mobile have no horizontal overflow, and browser console warnings/errors are empty.
+- Prior idea-intake UI simplification, now superseded by the brainstorm workbench first viewport: passed, `65 passed in 18.81s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py tests/test_supervisor_operating_surface.py -q`.
   - Scope: guided idea intake, approved browser idea capture, simplified navigation, browser mutation policy, task/run/verify/promote guards, and supervisor policy.
-- Operating-layer visual QA plan/checks after intake simplification: passed.
+- Prior operating-layer visual QA after intake simplification, now superseded by the brainstorm workbench visual QA above: passed.
   - Command: `PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json`.
-  - Flow covered: Capture idea, guided first viewport, active work cards, approval states, Advanced Commands containment, desktop/mobile screenshot paths, and no horizontal overflow.
+  - Flow covered: prior idea-intake controls, guided first viewport, active work cards, approval states, Advanced Commands containment, desktop/mobile screenshot paths, and no horizontal overflow.
 - Dogfood harness visual metadata checks after intake simplification: passed, `21 passed in 45.42s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_dogfood_harness.py -q`.
-- Live in-app browser smoke after intake simplification: passed on `http://127.0.0.1:8766/#projects`.
-  - Observed: five-item nav (`Home`, `Work`, `Review`, `Projects`, `Advanced`), only guided + Projects visible on the Projects route after app settle, idea textarea visible, immediate task creation tucked behind details, no horizontal overflow, and no browser console errors.
+- Prior live in-app browser smoke after intake simplification, now superseded by the brainstorm workbench smoke above: passed on `http://127.0.0.1:8766/#projects`.
+  - Observed: five-item nav (`Home`, `Work`, `Review`, `Projects`, `Advanced`), only guided + Projects visible on the Projects route after app settle, prior idea text area visible, immediate task creation tucked behind details, no horizontal overflow, and no browser console errors.
 - Browser control-room usability + core controls: passed, `84 passed in 66.53s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py tests/test_supervisor_operating_surface.py tests/test_dogfood_harness.py -q`.
   - Scope: guided browser sections, approved task creation, approved shell worker run, verification/promotion gates, supervisor browser policy, and operating-layer dogfood metadata.
 - Operating-layer visual QA plan/checks: passed.
   - Command: `PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json`.
   - Flow covered: guided first viewport, active work cards, approval states, Advanced Commands containment, desktop/mobile screenshot paths, and no horizontal overflow.
-- Live in-app browser smoke: passed on `http://127.0.0.1:8766`.
-  - Observed: guided first operating section, no horizontal overflow, six active-work groups, one task card in the current repo snapshot, Advanced Commands preview with readable safety text plus raw safety class, and no browser console errors.
+- Earlier live in-app browser smoke before brainstorm workbench: passed on `http://127.0.0.1:8766`.
+  - Observed: the then-current first surface, no horizontal overflow, six active-work groups, one task card in the current repo snapshot, Advanced Commands preview with readable safety text plus raw safety class, and no browser console errors.
