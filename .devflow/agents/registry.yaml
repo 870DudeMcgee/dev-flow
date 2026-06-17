@@ -69,6 +69,18 @@ agents:
     tier: strong_local
     default_mode: workspace_write
     execution_mode: automated
+    # Model capability dimensions — derived from ollama show qwopus:latest
+    reliable_context_tokens: 235929
+    vision: true
+    thinking: true
+    code_focus: general_purpose
+    speed_class: slow
+    architecture_class: moe
+    fim_support: false
+    tuned_for_archetypes:
+      - complex_implementation
+      - architecture_design
+      - deep_debugging
     workspace: isolated_task_workspace
     can_see:
       - task_packet
@@ -137,6 +149,15 @@ agents:
     tier: strong_local
     default_mode: workspace_write
     execution_mode: automated
+    # Model capability dimensions — derived from ollama show gemma4:12b-it-qat
+    reliable_context_tokens: 249036
+    vision: true
+    thinking: true
+    code_focus: general_purpose
+    speed_class: medium
+    architecture_class: dense
+    fim_support: false
+    tuned_for_archetypes: []
     purpose: "Local Gemma 4 12B QAT patch proposal worker for this checkout; Dev-Flow applies, verifies, and promotes separately."
     model_role_name: gemma4-12b-qat-patch-proposer
     machine_class: either

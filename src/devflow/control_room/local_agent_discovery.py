@@ -64,30 +64,60 @@ class ModelCapabilityProfile:
     model: str
     provider: str
     architecture: str | None
-    weight_class: str
-    allowed_roles: list[str]
-    useful_context_tokens: int
-    max_safe_context_tokens: int
-    cost_class: str
-    latency_class: str
-    trust_level: str
+
+    # Dimension 1: compute class
+    architecture_class: str = "unknown"        # dense | moe | unknown
+    weight_class: str = "unknown"
+
+    # Dimension 2: context
+    useful_context_tokens: int = 8192
+    max_safe_context_tokens: int = 8192
+    reliable_context_tokens: int = 8192       # empirically proven, not advertised
+
+    # Dimension 3: modalities
+    vision: bool = False
+    thinking: bool = False
+    fim_support: bool = False                  # insert / fill-in-middle
+
+    # Dimension 4: specialization
+    code_focus: str = "general_purpose"        # general_purpose | code_specialist | frontier_general | frontier_coder
+
+    # Dimension 5: speed
+    speed_class: str = "medium"                # instant | fast | medium | slow | very_slow
+
+    # Dimension 6: cost
+    cost_class: str = "local"
+
+    # Legacy fields — kept for backward compat
+    allowed_roles: list[str] = field(default_factory=list)
+    latency_class: str = "medium"
+    trust_level: str = "name_only"
     strengths: list[str] = field(default_factory=list)
     cautions: list[str] = field(default_factory=list)
+    tuned_for_archetypes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "model": self.model,
             "provider": self.provider,
             "architecture": self.architecture,
+            "architecture_class": self.architecture_class,
             "weight_class": self.weight_class,
-            "allowed_roles": list(self.allowed_roles),
             "useful_context_tokens": self.useful_context_tokens,
             "max_safe_context_tokens": self.max_safe_context_tokens,
+            "reliable_context_tokens": self.reliable_context_tokens,
+            "vision": self.vision,
+            "thinking": self.thinking,
+            "fim_support": self.fim_support,
+            "code_focus": self.code_focus,
+            "speed_class": self.speed_class,
             "cost_class": self.cost_class,
             "latency_class": self.latency_class,
             "trust_level": self.trust_level,
+            "allowed_roles": list(self.allowed_roles),
             "strengths": list(self.strengths),
             "cautions": list(self.cautions),
+            "tuned_for_archetypes": list(self.tuned_for_archetypes),
         }
 
 
@@ -220,12 +250,108 @@ def parse_ollama_show(model: str, text: str) -> LocalModelManifest:
     )
 
 
+def _classify_architecture(architecture: str | None) -> str:
+    if not architecture:
+        return "unknown"
+    arch_lower = architecture.lower()
+    if "moe" in arch_lower:
+        return "moe"
+    if arch_lower in {"qwen2", "gemma4"}:
+        return "dense"
+    return "unknown"
+
+
+def _classify_code_focus(model: str, architecture: str | None) -> str:
+    model_lower = model.lower()
+    arch_lower = (architecture or "").lower()
+    combined = f"{model_lower} {arch_lower}"
+    if "coder" in combined or "code" in combined:
+        return "code_specialist"
+    return "general_purpose"
+
+
+def _classify_speed(weight_class: str, architecture_class: str) -> str:
+    if weight_class == "tiny":
+        return "instant"
+    if weight_class == "small":
+        return "fast"
+    if weight_class == "medium":
+        if architecture_class == "moe":
+            return "medium"
+        return "medium"
+    if weight_class == "heavy":
+        if architecture_class == "moe":
+            return "slow"
+        return "medium"
+    return "medium"
+
+
+def _compute_reliable_context(
+    advertised: int | None,
+    architecture_class: str,
+) -> tuple[int, int, int]:
+    """Return (reliable, useful, max_safe) context tokens.
+
+    reliable: what the model empirically handles well (90-95% of advertised)
+    useful: what we'd target for planning (slightly more conservative)
+    max_safe: the absolute ceiling beyond which we never push
+    """
+    if advertised is None:
+        return (8192, 8192, 8192)
+    is_moe = architecture_class == "moe"
+    discount = 0.90 if is_moe else 0.95
+    reliable = int(advertised * discount)
+    useful = min(reliable, max(8192, advertised - 4096))
+    max_safe = advertised
+    return (reliable, useful, max_safe)
+
+
+def _known_alias_archetypes(model: str) -> list[str]:
+    """Return pre-tuned archetypes for known aliases."""
+    model_lower = model.lower()
+    mapping = {
+        "local-planner-128k": ["architecture_design", "context_synthesis"],
+        "local-planner-64k": ["complex_implementation", "multi_file_refactor"],
+        "local-planner": ["architecture_design", "complex_implementation"],
+        "local-devflow": ["complex_implementation", "simple_implementation"],
+        "local-devflow-full": ["context_synthesis", "architecture_design"],
+        "qwopus": ["complex_implementation", "architecture_design", "deep_debugging"],
+        "local-coder-heavy": ["complex_implementation", "multi_file_refactor"],
+        "local-coder-medium": ["simple_implementation", "complex_implementation"],
+        "local-coder-fast": ["simple_implementation", "trivial_edit"],
+        "local-coder-tiny": ["trivial_edit", "classification"],
+        "local-reviewer-deep": ["code_review", "ui_visual_review"],
+        "local-reviewer-short": ["code_review"],
+        "local-reviewer-fast": ["code_review", "ui_visual_review"],
+        "local-worker-fast": ["trivial_edit", "documentation"],
+        "local-worker-balanced": ["simple_implementation", "documentation"],
+        "gemma4-fast": ["trivial_edit", "documentation"],
+        "gemma4-review": ["code_review", "ui_visual_review"],
+        "gemma4-31b-review": ["code_review"],
+    }
+    for key, archetypes in mapping.items():
+        if key in model_lower or model_lower.startswith(key):
+            return archetypes
+    return []
+
+
 def classify_local_model(manifest: LocalModelManifest) -> ModelCapabilityProfile:
     parameter_count = manifest.parameter_count_billions
     weight_class = _weight_class(parameter_count)
+    architecture_class = _classify_architecture(manifest.architecture)
+    code_focus = _classify_code_focus(manifest.model, manifest.architecture)
+    speed_class = _classify_speed(weight_class, architecture_class)
+
+    reliable_ctx, useful_ctx, safe_ctx = _compute_reliable_context(
+        manifest.context_length, architecture_class
+    )
+
     allowed_roles: list[str] = []
     strengths: list[str] = []
     cautions: list[str] = []
+    vision = "vision" in manifest.capabilities
+    thinking = "thinking" in manifest.capabilities
+    fim_support = "insert" in manifest.capabilities
 
     has_completion = not manifest.capabilities or "completion" in manifest.capabilities
     if has_completion:
@@ -238,28 +364,41 @@ def classify_local_model(manifest: LocalModelManifest) -> ModelCapabilityProfile
         allowed_roles.append("patch_proposer_candidate")
         cautions.append("Patch proposal still requires registry permission, review, dry-run, and verification gates.")
 
-    if "vision" in manifest.capabilities:
+    if vision:
         strengths.append("multimodal review")
-    if "thinking" in manifest.capabilities:
+    if thinking:
         strengths.append("reasoning")
+    if fim_support:
+        strengths.append("fill-in-middle")
+    if code_focus == "code_specialist":
+        strengths.append("code specialist")
+
     if manifest.architecture is None or manifest.parameters is None:
         cautions.append("Manifest is partial; treat capability as low-trust until ollama show has full facts.")
 
-    useful_context = min(manifest.context_length or 8192, 32768)
-    max_safe_context = min(manifest.context_length or useful_context, 65536)
+    tuned_archetypes = _known_alias_archetypes(manifest.model)
+
     return ModelCapabilityProfile(
         model=manifest.model,
         provider="ollama",
         architecture=manifest.architecture,
+        architecture_class=architecture_class,
         weight_class=weight_class,
-        allowed_roles=sorted(set(allowed_roles)),
-        useful_context_tokens=useful_context,
-        max_safe_context_tokens=max_safe_context,
+        useful_context_tokens=useful_ctx,
+        max_safe_context_tokens=safe_ctx,
+        reliable_context_tokens=reliable_ctx,
+        vision=vision,
+        thinking=thinking,
+        fim_support=fim_support,
+        code_focus=code_focus,
+        speed_class=speed_class,
         cost_class="local",
         latency_class=_latency_class(weight_class),
         trust_level="manifest_verified" if manifest.raw_facts else "name_only",
+        allowed_roles=sorted(set(allowed_roles)),
         strengths=sorted(set(strengths)),
         cautions=cautions,
+        tuned_for_archetypes=tuned_archetypes,
     )
 
 

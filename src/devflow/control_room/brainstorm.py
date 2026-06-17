@@ -4,6 +4,8 @@ import json
 import os
 import re
 import shlex
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ from devflow.control_room.agent_registry import (
     load_agent_registry,
     load_provider_registry,
 )
+from devflow.control_room.env_loader import resolve_api_key
 from devflow.control_room.openrouter_agent import (
     OpenRouterAgentError,
     _assistant_content,
@@ -31,9 +34,124 @@ BRAINSTORM_MAX_MESSAGE_CHARS = 12_000
 BRAINSTORM_MAX_HISTORY_MESSAGES = 16
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
+_OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434"
+_OLLAMA_DEFAULT_TIMEOUT = 300
+
 
 class BrainstormError(ValueError):
     pass
+
+
+def _is_ollama_provider(provider: ProviderDefinition) -> bool:
+    return provider.provider == "ollama" or provider.adapter == "ollama_chat"
+
+
+def _ollama_chat_completion(
+    *,
+    provider: ProviderDefinition,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Call a local Ollama /api/chat endpoint and return a normalized response body."""
+    base_url = (provider.base_url or _OLLAMA_DEFAULT_BASE_URL).rstrip("/")
+    url = f"{base_url}/api/chat"
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.2},
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    request_timeout = timeout_seconds or provider.default_timeout_seconds or _OLLAMA_DEFAULT_TIMEOUT
+    try:
+        with urllib.request.urlopen(request, timeout=request_timeout) as response:
+            decoded = response.read().decode("utf-8")
+    except urllib.error.URLError as exc:
+        raise OpenRouterAgentError(
+            f"Ollama request failed: {exc.reason}. Is Ollama running at {base_url}?"
+        ) from exc
+    except TimeoutError as exc:
+        raise OpenRouterAgentError(f"Ollama request timed out after {request_timeout}s.") from exc
+    try:
+        payload = json.loads(decoded)
+    except json.JSONDecodeError as exc:
+        raise OpenRouterAgentError(f"Ollama returned invalid JSON: {exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise OpenRouterAgentError("Ollama response root was not a JSON object.")
+    return payload
+
+
+def _ollama_extract_content(response_body: dict[str, Any]) -> str:
+    """Extract assistant content from an Ollama /api/chat response."""
+    message = response_body.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str):
+            return content.strip()
+    content = response_body.get("response")
+    if isinstance(content, str):
+        return content.strip()
+    raise OpenRouterAgentError("Ollama response did not include assistant content.")
+
+
+def _chat_completion_for_profile(
+    *,
+    profile: AgentDefinition,
+    provider: ProviderDefinition,
+    system_prompt: str,
+    user_prompt: str,
+    api_key: str | None = None,
+) -> dict[str, Any]:
+    """Route to OpenRouter or Ollama depending on the provider."""
+    if _is_ollama_provider(provider):
+        return _ollama_chat_completion(
+            provider=provider,
+            model=profile.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            timeout_seconds=provider.default_timeout_seconds,
+        )
+    if not api_key:
+        raise OpenRouterAgentError(
+            f"Provider '{provider.id}' requires an API key but none was provided."
+        )
+    return _chat_completion(
+        provider=provider,
+        model=profile.model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        api_key=api_key,
+        timeout_seconds=provider.default_timeout_seconds,
+    )
+
+
+def _extract_content_for_profile(
+    *,
+    provider: ProviderDefinition,
+    response_body: dict[str, Any],
+) -> str:
+    """Extract assistant content from either Ollama or OpenRouter response."""
+    if _is_ollama_provider(provider):
+        return _ollama_extract_content(response_body)
+    return _assistant_content(response_body)
+
+
+def _normalize_raw_response(response_body: dict[str, Any], *, api_key: str | None = None) -> str:
+    """Serialize the raw response for evidence, redacting if needed."""
+    if api_key:
+        return _safe_json(response_body, api_key=api_key)
+    return json.dumps(response_body, indent=2, sort_keys=True)
 
 
 def run_brainstorm_message(
@@ -41,11 +159,12 @@ def run_brainstorm_message(
     root: Path,
     message: str,
     session_id: str | None = None,
+    profile_id: str | None = None,
 ) -> dict[str, Any]:
     root = root.resolve()
     text = _validate_message(message)
     session = _session_id(session_id)
-    profile, provider = _load_brainstorm_profile(root)
+    profile, provider = _load_brainstorm_profile(root, profile_id=profile_id)
     evidence_dir = _session_dir(root, session)
     transcript_path = evidence_dir / "transcript.jsonl"
     run_path = evidence_dir / "run.json"
@@ -62,47 +181,49 @@ def run_brainstorm_message(
         },
     )
 
-    api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
-    api_key = os.environ.get(api_key_env)
-    if not api_key:
-        error = f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set."
-        _append_transcript(
-            transcript_path,
-            {
-                "created_at": _now(),
-                "role": "system",
-                "kind": "provider_error",
-                "content": error,
-            },
-        )
-        payload = _run_payload(
-            root=root,
-            status="failed",
-            session_id=session,
-            profile=profile,
-            provider=provider,
-            transcript_path=transcript_path,
-            run_path=run_path,
-            raw_response_path=None,
-            assistant_message=None,
-            usage=None,
-            error=error,
-            will_call_provider=False,
-        )
-        atomic_write_text(run_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
-        return payload
+    is_ollama = _is_ollama_provider(provider)
+    api_key: str | None = None
+    if not is_ollama:
+        api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
+        api_key = resolve_api_key(api_key_env)
+        if not api_key:
+            error = f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set."
+            _append_transcript(
+                transcript_path,
+                {
+                    "created_at": _now(),
+                    "role": "system",
+                    "kind": "provider_error",
+                    "content": error,
+                },
+            )
+            payload = _run_payload(
+                root=root,
+                status="failed",
+                session_id=session,
+                profile=profile,
+                provider=provider,
+                transcript_path=transcript_path,
+                run_path=run_path,
+                raw_response_path=None,
+                assistant_message=None,
+                usage=None,
+                error=error,
+                will_call_provider=False,
+            )
+            atomic_write_text(run_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            return payload
 
     try:
-        response_body = _chat_completion(
+        response_body = _chat_completion_for_profile(
+            profile=profile,
             provider=provider,
-            model=profile.model,
             system_prompt=_brainstorm_system_prompt(profile),
             user_prompt=_brainstorm_user_prompt(transcript_path, text),
             api_key=api_key,
-            timeout_seconds=provider.default_timeout_seconds,
         )
-        raw_text = _safe_json(response_body, api_key=api_key)
-        content = _assistant_content(response_body)
+        raw_text = _normalize_raw_response(response_body, api_key=api_key)
+        content = _extract_content_for_profile(provider=provider, response_body=response_body)
         assistant_message = _assistant_message_from_content(content)
         _append_transcript(
             transcript_path,
@@ -131,7 +252,7 @@ def run_brainstorm_message(
             will_call_provider=True,
         )
     except Exception as exc:
-        error = _redact(str(exc), api_key=api_key)
+        error = _redact(str(exc), api_key=api_key or "") if api_key else str(exc)
         _append_transcript(
             transcript_path,
             {
@@ -165,6 +286,8 @@ def escalate_brainstorm_session(
     session_id: str,
     stage: str,
     title: str | None = None,
+    profile_id: str | None = None,
+    use_model: bool | None = None,
 ) -> dict[str, Any]:
     root = root.resolve()
     session = _session_id(session_id)
@@ -177,6 +300,10 @@ def escalate_brainstorm_session(
     if not records:
         raise BrainstormError(f"brainstorm session has no transcript: {session}")
 
+    model_info: dict[str, Any] | None = None
+    if use_model and normalized_stage in {"spec", "plan"}:
+        model_info = _generate_stage_with_model(root, session, normalized_stage, records, profile_id=profile_id)
+
     if normalized_stage == "implementation":
         task_title = _implementation_title(title, records)
         action = {
@@ -188,7 +315,7 @@ def escalate_brainstorm_session(
             "supervisor_may_auto_run": False,
             "reason": "Creates one Dev-Flow task from an approved brainstorm escalation.",
         }
-        artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=task_title)
+        artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=task_title, model_info=model_info)
         return {
             "schema_version": 1,
             "status": "ready",
@@ -196,22 +323,156 @@ def escalate_brainstorm_session(
             "stage": normalized_stage,
             "artifact_path": relative_path(root, artifact_path),
             "action": action,
+            "model_info": model_info,
         }
 
-    artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=title)
+    artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=title, model_info=model_info)
     return {
         "schema_version": 1,
         "status": "ready",
         "session_id": session,
         "stage": normalized_stage,
         "artifact_path": relative_path(root, artifact_path),
+        "model_info": model_info,
     }
 
 
-def _load_brainstorm_profile(root: Path) -> tuple[AgentDefinition, ProviderDefinition]:
-    profile = load_agent_registry(root).require_agent(BRAINSTORM_PROFILE_ID)
+def _generate_stage_with_model(
+    root: Path,
+    session: str,
+    stage: str,
+    records: list[dict[str, Any]],
+    *,
+    profile_id: str | None = None,
+) -> dict[str, Any]:
+    """Call a model to produce a structured spec/plan from the brainstorm transcript."""
+    profile, provider = _load_brainstorm_profile(root, profile_id=profile_id)
+    is_ollama = _is_ollama_provider(provider)
+    api_key: str | None = None
+    if not is_ollama:
+        api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
+        api_key = resolve_api_key(api_key_env)
+        if not api_key:
+            return {
+                "used_model": False,
+                "error": f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set.",
+                "profile_id": profile.id,
+                "model": profile.model,
+            }
+
+    system_prompt = _stage_system_prompt(profile, stage)
+    user_prompt = _stage_user_prompt(records, stage)
+    try:
+        response_body = _chat_completion_for_profile(
+            profile=profile,
+            provider=provider,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            api_key=api_key,
+        )
+    except Exception as exc:
+        return {
+            "used_model": False,
+            "error": _redact(str(exc), api_key=api_key or "") if api_key else str(exc),
+            "profile_id": profile.id,
+            "model": profile.model,
+        }
+
+    raw_text = _normalize_raw_response(response_body, api_key=api_key)
+    content = _extract_content_for_profile(provider=provider, response_body=response_body)
+    structured = _parse_stage_content(content, stage)
+    evidence_dir = _session_dir(root, session)
+    raw_response_path = evidence_dir / f"{stage}.raw.json"
+    atomic_write_text(raw_response_path, raw_text)
+
+    _append_transcript(
+        evidence_dir / "transcript.jsonl",
+        {
+            "created_at": _now(),
+            "role": "assistant",
+            "kind": f"{stage}_generation",
+            "content": structured,
+            "model": profile.model,
+            "profile_id": profile.id,
+        },
+    )
+
+    return {
+        "used_model": True,
+        "profile_id": profile.id,
+        "model": profile.model,
+        "content": structured,
+        "raw_response_path": relative_path(root, raw_response_path),
+        "usage": response_body.get("usage") if isinstance(response_body.get("usage"), dict) else None,
+    }
+
+
+def _stage_system_prompt(profile: AgentDefinition, stage: str) -> str:
+    stage_word = "specification" if stage == "spec" else "plan"
+    return (
+        f"You are {profile.model} inside Dev-Flow's {stage.title()} stage. "
+        f"A developer has been brainstorming with an AI assistant. Your job is to read the full brainstorm transcript "
+        f"and produce a clean, structured {stage_word} document that captures the decisions, requirements, and next steps. "
+        f"Write in clear markdown. Do not invent features that were not discussed. "
+        f"Return JSON with keys: title, {stage}_markdown, next_steps (array of strings). "
+        f"Profile: {profile.id}."
+    )
+
+
+def _stage_user_prompt(records: list[dict[str, Any]], stage: str) -> str:
+    lines = ["## Brainstorm Transcript", ""]
+    for record in records:
+        role = str(record.get("role") or "unknown")
+        content = str(record.get("content") or "").strip()
+        if content:
+            lines.extend([f"### {role.title()}", "", content, ""])
+    lines.extend([
+        f"## Task",
+        "",
+        f"Produce a structured {stage} document from this transcript. "
+        f"Extract the core idea, decisions made, requirements, and concrete next steps. "
+        f"Do not include content that was not discussed.",
+    ])
+    return "\n".join(lines)
+
+
+def _parse_stage_content(content: str, stage: str) -> str:
+    stripped = content.strip()
+    if not stripped:
+        return f"(Model returned empty {stage} content.)"
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return stripped
+    if isinstance(payload, dict):
+        md_key = f"{stage}_markdown"
+        md = payload.get(md_key) or payload.get("markdown") or payload.get("content") or ""
+        title = payload.get("title") or ""
+        next_steps = payload.get("next_steps") or []
+        parts = []
+        if title:
+            parts.append(f"# {title}")
+            parts.append("")
+        if isinstance(md, str) and md.strip():
+            parts.append(md.strip())
+            parts.append("")
+        if isinstance(next_steps, list) and next_steps:
+            parts.append("## Next Steps")
+            parts.append("")
+            for step in next_steps:
+                parts.append(f"- {step}")
+            parts.append("")
+        if parts:
+            return "\n".join(parts)
+    return stripped
+
+
+def _load_brainstorm_profile(root: Path, *, profile_id: str | None = None) -> tuple[AgentDefinition, ProviderDefinition]:
+    agent_id = profile_id or BRAINSTORM_PROFILE_ID
+    profile = load_agent_registry(root).require_agent(agent_id)
     provider = load_provider_registry(root).require_provider(profile.provider)
-    if not is_remote_advisory_agent(profile, provider=provider):
+    is_ollama = _is_ollama_provider(provider)
+    if not is_ollama and not is_remote_advisory_agent(profile, provider=provider):
         raise OpenRouterAgentError(f"Profile '{profile.id}' is not an advisory OpenRouter profile.")
     return profile, provider
 
@@ -300,6 +561,7 @@ def _write_stage_artifact(
     records: list[dict[str, Any]],
     *,
     title: str | None = None,
+    model_info: dict[str, Any] | None = None,
 ) -> Path:
     heading = {"spec": "Brainstorm Spec", "plan": "Brainstorm Plan", "implementation": "Implementation Task"}[stage]
     path = _session_dir(root, session_id) / f"{stage}.md"
@@ -309,9 +571,31 @@ def _write_stage_artifact(
         f"Session: `{session_id}`",
         f"Title: {title or _derive_title(records)}",
         "",
-        "## Source Conversation",
-        "",
     ]
+    if model_info and model_info.get("used_model"):
+        body.extend([
+            f"Model: `{model_info.get('model', '?')}` (`{model_info.get('profile_id', '?')}`)",
+            "",
+        ])
+    elif model_info and model_info.get("error"):
+        body.extend([
+            f"Model error: {model_info['error']}",
+            "",
+        ])
+    if model_info and model_info.get("used_model") and model_info.get("content"):
+        body.extend([
+            "## Model-Generated " + stage.title(),
+            "",
+            model_info["content"],
+            "",
+            "## Source Conversation",
+            "",
+        ])
+    else:
+        body.extend([
+            "## Source Conversation",
+            "",
+        ])
     for record in records:
         role = str(record.get("role") or "unknown")
         content = str(record.get("content") or "").strip()

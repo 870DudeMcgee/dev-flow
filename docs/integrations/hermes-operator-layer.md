@@ -167,6 +167,78 @@ The old local checkout path is quarantined and must not be used for current work
 
 Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs, but operators should use their actual repo root. Do not restore legacy/quarantined material into active authority.
 
+---
+
+## Model Routing Configuration
+
+The Hermes `~/.hermes/config.yaml` has a `model_routing` section that routes tasks to the best model based on keyword patterns. The current setup has six tiers with fallback chains:
+
+| Tier | Primary Model | Fallbacks | Triggers |
+|---|---|---|---|
+| 1 Heavy | DeepSeek V4 Pro (paid) | V4 Flash paid → V4 Flash free → Qwopus local | refactor, debug, architect, security audit |
+| 2 Code | DeepSeek V4 Flash:free | V4 Flash paid → Qwopus devflow local | code, write, implement, function, class |
+| 3 Vision | Qwopus 32B local → Gemma 4 31B local | (local only — DeepSeek has no vision) | screenshot, ui, visual, image, mockup |
+| 4 Simple | Qwen Coder 7B local | V4 Flash:free | typo, rename, docstring, trivial |
+| 5 Planning | Qwen 3.6 128k local | V4 Flash free → V4 Flash paid | plan, synthesize, architecture, roadmap |
+| 6 Review | Gemma 4 31B review local | V4 Flash free → V4 Flash paid | review, audit, code review, PR |
+
+### Fallback behavior
+
+Each tier's `fallback_models` chain activates when:
+- The primary model is rate-limited (free tier exhausted)
+- The primary provider is unreachable
+- The model lacks required capabilities (e.g., DeepSeek has no vision)
+
+### Mid-session model switching
+
+Use Hermes slash commands to switch models without restarting:
+
+```
+/model               # Interactive model picker
+/model deepseek/deepseek-v4-flash         # Switch to paid Flash
+/model deepseek/deepseek-v4-flash:free    # Switch to free Flash
+/model qwopus-32b:latest                  # Switch to local Qwopus
+/model gemma4-31b:latest                  # Switch to local Gemma 31B
+```
+
+For vision tasks that fail because the chat model lacks vision:
+1. Attach the image with `/image /path/to/screenshot.png`
+2. Switch to a vision-capable model: `/model qwopus-32b:latest`
+3. Ask the question
+
+Or use the `vision_analyze` tool directly — it auto-routes to `google/gemini-2.5-flash` via the auxiliary vision config, regardless of the chat model.
+
+### Adding multiple OpenRouter keys for rate-limit rotation
+
+Credential pooling rotates across multiple API keys when one hits rate limits:
+
+```bash
+# Add a second OpenRouter API key to the pool
+hermes auth add openrouter
+# Follow the prompt to enter the second key
+# Hermes auto-rotates on 429 responses
+```
+
+Verify with:
+```bash
+hermes auth list openrouter
+```
+
+### Verification
+
+After config changes, restart the gateway:
+```bash
+hermes gateway restart
+```
+
+Then test routing:
+```bash
+hermes chat -q "Fix typo in docstring"        # → local-coder-fast
+hermes chat -q "Review this pull request"      # → local reviewer
+hermes chat -q "Design the auth architecture"  # → V4 Pro
+hermes chat -q "Implement login function"      # → V4 Flash free
+```
+
 ## Non-Goals
 
 This integration does not add a Hermes worker adapter, provider-backed task-run execution, a dashboard server, a database, autonomous routing, hidden memory, or a competing orchestration loop. The OpenRouter/DeepSeek advisory lane is Dev-Flow-owned report evidence that Hermes may schedule only under the bounded cron rule above. Future non-shell worker runtime work must follow the registry and adapter sequence documented in the active architecture notes.

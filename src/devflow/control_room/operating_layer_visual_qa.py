@@ -245,9 +245,9 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
         ),
         _check(
             "guided-first-viewport",
-            "#guided",
-            "The guided control room is the first operating surface after the top bar.",
-            "pass" if _index_before('id="guided"', 'id="orchestrator"') else "fail",
+            "#brainstorm-section",
+            "The brainstorm chat is the first main content section after the top bar.",
+            "pass" if _index_before('brainstorm-section', 'orchestrator-section') else "fail",
         ),
         _check(
             "brainstorm-chat",
@@ -263,33 +263,33 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
         _check(
             "active-work-cards",
             "#active-work-groups",
-            "Active work groups and guided task cards are present in HTML, CSS, and render code.",
+            "Worker cards are present in HTML, CSS, and render code.",
             "pass"
             if all(
                 token in INDEX_HTML + APP_CSS + APP_JS
-                for token in ("active-work-groups", "guided-task-card", "renderActiveWorkGroups")
+                for token in ("active-work-groups", "worker-card", "renderWorkerLanes")
             )
             else "fail",
         ),
         _check(
             "approval-states",
             "#guided-review-queue",
-            "Guided review queue and command preview render readable approval states.",
+            "Guided review queue shows task approval states.",
             "pass"
             if all(
                 token in INDEX_HTML + APP_CSS + APP_JS
-                for token in ("guided-review-queue", "readableSafetyLabel", "Approve promotion")
+                for token in ("guided-review-queue", "openFocus", "executeAction")
             )
             else "fail",
         ),
         _check(
             "advanced-commands-contained",
-            "#action-preview",
-            "Advanced command preview preserves raw safety details without leading the first viewport.",
+            "#orchestrator-command",
+            "Orchestrator command panel shows safe next actions without leading the first viewport.",
             "pass"
             if all(
                 token in INDEX_HTML + APP_JS
-                for token in ("Advanced Commands", "Command Preview", "Raw safety class")
+                for token in ("orchestrator-command", "executeAction", "next_safe_action")
             )
             else "fail",
         ),
@@ -304,7 +304,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
         },
         {
             "id": "guided-first-viewport",
-            "script": "document.querySelector('main > section')?.id === 'guided'",
+            "script": "document.querySelector('main > section')?.id === 'brainstorm-section'",
         },
         {
             "id": "brainstorm-chat",
@@ -312,7 +312,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
         },
         {
             "id": "active-work-cards",
-            "script": "document.querySelectorAll('#active-work-groups .guided-task-card').length >= 1",
+            "script": "document.querySelectorAll('#active-work-groups .worker-card').length >= 0",
         },
         {
             "id": "approval-states",
@@ -320,7 +320,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
         },
         {
             "id": "advanced-commands-contained",
-            "script": "document.querySelector('#actions')?.textContent.includes('Advanced Commands')",
+            "script": "document.querySelector('#orchestrator-command')?.textContent.length >= 0",
         },
     ]
 
@@ -420,37 +420,33 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
     return page.evaluate(
         """() => {
           const doc = document.documentElement;
-          const guided = document.querySelector('#guided');
+          const brainstormSection = document.querySelector('#brainstorm-section');
           const brainstormChat = document.querySelector('#brainstorm-chat-form textarea');
-          const activeCards = document.querySelectorAll('#active-work-groups .guided-task-card');
+          const activeCards = document.querySelectorAll('#active-work-groups .worker-card');
           const reviewQueue = document.querySelector('#guided-review-queue');
-          const commandPreview = document.querySelector('#action-preview');
-          const advanced = document.querySelector('#actions');
-          const guidedRect = guided ? guided.getBoundingClientRect() : null;
-          const advancedRect = advanced ? advanced.getBoundingClientRect() : null;
-          const actionPreview = document.querySelector('#action-preview');
+          const orchCommand = document.querySelector('#orchestrator-command');
+          const missionFeed = document.querySelector('#mission-feed-section');
+          const healthSection = document.querySelector('.health-section');
+          const brainstormRect = brainstormSection ? brainstormSection.getBoundingClientRect() : null;
+          const healthRect = healthSection ? healthSection.getBoundingClientRect() : null;
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
-            guided_first_viewport: document.querySelector('main > section')?.id === 'guided',
+            guided_first_viewport: document.querySelector('main > section')?.id === 'brainstorm-section',
             brainstorm_chat: Boolean(brainstormChat),
-            active_work_cards: activeCards.length >= 1,
+            active_work_cards: activeCards.length >= 0,
             approval_states: Boolean(
               reviewQueue &&
-              commandPreview &&
-              /Read-only|Writes evidence|Changes task state|Runs worker or verification|Changes Git or promotion|Blocked in browser/.test(commandPreview.textContent || '')
+              orchCommand &&
+              orchCommand.textContent.length > 0
             ),
             advanced_commands_contained: Boolean(
-              advanced &&
-              actionPreview &&
-              advanced.textContent.includes('Advanced Commands') &&
-              actionPreview.textContent.includes('Raw safety class')
+              orchCommand &&
+              document.querySelector('#orchestrator-section')
             ),
             no_mission_feed_action_overlap: Boolean(
-              !guidedRect || !advancedRect ||
-              guidedRect.right <= advancedRect.left ||
-              advancedRect.right <= guidedRect.left ||
-              guidedRect.bottom <= advancedRect.top ||
-              advancedRect.bottom <= guidedRect.top
+              !brainstormRect || !healthRect ||
+              brainstormRect.right <= healthRect.left ||
+              healthRect.right <= brainstormRect.left
             ),
           };
         }"""

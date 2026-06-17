@@ -5,432 +5,370 @@ INDEX_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Dev-Flow Operating Layer — project task boards, evidence tracking, and automation">
+  <meta name="description" content="Dev-Flow Operating Layer — control room">
   <title>Dev-Flow Operating Layer</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <!-- Skip-to-main link for keyboard/screen reader users -->
-  <a href="#main-panel" class="skip-link">Skip to main content</a>
+  <div class="app-shell">
 
-  <div class="app-shell" role="application">
-    <!-- Sidebar / navigation landmark -->
-    <aside class="sidebar" role="complementary" aria-label="Navigation">
+    <!-- ===== SIDEBAR ===== -->
+    <aside class="sidebar" role="navigation" aria-label="Main navigation">
+
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">DF</div>
-        <div>
+        <span class="brand-mark">D</span>
+        <div class="brand-text">
           <strong>DEV-FLOW</strong>
           <span>Operating Layer</span>
         </div>
       </div>
-      <nav aria-label="Primary" role="navigation">
-        <ul>
-          <li><a href="#orchestrator" data-action="go-orchestrator" aria-current="page"><span aria-hidden="true">⌂</span>Home</a></li>
-          <li><a href="#lanes" data-action="go-lanes"><span aria-hidden="true">☷</span>Work</a></li>
-          <li><a href="#promotion" data-action="go-promotion"><span aria-hidden="true">◇</span>Review</a></li>
-          <li><a href="#projects" data-action="go-projects"><span aria-hidden="true">□</span>Projects</a></li>
-          <li><a href="#actions" data-action="go-actions"><span aria-hidden="true">≡</span>Advanced</a></li>
-        </ul>
+
+      <nav class="nav-list" aria-label="Sections">
+        <a href="#home" class="nav-item active" data-nav="home">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+          <span>Home</span>
+        </a>
+        <a href="#work" class="nav-item" data-nav="work">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v2H6V4zm0 4h8v2H6V8zm0 4h8v2H6v-2z" clip-rule="evenodd"/></svg>
+          <span>Work</span>
+        </a>
+        <a href="#review" class="nav-item" data-nav="review">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          <span>Review</span>
+        </a>
+        <a href="#projects" class="nav-item" data-nav="projects">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
+          <span>Projects</span>
+        </a>
+        <a href="#advanced" class="nav-item" data-nav="advanced">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+          <span>Advanced</span>
+        </a>
       </nav>
-      <div class="sidebar-lower" aria-label="Local control room status">
-        <div class="sidebar-status-card">
-          <span class="status-dot" aria-hidden="true"></span>
-          <div>
-            <strong>Control Room</strong>
-            <span>Local-first</span>
-          </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="sidebar-status-card">
+        <span class="status-dot online" aria-hidden="true"></span>
+        <div>
+          <strong>Control Room</strong>
+          <span class="status-sub">Local-first</span>
         </div>
-        <div class="sidebar-links">
-          <span><span aria-hidden="true">⚙</span> Settings</span>
-          <span><span aria-hidden="true">?</span> Help</span>
-        </div>
-        <div class="sidebar-mode">
-          <span aria-hidden="true">▣</span>
-          <span>Local-first mode</span>
-        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <a href="#settings" class="nav-item small" data-nav="settings">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+          <span>Settings</span>
+        </a>
+        <a href="#help" class="nav-item small" data-nav="help">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+          <span>Help</span>
+        </a>
       </div>
     </aside>
 
-    <!-- Main content landmark -->
-    <main id="main-panel" role="main" aria-label="Main content" tabindex="-1">
-      <!-- Command Center / topbar -->
-      <header id="command" class="topbar" data-section="command" aria-labelledby="repo-title">
-        <div class="topbar-left command-strip" aria-label="Control room summary">
-          <div class="command-tile repository-tile">
-            <span class="tile-icon" aria-hidden="true">⚑</span>
-            <div>
-              <p id="repo-label" class="label">Repository</p>
-              <h1 id="repo-title">Loading...</h1>
-              <small id="repo-path">~/Dev-Flow</small>
+    <!-- ===== MAIN ===== -->
+    <main id="main-panel" role="main" aria-label="DevFlow Operating Layer">
+
+      <!-- ===== TOP BAR ===== -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="repo-selector" id="repo-selector" tabindex="0" role="button" aria-haspopup="true" aria-label="Select repository">
+            <span class="repo-icon">⚑</span>
+            <div class="repo-info">
+              <span class="repo-label">Repository</span>
+              <strong id="repo-name">DevFlow</strong>
+              <span class="repo-path" id="repo-path">~/DevFlow</span>
             </div>
+            <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
           </div>
-          <div class="command-tile">
-            <span class="tile-icon" aria-hidden="true">⑂</span>
-            <div>
-              <span class="label">Branch</span>
-              <strong id="branch-pill" class="pill" aria-label="Current branch">branch</strong>
-            </div>
+
+          <div class="topbar-pill" id="branch-pill">
+            <span class="pill-icon">⑂</span>
+            <span class="pill-label">Branch</span>
+            <strong id="branch-name">main</strong>
           </div>
-          <div class="command-tile">
-            <span class="status-dot" aria-hidden="true"></span>
-            <div>
-              <span class="label">State</span>
-              <strong id="tree-pill" class="pill" aria-label="Repository state">state</strong>
-            </div>
+
+          <div class="topbar-pill">
+            <span class="status-dot clean" aria-hidden="true"></span>
+            <span class="pill-label">State</span>
+            <strong id="tree-state">Clean</strong>
           </div>
-          <div class="command-tile">
-            <span class="tile-icon" aria-hidden="true">◴</span>
-            <div>
-              <span class="label">Last sync</span>
-              <strong id="last-sync">Loading</strong>
-            </div>
+
+          <div class="topbar-pill">
+            <span class="pill-icon">◴</span>
+            <span class="pill-label">Last sync</span>
+            <strong id="last-sync">2m ago</strong>
           </div>
         </div>
+
         <div class="topbar-right">
-          <div class="filter-control">
-            <label class="filter-label" for="global-filter">Filter</label>
-            <input id="global-filter" class="filter-input" type="search" placeholder="task, status, worker..." autocomplete="off" aria-describedby="filter-legend">
-            <span id="filter-legend" class="sr-only">Filter tasks by name, status, or assigned worker</span>
-            <strong id="filter-count" aria-live="polite" aria-atomic="true">All</strong>
-          </div>
-          <button id="all-projects-button" type="button" title="Show host repository">Host</button>
-          <button id="refresh-button" type="button" title="Refresh snapshot">Refresh</button>
-          <span class="control-status-pill"><span class="status-dot" aria-hidden="true"></span>Control Room Online</span>
-        </div>
-        <div class="metrics-row sr-only" aria-label="Command Center metrics">
-          <span id="metrics-heading">Metrics: total, active, blocked task, verify counts</span>
-          <span>Total <output id="total-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-          <span>Active <output id="active-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-          <span class="attention">Task blocks <output id="blocked-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-          <span class="verify">Verify <output id="verify-tasks" aria-labelledby="metrics-heading" aria-live="polite" aria-atomic="true">0</output></span>
-          <span class="metric-action">Next <code id="next-action" aria-label="Next action" tabindex="-1">Loading...</code></span>
+          <button id="refresh-button" type="button" class="topbar-btn" title="Refresh snapshot">⟳ Refresh</button>
+          <span class="control-status">
+            <span class="status-dot online" aria-hidden="true"></span>
+            Control Room Online
+            <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+          </span>
         </div>
       </header>
 
-      <!-- Guided control room -->
-      <section id="guided" class="guided-control-room" data-section="guided" aria-label="Guided control room">
-        <section class="guided-panel brainstorm-chat-panel" aria-labelledby="brainstorm-heading">
-          <div class="section-heading">
-            <span id="brainstorm-heading">Brainstorm</span>
-            <output id="brainstorm-provider-state" aria-live="polite" aria-atomic="true">DeepSeek V4 Flash Free</output>
-          </div>
-          <div class="brainstorm-model-bar" aria-label="Brainstorm model and evidence state">
-            <span>DeepSeek V4 Flash Free</span>
-            <strong id="brainstorm-session-label">Local evidence only</strong>
-          </div>
-          <div id="brainstorm-transcript" class="brainstorm-transcript" role="log" aria-live="polite" aria-label="Brainstorm transcript"></div>
-          <form id="brainstorm-chat-form" class="brainstorm-chat-form">
-            <label class="sr-only" for="brainstorm-message">Message DeepSeek V4 Flash Free</label>
-            <textarea id="brainstorm-message" autocomplete="off" placeholder="Chat with DeepSeek about what to build, then escalate to spec, plan, or implementation."></textarea>
-            <div class="brainstorm-composer-row">
-              <span class="composer-shortcuts" aria-hidden="true">@ &nbsp; /</span>
-              <span id="brainstorm-status" class="label" aria-live="polite" aria-atomic="true">Local evidence only</span>
-              <button id="brainstorm-send" class="primary-action" type="submit">Send</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="guided-panel pipeline-panel" aria-labelledby="pipeline-heading">
-          <div class="section-heading">
-            <span id="pipeline-heading">Pipeline</span>
-            <output id="pipeline-state" aria-live="polite" aria-atomic="true">Brainstorm</output>
-          </div>
-          <div class="pipeline-stage-list" role="list" aria-label="Brainstorm escalation pipeline">
-            <article class="pipeline-stage active" role="listitem">
-              <span>01</span>
-              <strong>Brainstorm</strong>
-              <em>Active</em>
-              <p>Chat with DeepSeek before committing to task shape.</p>
-            </article>
-            <article class="pipeline-stage" role="listitem">
-              <span>02</span>
-              <strong>Spec</strong>
-              <em>Pending</em>
-              <p>Freeze the intent as local spec evidence.</p>
-              <button type="button" data-brainstorm-stage="spec">Escalate to Spec</button>
-            </article>
-            <article class="pipeline-stage" role="listitem">
-              <span>03</span>
-              <strong>Plan</strong>
-              <em>Pending</em>
-              <p>Convert the transcript into an implementation plan artifact.</p>
-              <button type="button" data-brainstorm-stage="plan">Generate Plan</button>
-            </article>
-            <article class="pipeline-stage implementation-stage" role="listitem">
-              <span>04</span>
-              <strong>Implement</strong>
-              <em>Pending</em>
-              <p>Create a reviewed Dev-Flow task without running a worker.</p>
-              <form id="start-work-form" class="start-work-form">
-                <label>
-                  <span class="label">Implementation title</span>
-                  <input id="start-work-title" type="text" autocomplete="off" placeholder="e.g. Build brainstorm workbench">
-                </label>
-                <label class="inline-control">
-                  <input id="start-work-git-worktree" type="checkbox">
-                  <span>Create Git worktree lane</span>
-                </label>
-                <button id="start-work-submit" class="secondary-action" type="submit">Open Implementation Task</button>
-              </form>
-            </article>
-          </div>
-          <div id="guided-action-result" class="guided-action-result" aria-live="polite" aria-atomic="true"></div>
-        </section>
-
-        <section class="operations-tray" aria-label="Control room operations">
-          <section class="guided-panel active-work-panel" aria-labelledby="active-work-heading">
-            <div class="section-heading">
-              <span id="active-work-heading">Worker lanes</span>
-              <output id="active-work-count" aria-live="polite" aria-atomic="true">0 tasks</output>
-            </div>
-            <div id="active-work-groups" class="active-work-groups" role="list" aria-label="Task cards grouped by state"></div>
-          </section>
-
-          <section class="guided-panel review-queue-panel" aria-labelledby="review-queue-heading">
-            <div class="section-heading">
-              <span id="review-queue-heading">Review queue</span>
-              <output id="review-queue-count" aria-live="polite" aria-atomic="true">0 items</output>
-            </div>
-            <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Verification and promotion queue"></div>
-          </section>
-
-          <section class="guided-panel evidence-stream-panel" aria-labelledby="evidence-stream-heading">
-            <div class="section-heading">
-              <span id="evidence-stream-heading">Evidence stream</span>
-              <output id="evidence-stream-count" aria-live="polite" aria-atomic="true">0 items</output>
-            </div>
-            <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Recent evidence"></div>
-          </section>
-        </section>
-      </section>
-
-      <!-- Orchestrator stage (live-updating panel) -->
-      <section id="orchestrator" class="orchestrator-stage" data-section="orchestrator" aria-label="Orchestrator overview" aria-live="polite" aria-atomic="true">
-        <div class="orchestrator-agents" aria-label="Worker activity summary">
-          <div class="section-heading">
-            <span>Worker Activity</span>
-            <output id="agent-progress-count" aria-live="polite" aria-atomic="true">0 workers</output>
-          </div>
-          <div id="orchestrator-agent-progress" class="agent-progress-list" role="list" aria-label="Worker activity by actual DevFlow worker"></div>
+      <!-- ===== REPO SELECTOR DROPDOWN ===== -->
+      <div id="repo-dropdown" class="repo-dropdown" role="listbox" aria-label="Select a repository" hidden>
+        <div class="repo-dropdown-header">
+          <span class="pill-label">Recent repositories</span>
         </div>
-        <div class="orchestrator-core">
-          <div class="orchestrator-kicker">
-            <span id="orchestrator-sync" aria-live="polite" aria-atomic="true">Uplink synced</span>
-            <span class="sr-only">DevFlow Orchestrator</span>
-            <strong aria-hidden="true">DevFlow Orchestrator</strong>
-            <span id="orchestrator-time" aria-live="polite" aria-atomic="true">--</span>
-          </div>
-          <span class="orchestrator-label">Current Directive</span>
-          <h2 id="orchestrator-goal-title">Loading current goal...</h2>
-          <p id="orchestrator-directive">Reading operating layer snapshot.</p>
-          <div class="orchestrator-command">
-            <span>Next Safe Action</span>
-            <code id="orchestrator-command" aria-label="Orchestrator next action">Loading...</code>
-          </div>
-          <div class="mission-feed" aria-label="Recent work feed">
-            <div class="section-heading">
-              <span>Work Feed</span>
-              <output id="mission-feed-count" aria-live="polite" aria-atomic="true">0 updates</output>
-            </div>
-            <div id="mission-feed-list" class="mission-feed-list" role="list"></div>
-          </div>
-          <div class="orchestrator-counters" role="group" aria-label="Orchestrator counters">
-            <div><span>Queue</span><output id="orchestrator-queue" aria-live="polite" aria-atomic="true">0</output></div>
-            <div><span>Ready</span><output id="orchestrator-ready" aria-live="polite" aria-atomic="true">0</output></div>
-            <div><span>Blocked lanes</span><output id="orchestrator-blocked" aria-live="polite" aria-atomic="true">0</output></div>
-            <div><span>Evidence</span><output id="orchestrator-evidence" aria-live="polite" aria-atomic="true">0</output></div>
-          </div>
-        </div>
-        <div class="orchestrator-health" role="region" aria-label="System health">
-          <div class="section-heading">
-            <span>System Health</span>
-            <output id="orchestrator-health-label" aria-live="polite" aria-atomic="true">Nominal</output>
-          </div>
-          <div id="orchestrator-health-bars" class="orchestrator-health-bars" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" aria-label="Health progress"></div>
-          <div class="orchestrator-mini">
-            <div><span>Freshness</span><output id="orchestrator-freshness" aria-live="polite" aria-atomic="true">unknown</output></div>
-            <div><span>Goal</span><output id="orchestrator-goal-id" aria-live="polite" aria-atomic="true">none</output></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Operating Map -->
-      <section id="map" class="map-strip" data-section="map" aria-label="Operating map">
-        <div class="section-heading">
-          <span aria-hidden="true">Operating Map</span>
-          <output id="map-status" aria-live="polite" aria-atomic="true">Loading</output>
-        </div>
-        <div id="map-list" class="map-list" role="list" aria-label="Map items"></div>
-      </section>
-
-      <!-- Context / scope bar -->
-      <section id="context" class="context-bar" aria-label="Current scope" aria-live="polite" aria-atomic="true">
-        <div>
-          <span id="scope-label">Scope</span>
-          <output id="context-title" aria-labelledby="scope-label">All work</output>
-          <p id="context-detail" aria-hidden="true">Whole operating layer</p>
-        </div>
-        <button id="clear-context-button" type="button" aria-label="Clear current scope">Clear</button>
-      </section>
-
-      <!-- Advanced Commands (collapsible panel) -->
-      <section id="actions" class="action-strip collapsed" data-section="actions" aria-label="Advanced commands">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="actions" aria-expanded="false" aria-controls="action-list" aria-label="Advanced commands, 0 actions">
-          <span>
-            <strong class="sr-only" aria-hidden="true">Advanced Commands</strong>
-            Advanced Commands
-          </span>
-          <output id="action-count" aria-live="polite" aria-atomic="true">0</output>
-        </button>
-        <div id="action-list" class="action-list section-body" role="list" aria-label="Action items"></div>
-        <div id="action-preview" class="action-preview section-body" aria-live="polite" aria-atomic="true" aria-label="Command Preview"></div>
-      </section>
-
-      <!-- Question & Blocker Inbox (collapsible panel) -->
-      <section id="inbox" class="inbox-strip collapsed" data-section="inbox" aria-label="Question and blocker inbox">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="inbox" aria-expanded="false" aria-controls="inbox-list" aria-label="Question and blocker inbox, 0 items">
-          <span>Question &amp; Blocker Inbox</span>
-          <output id="inbox-count" aria-live="polite" aria-atomic="true">0</output>
-        </button>
-        <div id="inbox-list" class="inbox-list section-body" role="list" aria-label="Inbox items"></div>
-      </section>
-
-      <!-- Goal Board (collapsible panel) -->
-      <section id="goals" class="goal-strip collapsed" data-section="goals" aria-label="Goal Board">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="goals" aria-expanded="false" aria-controls="goal-board-list" aria-label="Goal Board, 0 goals">
-          <span>Goal Board</span>
-          <output id="goal-board-count" aria-live="polite" aria-atomic="true">0</output>
-        </button>
-        <div id="goal-board-list" class="goal-board-list section-body" role="list" aria-label="Goal items"></div>
-      </section>
-
-      <!-- Multi-Project Overview -->
-      <section id="projects" class="project-strip expanded" data-section="projects" aria-label="Multi-Project Overview">
-        <div class="section-heading">
-          <span>Multi-Project Overview</span>
-          <output id="project-count" aria-live="polite" aria-atomic="true">0</output>
-        </div>
-        <div id="project-summary" class="project-summary" role="region" aria-label="Project summary"></div>
-        <div id="project-list" class="project-list" role="list" aria-label="Project list"></div>
-      </section>
-
-      <!-- Spec Board (collapsible panel) -->
-      <section id="specs" class="spec-grid collapsed" data-section="specs" aria-label="Spec Board">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="specs" aria-expanded="false" aria-controls="spec-list" aria-label="Spec Board, 0 specs">
-          <span>Spec Board</span>
-          <output id="spec-count" aria-live="polite" aria-atomic="true">0</output>
-        </button>
-        <div id="spec-list" class="spec-list section-body" role="list" aria-label="Specification items"></div>
-      </section>
-
-      <!-- Worker Lanes / Agents + Task Inspector -->
-      <section id="lanes" class="workspace" data-section="lanes" aria-label="Worker lanes">
-        <div class="agents-canvas">
-          <div class="agents-header">
+        <div id="repo-list" role="list">
+          <div class="repo-item active" role="option" aria-selected="true" data-repo-path="~/DevFlow">
+            <span class="repo-item-icon">⚑</span>
             <div>
-              <span class="agents-eyebrow">Workers</span>
-              <h3>Worker detail</h3>
+              <strong>DevFlow</strong>
+              <span class="repo-path">~/DevFlow</span>
             </div>
-            <button id="agent-stack-toggle" class="agent-stack-toggle" type="button" aria-expanded="false" aria-label="Expand agent stack" aria-controls="agent-cards">
-              <span class="sr-only">Expand agent stack</span>
-              Expand
-            </button>
-            <div class="agent-status-board" role="group" aria-label="Worker status">
-              <div><span>Running</span><output id="agent-active-count" aria-live="polite" aria-atomic="true">0</output></div>
-              <div><span>Waiting</span><output id="agent-idle-count" aria-live="polite" aria-atomic="true">0</output></div>
-              <div><span>Recorded</span><output id="agent-dormant-count" aria-live="polite" aria-atomic="true">0</output></div>
+            <span class="check" aria-hidden="true">✓</span>
+          </div>
+          <div class="repo-item" role="option" aria-selected="false" data-repo-path="~/Bass Binge Website">
+            <span class="repo-item-icon">⚑</span>
+            <div>
+              <strong>Bass Binge Website</strong>
+              <span class="repo-path">~/Bass Binge Website</span>
             </div>
           </div>
-          <div id="agent-cards" class="agent-cards" role="list" aria-label="Worker detail cards"></div>
-          <div class="model-catalog-panel" role="region" aria-label="Models and workers">
-            <div class="section-heading">
-              <span>Models / Workers</span>
-              <output id="model-catalog-count" aria-live="polite" aria-atomic="true">0 profiles</output>
-            </div>
-            <div id="model-catalog-list" class="model-catalog-list" role="list" aria-label="Registered model profiles"></div>
-          </div>
-          <div class="agent-log-panel" role="region" aria-label="Worker logs">
-            <div class="section-heading">
-              <span>Worker Logs</span>
-              <output id="agent-log-count" aria-live="polite" aria-atomic="true">0 entries</output>
-            </div>
-            <div id="agent-log-list" class="agent-log-list" role="log" aria-label="Worker log entries" aria-relevant="all"></div>
-          </div>
-          <div class="lane-board" id="lane-board" role="list" aria-label="Lane board"></div>
         </div>
-        <aside id="inspector" class="inspector" aria-label="Task inspector" role="complementary">
-          <div class="section-heading">
-            <span aria-hidden="true">Task Inspector</span>
-            <output id="selected-task-id" aria-live="polite" aria-atomic="true">None</output>
-            <strong class="sr-only" role="heading" aria-level="3">Task Inspector</strong>
-          </div>
-          <h3 id="selected-title">Select a task</h3>
-          <dl id="selected-details" aria-label="Task details"></dl>
-          <div class="command-box">
-            <span>Safer Command</span>
-            <code id="selected-command" aria-label="Selected safe action">None</code>
-          </div>
-          <div class="detail-panel" role="region" aria-label="Evidence detail">
-            <div class="section-heading">
-              <span aria-hidden="true">Evidence Detail</span>
-              <strong class="sr-only">Evidence Detail</strong>
-            </div>
-            <output id="detail-event-count" class="sr-only" aria-live="polite" aria-atomic="true">0 events</output>
-            <div id="detail-summary" class="detail-summary" aria-label="Evidence summary"></div>
-            <div id="detail-events" class="detail-events" role="log" aria-label="Evidence event timeline" aria-relevant="all"></div>
-          </div>
-        </aside>
-      </section>
+      </div>
 
-      <!-- Task Progress (collapsible panel) -->
-      <section id="gates" class="gate-strip collapsed" data-section="gates" aria-label="Task progress">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="gates" aria-expanded="false" aria-controls="gate-list" aria-label="Task progress, 0 tasks">
-          <span>Task Progress</span>
-          <output id="gate-count" aria-live="polite" aria-atomic="true">0</output>
-        </button>
-        <div class="section-body progress-page">
-          <div id="progress-summary-grid" class="progress-summary-grid" aria-label="Task readiness summary"></div>
-          <div id="task-review-panel" class="task-review-panel" aria-live="polite" aria-atomic="true" aria-label="Selected task review"></div>
-          <div id="gate-list" class="progress-checklist gate-list" role="list" aria-label="Task readiness checklist"></div>
-        </div>
-      </section>
+      <!-- ===== LAYOUT COLUMNS ===== -->
+      <div class="layout-columns">
 
-      <!-- Attention Strip -->
-      <section id="attention" class="attention-strip" data-section="attention" aria-label="Attention strip">
-        <div class="section-heading">
-          <span aria-hidden="true">Attention Strip</span>
-          <output id="attention-count" aria-live="polite" aria-atomic="true">0</output>
-        </div>
-        <div id="attention-list" class="attention-list" role="list" aria-label="Attention items"></div>
-      </section>
+        <!-- Center: Brainstorm + Orchestrator -->
+        <div class="center-column">
 
-      <!-- Ready Review + Questions (collapsible panel) -->
-      <section id="promotion" class="desk-grid collapsed" data-section="promotion" aria-label="Ready review">
-        <div>
-          <button class="section-heading accordion-trigger" type="button" data-toggle-section="promotion" aria-expanded="false" aria-controls="question-list" aria-label="Questions, 0 pending">
-            <span>Questions</span>
-            <output id="question-count" aria-live="polite" aria-atomic="true">0</output>
-          </button>
-          <div id="question-list" class="list-stack section-body" role="list" aria-label="Pending questions"></div>
+          <!-- Brainstorm -->
+          <section id="brainstorm-section" class="panel brainstorm-section" aria-label="Brainstorm">
+            <div class="panel-header">
+              <h2 class="panel-title">Brainstorm</h2>
+              <div class="panel-header-controls">
+                <button class="btn btn-sm btn-secondary" id="brainstorm-new-session" type="button" style="padding:3px 10px;font-size:11px;">+ New</button>
+                <div class="model-selector-wrap">
+                  <span class="model-selector" id="model-selector" tabindex="0" role="button" aria-haspopup="listbox">
+                    <span id="model-selector-label">DeepSeek V4 Flash Free</span>
+                    <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                  </span>
+                  <div class="model-dropdown" id="model-dropdown" hidden></div>
+                </div>
+                <label class="evidence-toggle">
+                  <input type="checkbox" id="local-evidence-only" checked>
+                  <span>Local evidence only</span>
+                </label>
+              </div>
+            </div>
+
+            <div id="brainstorm-transcript" class="brainstorm-transcript" role="log" aria-live="polite" aria-label="Brainstorm transcript"></div>
+
+            <form id="brainstorm-chat-form" class="brainstorm-chat-form">
+              <textarea id="brainstorm-message" autocomplete="off" placeholder="Ask DeepSeek anything about your idea, architecture, or next step..."></textarea>
+              <div class="composer-row">
+                <span class="composer-shortcuts">
+                  <span class="shortcut-badge">@</span>
+                  <span class="shortcut-badge">/</span>
+                </span>
+                <span class="newline-hint">Shift + Enter for newline</span>
+                <button id="brainstorm-send" class="btn btn-primary" type="submit">
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+                  Send
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <!-- Orchestrator section (below brainstorm) -->
+          <section id="orchestrator-section" class="panel orchestrator-section" aria-label="Orchestrator">
+            <div class="panel-header">
+              <h2 class="panel-title">Orchestrator</h2>
+              <output id="orchestrator-sync" class="status-badge online" aria-live="polite" aria-atomic="true">Synced</output>
+            </div>
+            <div class="orchestrator-content">
+              <div class="orchestrator-directive">
+                <span class="label">Current Directive</span>
+                <h3 id="orchestrator-goal-title">Loading current goal...</h3>
+                <p id="orchestrator-directive">Reading operating layer snapshot.</p>
+                <div class="next-action">
+                  <span class="label">Next Safe Action</span>
+                  <code id="orchestrator-command">Loading...</code>
+                </div>
+              </div>
+              <div class="orchestrator-stats">
+                <div class="stat"><span class="stat-value" id="orchestrator-queue">0</span><span class="stat-label">Queue</span></div>
+                <div class="stat"><span class="stat-value" id="orchestrator-ready">0</span><span class="stat-label">Ready</span></div>
+                <div class="stat"><span class="stat-value" id="orchestrator-blocked">0</span><span class="stat-label">Blocked</span></div>
+                <div class="stat"><span class="stat-value" id="orchestrator-evidence">0</span><span class="stat-label">Evidence</span></div>
+              </div>
+              <div class="orchestrator-agents">
+                <div class="label">Agent Progress</div>
+                <div id="orchestrator-agent-progress" class="agent-progress-list"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Mission Feed -->
+          <section id="mission-feed-section" class="panel mission-feed-section" aria-label="Work feed">
+            <div class="panel-header">
+              <h2 class="panel-title">Work Feed</h2>
+              <output id="mission-feed-count" aria-live="polite" aria-atomic="true">0</output>
+            </div>
+            <div id="mission-feed-list" class="mission-feed-list"></div>
+          </section>
         </div>
-        <div>
-          <div class="section-heading">
-            <span aria-hidden="true">Ready for Review</span>
-            <strong class="sr-only" role="heading" aria-level="3">Ready for Review</strong>
+
+        <!-- Right: Pipeline + Health -->
+        <div class="right-column">
+          <section class="panel pipeline-section" aria-label="Pipeline">
+            <div class="panel-header">
+              <h2 class="panel-title">Pipeline</h2>
+              <span class="info-icon" title="Pipeline stages for the current project">ⓘ</span>
+            </div>
+            <div class="pipeline-stages">
+               <div class="pipeline-step active" data-stage="brainstorm">
+                <div class="step-number">
+                  <span>01</span>
+                  <svg class="step-connector" width="2" height="24"><line x1="1" y1="0" x2="1" y2="24" stroke="currentColor" stroke-width="2"/></svg>
+                </div>
+                <div class="step-content">
+                  <div class="step-row">
+                    <strong>Brainstorm</strong>
+                    <span class="step-status active">Active</span>
+                  </div>
+                  <p class="step-desc">Refining ideas in active discussion.</p>
+                  <p class="step-action">
+                    <button type="button" class="btn btn-sm btn-primary" data-brainstorm-stage="spec">Escalate to Spec →</button>
+                  </p>
+                </div>
+              </div>
+              <div class="pipeline-step locked" data-stage="spec">
+                <div class="step-number">
+                  <span>02</span>
+                  <svg class="step-connector" width="2" height="24"><line x1="1" y1="0" x2="1" y2="24" stroke="currentColor" stroke-width="2"/></svg>
+                </div>
+                <div class="step-content">
+                  <div class="step-row">
+                    <strong>Spec</strong>
+                    <span class="step-status pending">Pending</span>
+                  </div>
+                  <p class="step-desc">Freeze the intent as local spec evidence.</p>
+                  <p class="step-action">
+                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="plan">Generate Plan →</button>
+                  </p>
+                </div>
+              </div>
+              <div class="pipeline-step locked" data-stage="plan">
+                <div class="step-number">
+                  <span>03</span>
+                  <svg class="step-connector" width="2" height="24"><line x1="1" y1="0" x2="1" y2="24" stroke="currentColor" stroke-width="2"/></svg>
+                </div>
+                <div class="step-content">
+                  <div class="step-row">
+                    <strong>Plan</strong>
+                    <span class="step-status pending">Pending</span>
+                  </div>
+                  <p class="step-desc">Convert the transcript into an implementation plan artifact.</p>
+                  <p class="step-action">
+                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="implementation">Open Implementation Task →</button>
+                  </p>
+                </div>
+              </div>
+              <div class="pipeline-step locked" data-stage="implement">
+                <div class="step-number">
+                  <span>04</span>
+                </div>
+                <div class="step-content">
+                  <div class="step-row">
+                    <strong>Implement</strong>
+                    <span class="step-status pending">Pending</span>
+                  </div>
+                  <p class="step-desc">Create a reviewed DevFlow task without running a worker.</p>
+                  <p class="step-action">
+                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="implementation">Open Implementation Task</button>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- System Health -->
+          <section class="panel health-section" aria-label="System health">
+            <div class="panel-header">
+              <h2 class="panel-title">System Health</h2>
+              <output id="orchestrator-health-label" class="status-badge online" aria-live="polite" aria-atomic="true">Nominal</output>
+            </div>
+            <div id="orchestrator-health-bars" class="health-bars"></div>
+            <div class="health-meta">
+              <div><span class="label">Freshness</span><output id="orchestrator-freshness">unknown</output></div>
+              <div><span class="label">Goal</span><output id="orchestrator-goal-id">none</output></div>
+            </div>
+          </section>
+
+          <!-- Brainstorm History -->
+          <section class="panel history-panel" aria-label="Brainstorm history">
+            <div class="panel-header">
+              <h2 class="panel-title" style="font-size:13px;">History</h2>
+              <button class="btn btn-sm btn-secondary" id="brainstorm-new-session-side" type="button" style="padding:2px 8px;font-size:10px;">+ New</button>
+            </div>
+            <div id="brainstorm-sessions-list" class="history-list"></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ===== BOTTOM DOCK ===== -->
+      <div class="bottom-dock">
+        <!-- Worker lanes -->
+        <section class="dock-panel" aria-labelledby="worker-lanes-heading">
+          <div class="dock-panel-header">
+            <h3 id="worker-lanes-heading">Worker lanes</h3>
+            <output id="active-work-count" class="dock-count" aria-live="polite" aria-atomic="true">0 tasks</output>
+            <a href="#" class="dock-view-all">View all →</a>
           </div>
-          <output id="promotion-count" aria-live="polite" aria-atomic="true">0</output>
-          <div id="promotion-list" class="list-stack" role="list" aria-label="Ready review items"></div>
-        </div>
-      </section>
+          <div id="active-work-groups" class="worker-lanes-list" role="list" aria-label="Task cards"></div>
+        </section>
 
-      <!-- Evidence Timeline (collapsible panel) -->
-      <section id="evidence" class="evidence-strip collapsed" data-section="evidence" aria-label="Evidence timeline">
-        <button class="section-heading accordion-trigger" type="button" data-toggle-section="evidence" aria-expanded="false" aria-controls="evidence-list" aria-label="Evidence timeline, 0 items">
-          <span>Evidence Timeline</span>
-          <output id="evidence-count" aria-live="polite" aria-atomic="true">0</output>
-        </button>
-        <div id="evidence-list" class="evidence-list section-body" role="list" aria-label="Evidence items"></div>
-      </section>
+        <!-- Review queue -->
+        <section class="dock-panel" aria-labelledby="review-queue-heading">
+          <div class="dock-panel-header">
+            <h3 id="review-queue-heading">Review queue</h3>
+            <output id="review-queue-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
+            <a href="#" class="dock-view-all">View all →</a>
+          </div>
+          <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Review items"></div>
+        </section>
+
+        <!-- Evidence stream -->
+        <section class="dock-panel" aria-labelledby="evidence-stream-heading">
+          <div class="dock-panel-header">
+            <h3 id="evidence-stream-heading">Evidence stream</h3>
+            <output id="evidence-stream-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
+            <a href="#" class="dock-view-all">View all →</a>
+          </div>
+          <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
+        </section>
+      </div>
+
+      <!-- ===== FOOTER ===== -->
+      <footer class="app-footer">
+        <span class="status-dot online" aria-hidden="true"></span>
+        <span>Local-first mode</span>
+        <span class="footer-sep">·</span>
+        <span>All data stored locally</span>
+        <span class="footer-sep">·</span>
+        <span class="version">Dev-Flow v0.1.0</span>
+      </footer>
+
+      <!-- ===== FOCUS/DETAIL OVERLAY ===== -->
+      <div id="focus-overlay" class="focus-overlay" role="dialog" aria-modal="true" aria-label="Item detail" hidden>
+        <div class="focus-panel" id="focus-panel">
+          <button id="focus-close" class="focus-close" type="button" aria-label="Close detail">&times;</button>
+          <div id="focus-content"></div>
+        </div>
+      </div>
+
     </main>
   </div>
   <script src="/app.js"></script>

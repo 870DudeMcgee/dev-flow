@@ -19,6 +19,7 @@ from devflow.control_room.brainstorm import (
     escalate_brainstorm_session,
     run_brainstorm_message,
 )
+from devflow.control_room.env_loader import load_hermes_env_file
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
@@ -72,6 +73,16 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 render_operating_layer_snapshot_json(root, project_id=project_id),
                 "application/json; charset=utf-8",
             )
+            return
+        if path == "/api/agents":
+            self._handle_agents_list()
+            return
+        if path == "/api/brainstorm/sessions":
+            self._handle_brainstorm_sessions()
+            return
+        if path == "/api/brainstorm/transcript":
+            query = parse_qs(request.query)
+            self._handle_brainstorm_transcript(query)
             return
         if path == "/healthz":
             self._send_text(json.dumps({"status": "ok"}) + "\n", "application/json; charset=utf-8")
@@ -227,8 +238,120 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
         )
 
+    def _handle_brainstorm_sessions(self) -> None:
+        try:
+            root = self.server.repo_root
+            sessions_dir = root / ".devflow" / "brainstorms"
+            sessions = []
+            if sessions_dir.exists():
+                for entry in sorted(sessions_dir.iterdir(), key=lambda e: e.stat().st_mtime if e.is_dir() else 0, reverse=True):
+                    if not entry.is_dir():
+                        continue
+                    transcript = entry / "transcript.jsonl"
+                    if not transcript.exists():
+                        continue
+                    messages: list[dict[str, object]] = []
+                    first_user_msg = ""
+                    msg_count = 0
+                    has_spec = (entry / "spec.md").exists()
+                    has_plan = (entry / "plan.md").exists()
+                    for line in transcript.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(rec, dict):
+                            msg_count += 1
+                            if not first_user_msg and rec.get("role") == "user" and rec.get("kind") == "message":
+                                first_user_msg = str(rec.get("content", ""))[:80]
+                    sessions.append({
+                        "session_id": entry.name,
+                        "message_count": msg_count,
+                        "preview": first_user_msg or "(no messages)",
+                        "has_spec": has_spec,
+                        "has_plan": has_plan,
+                        "modified_at": datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+                    })
+            self._send_json({"sessions": sessions}, HTTPStatus.OK)
+        except Exception as exc:
+            self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_brainstorm_transcript(self, query: dict[str, list[str]]) -> None:
+        try:
+            root = self.server.repo_root
+            session_id = (query.get("session_id") or [None])[0]
+            if not session_id:
+                self._send_json_error("session_id query parameter is required", HTTPStatus.BAD_REQUEST)
+                return
+            transcript_path = root / ".devflow" / "brainstorms" / session_id / "transcript.jsonl"
+            if not transcript_path.exists():
+                self._send_json({"session_id": session_id, "messages": [], "spec": None, "plan": None}, HTTPStatus.OK)
+                return
+            messages: list[dict[str, object]] = []
+            for line in transcript_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(rec, dict):
+                    messages.append(rec)
+            session_dir = transcript_path.parent
+            spec_content = None
+            spec_path = session_dir / "spec.md"
+            if spec_path.exists():
+                spec_content = spec_path.read_text(encoding="utf-8")
+            plan_content = None
+            plan_path = session_dir / "plan.md"
+            if plan_path.exists():
+                plan_content = plan_path.read_text(encoding="utf-8")
+            self._send_json({
+                "session_id": session_id,
+                "messages": messages,
+                "spec": spec_content,
+                "plan": plan_content,
+            }, HTTPStatus.OK)
+        except Exception as exc:
+            self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+
     def log_message(self, format: str, *args: object) -> None:
         return
+
+    def _handle_agents_list(self) -> None:
+        try:
+            root = self.server.repo_root
+            from devflow.control_room.agent_registry import (
+                is_remote_advisory_agent,
+                load_agent_registry,
+                load_provider_registry,
+            )
+            registry = load_agent_registry(root)
+            providers = load_provider_registry(root)
+            agents = []
+            for agent in registry.enabled_agents():
+                provider = providers.providers.get(agent.provider)
+                if not provider:
+                    continue
+                is_remote = is_remote_advisory_agent(agent, provider=provider)
+                is_ollama = provider.provider == "ollama" or agent.adapter == "ollama_chat"
+                if not is_remote and not is_ollama:
+                    continue
+                agents.append({
+                    "id": agent.id,
+                    "model": agent.model,
+                    "label": agent.model_role_name or agent.id,
+                    "purpose": agent.purpose or "",
+                    "tier": agent.tier,
+                    "secondary_roles": agent.secondary_roles,
+                    "provider": agent.provider,
+                    "is_local": is_ollama,
+                })
+            self._send_json({"agents": agents}, HTTPStatus.OK)
+        except Exception as exc:
+            self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _handle_brainstorm_message(self) -> None:
         try:
@@ -240,7 +363,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             session_id = payload.get("session_id")
             if session_id is not None and not isinstance(session_id, str):
                 raise BrainstormError("session_id must be a string")
-            result = run_brainstorm_message(root=root, message=message, session_id=session_id)
+            profile_id = payload.get("profile_id")
+            if profile_id is not None and not isinstance(profile_id, str):
+                raise BrainstormError("profile_id must be a string")
+            result = run_brainstorm_message(root=root, message=message, session_id=session_id, profile_id=profile_id)
         except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
@@ -259,7 +385,16 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 raise BrainstormError("stage is required")
             if title is not None and not isinstance(title, str):
                 raise BrainstormError("title must be a string")
-            result = escalate_brainstorm_session(root=root, session_id=session_id, stage=stage, title=title)
+            profile_id = payload.get("profile_id")
+            if profile_id is not None and not isinstance(profile_id, str):
+                raise BrainstormError("profile_id must be a string")
+            use_model = payload.get("use_model")
+            if use_model is not None and not isinstance(use_model, bool):
+                raise BrainstormError("use_model must be a boolean")
+            result = escalate_brainstorm_session(
+                root=root, session_id=session_id, stage=stage, title=title,
+                profile_id=profile_id, use_model=use_model,
+            )
         except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
@@ -336,6 +471,7 @@ def run_operating_layer_server(
     open_browser: bool = False,
     ready_callback: Callable[[OperatingLayerHTTPServer], None] | None = None,
 ) -> None:
+    load_hermes_env_file()
     server = OperatingLayerHTTPServer((host, port), repo_root)
     if ready_callback:
         ready_callback(server)

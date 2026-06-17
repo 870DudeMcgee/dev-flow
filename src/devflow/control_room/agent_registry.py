@@ -112,6 +112,17 @@ class AgentDefinition(BaseModel):
     required_verification_command: str | None = None
     model_alias_group: str | None = None
     manifest_notes: list[str] = Field(default_factory=list)
+
+    # Model capability dimensions — populated from manifest or explicit registration
+    reliable_context_tokens: int | None = None
+    vision: bool | None = None
+    thinking: bool | None = None
+    code_focus: str | None = None
+    speed_class: str | None = None
+    architecture_class: str | None = None
+    fim_support: bool | None = None
+    tuned_for_archetypes: list[str] = Field(default_factory=list)
+
     workspace: str
     can_see: list[str] = Field(default_factory=list)
     can_touch: list[str] = Field(default_factory=list)

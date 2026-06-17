@@ -65,6 +65,150 @@ def _tier_for_scout(task_type: str, repo_scope: str, architectural_risk: str) ->
     return "local"
 
 
+def _classify_archetype(
+    task_type: str,
+    combined_text: str,
+    total_context_estimate: int,
+    all_relevant_files_count: int,
+    reasoning_requirement: str,
+) -> dict[str, Any]:
+    """Classify a task into a rich archetype with required capability dimensions.
+
+    Returns a dict with:
+      archetype_id: str
+      requires_vision: bool
+      requires_thinking: str  (none | optional | recommended | required)
+      preferred_code_focus: str (any | general_purpose | code_specialist | frontier)
+      max_cost_class: str (local_free | openrouter_free | openrouter_paid | unlimited)
+      preferred_speed: str (any | fast | medium | slow)
+      max_context_tokens: int (hard ceiling for this archetype)
+      min_context_tokens: int (minimum viable)
+      context_requirement: str
+      reasoning_requirement: str
+      code_edit_risk: str
+      architectural_risk: str
+      recommended_worker_tier_override: str | None
+    """
+    # Detect vision requirement — visual/UI tasks
+    requires_vision = any(
+        kw in combined_text
+        for kw in ["screenshot", "ui", "visual", "layout", "mockup",
+                    "image", "screenshot", "design review", "ux",
+                    "screen", "render", "preview", "looks like"]
+    )
+
+    # Detect thinking requirement
+    requires_thinking = "optional"
+    if any(kw in combined_text for kw in [
+        "debug", "investigate", "architecture", "design the",
+        "complex", "deep", "analyze", "root cause",
+        "multi-step", "orchestrate", "synthesize",
+    ]):
+        requires_thinking = "recommended"
+    if task_type in ("architecture_change", "model_routing_change", "repo_refactor"):
+        requires_thinking = "required"
+    if requires_vision:
+        requires_thinking = "recommended"
+
+    # Detect code focus
+    preferred_code_focus = "any"
+    if any(kw in combined_text for kw in ["code", "implement", "function", "class", "method",
+                                           "refactor", "fix", "bug", "api", "endpoint",
+                                           "test", "type", "module", "package"]):
+        preferred_code_focus = "code_specialist"
+
+    # Cost constraint: vision tasks must stay local, everything else can use free tier
+    max_cost_class = "local_free" if requires_vision else "openrouter_free"
+
+    # Speed preference
+    preferred_speed = "any"
+    if total_context_estimate < 4000 and task_type in ("trivial_edit", "documentation_cleanup"):
+        preferred_speed = "fast"
+    elif total_context_estimate > 64000:
+        preferred_speed = "slow"
+    elif total_context_estimate > 32000:
+        preferred_speed = "medium"
+
+    # Context bounds
+    min_ctx = min(total_context_estimate, 2000)
+    max_ctx = total_context_estimate * 2 + 16000  # generous ceiling
+
+    # Map current task_type to archetype
+    archetype_id = _map_to_archetype_id(task_type, combined_text, all_relevant_files_count, total_context_estimate)
+
+    code_edit_risk = "low"
+    architectural_risk = "low"
+    reasoning_requirement_out = reasoning_requirement
+
+    return {
+        "archetype_id": archetype_id,
+        "requires_vision": requires_vision,
+        "requires_thinking": requires_thinking,
+        "preferred_code_focus": preferred_code_focus,
+        "max_cost_class": max_cost_class,
+        "preferred_speed": preferred_speed,
+        "min_context_tokens": min_ctx,
+        "max_context_tokens": max_ctx,
+        "code_edit_risk": code_edit_risk,
+        "architectural_risk": architectural_risk,
+        "recommended_worker_tier_override": None,
+    }
+
+
+def _map_to_archetype_id(task_type: str, combined_text: str, all_relevant_files_count: int, total_context_estimate: int) -> str:
+    """Map the existing task_type + heuristics to a rich archetype."""
+    # Vision/UI detection overrides to ui_visual_review
+    if any(kw in combined_text for kw in [
+        "screenshot", "ui", "visual", "layout", "mockup",
+        "image", "screenshot", "design review", "screen",
+    ]):
+        return "ui_visual_review"
+
+    # Context synthesis detection
+    if any(kw in combined_text for kw in [
+        "synthesize", "consolidate", "unify", "merge all",
+        "combine", "aggregate", "summarize", "overview of",
+    ]):
+        return "context_synthesis"
+
+    # Task-type based mapping
+    type_map = {
+        "trivial_edit": "trivial_edit",
+        "documentation_cleanup": "documentation",
+        "verification_only": "trivial_edit",
+        "research_or_current_info": "research_current",
+        "repo_refactor": "multi_file_refactor",
+        "architecture_change": "architecture_design",
+        "model_routing_change": "architecture_design",
+        "test_repair": "simple_implementation",
+    }
+    if task_type in type_map:
+        return type_map[task_type]
+
+    # Deep debugging — debugging keywords + bug fix type
+    if task_type == "bug_fix" and any(kw in combined_text for kw in [
+        "deep", "complex", "investigate", "root cause",
+        "intermittent", "race", "deadlock", "memory",
+        "performance", "regression", "hard to reproduce",
+    ]):
+        return "deep_debugging"
+
+    # Simple vs complex implementation
+    if task_type in ("small_feature", "bug_fix"):
+        if all_relevant_files_count <= 3 and total_context_estimate < 16000:
+            return "simple_implementation"
+        return "complex_implementation"
+
+    if task_type == "feature_implementation":
+        if all_relevant_files_count > 8 or total_context_estimate > 48000:
+            return "complex_implementation"
+        if all_relevant_files_count <= 3:
+            return "simple_implementation"
+        return "complex_implementation"
+
+    return "complex_implementation"
+
+
 def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
     """Perform a deterministic static scan of the task and codebase to estimate task fit and context size."""
     from devflow.control_room.scout import RepoScout
@@ -299,8 +443,25 @@ def estimate_task_fit(root: Path, task_id: str) -> dict[str, Any]:
         confidence -= 0.15
     confidence = max(0.1, min(1.0, round(confidence, 2)))
 
+    # Archetype classification — deterministic, rule-based
+    archetype = _classify_archetype(
+        task_type=task_type,
+        combined_text=combined_text,
+        total_context_estimate=total_context_estimate,
+        all_relevant_files_count=len(all_relevant_files),
+        reasoning_requirement=reasoning_requirement,
+    )
+
     task_fit = {
         "task_type": task_type,
+        "archetype_id": archetype["archetype_id"],
+        "requires_vision": archetype["requires_vision"],
+        "requires_thinking": archetype["requires_thinking"],
+        "preferred_code_focus": archetype["preferred_code_focus"],
+        "max_cost_class": archetype["max_cost_class"],
+        "preferred_speed": archetype["preferred_speed"],
+        "min_context_tokens": archetype["min_context_tokens"],
+        "max_context_tokens": archetype["max_context_tokens"],
         "repo_scope": repo_scope,
         "context_requirement": context_requirement,
         "reasoning_requirement": reasoning_requirement,

@@ -242,6 +242,18 @@ def render_agent_definition(
         weight_class = enrichment["weight_class"]
         machine_class = enrichment["machine_class"]
         tier = enrichment["tier"]
+        cap_kwargs = {
+            "reliable_context_tokens": enrichment.get("reliable_context_tokens"),
+            "vision": enrichment.get("vision"),
+            "thinking": enrichment.get("thinking"),
+            "code_focus": enrichment.get("code_focus"),
+            "speed_class": enrichment.get("speed_class"),
+            "architecture_class": enrichment.get("architecture_class"),
+            "fim_support": enrichment.get("fim_support"),
+            "tuned_for_archetypes": enrichment.get("tuned_for_archetypes", []),
+        }
+    else:
+        cap_kwargs = {}
 
     if authority == "disabled":
         base_authority: Authority = "read-only" if is_ollama else "advisory"
@@ -268,6 +280,7 @@ def render_agent_definition(
             machine_class=machine_class,
             weight_class=weight_class,
             manifest_notes=manifest_notes,
+            **cap_kwargs,
         )
     if is_ollama and authority == "patch-proposer":
         return _local_patch_agent(
@@ -279,6 +292,7 @@ def render_agent_definition(
             machine_class=machine_class,
             weight_class=weight_class,
             manifest_notes=manifest_notes,
+            **cap_kwargs,
         )
     if not is_ollama and authority in {"read-only", "advisory"}:
         return _remote_advisory_agent(
@@ -419,6 +433,14 @@ def _local_read_only_agent(
     machine_class: str | None,
     weight_class: str | None,
     manifest_notes: list[str],
+    reliable_context_tokens: int | None = None,
+    vision: bool | None = None,
+    thinking: bool | None = None,
+    code_focus: str | None = None,
+    speed_class: str | None = None,
+    architecture_class: str | None = None,
+    fim_support: bool | None = None,
+    tuned_for_archetypes: list[str] | None = None,
 ) -> AgentDefinition:
     return AgentDefinition(
         id=profile_id,
@@ -434,6 +456,14 @@ def _local_read_only_agent(
         model_role_name=_slug(profile_id),
         machine_class=machine_class,
         weight_class=weight_class if weight_class in {"tiny", "small", "medium", "heavy"} else None,
+        reliable_context_tokens=reliable_context_tokens,
+        vision=vision,
+        thinking=thinking,
+        code_focus=code_focus,
+        speed_class=speed_class,
+        architecture_class=architecture_class,
+        fim_support=fim_support,
+        tuned_for_archetypes=tuned_for_archetypes or [],
         secondary_roles=_secondary_roles(role, ["reviewer", "summarizer", "bounded-local-evidence"]),
         use_caution=["Advisory evidence only; do not apply patches, verify, promote, commit, merge, or push."],
         required_verification_command=f"ollama show {model_id}",
@@ -492,6 +522,14 @@ def _local_patch_agent(
     machine_class: str | None,
     weight_class: str | None,
     manifest_notes: list[str],
+    reliable_context_tokens: int | None = None,
+    vision: bool | None = None,
+    thinking: bool | None = None,
+    code_focus: str | None = None,
+    speed_class: str | None = None,
+    architecture_class: str | None = None,
+    fim_support: bool | None = None,
+    tuned_for_archetypes: list[str] | None = None,
 ) -> AgentDefinition:
     return AgentDefinition(
         id=profile_id,
@@ -507,6 +545,14 @@ def _local_patch_agent(
         model_role_name=_slug(profile_id),
         machine_class=machine_class,
         weight_class=weight_class if weight_class in {"tiny", "small", "medium", "heavy"} else None,
+        reliable_context_tokens=reliable_context_tokens,
+        vision=vision,
+        thinking=thinking,
+        code_focus=code_focus,
+        speed_class=speed_class,
+        architecture_class=architecture_class,
+        fim_support=fim_support,
+        tuned_for_archetypes=tuned_for_archetypes or [],
         secondary_roles=_secondary_roles(role, ["patch-proposal", "bounded-local-evidence"]),
         use_caution=[
             "Patch proposal evidence only; review-patch, patch-dry-run, apply-patch, verification, and promotion gates remain required."
@@ -782,6 +828,14 @@ def _ollama_enrichment(model_id: str) -> dict[str, Any]:
             "weight_class": None,
             "machine_class": None,
             "tier": "local",
+            "reliable_context_tokens": None,
+            "vision": None,
+            "thinking": None,
+            "code_focus": None,
+            "speed_class": None,
+            "architecture_class": None,
+            "fim_support": None,
+            "tuned_for_archetypes": [],
         }
     if result.returncode != 0:
         return {
@@ -789,6 +843,14 @@ def _ollama_enrichment(model_id: str) -> dict[str, Any]:
             "weight_class": None,
             "machine_class": None,
             "tier": "local",
+            "reliable_context_tokens": None,
+            "vision": None,
+            "thinking": None,
+            "code_focus": None,
+            "speed_class": None,
+            "architecture_class": None,
+            "fim_support": None,
+            "tuned_for_archetypes": [],
         }
     manifest = parse_ollama_show(model_id, result.stdout)
     profile = classify_local_model(manifest)
@@ -811,6 +873,14 @@ def _ollama_enrichment(model_id: str) -> dict[str, Any]:
         "weight_class": weight_class,
         "machine_class": machine_class,
         "tier": tier,
+        "reliable_context_tokens": profile.reliable_context_tokens,
+        "vision": profile.vision,
+        "thinking": profile.thinking,
+        "code_focus": profile.code_focus,
+        "speed_class": profile.speed_class,
+        "architecture_class": profile.architecture_class,
+        "fim_support": profile.fim_support,
+        "tuned_for_archetypes": list(profile.tuned_for_archetypes),
     }
 
 

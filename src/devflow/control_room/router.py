@@ -40,6 +40,25 @@ def _read_selected_agent_evidence(root: Path, task_id: str) -> dict[str, Any] | 
     return payload
 
 
+def _useful_context_tokens_for_agent(agent: AgentDefinition) -> int:
+    """Return the reliable context tokens for an agent.
+
+    Checks agent.reliable_context_tokens first (populated from manifest
+    during onboarding), then falls back to a tier-based ceiling.
+    """
+    if agent.reliable_context_tokens is not None:
+        return agent.reliable_context_tokens
+    ceilings = {
+        "tiny_local": 8192,
+        "fast_local": 16384,
+        "local": 32768,
+        "strong_local": 48000,
+        "premium_local": 65536,
+        "frontier": 128000,
+    }
+    return ceilings.get(agent.tier.lower(), 32768)
+
+
 def _tier_cost(tier: str) -> int:
     costs = {
         "deterministic": 0,
@@ -141,6 +160,9 @@ def route_task(root: Path, task_id: str, *, project_id: str | None = None) -> di
             blocked=blocked,
         )
 
+    archetype_id = task_fit.get("archetype_id")
+    eligible_workers: list[tuple[int, AgentDefinition]] = []
+
     for agent in worker_candidates:
         rejection_reason = _worker_rejection_reason(
             task_id=task_id,
@@ -160,10 +182,25 @@ def route_task(root: Path, task_id: str, *, project_id: str | None = None) -> di
             if _is_runtime_blocking_reason(rejection_reason):
                 blocked.append({"role": "worker", "agent": agent.id, "status": "blocked_runtime", "reason": rejection_reason})
             continue
-        selected["worker"] = agent.id
-        recommended_next_commands["worker"] = f"devflow task run {task_id}{project_option} --worker {agent.id}"
-        reasons.append(f"worker selected from matching selected-agent evidence: {agent.id}")
-        break
+        score = _score_worker_candidate(
+            agent=agent,
+            task_fit=task_fit,
+            total_context_estimate=total_context_estimate,
+            archetype_id=archetype_id,
+        )
+        eligible_workers.append((score, agent))
+
+    if eligible_workers:
+        eligible_workers.sort(key=lambda x: -x[0])
+        best_score, best_agent = eligible_workers[0]
+        selected["worker"] = best_agent.id
+        recommended_next_commands["worker"] = f"devflow task run {task_id}{project_option} --worker {best_agent.id}"
+        reasons.append(f"worker selected: {best_agent.id} (score={best_score})")
+        if archetype_id and archetype_id in best_agent.tuned_for_archetypes:
+            reasons.append(f"tuned alias match: {best_agent.id} is preferred for archetype {archetype_id}")
+        if len(eligible_workers) > 1:
+            runner_up_score, runner_up_agent = eligible_workers[1]
+            reasons.append(f"runner-up: {runner_up_agent.id} (score={runner_up_score})")
 
     if "worker" not in selected:
         if requires_escalation:
@@ -290,6 +327,68 @@ def _record_readonly_role_candidates(
             blocked.append({"role": role, "agent": agent.id, "status": "blocked_runtime", "reason": reason})
 
 
+def _score_worker_candidate(
+    agent: AgentDefinition,
+    task_fit: dict[str, Any],
+    total_context_estimate: int,
+    archetype_id: str | None,
+) -> int:
+    """Score an eligible worker candidate against task archetype requirements.
+
+    Higher is better. Used to pick the best candidate from all eligible workers.
+    """
+    score = 100  # base
+
+    # Tuned alias bonus — prefer purpose-built over generic
+    if archetype_id and archetype_id in agent.tuned_for_archetypes:
+        score += 25
+
+    # Vision bonus — prefer vision-capable when task needs it
+    if task_fit.get("requires_vision") and agent.vision is True:
+        score += 20
+
+    # Thinking bonus
+    requires_thinking = task_fit.get("requires_thinking", "optional")
+    if requires_thinking in ("recommended", "required") and agent.thinking is True:
+        score += 15
+
+    # Code focus match
+    preferred_focus = task_fit.get("preferred_code_focus", "any")
+    if preferred_focus == "code_specialist" and agent.code_focus == "code_specialist":
+        score += 20
+    elif preferred_focus == "any":
+        score += 5  # task has no code preference, any model is fine
+
+    # Context fit — prefer close match without wasteful overkill
+    useful_ctx = _useful_context_tokens_for_agent(agent)
+    headroom = useful_ctx - total_context_estimate
+    if 0 < headroom < useful_ctx * 0.5:
+        score += 15  # good fit: reasonable headroom
+    elif headroom > useful_ctx * 2:
+        score -= 10  # overkill: way more context than needed
+    elif total_context_estimate == 0:
+        score += 5  # unknown context, assume fine
+
+    # Speed preference
+    preferred_speed = task_fit.get("preferred_speed", "any")
+    if preferred_speed == "any":
+        score += 5
+    elif agent.speed_class == preferred_speed:
+        score += 10
+    elif agent.speed_class == "instant" and preferred_speed in ("fast", "any"):
+        score += 5  # instant qualifies for fast
+    elif agent.speed_class == "fast" and preferred_speed == "medium":
+        score += 3  # fast is close enough to medium
+    elif agent.speed_class == "medium" and preferred_speed == "slow":
+        score += 3
+
+    # Task type specific bonuses
+    if task_fit.get("task_type") == "research_or_current_info" and agent.code_focus != "code_specialist":
+        score += 10  # general-purpose models are better for research
+
+    return score
+
+
 def _worker_rejection_reason(
     *,
     task_id: str,
@@ -324,12 +423,33 @@ def _worker_rejection_reason(
     if runtime.execution_surface == "blocked" or not runtime.task_run_allowed:
         return _runtime_block_reason(runtime, provider)
 
-    useful_context_tokens = _useful_context_tokens(agent.tier)
+    useful_context_tokens = _useful_context_tokens_for_agent(agent)
     if total_context_estimate > useful_context_tokens:
         return (
             "useful context below pack estimate "
             f"(agent tier {agent.tier} useful context {useful_context_tokens} tokens < "
             f"pack estimate {total_context_estimate} tokens)"
+        )
+
+    # Archetype-based capability checks
+    requires_vision = task_fit.get("requires_vision", False)
+    requires_thinking = task_fit.get("requires_thinking", "optional")
+
+    if requires_vision and agent.vision is False:
+        return (
+            f"task requires vision capability but agent {agent.id} "
+            f"(model {agent.model}) has no vision"
+        )
+    if requires_vision and agent.vision is None:
+        return (
+            f"task requires vision capability but agent {agent.id} "
+            f"(model {agent.model}) has unknown vision capability"
+        )
+
+    if requires_thinking == "required" and agent.thinking is False:
+        return (
+            f"task requires thinking/reasoning but agent {agent.id} "
+            f"(model {agent.model}) has no thinking capability"
         )
 
     task_risk_high = task_fit.get("code_edit_risk") in {"high", "critical"} or task_fit.get("architectural_risk") in {
@@ -403,18 +523,6 @@ def _runtime_block_reason(runtime: Any, provider: ProviderDefinition | None = No
 
 def _is_runtime_blocking_reason(reason: str) -> bool:
     return "provider is" in reason or "cannot execute" in reason or "blocked" in reason
-
-
-def _useful_context_tokens(tier: str) -> int:
-    ceilings = {
-        "tiny_local": 8192,
-        "fast_local": 16384,
-        "local": 32768,
-        "strong_local": 48000,
-        "premium_local": 65536,
-        "frontier": 128000,
-    }
-    return ceilings.get(tier.lower(), 32768)
 
 
 def _add_unresolved(

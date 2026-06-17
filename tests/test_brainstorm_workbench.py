@@ -44,6 +44,8 @@ def test_brainstorm_message_missing_key_fails_without_fake_assistant_output(
 ) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    import devflow.control_room.env_loader as env_loader_mod
+    monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
 
     def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
         raise AssertionError("missing API key must fail before provider call")
