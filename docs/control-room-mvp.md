@@ -3,28 +3,46 @@
 Date: 2026-05-27
 Status: Active source of truth
 
-## Product Compass
+## Current State
 
-The long-term product North Star lives at [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md). Read it before implementation decisions and check proposed changes against its Periodic Self-Check section.
+Dev-Flow is now a nearly production-shaped local operating layer, not a speculative swarm framework. The current work is about making the browser control room obvious, trustworthy, and useful enough that the operator does not have to babysit every small step.
 
-This document is the near-term MVP authority: it narrows the North Star into the first production-worthy control-room slice. The current command, filesystem, and safety contract lives at [docs/mvp-contract.md](mvp-contract.md).
+The first screen should help the operator answer these questions without opening random logs:
 
-For details on the project's design and boundaries:
-- [docs/devflow-operating-model.md](devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
-- [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
-- [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
-- [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the implemented registry/runtime guardrails plus the deferred provider/adapter sequence. [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines the Milestone 17 evidence-only task-fit, context-estimation, scout, route, and routing-quality design. Autonomous best-model-for-any-task assignment remains excluded until a later autonomy policy explicitly promotes it.
-- [docs/architecture/model-audition-evidence-ladder.md](architecture/model-audition-evidence-ladder.md) defines read-only local model audition planning, explicit sequential local execution, and deterministic advisory scoring for comparing up to three installed local profiles without autonomous routing.
-- [docs/architecture/git-native-worker-isolation-and-promotion.md](architecture/git-native-worker-isolation-and-promotion.md) defines the opt-in Git-backed worker branches/worktrees, commit-bound verification, Git-native promotion preview, and human-controlled promotion slice.
-- [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md) defines the explicit patch application gating and verification/readiness invalidation gating (Milestones 9 & 10).
-- [docs/architecture/multi-project-registry.md](architecture/multi-project-registry.md) defines the first-class multi-project registry, project creation/import commands, and local-first Git/GitHub publication policy.
-- [docs/architecture/project-task-lifecycle-contract.md](architecture/project-task-lifecycle-contract.md) defines project-local state authority, task ownership, registry/index boundaries, and nested-directory path resolution.
-- [docs/architecture/goal-control-loop.md](architecture/goal-control-loop.md) defines the PLC-style goal control loop direction: every iteration checks Git checkpoint/push opportunities first, then reconciles project-local goals, task slices, parallel lanes, verification evidence, and blockers.
+- What tasks exist right now?
+- Which ones are active, blocked, failed, verified, promoted, or closed?
+- Which worker or model is attached to each task?
+- What did that worker actually do?
+- What is the next safe action?
+- Which controls are available now: start, inspect, verify, retry, close, cleanup, or promote?
+
+The canonical browser UI is `devflow operating-layer serve`. It must use the Python-bundled operating-layer files under `src/devflow/control_room/`, not the old static `public/` surface.
+
+Use this module entrypoint when the console script is unavailable:
+
+```bash
+env PYTHONPATH=src:. .venv/bin/python -m devflow.cli operating-layer serve
+```
+
+## How To Read This Doc
+
+This document is the near-term product authority. Read the top sections for current behavior and UX expectations. Treat the long command lists and milestone history below as reference material, not startup ceremony.
+
+Use related docs only when needed:
+
+- Product direction: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
+- Runtime command/filesystem contract: [docs/mvp-contract.md](mvp-contract.md)
+- Operating-layer UI architecture: [docs/architecture/local-operating-layer-ui.md](architecture/local-operating-layer-ui.md)
+- Future registry/adapter roadmap: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
+- Future/evidence-only routing roadmap: [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
+- Verification reuse: [docs/verification-ledger.md](verification-ledger.md)
+
+Architecture documents are valuable, but they are not automatically active runtime behavior. If an architecture doc describes a future worker, model router, provider adapter, or autonomy policy, preserve it as roadmap context until a later implementation explicitly promotes it.
 
 
 ## Product Direction
 
-Dev-Flow is being rebuilt as a local-first control room for parallel AI coding workers.
+Dev-Flow is a local-first control room for parallel AI coding workers.
 
 The product is not a coding agent, model provider, memory framework, IDE workflow, or software-factory ritual. Dev-Flow owns the boring but sacred control-plane pieces around replaceable workers:
 
@@ -43,13 +61,26 @@ Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude C
 
 1. Agents are replaceable. State is sacred.
 2. One task gets one isolated workspace and one owner.
-3. Visibility is required through plain filesystem artifacts and CLI output before broader UI surfaces.
+3. Visibility is required through plain filesystem artifacts, CLI output, and operating-layer UI projections.
 4. Context is durable artifacts, not hidden magic memory.
 5. Autonomy is earned by reliable status, logs, recovery, and reviewable results.
 
 ## Current Control-Room Contract
 
-The current stable milestone is the shell-worker control-room path plus one manual proof-agent contract, one legacy local Ollama advisory wrapper, registry-backed Qwopus/Gemma patch-proposal paths, a practical registry-backed local model worker-pool evidence slice, explicit local Ollama discovery/selection evidence, read-only model audition planning/execution/scoring evidence, OpenRouter-backed DeepSeek advisory and explicit patch-proposal evidence lanes, role-scoped context-pack evidence, derived agent evidence summaries, task-fit/context-routing derived evidence, centralized runtime eligibility/refusal projection, a passive review-readiness scorecard, local Idea Foundry intake evidence, the explicit idea-to-execution bridge, a simple scheduler projection with explicit retry-request evidence, an explicit question/blocker resume loop, an explicit DevFlow loop engine for gated local automation, and shared operator-readiness reconciliation across status, scheduler, dashboard, supervisor, and operating-layer projections. It includes task lifecycle commands, init/doctor structure checks, text-only terminal dashboard visibility, verification evidence, review-readiness status, TaskPacket projection, logs, human-controlled promotion from isolated workspaces, loop-policy-controlled local promotion from isolated workspaces, a bounded handoff for `devflow-manual-codex-worker`, local Qwen/Qwopus/Gemma prompt/response capture that does not edit code, canonical local `proposal.patch` evidence from explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`, generalized WorkerEvidence from read-only local model profiles, OpenRouter DeepSeek reports that preserve prompt/response/run evidence with false mutation flags, local manifest-backed capability classification, selected-agent evidence under task state, scheduler status over ready/blocked/stale/retry/batch state, question list/show projections, explicit question answer/resolve evidence, operator-facing lifecycle blockers/stale-directive warnings/plain-language names, human-reviewed idea capture/classification/promotion decisions, and explicit `idea create-goal` / `idea create-task` commands that require prior promotion evidence.
+The stable core is Dev-Flow-owned task state plus explicit worker execution, evidence, verification, and promotion gates. Shell workers are the current direct code-changing runtime. Local/remote model features are explicit evidence or patch-proposal lanes unless their runtime contract says otherwise.
+
+The current product should make automation usable without making it mysterious:
+
+- Brainstorm can use an advisory model and must show which model/profile is being used.
+- Creating a task should create real task state and surface the task immediately.
+- Starting work should name the worker, run in the task workspace, and produce logs/evidence.
+- The orchestrator panel should show the current goal/directive, queue, ready/blocked counts, next safe action, and the exact command or UI action that will move work forward.
+- Worker lanes should be task-centric: task title, worker/model, status, last activity, changed/evidence files, and available controls.
+- Review queue should explain why each item is or is not ready.
+- Evidence stream should link concrete events/logs/artifacts to tasks.
+- System health counts should be explorable; if it says `7 active`, the operator should be able to see the seven tasks.
+
+Detailed command coverage follows as reference. Do not load or validate every command for a focused UI change.
 
 Stable commands:
 
@@ -230,6 +261,10 @@ devflow agent discover-local --json
 devflow agent select-local <task_id> --role implementation_worker --json
 devflow agent audition <task_id> --job review-debug --dry-run --json
 devflow agent audition <task_id> --job review-debug --execute --json
+devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --dry-run --json
+devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --execute --json
+devflow agent hyperplane-list <task_id> --json
+devflow agent hyperplane-show <task_id> <run_id> --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --json
 devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json
@@ -521,8 +556,8 @@ Outside the current product contract:
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
-> **Current Status**: Milestone 26 Operational Baseline / Trust Pass is complete, and the next automation slice is gated local `devflow loop` execution.
-> Milestone 25 Stop The Task/Data Sprawl remains the prior hardening baseline: explicit maintenance reset/repair commands, complete task baseline artifacts, scratch-root dogfood defaults, clean prune previews, and clean-dashboard next actions after runtime reset. Milestone 26 proved the daily shell-worker loop in a disposable scratch project and repaired one concrete control-room bug found by that proof: default copy-workspace promotion now works in non-git scratch projects after verification and promotion preview. Current model selection remains registry-backed and model-agnostic at the explicit-role level through local discovery, selected-agent evidence, derived routing evidence, explicit model onboarding, and configured-provider evidence commands. Autonomous best-model-for-any-task routing remains excluded and must not enable remote provider task-run execution, autonomous routing, auto-resume, ungated auto-promotion, auto-commit, auto-push, pull requests, databases, worker-owned verification, worker-owned promotion, hidden memory, RAG, embeddings, training, or making Git-native worktrees the default runtime.
+> **Current Status**: The operational baseline is proven, and the active product focus is operating-layer usability: make task creation, task visibility, worker/model identity, evidence, verification, close/cleanup, retry, and promotion controls obvious from the browser UI.
+> Prior hardening work still matters as guardrails: task/data-sprawl repair, complete task baseline artifacts, scratch-root dogfood defaults, clean prune previews, copy-workspace promotion repair, registry-backed model/profile evidence, and loop-gated local automation. Future autonomy/provider work remains roadmap material until explicitly promoted into runtime behavior.
 
 ## Operational Baseline
 
@@ -530,7 +565,7 @@ Milestone 26 closed the Operational Baseline / Trust Pass. The accepted proof us
 
 The proof originally failed because non-git copy-workspace promotion reused Git-only baseline and dirty-check guards. The closure repair keeps Git baseline/dirty checks for Git projects, keeps extra confirmation for deletion-applying and Git-native promotions, and allows default copy-workspace promotion in non-git scratch projects after verification and promotion preview.
 
-The next safe product direction is aggressive local automation with hard stops: preserve the operational baseline, keep verification evidence easy to find, and use `devflow loop` to remove babysitting from routine DevFlow-native work. Do not jump directly to provider adapters, autonomous routing, scheduler complexity, databases, auto-resume, ungated auto-promotion, push/PR/publication automation, or new worker capability. If the next milestone moves toward non-shell workers, begin with architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, and context pack building before any local/OpenAI-compatible/native provider adapter.
+The next safe product direction is aggressive local automation with hard stops: preserve the operational baseline, make verification evidence easy to find, expose concrete task controls in the operating layer, and use `devflow loop` where it removes babysitting from routine DevFlow-native work. Do not jump directly to provider-backed task-run adapters, hidden autonomous routing, databases, auto-resume without clear state, ungated auto-promotion, push/PR/publication automation, or new worker capability. If a later milestone moves toward non-shell workers, begin with architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, and context pack building before any local/OpenAI-compatible/native provider adapter.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed

@@ -63,9 +63,11 @@ Run DevMode silently. Do not narrate the workflow. Avoid progress phrases (*"I'l
 Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
 
 ```text
-Decision:
+Status:
+Outcome:
 Files changed:
 Verification:
 Risks:
+Recommended next steps:
 Next safe action:
 ```

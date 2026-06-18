@@ -2,7 +2,9 @@
 
 ## Purpose
 
-The DevMode Contract serves as the canonical source of truth for disciplined, token-efficient, and workspace-safe software engineering practices. By defining clear operational gates and a systematic violation recovery protocol, it establishes a reliable baseline for development across multiple environments.
+The DevMode Contract is a lightweight discipline layer for focused, token-efficient, workspace-safe software engineering. It should help agents make small correct changes with fresh verification, not make ordinary fixes feel like a process ceremony.
+
+For routine Dev-Flow UI/product work, apply DevMode by reading the current instruction surface, searching before broad reads, editing the relevant slice, and running appropriately scoped verification. Do not load historical handoffs, milestone plans, or future architecture unless the task specifically calls for them.
 
 ---
 
@@ -27,7 +29,7 @@ DevMode = Mode + Context + Change + Verification
 
 **Classify the task before acting.**
 - Identify whether the current request is an **Investigation** (read-only audit, context gathering, planning) or a **Mutation** (editing code, writing tests, applying bug fixes).
-- Maintain strict boundaries: do not make edits during investigative phases, and do not perform broad context scans during implementation phases.
+- Maintain practical boundaries: do not edit while you are still unsure what surface owns the change, and do not keep expanding context once the relevant files are clear.
 
 ### 2. Context Gate
 
@@ -40,8 +42,8 @@ DevMode = Mode + Context + Change + Verification
 
 **Isolate edits and choose the right workflow.**
 - Keep all modifications minimal, focused, and isolated to a single vertical slice.
-- Choose the correct workflow or skill before editing (e.g., TDD for mutations, planning workflows for multi-step tasks).
-- Never make changes directly in a shared environment without a clean, isolated worktree or branch boundary.
+- Choose the smallest useful workflow for the task. A documentation wording fix does not need the same ceremony as a runtime architecture change.
+- Respect the current worktree. Do not overwrite unrelated user or agent changes, and do not require a separate branch/worktree before every small local edit unless the user or repo workflow explicitly asks for it.
 
 ### 4. Verification Gate
 
@@ -53,7 +55,7 @@ DevMode = Mode + Context + Change + Verification
 
 ## Violation Recovery
 
-If you realize a rule, gate, or discipline has been violated, execute the following **Operational Recovery Protocol** immediately:
+If you realize a rule, gate, or discipline has been violated in a way that could affect correctness or safety, execute the following **Operational Recovery Protocol** immediately:
 
 1. **Stop**: Halt current execution immediately. Do not commit or push the non-compliant state.
 2. **Preserve the worktree and evidence**: Do not destructively delete files or wipe state to recover from confusion. Keep all evidence and git history intact.
@@ -65,12 +67,18 @@ If you realize a rule, gate, or discipline has been violated, execute the follow
 
 ## Handoff Requirement
 
-Every task completion report, shift handoff, or status update must be returned strictly in the following format:
+Every task completion report, shift handoff, or status update must be returned in a helpful, resumable format. The report must make the actual outcome clear before listing files and must separate recommended next steps from the single safest cold-resume action.
 
 ```markdown
 ## Status
 
 [complete | in-progress | blocked | needs-review | failed]
+
+## Outcome
+
+- What was actually accomplished in plain language.
+- What is intentionally not included or not finished.
+- Important state the user would otherwise have to infer from logs.
 
 ## Files Changed
 
@@ -84,9 +92,14 @@ Every task completion report, shift handoff, or status update must be returned s
 
 - Specific technical risks, limitations, or potential side-effects
 
+## Recommended Next Steps
+
+- Best next move for the human or project.
+- Follow-up actions in priority order when there is more than one useful next move.
+
 ## Next Safe Action
 
-- The single, concrete next action to take
+- The single safest concrete action for a fresh agent or operator to take if they must resume from this handoff.
 ```
 
 ---

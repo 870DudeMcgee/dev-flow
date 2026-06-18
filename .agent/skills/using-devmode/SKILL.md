@@ -152,9 +152,11 @@ Instructions say WHAT, not HOW. "Add X" or "Fix Y" doesn't mean skip workflows.
 Report only after all work is done. Omit empty fields. Use this format:
 
 ```
-Decision:
+Status:
+Outcome:
 Files changed:
 Verification:
 Risks:
+Recommended next steps:
 Next safe action:
 ```

@@ -5038,6 +5038,143 @@ def agent_audition(
         typer.echo("will_call_models: yes")
 
 
+@agent_app.command("hyperplane")
+def agent_hyperplane(
+    task_id: str,
+    suite: str = typer.Option(..., "--suite", help="Hyperplane suite id, such as worker-safety."),
+    target: str = typer.Option(..., "--target", help="Target under test: control-room or a local model profile id."),
+    judge: str = typer.Option(..., "--judge", help="Local model profile used as the Hyperplane judge."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Write a no-model Hyperplane plan."),
+    execute: bool = typer.Option(False, "--execute", help="Run Hyperplane sequentially and write task-local evidence."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    project: str | None = typer.Option(None, "--project", help="Write Hyperplane evidence under a registered project root."),
+    depth: int = typer.Option(12, "--depth", min=1, help="Hyperplane depth budget."),
+    breadth: int = typer.Option(2, "--breadth", min=1, help="Hyperplane breadth budget."),
+    timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1, help="Override local judge timeout."),
+    output_budget_tokens: int | None = typer.Option(None, "--output-budget-tokens", min=1, help="Override local judge output budget."),
+    allow_self_grading: bool = typer.Option(
+        False,
+        "--allow-self-grading",
+        help="Explicitly allow target and judge to be the same local model profile.",
+    ),
+) -> None:
+    """Run optional Hyperplane evidence-only evaluations for a task."""
+    from devflow.control_room.hyperplane_harness import (
+        HyperplaneHarnessError,
+        execute_hyperplane_run,
+        write_hyperplane_dry_run_plan,
+    )
+
+    if dry_run == execute:
+        typer.echo("Error: Provide exactly one of --dry-run or --execute.", err=True)
+        raise typer.Exit(code=1)
+
+    scope = _resolve_task_project_root(project)
+    try:
+        payload = (
+            execute_hyperplane_run(
+                scope.root,
+                task_id,
+                suite,
+                target,
+                judge,
+                project_id=scope.project_id,
+                depth=depth,
+                breadth=breadth,
+                timeout_seconds=timeout_seconds,
+                output_budget_tokens=output_budget_tokens,
+                allow_self_grading=allow_self_grading,
+            )
+            if execute
+            else write_hyperplane_dry_run_plan(
+                scope.root,
+                task_id,
+                suite,
+                target,
+                judge,
+                project_id=scope.project_id,
+                depth=depth,
+                breadth=breadth,
+                timeout_seconds=timeout_seconds,
+                output_budget_tokens=output_budget_tokens,
+                allow_self_grading=allow_self_grading,
+            )
+        )
+    except HyperplaneHarnessError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"suite: {payload['suite']}")
+    typer.echo(f"target: {payload['target']}")
+    typer.echo(f"judge: {payload['judge']}")
+    typer.echo(f"status: {payload['status']}")
+    typer.echo(f"run_id: {payload['run_id']}")
+    typer.echo(f"run_dir: {payload['run_dir']}")
+    typer.echo(f"plan_path: {payload['plan_path']}")
+    typer.echo(f"will_call_hyperplane: {str(payload['will_call_hyperplane']).lower()}")
+    typer.echo(f"will_call_models: {str(payload['will_call_models']).lower()}")
+    if payload.get("summary_path"):
+        typer.echo(f"summary_path: {payload['summary_path']}")
+    if payload.get("findings_path"):
+        typer.echo(f"findings_path: {payload['findings_path']}")
+    if payload.get("report_path"):
+        typer.echo(f"report_path: {payload['report_path']}")
+
+
+@agent_app.command("hyperplane-list")
+def agent_hyperplane_list(
+    task_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    project: str | None = typer.Option(None, "--project", help="Read Hyperplane evidence from a registered project root."),
+) -> None:
+    """List task-local Hyperplane evidence runs."""
+    from devflow.control_room.hyperplane_harness import list_hyperplane_runs
+
+    scope = _resolve_task_project_root(project)
+    payload = list_hyperplane_runs(scope.root, task_id)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    for run in payload["runs"]:
+        typer.echo(f"- {run['run_id']}: {run.get('status', 'unknown')} ({run.get('suite') or 'unknown-suite'})")
+
+
+@agent_app.command("hyperplane-show")
+def agent_hyperplane_show(
+    task_id: str,
+    run_id: str,
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    project: str | None = typer.Option(None, "--project", help="Read Hyperplane evidence from a registered project root."),
+) -> None:
+    """Show a task-local Hyperplane evidence run."""
+    from devflow.control_room.hyperplane_harness import HyperplaneHarnessError, show_hyperplane_run
+
+    scope = _resolve_task_project_root(project)
+    try:
+        payload = show_hyperplane_run(scope.root, task_id, run_id)
+    except HyperplaneHarnessError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    summary = payload.get("summary") or {}
+    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"run_id: {run_id}")
+    typer.echo(f"status: {summary.get('status', 'unknown')}")
+    typer.echo(f"run_dir: {payload['run_dir']}")
+    if payload["missing_files"]:
+        typer.echo("missing_files:")
+        for item in payload["missing_files"]:
+            typer.echo(f"- {item}")
+
+
 
 @agent_app.command("advise")
 def agent_advise(

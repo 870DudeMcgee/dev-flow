@@ -10,6 +10,7 @@ let brainstormMessage = '';
 let selectedTaskId = null;
 let availableAgents = [];
 let selectedProfileId = localStorage.getItem('devflow-brainstorm-profile') || null;
+const ACTION_APPROVAL_PHRASE = 'I approve this exact Dev-Flow command';
 
 // === HELPERS ===
 function $(id) { return document.getElementById(id); }
@@ -29,6 +30,79 @@ function ago(iso) {
   if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
   if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
   return Math.floor(sec / 86400) + 'd ago';
+}
+function sentenceCase(value) {
+  return String(value || '').replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
+}
+function lastTaskEvent(task) {
+  const events = task?.detail?.recent_events || [];
+  return events.length ? events[events.length - 1] : null;
+}
+function taskTimestamp(task) {
+  return lastTaskEvent(task)?.timestamp || task?.updated_at || task?.created_at || '';
+}
+function taskFreshness(task) {
+  const ts = taskTimestamp(task);
+  return ts ? ago(ts) : (task?.latest || '');
+}
+function taskWorkerLabel(task) {
+  const local = task?.local_worker_lane || null;
+  if (local?.profile_id || local?.model) {
+    const model = local.model ? ` · ${local.model}` : '';
+    return `${local.profile_id || local.worker_id || 'local model'}${model}`;
+  }
+  return task?.worker || 'unassigned';
+}
+function taskAction(task, labelOrPrefix) {
+  const actions = task?.actions || [];
+  const needle = String(labelOrPrefix || '').toLowerCase();
+  return actions.find(a => String(a.label || '').toLowerCase() === needle)
+    || actions.find(a => String(a.label || '').toLowerCase().startsWith(needle))
+    || null;
+}
+function primaryTaskCommand(task) {
+  return task?.next_action?.command || taskAction(task, 'Next safe action')?.command || '';
+}
+function commandNeedsShellInput(command) {
+  return /devflow task run .* -- .*<command>/.test(command || '');
+}
+function commandNeedsVerificationInput(command) {
+  return /devflow task verify .*--shell\\s+["']?<command>/.test(command || '');
+}
+function shellQuote(value) {
+  return "'" + String(value || '').replace(/'/g, "'\\''") + "'";
+}
+function buildShellRunCommand(taskId, shellCommand) {
+  return `devflow task run ${taskId} --worker shell -- /bin/sh -c ${shellQuote(shellCommand)}`;
+}
+function buildVerifyCommand(taskId, shellCommand) {
+  return `devflow task verify ${taskId} --shell ${shellQuote(shellCommand)}`;
+}
+function buildCloseCommand(taskId, outcome, reason) {
+  return `devflow task close ${taskId} --outcome ${shellQuote(outcome)} --reason ${shellQuote(reason)}`;
+}
+function taskActionLabel(task) {
+  const label = task?.next_action?.label || taskAction(task, 'Next safe action')?.label || 'Inspect task';
+  const command = primaryTaskCommand(task);
+  if (commandNeedsShellInput(command)) return 'Start shell';
+  if (commandNeedsVerificationInput(command)) return 'Verify';
+  return label;
+}
+function statusTone(lane) {
+  if (lane === 'failed' || lane === 'blocked') return 'bad';
+  if (lane === 'needs_verification' || lane === 'needs_review' || lane === 'running') return 'warn';
+  if (lane === 'ready_to_promote') return 'good';
+  return 'neutral';
+}
+function parseCreatedTaskId(stdout) {
+  const match = String(stdout || '').match(/Created\\s+(task-\\d+)/);
+  return match ? match[1] : null;
+}
+function shortCommand(command, limit) {
+  const value = String(command || '').replace(/\\s+/g, ' ').trim();
+  if (!value) return '';
+  const max = limit || 96;
+  return value.length > max ? value.slice(0, max - 1) + '…' : value;
 }
 
 // === SNAPSHOT LOADING ===
@@ -52,6 +126,88 @@ function setActiveNav(navId) {
 }
 
 // === REPO SELECTOR ===
+let currentBrowsePath = null;
+
+async function browseDirectory(path) {
+  try {
+    const url = `/api/browse?path=${encodeURIComponent(path || '~')}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    currentBrowsePath = data.current_path;
+    renderRepoBrowser(data);
+  } catch(e) {
+    console.error('Browse failed:', e);
+  }
+}
+
+function renderRepoBrowser(data) {
+  const browser = $('repo-browser');
+  const pathDisplay = $('repo-current-path');
+  if (!browser) return;
+  if (pathDisplay) pathDisplay.textContent = data.current_path;
+
+  let html = '';
+  if (data.parent_path) {
+    html += `<div class="repo-item" data-browse-path="${esc(data.parent_path)}" style="cursor:pointer;">
+      <span class="repo-item-icon">↑</span>
+      <div><strong>..</strong><span class="repo-path">Parent directory</span></div>
+    </div>`;
+  }
+  for (const entry of data.entries) {
+    if (!entry.is_dir) continue;
+    const icon = entry.has_devflow ? '⚑' : '📁';
+    const badge = entry.has_devflow ? '<span style="font-size:9px;color:var(--accent);margin-left:4px;">DevFlow</span>' : '';
+    html += `<div class="repo-item" data-browse-path="${esc(entry.path)}" data-is-dir="true" style="cursor:pointer;">
+      <span class="repo-item-icon">${icon}</span>
+      <div>
+        <strong>${esc(entry.name)}${badge}</strong>
+        <span class="repo-path">${esc(entry.path)}</span>
+      </div>
+    </div>`;
+  }
+  if (!data.entries.some(e => e.is_dir)) {
+    html += '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;">No subdirectories</div>';
+  }
+  browser.innerHTML = html;
+
+  browser.querySelectorAll('.repo-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const browsePath = item.dataset.browsePath;
+      if (!browsePath) return;
+      browseDirectory(browsePath);
+    });
+  });
+}
+
+async function setRepoRoot(path) {
+  try {
+    const resp = await fetch('/api/repo/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    const nameEl = $('repo-name');
+    const pathEl = $('repo-path');
+    if (nameEl) nameEl.textContent = data.name || path;
+    if (pathEl) pathEl.textContent = data.path || path;
+    const dropdown = $('repo-dropdown');
+    if (dropdown) dropdown.hidden = true;
+    selectedProjectId = null;
+    loadSnapshot();
+    loadBrainstormTranscript(brainstormSessionId);
+    loadBrainstormSessions();
+    refreshPipelineState();
+  } catch(e) {
+    alert('Failed to set repository: ' + (e.message || 'unknown error'));
+  }
+}
+
 function setupRepoSelector() {
   const selector = $('repo-selector');
   const dropdown = $('repo-dropdown');
@@ -59,28 +215,25 @@ function setupRepoSelector() {
   selector.addEventListener('click', (e) => {
     e.stopPropagation();
     dropdown.hidden = !dropdown.hidden;
-  });
-  dropdown.addEventListener('click', (e) => {
-    const item = e.target.closest('.repo-item');
-    if (!item) return;
-    const path = item.dataset.repoPath;
-    const name = item.querySelector('strong')?.textContent || 'Project';
-    // Update selector
-    document.getElementById('repo-name').textContent = name;
-    document.getElementById('repo-path').textContent = path;
-    // Update active state
-    dropdown.querySelectorAll('.repo-item').forEach(el => { el.classList.remove('active'); el.querySelector('.check')?.remove(); });
-    item.classList.add('active');
-    const check = document.createElement('span');
-    check.className = 'check';
-    check.textContent = '✓';
-    check.setAttribute('aria-hidden', 'true');
-    item.appendChild(check);
-    dropdown.hidden = true;
-    selectedProjectId = path;
-    loadSnapshot(path);
+    if (!dropdown.hidden && !currentBrowsePath) {
+      browseDirectory('~');
+    }
   });
   document.addEventListener('click', () => { dropdown.hidden = true; });
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+  const openBtn = $('repo-open-btn');
+  const pathInput = $('repo-path-input');
+  if (openBtn && pathInput) {
+    const doOpen = () => {
+      const p = pathInput.value.trim();
+      if (p) setRepoRoot(p);
+    };
+    openBtn.addEventListener('click', doOpen);
+    pathInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); doOpen(); }
+    });
+  }
 }
 
 // === MODEL SELECTOR ===
@@ -155,7 +308,7 @@ async function loadBrainstormTranscript(sessionId) {
     const container = $('brainstorm-transcript');
     if (!container) return;
     if (!data.messages || data.messages.length === 0) {
-      container.innerHTML = '<div class="msg-avatar ai" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;background:none;border:none;justify-content:center;">Start a brainstorm conversation above.</div>';
+      container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
       return;
     }
     container.innerHTML = '';
@@ -174,6 +327,7 @@ async function loadBrainstormTranscript(sessionId) {
     container.scrollTop = container.scrollHeight;
     // Refresh pipeline state for this session
     pipelineState = {
+      hasTranscript: (data.messages || []).length > 0,
       hasSpec: data.spec != null,
       hasPlan: data.plan != null,
       hasImplementation: false,
@@ -189,9 +343,9 @@ function newBrainstormSession() {
   localStorage.setItem('devflow-brainstorm-session', brainstormSessionId);
   const container = $('brainstorm-transcript');
   if (container) {
-    container.innerHTML = '<div class="msg-avatar ai" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;background:none;border:none;justify-content:center;">Start a brainstorm conversation above.</div>';
+    container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
   }
-  pipelineState = { hasSpec: false, hasPlan: false, hasImplementation: false };
+  pipelineState = { hasTranscript: false, hasSpec: false, hasPlan: false, hasImplementation: false };
   renderPipeline();
   loadBrainstormSessions();
 }
@@ -264,7 +418,7 @@ function renderBrainstormTranscript(messages) {
   const container = $('brainstorm-transcript');
   if (!container) return;
   if (!messages || messages.length === 0) {
-    container.innerHTML = '<div class="msg-avatar ai" style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;background:none;border:none;justify-content:center;">Start a brainstorm conversation above.</div>';
+    container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
     return;
   }
   container.innerHTML = messages.map(msg => {
@@ -366,13 +520,14 @@ function setupBrainstormForm() {
 }
 
 // === PIPELINE ===
-let pipelineState = { hasSpec: false, hasPlan: false, hasImplementation: false };
+let pipelineState = { hasTranscript: false, hasSpec: false, hasPlan: false, hasImplementation: false };
 
 async function refreshPipelineState() {
   try {
     const resp = await fetch(`/api/brainstorm/transcript?session_id=${encodeURIComponent(brainstormSessionId)}`);
     const data = await resp.json();
     pipelineState = {
+      hasTranscript: (data.messages || []).length > 0,
       hasSpec: data.spec != null,
       hasPlan: data.plan != null,
       hasImplementation: false,
@@ -385,17 +540,16 @@ function renderPipeline() {
   const stages = [
     { id: 'brainstorm', label: 'Brainstorm', nextStage: 'spec' },
     { id: 'spec', label: 'Spec', nextStage: 'plan' },
-    { id: 'plan', label: 'Plan', nextStage: 'implementation' },
-    { id: 'implement', label: 'Implement', nextStage: null },
+    { id: 'plan', label: 'Plan', nextStage: null },
   ];
-  // Determine completed stages
+  // Determine completed stages based on actual artifacts
   const completed = new Set();
-  completed.add('brainstorm'); // always have a brainstorm
+  if (pipelineState.hasTranscript) completed.add('brainstorm');
   if (pipelineState.hasSpec) completed.add('spec');
   if (pipelineState.hasPlan) completed.add('plan');
 
   // Current active stage = first not completed
-  let activeStage = 'implement';
+  let activeStage = 'plan';
   for (const s of stages) {
     if (!completed.has(s.id)) { activeStage = s.id; break; }
   }
@@ -456,22 +610,40 @@ function setupPipelineButtons() {
           appendBrainstormMsg('system', payload.error, { kind: 'provider_error' });
         } else if (payload.status === 'ready') {
           const stageLabel = payload.stage ? payload.stage.charAt(0).toUpperCase() + payload.stage.slice(1) : 'Stage';
-          let info = `Escalated to ${stageLabel}. `;
           if (payload.stage === 'implementation' && payload.action) {
-            info += `Task action ready: ${payload.action.command}`;
-          } else if (payload.model_info && payload.model_info.used_model) {
-            info += `Generated by ${payload.model_info.model}. Artifact: ${payload.artifact_path || 'session dir'}`;
-            if (payload.model_info.content) {
-              appendBrainstormMsg('system', info, {});
-              appendBrainstormMsg('assistant', payload.model_info.content, { time: shortTime(new Date().toISOString()) });
-              info = '';
+            // Auto-create the task directly — no extra button clicks
+            appendBrainstormMsg('system', `Creating implementation task...`, {});
+            try {
+              const cmd = payload.action.command;
+              const actionResult = await runApprovedCommand(cmd, {});
+              if (actionResult.executed && actionResult.exit_code === 0) {
+                const outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
+                const createdTaskId = parseCreatedTaskId(actionResult.stdout);
+                appendBrainstormMsg('system', 'Task created: ' + outLine + (createdTaskId ? `. Next: start ${createdTaskId} from the task detail panel.` : ''), {});
+                await loadSnapshot(selectedProjectId);
+                if (createdTaskId) openFocus('task', createdTaskId, { focusShell: true });
+              } else {
+                appendBrainstormMsg('system', 'Task creation failed: ' + (actionResult.message || actionResult.stderr || 'unknown'), { kind: 'provider_error' });
+              }
+            } catch(e2) {
+              appendBrainstormMsg('system', 'Task creation error: ' + (e2.message || 'unknown'), { kind: 'provider_error' });
             }
-          } else if (payload.model_info && payload.model_info.error) {
-            info += `Model error: ${payload.model_info.error}. Artifact: ${payload.artifact_path || 'session dir'}`;
           } else {
-            info += `Artifact written to ${payload.artifact_path || 'session dir'}. No model call.`;
+            let info = `Escalated to ${stageLabel}. `;
+            if (payload.model_info && payload.model_info.used_model) {
+              info += `Generated by ${payload.model_info.model}. Artifact: ${payload.artifact_path || 'session dir'}`;
+              if (payload.model_info.content) {
+                appendBrainstormMsg('system', info, {});
+                appendBrainstormMsg('assistant', payload.model_info.content, { time: shortTime(new Date().toISOString()) });
+                info = '';
+              }
+            } else if (payload.model_info && payload.model_info.error) {
+              info += `Model error: ${payload.model_info.error}. Artifact: ${payload.artifact_path || 'session dir'}`;
+            } else {
+              info += `Artifact written to ${payload.artifact_path || 'session dir'}.`;
+            }
+            if (info) appendBrainstormMsg('system', info, {});
           }
-          if (info) appendBrainstormMsg('system', info, {});
         }
         loadSnapshot(selectedProjectId);
         refreshPipelineState();
@@ -499,43 +671,67 @@ function renderWorkerLanes(tasks) {
     container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">No active tasks — all ' + totalCount + ' tasks are closed</div>';
     return;
   }
-  container.innerHTML = all.map(t => {
+  const laneRank = { failed: 0, blocked: 1, running: 2, needs_verification: 3, needs_review: 4, ready_to_promote: 5, new: 6, idle: 7 };
+  const sorted = [...all].sort((a, b) => (laneRank[a.lane] ?? 9) - (laneRank[b.lane] ?? 9) || String(b.id).localeCompare(String(a.id)));
+  container.innerHTML = sorted.map(t => {
     const status = t.lane || 'new';
-    const lightClass = status === 'new' ? 'green' : status === 'needs_verification' ? 'yellow' : status === 'ready_to_promote' ? 'green' : status === 'in_progress' ? 'yellow' : 'gray';
-    const ts = t.latest || t.updated_at || t.created_at;
-    return `<div class="worker-card" data-task-id="${esc(t.id || '')}" onclick="openFocus('task','${esc(t.id || '')}')">
-      <span class="worker-light ${lightClass}"></span>
-      <span class="worker-name">${esc(t.title || t.id || 'Task')}</span>
-      <span class="worker-branch">${esc(t.lane || '')}</span>
-      <span class="worker-time">${ago(ts)}</span>
+    const tone = statusTone(status);
+    const actionLabel = taskActionLabel(t);
+    const latestEvent = lastTaskEvent(t);
+    return `<div class="worker-card guided-task-card ${esc(status)}" data-task-id="${esc(t.id || '')}" role="listitem">
+      <button class="worker-card-main" type="button" data-open-task="${esc(t.id || '')}">
+        <span class="worker-light ${tone}"></span>
+        <span class="worker-copy">
+          <strong><span class="task-id">${esc(t.id || '')}</span> ${esc(t.title || 'Untitled task')}</strong>
+          <span class="worker-meta">${esc(sentenceCase(t.display_status || status))} · ${esc(taskWorkerLabel(t))} · ${esc(t.verification_status || 'not_run')}</span>
+          ${latestEvent ? `<span class="worker-event">${esc(latestEvent.event)}${latestEvent.summary ? ': ' + esc(latestEvent.summary) : ''}</span>` : ''}
+        </span>
+      </button>
+      <span class="worker-next">${esc(actionLabel)}</span>
+      <span class="worker-time">${esc(taskFreshness(t))}</span>
+      <span class="worker-actions">
+        <button type="button" class="icon-btn task-row-btn" data-open-task="${esc(t.id || '')}" title="Inspect task">Inspect</button>
+        ${commandNeedsShellInput(primaryTaskCommand(t)) ? `<button type="button" class="btn btn-sm btn-primary task-row-btn" data-open-task="${esc(t.id || '')}" data-focus-shell="1">Start</button>` : ''}
+        ${t.lane === 'needs_verification' ? `<button type="button" class="btn btn-sm btn-secondary task-row-btn" data-open-task="${esc(t.id || '')}" data-focus-verify="1">Verify</button>` : ''}
+      </span>
     </div>`;
   }).join('');
 }
 
 // === REVIEW QUEUE ===
-function renderReviewQueue(reviewLoop) {
+function renderReviewQueue(reviewLoop, tasks) {
   const container = $('guided-review-queue');
   if (!container) return;
-  const available = reviewLoop ? (reviewLoop.ready_to_promote_count || 0) + (reviewLoop.needs_verification_count || 0) : 0;
+  const reviewTasks = (tasks || []).filter(t => ['needs_verification', 'needs_review', 'ready_to_promote', 'failed', 'blocked'].includes(t.lane));
+  const available = reviewTasks.length;
   const count = $('review-queue-count');
   if (count) count.textContent = available + ' items';
   if (available === 0) {
-    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">' + esc(reviewLoop?.headline || 'No items to review') + '</div>';
+    const next = reviewLoop?.next_safe_action || '';
+    container.innerHTML = '<div class="empty-panel-note">' + esc(reviewLoop?.headline || 'No items to review') +
+      (next ? '<code>' + esc(shortCommand(next, 120)) + '</code>' : '') + '</div>';
     return;
   }
-  const summary = reviewLoop?.evidence_summary || reviewLoop?.headline || reviewLoop?.status || '';
-  container.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:var(--text-soft);">' + esc(summary) +
-    '</div><div style="display:flex;gap:8px;padding:4px 12px 8px;">' +
-    '<span class="review-priority high">Ready: ' + (reviewLoop.ready_to_promote_count || 0) + '</span>' +
-    '<span class="review-priority med">Verify: ' + (reviewLoop.needs_verification_count || 0) + '</span>' +
-    '</div>';
+  container.innerHTML = reviewTasks.slice(0, 12).map(t => {
+    const command = primaryTaskCommand(t);
+    const priority = t.lane === 'ready_to_promote' ? 'high' : (t.lane === 'failed' || t.lane === 'blocked' ? 'high' : 'med');
+    return `<div class="review-card" data-task-id="${esc(t.id)}">
+      <span class="review-priority ${priority}">${esc(sentenceCase(t.lane))}</span>
+      <button type="button" class="review-main" data-open-task="${esc(t.id)}">
+        <strong>${esc(t.id)} · ${esc(t.title || 'Untitled task')}</strong>
+        <span>${esc(t.verification_status || 'not_run')} · ${esc(shortCommand(command || t.review_next_command || 'Inspect task', 96))}</span>
+      </button>
+      <button type="button" class="btn btn-sm btn-secondary task-row-btn" data-open-task="${esc(t.id)}">${esc(taskActionLabel(t))}</button>
+    </div>`;
+  }).join('');
 }
 
 // === EVIDENCE STREAM ===
-function renderEvidenceStream(evidence) {
+function renderEvidenceStream(evidence, tasks) {
   const container = $('guided-evidence-stream');
   if (!container) return;
   const items = evidence || [];
+  const taskLookup = new Map((tasks || []).map(t => [t.id, t]));
   const count = $('evidence-stream-count');
   if (count) count.textContent = items.length + ' items';
   if (items.length === 0) {
@@ -543,12 +739,17 @@ function renderEvidenceStream(evidence) {
     return;
   }
   container.innerHTML = items.slice(0, 20).map(item => {
+    const task = taskLookup.get(item.task_id) || null;
+    const path = item.verification_log_path || item.result_path || item.log_path || '';
     const cmd = item.verification_command || '';
-    const text = cmd ? cmd.substring(0, 80) : ('task ' + (item.task_id || '?'));
-    const ts = item.created_at || item.timestamp || item.generated_at;
-    return `<div class="evidence-item" onclick="openFocus('evidence','${esc(item.task_id || item.id || '')}')">
-      <span class="evidence-icon">></span>
-      <span class="evidence-text">${esc(text)}</span>
+    const text = cmd || path || ('task ' + (item.task_id || '?'));
+    const kind = item.verification_log_path ? 'verification' : item.result_path ? 'result' : item.log_path ? 'worker log' : 'evidence';
+    const ts = taskTimestamp(task) || item.created_at || item.timestamp || item.generated_at;
+    return `<div class="evidence-item" data-task-id="${esc(item.task_id || '')}">
+      <button type="button" class="evidence-main" data-open-task="${esc(item.task_id || '')}">
+        <span class="evidence-icon">></span>
+        <span class="evidence-text"><strong>${esc(item.task_id || 'task')}</strong> ${esc(kind)} · ${esc(shortCommand(text, 110))}</span>
+      </button>
       <span class="evidence-time">${ts ? ago(ts) : ''}</span>
     </div>`;
   }).join('');
@@ -587,10 +788,18 @@ function renderOrchestrator(snap) {
   const goalBoard = snap.goal_board || [];
   const hasGoal = goals.length > 0 || goalBoard.length > 0;
   const goal = hasGoal ? (goals[0] || goalBoard[0]) : null;
+  const tasks = snap.tasks || [];
+  const activeTasks = tasks.filter(t => t.lane !== 'closed');
   const title = $('orchestrator-goal-title');
   const directive = $('orchestrator-directive');
-  if (title) title.textContent = goal ? (goal.title || goal.id || 'Active goal') : 'No active goal';
-  if (directive) directive.textContent = goal ? (goal.directive || goal.description || 'Goal active.') : 'No goal set. Create tasks from brainstorm escalations or the CLI.';
+  if (title) title.textContent = goal ? (goal.title || goal.id || 'Active goal') : (activeTasks.length ? `${activeTasks.length} active tasks` : 'No active goal');
+  if (directive) {
+    directive.textContent = goal
+      ? (goal.directive || goal.description || 'Goal active.')
+      : (activeTasks.length
+        ? 'Active Dev-Flow tasks are waiting below with worker, status, evidence, and next action controls.'
+        : 'No goal set. Create tasks from brainstorm escalations or the CLI.');
+  }
 
   // Next Safe Action — use snap.next_action, not goal.next_safe_action
   const na = snap.next_action || {};
@@ -598,7 +807,6 @@ function renderOrchestrator(snap) {
   if (cmd) cmd.textContent = na.command || na.label || 'No actions pending';
 
   // Stats — use actual lane counts from tasks
-  const tasks = snap.tasks || [];
   setText('orchestrator-queue', String(tasks.filter(t => t.lane === 'new' || t.lane === 'in_progress').length));
   setText('orchestrator-ready', String(tasks.filter(t => t.lane === 'ready_to_promote').length));
   setText('orchestrator-blocked', String(tasks.filter(t => t.lane === 'needs_verification').length));
@@ -647,7 +855,7 @@ function renderOrchestrator(snap) {
     }
   }
   setText('orchestrator-freshness', typeof snap.freshness === 'object' ? (snap.freshness?.status || 'ok') : (snap.freshness || 'unknown'));
-  setText('orchestrator-goal-id', goal ? (goal.id || 'active') : 'none');
+  setText('orchestrator-goal-id', goal ? (goal.goal_id || goal.id || 'active') : (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
 }
 
 function setText(id, text) {
@@ -656,7 +864,23 @@ function setText(id, text) {
 }
 
 // === FOCUS OVERLAY ===
-function openFocus(type, id) {
+function taskCommandButtons(task) {
+  const commands = [];
+  const seen = new Set();
+  for (const action of task.actions || []) {
+    if (!action.command || action.command.includes('<command>')) continue;
+    if (seen.has(action.command)) continue;
+    seen.add(action.command);
+    commands.push(`<button class="btn btn-sm ${action.requires_human_approval ? 'btn-primary' : 'btn-secondary'}" type="button" data-command="${esc(action.command)}">${esc(action.label || 'Run command')}</button>`);
+  }
+  if (task.lane === 'closed') {
+    const cleanupCommand = `devflow task cleanup ${task.id} --preview`;
+    commands.push(`<button class="btn btn-sm btn-secondary" type="button" data-command="${esc(cleanupCommand)}">Cleanup preview</button>`);
+  }
+  return commands.join(' ');
+}
+
+function openFocus(type, id, opts) {
   const overlay = $('focus-overlay');
   const content = $('focus-content');
   if (!overlay || !content) return;
@@ -664,29 +888,98 @@ function openFocus(type, id) {
   const task = snapshot?.tasks?.find(t => t.id === id);
   if (task) {
     const lane = task.lane || 'new';
-    let actionBtns = '<button class="btn btn-secondary btn-sm" data-action="close">Close</button>';
-    if (lane === 'ready_to_promote') {
-      actionBtns = '<button class="btn btn-primary btn-sm" data-action="promote" data-task="' + esc(task.id) + '">Promote</button> ' + actionBtns;
-    }
-    if (lane === 'needs_verification') {
-      actionBtns = '<button class="btn btn-primary btn-sm" data-action="verify" data-task="' + esc(task.id) + '">Run Verification</button> ' + actionBtns;
-    }
-    content.innerHTML = '<h2 style="margin:0 0 12px;font-size:18px;">' + esc(task.title || task.id) + '</h2>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">' +
-        '<div style="padding:8px;background:var(--bg);border-radius:6px;"><span style="color:var(--text-muted);font-size:10px;">Status</span><br><strong>' + esc(lane) + '</strong></div>' +
-        '<div style="padding:8px;background:var(--bg);border-radius:6px;"><span style="color:var(--text-muted);font-size:10px;">Branch</span><br><strong>' + esc(task.branch || '—') + '</strong></div>' +
-        '<div style="padding:8px;background:var(--bg);border-radius:6px;"><span style="color:var(--text-muted);font-size:10px;">Worker</span><br><strong>' + esc(task.worker || '—') + '</strong></div>' +
-        '<div style="padding:8px;background:var(--bg);border-radius:6px;"><span style="color:var(--text-muted);font-size:10px;">Updated</span><br><strong>' + ago(task.updated_at) + '</strong></div>' +
-      '</div>' +
-      (task.description ? '<p style="color:var(--text-soft);font-size:13px;">' + esc(task.description) + '</p>' : '') +
-      (task.log ? '<pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;overflow:auto;max-height:200px;color:var(--text-soft);">' + esc(task.log) + '</pre>' : '') +
-      '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">' + actionBtns + '</div>';
+    const command = primaryTaskCommand(task);
+    const detail = task.detail || {};
+    const local = task.local_worker_lane || {};
+    const events = detail.recent_events || [];
+    const evidencePaths = detail.evidence_paths || [];
+    const shellPanel = commandNeedsShellInput(command) && lane !== 'closed'
+      ? `<div class="task-command-box" id="focus-shell-panel">
+          <label>Shell command to run in ${esc(task.id)} workspace</label>
+          <div class="inline-command-row">
+            <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
+            <button class="btn btn-primary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">Start shell</button>
+          </div>
+          <code>${esc(command)}</code>
+        </div>`
+      : '';
+    const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command))
+      ? `<div class="task-command-box" id="focus-verify-panel">
+          <label>Verification shell command</label>
+          <div class="inline-command-row">
+            <input type="text" data-verify-command placeholder="git diff --check && pytest -q">
+            <button class="btn btn-primary btn-sm" type="button" data-task-verify="${esc(task.id)}">Verify</button>
+          </div>
+        </div>`
+      : '';
+    const promotePanel = lane === 'ready_to_promote'
+      ? `<div class="task-command-box">
+          <label>Promotion context</label>
+          <textarea data-promotion-note placeholder="Why is this safe to promote?"></textarea>
+        </div>`
+      : '';
+    const closePanel = lane !== 'closed'
+      ? `<div class="task-command-box">
+          <label>Close task</label>
+          <div class="inline-command-row">
+            <select data-close-outcome>
+              <option value="duplicate">duplicate</option>
+              <option value="abandoned">abandoned</option>
+              <option value="rejected">rejected</option>
+              <option value="evidence-only">evidence-only</option>
+            </select>
+            <input type="text" data-close-reason placeholder="Reason required">
+            <button class="btn btn-secondary btn-sm" type="button" data-task-close="${esc(task.id)}">Close</button>
+          </div>
+        </div>`
+      : '';
+    content.innerHTML = `<div class="focus-task-head">
+        <span class="focus-task-id">${esc(task.id)}</span>
+        <h2>${esc(task.title || task.id)}</h2>
+        <span class="focus-status ${esc(statusTone(lane))}">${esc(sentenceCase(task.display_status || lane))}</span>
+      </div>
+      <div class="focus-grid">
+        <div><span>Status</span><strong>${esc(sentenceCase(lane))}</strong></div>
+        <div><span>Worker / model</span><strong>${esc(taskWorkerLabel(task))}</strong></div>
+        <div><span>Verification</span><strong>${esc(task.verification_status || 'not_run')}</strong></div>
+        <div><span>Updated</span><strong>${esc(taskFreshness(task) || 'unknown')}</strong></div>
+        <div><span>Workspace</span><strong>${esc(task.workspace || '—')}</strong></div>
+        <div><span>Runtime</span><strong>${esc(local.adapter || task.worker || '—')}${local.permission_mode ? ' · ' + esc(local.permission_mode) : ''}</strong></div>
+      </div>
+      <div class="task-command-box">
+        <label>Next safe action</label>
+        <code>${esc(command || 'No action pending')}</code>
+        ${task.next_action?.reason ? `<p>${esc(task.next_action.reason)}</p>` : ''}
+      </div>
+      ${shellPanel}${verifyPanel}${promotePanel}
+      <div class="task-action-row">${taskCommandButtons(task)}</div>
+      ${closePanel}
+      ${(task.review_blockers || []).length || (task.promotion_blockers || []).length ? `<div class="focus-section"><h3>Blockers</h3>
+        <ul>${[...(task.review_blockers || []), ...(task.promotion_blockers || [])].slice(0, 8).map(b => `<li>${esc(b)}</li>`).join('')}</ul>
+      </div>` : ''}
+      ${events.length ? `<div class="focus-section"><h3>Recent events</h3>
+        ${events.slice().reverse().map(ev => `<div class="event-row"><span>${esc(shortTime(ev.timestamp))}</span><strong>${esc(ev.event)}</strong><em>${esc(ev.summary || '')}</em></div>`).join('')}
+      </div>` : ''}
+      ${evidencePaths.length ? `<div class="focus-section"><h3>Evidence paths</h3>
+        ${evidencePaths.slice(0, 10).map(path => `<code class="path-line">${esc(path)}</code>`).join('')}
+      </div>` : ''}
+      ${detail.latest_worker_line || detail.latest_verification_line || detail.result_preview ? `<div class="focus-section"><h3>Latest output</h3>
+        <pre>${esc(detail.result_preview || detail.latest_verification_line || detail.latest_worker_line || '')}</pre>
+      </div>` : ''}
+      <div id="focus-command-output"></div>`;
   } else {
     content.innerHTML = '<h2 style="margin:0 0 8px;font-size:16px;">Item Detail</h2>' +
       '<p style="color:var(--text-soft);font-size:13px;">ID: ' + esc(id || '&mdash;') + '</p>' +
       '<button class="btn btn-secondary btn-sm" data-action="close">Close</button>';
   }
   overlay.hidden = false;
+  if (opts?.focusShell) {
+    const input = content.querySelector('[data-shell-command]');
+    if (input) input.focus();
+  } else if (opts?.focusVerify) {
+    const input = content.querySelector('[data-verify-command]');
+    if (input) input.focus();
+  }
 }
 
 function closeFocus() {
@@ -696,20 +989,74 @@ function closeFocus() {
 }
 
 // === ACTION EXECUTION ===
+function actionResultHtml(result, command) {
+  const exitText = result?.timed_out ? 'Timed out' : `Exit ${result?.exit_code ?? 'n/a'}`;
+  const statusClass = result?.executed && result?.exit_code === 0 ? 'good' : 'bad';
+  const stdout = result?.stdout ? `<pre>${esc(result.stdout)}</pre>` : '';
+  const stderr = result?.stderr ? `<pre class="stderr">${esc(result.stderr)}</pre>` : '';
+  const message = result?.message || result?.error || '';
+  return `<div class="command-result ${statusClass}">
+    <div class="command-result-head">
+      <strong>${esc(exitText)}</strong>
+      <code>${esc(shortCommand(command, 140))}</code>
+    </div>
+    ${message ? `<p>${esc(message)}</p>` : ''}
+    ${stdout}${stderr}
+  </div>`;
+}
+
+function renderActionPending(command) {
+  const html = `<div class="command-result pending">
+    <div class="command-result-head"><strong>Running</strong><code>${esc(shortCommand(command, 140))}</code></div>
+  </div>`;
+  const container = $('guided-action-result');
+  if (container) container.innerHTML = html;
+  const focusOutput = $('focus-command-output');
+  if (focusOutput) focusOutput.innerHTML = html;
+}
+
+function renderActionResult(result, command) {
+  const html = actionResultHtml(result, command);
+  const container = $('guided-action-result');
+  if (container) container.innerHTML = html;
+  const focusOutput = $('focus-command-output');
+  if (focusOutput) focusOutput.innerHTML = html;
+}
+
+async function runApprovedCommand(command, opts) {
+  if (!command || command.includes('<command>')) {
+    throw new Error('This action needs a concrete shell command first.');
+  }
+  renderActionPending(command);
+  const body = {
+    command,
+    human_approved: true,
+    approval_phrase: ACTION_APPROVAL_PHRASE,
+    approved_command: command,
+  };
+  if (selectedProjectId) body.project = selectedProjectId;
+  if (opts?.contextNote) body.context_note = opts.contextNote;
+  const resp = await fetch('/api/actions/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const payload = await resp.json();
+  renderActionResult(payload, command);
+  setTimeout(() => loadSnapshot(selectedProjectId), 500);
+  return payload;
+}
+
 async function executeAction(taskId, action) {
-  const phrase = 'confirmed';
-  if (!confirm(`Execute "${action}" on task ${taskId}? Type "${phrase}" to confirm.`)) return;
+  const task = snapshot?.tasks?.find(t => t.id === taskId);
+  if (!task) return;
+  const command = typeof action === 'string' && action.startsWith('devflow ')
+    ? action
+    : (taskAction(task, action)?.command || primaryTaskCommand(task));
   try {
-    const resp = await fetch('/api/actions/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task_id: taskId, action, approval_phrase: phrase }),
-    });
-    const payload = await resp.json();
-    closeFocus();
-    loadSnapshot(selectedProjectId);
+    await runApprovedCommand(command, {});
   } catch(e) {
-    console.error('Action failed', e);
+    renderActionResult({ executed: false, exit_code: null, error: e.message || 'Action failed' }, command);
   }
 }
 
@@ -750,6 +1097,97 @@ function setupFilter() {
   });
 }
 
+function setupTaskSurfaceActions() {
+  const closeButton = $('focus-close');
+  if (closeButton) closeButton.addEventListener('click', closeFocus);
+
+  document.addEventListener('click', async (e) => {
+    const openButton = e.target.closest('[data-open-task]');
+    if (openButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = openButton.dataset.openTask;
+      if (id) openFocus('task', id, {
+        focusShell: openButton.dataset.focusShell === '1',
+        focusVerify: openButton.dataset.focusVerify === '1',
+      });
+      return;
+    }
+
+    const shellButton = e.target.closest('[data-task-run-shell]');
+    if (shellButton) {
+      e.preventDefault();
+      const taskId = shellButton.dataset.taskRunShell;
+      const input = document.querySelector('[data-shell-command]');
+      const shellCommand = (input?.value || '').trim();
+      if (!shellCommand) {
+        renderActionResult({ executed: false, exit_code: null, error: 'Enter the shell command to run in the task workspace.' }, `devflow task run ${taskId}`);
+        input?.focus();
+        return;
+      }
+      try {
+        await runApprovedCommand(buildShellRunCommand(taskId, shellCommand), {});
+      } catch(err) {
+        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Shell run failed' }, `devflow task run ${taskId}`);
+      }
+      return;
+    }
+
+    const verifyButton = e.target.closest('[data-task-verify]');
+    if (verifyButton) {
+      e.preventDefault();
+      const taskId = verifyButton.dataset.taskVerify;
+      const input = document.querySelector('[data-verify-command]');
+      const verifyCommand = (input?.value || '').trim();
+      if (!verifyCommand) {
+        renderActionResult({ executed: false, exit_code: null, error: 'Enter the verification shell command.' }, `devflow task verify ${taskId}`);
+        input?.focus();
+        return;
+      }
+      try {
+        await runApprovedCommand(buildVerifyCommand(taskId, verifyCommand), {});
+      } catch(err) {
+        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Verification failed' }, `devflow task verify ${taskId}`);
+      }
+      return;
+    }
+
+    const closeTaskButton = e.target.closest('[data-task-close]');
+    if (closeTaskButton) {
+      e.preventDefault();
+      const taskId = closeTaskButton.dataset.taskClose;
+      const outcome = document.querySelector('[data-close-outcome]')?.value || 'abandoned';
+      const reasonInput = document.querySelector('[data-close-reason]');
+      const reason = (reasonInput?.value || '').trim();
+      if (reason.length < 3) {
+        renderActionResult({ executed: false, exit_code: null, error: 'Enter a concrete close reason.' }, `devflow task close ${taskId}`);
+        reasonInput?.focus();
+        return;
+      }
+      try {
+        await runApprovedCommand(buildCloseCommand(taskId, outcome, reason), {});
+      } catch(err) {
+        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Close failed' }, `devflow task close ${taskId}`);
+      }
+      return;
+    }
+
+    const commandButton = e.target.closest('[data-command]');
+    if (commandButton) {
+      e.preventDefault();
+      const command = commandButton.dataset.command || '';
+      const note = command.includes('devflow task promote ')
+        ? (document.querySelector('[data-promotion-note]')?.value || '').trim()
+        : '';
+      try {
+        await runApprovedCommand(command, { contextNote: note });
+      } catch(err) {
+        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Command failed' }, command);
+      }
+    }
+  });
+}
+
 // === RENDER ===
 function render() {
   if (!snapshot) {
@@ -775,11 +1213,11 @@ function render() {
   renderWorkerLanes(tasks);
 
   // Review queue
-  renderReviewQueue(snapshot.review_loop || null);
+  renderReviewQueue(snapshot.review_loop || null, tasks);
 
   // Evidence stream
   const evidence = snapshot.evidence || [];
-  renderEvidenceStream(evidence);
+  renderEvidenceStream(evidence, tasks);
 
   // Mission feed
   const feed = snapshot.feed || snapshot.mission_feed || [];
@@ -796,6 +1234,7 @@ function init() {
   setupBrainstormForm();
   setupPipelineButtons();
   setupFilter();
+  setupTaskSurfaceActions();
 
   // Load persisted brainstorm session
   loadBrainstormTranscript(brainstormSessionId);

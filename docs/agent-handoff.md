@@ -2,11 +2,15 @@
 
 Date: 2026-05-27
 
+Status: Historical/resume reference, not required startup reading for ordinary fixes.
+
+For current product work, start with [../AGENTS.md](../AGENTS.md), [../PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md), and [control-room-mvp.md](control-room-mvp.md) only when the task needs product context. This file preserves useful milestone and resume history, but it should not override the current control-room product contract or send agents through an archaeology pass before focused UI/product fixes.
+
 Local checkout: Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work. Do not assume every user's checkout folder is named `DevFlow`; future handoffs and command examples should use the actual path in context or a neutral placeholder such as `<repo-root>`.
 
 ## Current Direction
 
-Dev-Flow is being rebuilt as a local-first control room for parallel AI coding workers.
+Dev-Flow is a local-first control room for parallel AI coding workers.
 
 The previous Dev-Flow direction has been archived. It is no longer the process authority for this repository.
 
@@ -24,6 +28,7 @@ Active source of truth:
 - [docs/architecture/multi-project-registry.md](architecture/multi-project-registry.md) defines the first-class multi-project registry and local-first project Git/GitHub policy.
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md) defines the provider/agent/role registry and adapter runtime boundary.
 - [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md) defines Milestone 17 evidence-only task-fit, context-estimation, scout, route, and routing-quality commands. Autonomous routing and provider-backed worker execution remain excluded; the OpenRouter/DeepSeek lane is explicit advisory or patch-proposal evidence only.
+- [docs/architecture/hyperplane-evidence-loop.md](architecture/hyperplane-evidence-loop.md) defines the optional Hyperplane evidence-only harness for local models and control-room safety checks. Hyperplane writes advisory task-local artifacts and derived model scorecards only; it does not fine-tune, route, edit, verify, promote, commit, merge, or push.
 - [docs/integrations/hermes-operator-layer.md](integrations/hermes-operator-layer.md), [docs/integrations/hermes-command-allowlist.md](integrations/hermes-command-allowlist.md), [docs/integrations/hermes-imessage-exploration.md](integrations/hermes-imessage-exploration.md), [docs/integrations/hermes-local-parallelism.md](integrations/hermes-local-parallelism.md), and [docs/integrations/hermes-telegram-mac-mini-rollout.md](integrations/hermes-telegram-mac-mini-rollout.md) define Hermes as an external operator layer over supervisor-safe commands, including iMessage exploration, scheduled briefs, bounded local parallelism, and the Mac mini local-model rollout.
 
 
@@ -34,7 +39,7 @@ Checkout quarantine note: do not restore material from `/Users/jewelbait/Desktop
 
 Dev-Flow is not the main coding brain. It coordinates replaceable workers and owns durable state, process isolation, status, logs, questions, result bundles, verification evidence, and merge readiness.
 
-The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, OpenRouter-backed DeepSeek advisory and explicit patch-proposal evidence, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, Milestone 19 Git-native worker lane hardening, Milestone 20 registry-backed local worker evidence hardening, Milestone 21 simple scheduler projection, Milestone 22 question/blocker resume visibility, Milestone 23 operating-layer state reconciliation/operator readiness, Milestone 24 intent-to-goal/task scaffold, Milestone 25 task/data-sprawl hardening, Milestone 26 Operational Baseline / Trust Pass closure, Milestone 27 registry/runtime contract visibility with the `devflow-shell-worker` alias, the DevFlow loop engine for gated local automation, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, derived routing evidence, OpenRouter advisory reports, explicit remote patch proposal evidence that still passes existing patch gates, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, Git-native lane recovery visibility, registry-backed local worker evidence, explicit scheduler retry evidence, question answer/resolve evidence, shared operator-readiness count/lifecycle/stale-directive projections, reviewable intent scaffold evidence, scratch-proven daily shell-worker promotion, registry-visible runtime contracts, human-controlled promotion, and loop-policy-controlled local promotion when config, run flags, verification, preview, blocker, and risk gates pass.
+The current milestone base is a shell-worker control-room contract plus one manual proof-agent handoff for `devflow-manual-codex-worker`, one legacy local Ollama advisory wrapper for Qwen/Qwopus/Gemma planning and review, the registry-backed `task run --worker qwopus-implementer` patch-proposal path, OpenRouter-backed DeepSeek advisory and explicit patch-proposal evidence, optional Hyperplane evidence-only harness runs, Milestone 17 evidence-only task-fit/scout/route/scorecard artifacts, Milestone 18 Operating-Layer Beta, Milestone 19 Git-native worker lane hardening, Milestone 20 registry-backed local worker evidence hardening, Milestone 21 simple scheduler projection, Milestone 22 question/blocker resume visibility, Milestone 23 operating-layer state reconciliation/operator readiness, Milestone 24 intent-to-goal/task scaffold, Milestone 25 task/data-sprawl hardening, Milestone 26 Operational Baseline / Trust Pass closure, Milestone 27 registry/runtime contract visibility with the `devflow-shell-worker` alias, the DevFlow loop engine for gated local automation, and the Hermes external operator layer over supervisor-safe commands. It includes task creation, isolated execution/handoff, local prompt-response capture, Hyperplane task-local plan/run/summary/finding/report evidence, derived routing evidence, OpenRouter advisory reports, explicit remote patch proposal evidence that still passes existing patch gates, verification, visibility, iMessage readiness exploration, scheduled read-only briefs, bounded local parallelism policy, operating-layer review visibility, Git-native lane recovery visibility, registry-backed local worker evidence, explicit scheduler retry evidence, question answer/resolve evidence, shared operator-readiness count/lifecycle/stale-directive projections, reviewable intent scaffold evidence, scratch-proven daily shell-worker promotion, registry-visible runtime contracts, human-controlled promotion, and loop-policy-controlled local promotion when config, run flags, verification, preview, blocker, and risk gates pass.
 
 The Git-native production slice is implemented for shell workers: `devflow task create --git-worktree` creates a Dev-Flow-owned branch/worktree under `.devflow/worktrees/<task_id>/shell/`, verification binds to the worker branch commit, promotion preview reports Git readiness, `git_worker_lane_summary()` projects live lane state without mutating evidence, and humans promote through Git-aware mechanics rather than blind copy-back.
 
@@ -83,6 +88,10 @@ Current product contract:
 - `devflow task packet <task_id>`
 - `devflow agent show devflow-shell-worker`
 - `devflow agent packet <task_id> devflow-shell-worker`
+- `devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --dry-run --json`
+- `devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --execute --json`
+- `devflow agent hyperplane-list <task_id> --json`
+- `devflow agent hyperplane-show <task_id> <run_id> --json`
 - `devflow task run <task_id> --worker devflow-shell-worker -- <command>`
 - `devflow agent show devflow-manual-codex-worker`
 - `devflow agent packet <task_id> devflow-manual-codex-worker`
@@ -178,6 +187,10 @@ devflow task route <task_id>
 devflow task route <task_id> --json
 devflow task scorecard <task_id>
 devflow task scorecard <task_id> --json
+devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --dry-run --json
+devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --execute --json
+devflow agent hyperplane-list <task_id> --json
+devflow agent hyperplane-show <task_id> <run_id> --json
 devflow task log <task_id>
 devflow task orchestrate <task_id> --plan-only
 devflow worker validate-outcome <path-to-outcome-json>
@@ -198,7 +211,7 @@ devflow push-main
 - Non-shell worker work beyond `devflow-manual-codex-worker`, the narrow `task local` advisory wrapper, the registry-backed `task run --worker qwopus-implementer` patch runtime, and explicit OpenRouter DeepSeek evidence commands must preserve the registry sequence. The implemented evidence-only layers are task fit, scout, route, scorecard, context pack artifacts, OpenRouter advisory reports, and explicit patch proposals; provider-backed task-run adapters, autonomous worker assignment, and metrics-driven policy changes remain deferred.
 - Dogfood future implementation slices through Dev-Flow shell tasks or local worker commands where practical, so Dev-Flow tests its own isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality.
 - Close every meaningful milestone or product-direction change by aligning active docs, removing stale context, verifying, committing, merging to `main`, pushing, and writing a compact handoff with one next safe action.
-- Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.
+- Treat stale plans, archived workflow instructions, old command lists, and conflicting product direction as historical/reference material, not current authority. Rewrite or clearly label them before they can steer another agent.
 - Salvage useful code only when it supports the new control-room MVP.
 - Keep unrelated dirty worktree changes intact.
 

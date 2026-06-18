@@ -42,6 +42,14 @@ The browser should show the `Dev-Flow Operating Layer` page with a first viewpor
 
 The `public/` static files are not the active product UI. Use `src/devflow/control_room/operating_layer_html.py`, `operating_layer_styles.py`, `operating_layer_script.py`, and `devflow operating-layer serve` for browser UI work and validation.
 
+If the console script is unavailable in a local shell, use the module entrypoint:
+
+```bash
+env PYTHONPATH=src:. .venv/bin/python -m devflow.cli operating-layer serve
+```
+
+The UI should make automation legible: task creation should create visible task state, worker/model identity should be named wherever work is proposed or running, active-task counts should be explorable, and Worker lanes / Review queue / Evidence stream should link to concrete tasks, logs, and artifacts rather than vague summaries.
+
 ### Planning And Manual Transition Commands
 - **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent policy`, `devflow agent catalog --json`, `devflow agent add-provider <provider-id> --adapter <adapter> --base-url <url> --dry-run --json`, `devflow agent add-model --provider <provider-id> --model <model-id> --authority <read-only|advisory|patch-proposer|disabled> --role <role> --dry-run --json`, `devflow agent packet`, `devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json`, `devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json`, `devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json`, `devflow agent propose-patch --task <task-id> --profile deepseek-v4-pro-patch-proposer --json`
 - **Task Estimation**: `devflow task fit`, `devflow task pack`

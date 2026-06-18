@@ -9,17 +9,17 @@ description: Use when completing work, switching agents, or passing task state b
 
 Handoffs fail when context is lost. A handoff without evidence is a handoff that wastes the next agent's time re-investigating.
 
-**Core principle:** Every handoff must include status, evidence, and the next action. No exceptions.
+**Core principle:** Every handoff must include status, outcome, evidence, useful next steps, and the safest cold-resume action. No exceptions.
 
 **Violating the letter of this rule is violating the spirit of this rule.**
 
 ## The Iron Law
 
 ```
-NO HANDOFF WITHOUT STATUS, EVIDENCE, AND NEXT ACTION
+NO HANDOFF WITHOUT STATUS, OUTCOME, EVIDENCE, AND NEXT ACTIONS
 ```
 
-If you haven't included all three, your handoff is incomplete.
+If you haven't included all of them, your handoff is incomplete.
 
 ## Required Handoff Format
 
@@ -27,6 +27,12 @@ If you haven't included all three, your handoff is incomplete.
 ## Status
 
 [complete | in-progress | blocked | needs-review | failed]
+
+## Outcome
+
+- What was actually accomplished in plain language
+- What is intentionally not included or not finished
+- Important state the user would otherwise have to infer from logs
 
 ## Files Changed
 
@@ -42,9 +48,15 @@ If you haven't included all three, your handoff is incomplete.
 - Known issues, limitations, or things that might break
 - (If no risks, say "None identified" — don't leave blank)
 
+## Recommended Next Steps
+
+- Best next move for the human or project
+- Follow-up actions in priority order when there is more than one useful next move
+- Keep this relevant to the work just handed off, not a broad backlog
+
 ## Next Safe Action
 
-- The single next thing the receiving agent should do
+- The single safest thing a receiving agent should do if resuming cold
 - (Must be specific and actionable, not "continue working")
 ```
 
@@ -70,12 +82,15 @@ BEFORE accepting a handoff:
 1. READ the status — is work actually done?
 2. CHECK verification — were commands actually run?
 3. INSPECT risks — anything that changes your plan?
-4. START with the Next Safe Action — don't re-investigate from scratch
+4. READ Recommended Next Steps — understand the useful project direction
+5. START with the Next Safe Action when resuming cold — don't re-investigate from scratch
 ```
 
 **Red flags in received handoffs:**
 - Empty Verification section → don't trust the status
 - "Everything works" without commands → verify independently
+- Missing Outcome section → ask what actually changed before acting
+- Missing Recommended Next Steps → ask what the useful follow-up is
 - Vague Next Safe Action → ask for specifics before proceeding
 - Missing Risks section → assume there are risks you don't know about
 
@@ -97,6 +112,8 @@ BEFORE accepting a handoff:
 - "Everything works" without verification commands
 - Status says "complete" but no verification was run
 - Missing Next Safe Action
+- Missing Recommended Next Steps
+- Missing Outcome section
 - Missing Files Changed section
 - Status says "in-progress" but no explanation of what's left
 - About to end session without handoff for incomplete work

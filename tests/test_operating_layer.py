@@ -787,7 +787,7 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "DeepSeek V4 Flash Free" in body
         assert "Escalate to Spec" in body
         assert "Generate Plan" in body
-        assert "Open Implementation Task" in body
+        assert "Create Task" in body
         assert "Local evidence only" in body
         assert "Worker lanes" in body
         assert "Review queue" in body
@@ -949,7 +949,7 @@ def test_operating_layer_guided_sections_render_before_advanced_sections() -> No
     assert "brainstorm-chat-form" in INDEX_HTML
     assert "Escalate to Spec" in INDEX_HTML
     assert "Generate Plan" in INDEX_HTML
-    assert "Open Implementation Task" in INDEX_HTML
+    assert "Create Task" in INDEX_HTML
     assert "Worker lanes" in INDEX_HTML
     assert "Review queue" in INDEX_HTML
     assert "Evidence stream" in INDEX_HTML
@@ -959,13 +959,18 @@ def test_operating_layer_guided_sections_render_before_advanced_sections() -> No
 
 
 def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None:
-        assert "worker-card" in APP_JS
-        assert "Worker lanes" in APP_JS
-        assert "renderWorkerLanes" in APP_JS
-        assert "openFocus" in APP_JS
-        assert "closeFocus" in APP_JS
-        assert "worker-card" in APP_CSS
-        assert "worker-light" in APP_CSS
+    assert "worker-card" in APP_JS
+    assert "Worker lanes" in APP_JS
+    assert "renderWorkerLanes" in APP_JS
+    assert "data-task-run-shell" in APP_JS
+    assert "data-task-close" in APP_JS
+    assert "Cleanup preview" in APP_JS
+    assert "Worker / model" in APP_JS
+    assert "openFocus" in APP_JS
+    assert "closeFocus" in APP_JS
+    assert "worker-card" in APP_CSS
+    assert "worker-light" in APP_CSS
+    assert "command-result" in APP_CSS
 
 
 def test_operating_layer_command_preview_uses_human_readable_safety_labels() -> None:
@@ -1236,6 +1241,62 @@ def test_operating_layer_server_runs_approved_task_creation(
         assert "Created task-0001: browser created task" in payload["stdout"]
         assert (tmp_path / ".devflow" / "tasks" / "task-0001" / "task.yaml").exists()
         assert not (tmp_path / ".devflow" / "worktrees").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_task_close(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "browser close target"]).exit_code == 0
+    command = 'devflow task close task-0001 --outcome abandoned --reason "operator cleared stale task"'
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_task_state"
+        assert payload["exit_code"] == 0
+        assert "closed: yes" in payload["stdout"]
+        closure = json.loads((tmp_path / ".devflow" / "tasks" / "task-0001" / "closure.json").read_text())
+        assert closure["outcome"] == "abandoned"
+        assert closure["reason"] == "operator cleared stale task"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_cleanup_preview(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "browser cleanup preview"]).exit_code == 0
+    assert runner.invoke(
+        app,
+        ["task", "close", "task-0001", "--outcome", "abandoned", "--reason", "preview cleanup"],
+    ).exit_code == 0
+    command = "devflow task cleanup task-0001 --preview"
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_task_state"
+        assert payload["exit_code"] == 0
+        assert "mode: preview" in payload["stdout"]
+        assert (tmp_path / ".devflow" / "workspaces" / "task-0001").exists()
     finally:
         server.shutdown()
         server.server_close()

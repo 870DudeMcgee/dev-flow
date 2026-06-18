@@ -77,6 +77,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/agents":
             self._handle_agents_list()
             return
+        if path == "/api/browse":
+            query = parse_qs(request.query)
+            self._handle_browse(query)
+            return
+        if path == "/api/repo/set":
+            self._handle_repo_set()
+            return
         if path == "/api/brainstorm/sessions":
             self._handle_brainstorm_sessions()
             return
@@ -97,6 +104,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         if request.path == "/api/brainstorm/escalate":
             self._handle_brainstorm_escalation()
             return
+        if request.path == "/api/repo/set":
+            self._handle_repo_set()
+            return
         if request.path != "/api/actions/run":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -115,6 +125,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         classification = classify_supervisor_command(command)
         approved_idea_capture = False
         approved_task_creation = False
+        approved_task_close = False
+        approved_cleanup_preview = False
         approved_shell_worker_run = False
         approved_verification = False
         approved_promotion = False
@@ -127,6 +139,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             try:
                 approved_idea_capture = _is_approved_idea_capture(payload, command, classification)
                 approved_task_creation = _is_approved_task_creation(payload, command, classification)
+                approved_task_close = _is_approved_task_close(payload, command, classification)
+                approved_cleanup_preview = _is_approved_cleanup_preview(payload, command, classification)
                 approved_shell_worker_run = _is_approved_shell_worker_run(payload, command, classification)
                 approved_verification = _is_approved_task_verification(payload, command, classification)
                 approved_promotion = _is_approved_task_promotion(payload, command, classification)
@@ -141,6 +155,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         if classification["safety_class"] != PURE_READ_ONLY and not (
             approved_idea_capture
             or approved_task_creation
+            or approved_task_close
+            or approved_cleanup_preview
             or approved_shell_worker_run
             or approved_verification
             or approved_promotion
@@ -171,6 +187,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 args = _approved_idea_capture_command_args(command)
             elif approved_task_creation:
                 args = _approved_task_creation_command_args(command)
+            elif approved_task_close:
+                args = _approved_task_close_command_args(command)
+            elif approved_cleanup_preview:
+                args = _approved_cleanup_preview_command_args(command)
             elif approved_agent_add_provider:
                 args = _approved_agent_add_provider_command_args(command)
             elif approved_agent_add_model:
@@ -319,6 +339,58 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         return
+
+    def _handle_browse(self, query: dict[str, list[str]]) -> None:
+        try:
+            raw_path = (query.get("path") or [None])[0]
+            if raw_path is None or raw_path == "~":
+                browse_path = Path.home()
+            else:
+                browse_path = Path(raw_path).expanduser().resolve()
+            if not browse_path.is_dir():
+                self._send_json_error(f"Not a directory: {browse_path}", HTTPStatus.BAD_REQUEST)
+                return
+            entries = []
+            for entry in sorted(browse_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+                if entry.name.startswith("."):
+                    continue
+                is_dir = entry.is_dir()
+                has_devflow = is_dir and (entry / ".devflow").is_dir()
+                entries.append({
+                    "name": entry.name,
+                    "path": str(entry),
+                    "is_dir": is_dir,
+                    "has_devflow": has_devflow,
+                })
+            self._send_json({
+                "current_path": str(browse_path),
+                "parent_path": str(browse_path.parent) if browse_path != browse_path.parent else None,
+                "entries": entries,
+            }, HTTPStatus.OK)
+        except Exception as exc:
+            self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_repo_set(self) -> None:
+        try:
+            payload = self._read_json_body()
+            raw_path = payload.get("path")
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                self._send_json_error("path is required", HTTPStatus.BAD_REQUEST)
+                return
+            new_root = Path(raw_path).expanduser().resolve()
+            if not new_root.is_dir():
+                self._send_json_error(f"Directory does not exist: {new_root}", HTTPStatus.BAD_REQUEST)
+                return
+            self.server.repo_root = new_root
+            has_devflow = (new_root / ".devflow").is_dir()
+            self._send_json({
+                "path": str(new_root),
+                "name": new_root.name,
+                "has_devflow": has_devflow,
+            }, HTTPStatus.OK)
+        except (OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
 
     def _handle_agents_list(self) -> None:
         try:
@@ -544,6 +616,40 @@ def _approved_task_creation_command_args(command: str) -> list[str]:
         raise ValueError("approved browser task creation requires one quoted task title")
     if _is_placeholder_text(titles[0], field="title"):
         raise ValueError("approved browser task creation requires a concrete task title")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_task_close_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 4 or normalized[1:3] != ["task", "close"]:
+        raise ValueError("only approved task close may run from the operating layer")
+    task_id = normalized[3]
+    if not task_id or task_id.startswith("-"):
+        raise ValueError("task close command requires a task id")
+    values = _parse_exact_options(
+        normalized[4:],
+        value_options={"--outcome", "--reason"},
+        flags=set(),
+        command_label="approved task close",
+    )
+    for option, field in (("--outcome", "outcome"), ("--reason", "reason")):
+        value = values.get(option, "")
+        if _is_placeholder_text(value, field=field) or len(value.strip()) < 3:
+            raise ValueError(f"approved task close requires a concrete {field}")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_cleanup_preview_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) != 5 or normalized[1:3] != ["task", "cleanup"]:
+        raise ValueError("only approved cleanup preview may run from the operating layer")
+    task_id = normalized[3]
+    if not task_id or task_id.startswith("-"):
+        raise ValueError("cleanup preview command requires a task id")
+    if normalized[4] != "--preview":
+        raise ValueError("browser cleanup is limited to --preview")
     return _devflow_command_args_from_tokens(tokens)
 
 
@@ -813,6 +919,26 @@ def _is_approved_task_creation(payload: dict[str, object], command: str, classif
         return False
     try:
         _approved_task_creation_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_task_close(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_TASK_STATE:
+        return False
+    try:
+        _approved_task_close_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_cleanup_preview(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_TASK_STATE:
+        return False
+    try:
+        _approved_cleanup_preview_command_args(command)
     except ValueError:
         return False
     return _approval_payload_matches(payload, command)

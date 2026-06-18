@@ -116,24 +116,13 @@ INDEX_HTML = """<!doctype html>
       <!-- ===== REPO SELECTOR DROPDOWN ===== -->
       <div id="repo-dropdown" class="repo-dropdown" role="listbox" aria-label="Select a repository" hidden>
         <div class="repo-dropdown-header">
-          <span class="pill-label">Recent repositories</span>
+          <span class="pill-label">Working directory</span>
         </div>
-        <div id="repo-list" role="list">
-          <div class="repo-item active" role="option" aria-selected="true" data-repo-path="~/DevFlow">
-            <span class="repo-item-icon">⚑</span>
-            <div>
-              <strong>DevFlow</strong>
-              <span class="repo-path">~/DevFlow</span>
-            </div>
-            <span class="check" aria-hidden="true">✓</span>
-          </div>
-          <div class="repo-item" role="option" aria-selected="false" data-repo-path="~/Bass Binge Website">
-            <span class="repo-item-icon">⚑</span>
-            <div>
-              <strong>Bass Binge Website</strong>
-              <span class="repo-path">~/Bass Binge Website</span>
-            </div>
-          </div>
+        <div id="repo-current-path" style="padding:4px 12px;font-size:11px;color:var(--text-muted);word-break:break-all;"></div>
+        <div id="repo-browser" style="max-height:300px;overflow-y:auto;padding:4px 0;"></div>
+        <div class="repo-dropdown-footer" style="padding:8px 12px;border-top:1px solid var(--border-light);display:flex;gap:8px;align-items:center;">
+          <input type="text" id="repo-path-input" placeholder="Enter path..." style="flex:1;padding:4px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;">
+          <button class="btn btn-sm btn-primary" id="repo-open-btn" type="button" style="padding:4px 12px;font-size:11px;">Open</button>
         </div>
       </div>
 
@@ -217,6 +206,7 @@ INDEX_HTML = """<!doctype html>
               <output id="mission-feed-count" aria-live="polite" aria-atomic="true">0</output>
             </div>
             <div id="mission-feed-list" class="mission-feed-list"></div>
+            <div id="guided-action-result" class="guided-action-result" aria-live="polite"></div>
           </section>
         </div>
 
@@ -263,7 +253,6 @@ INDEX_HTML = """<!doctype html>
               <div class="pipeline-step locked" data-stage="plan">
                 <div class="step-number">
                   <span>03</span>
-                  <svg class="step-connector" width="2" height="24"><line x1="1" y1="0" x2="1" y2="24" stroke="currentColor" stroke-width="2"/></svg>
                 </div>
                 <div class="step-content">
                   <div class="step-row">
@@ -272,22 +261,7 @@ INDEX_HTML = """<!doctype html>
                   </div>
                   <p class="step-desc">Convert the transcript into an implementation plan artifact.</p>
                   <p class="step-action">
-                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="implementation">Open Implementation Task →</button>
-                  </p>
-                </div>
-              </div>
-              <div class="pipeline-step locked" data-stage="implement">
-                <div class="step-number">
-                  <span>04</span>
-                </div>
-                <div class="step-content">
-                  <div class="step-row">
-                    <strong>Implement</strong>
-                    <span class="step-status pending">Pending</span>
-                  </div>
-                  <p class="step-desc">Create a reviewed DevFlow task without running a worker.</p>
-                  <p class="step-action">
-                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="implementation">Open Implementation Task</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="implementation">Create Task →</button>
                   </p>
                 </div>
               </div>

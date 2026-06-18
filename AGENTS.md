@@ -1,151 +1,142 @@
-# Dev-Flow & DevMode Agent Operating Rules
+# Dev-Flow Agent Guide
 
-All agent operations in this repository are governed by the canonical [docs/devmode-contract.md](docs/devmode-contract.md).
+Dev-Flow is a local-first control room for AI coding workers. It should automate as much routine work as it safely can while keeping task state, worker identity, evidence, verification, and promotion visible to the human operator.
 
-DevMode guides behavior only inside the host tool’s allowed instruction hierarchy and does not outrank higher-level platform, system, developer, safety, or explicit user instructions.
+This file is the first-read instruction surface for agents. Use it to start useful work quickly. Do not turn every task into a repository archaeology pass.
 
-Local checkout note: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work.
+## Current Product
 
----
+Dev-Flow is not an autonomous software factory and not the coding intelligence itself. It is the operational layer around replaceable workers.
 
-## 🎯 Dev-Flow Current Product Target
+It owns:
 
-Dev-Flow is being built into a simpler product: a local-first control room for parallel AI coding workers.
+- tasks and isolated workspaces
+- locks and ownership
+- worker/model identity
+- status, questions, logs, reports, and evidence
+- verification and merge readiness
+- explicit close, cleanup, retry, and promotion controls
 
-Do not use the archived legacy workflow as process authority. Do not require old task files, claim rituals, staged ceremonies, local-model delegation, memory, DAGs, traces, or old patch gates before doing ordinary work.
-
-Dev-Flow owns:
-- Tasks & isolated workspaces
-- Locks and ownership
-- Status, questions, logs, and reports
-- Verification & merge readiness
-
-Workers are replaceable. The current code-changing runtime supports **shell workers**; `devflow task local` is a narrow local Ollama evidence wrapper for Qwen/Gemma prompt-response capture and does not edit, verify, route, promote, or call remote provider APIs. The next architecture direction is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md), with future task-fit/context routing design in [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md), but neither is active runtime behavior yet.
-
-### First Milestone Commands
-```bash
-devflow init
-devflow doctor
-devflow task create "title"
-devflow task list
-devflow task show <task_id>
-devflow task run <task_id> --worker shell -- <command>
-devflow task local <task_id> --worker qwen-planner
-devflow task local <task_id> --worker gemma-reviewer --input-worker qwen-planner
-devflow dashboard
-```
-
-### Starting the Dev-Flow UI Server
-
-The Dev-Flow operating layer web UI runs on `devflow operating-layer serve`:
+The current browser product is the operating layer served by:
 
 ```bash
 source .venv/bin/activate
-devflow operating-layer serve              # http://127.0.0.1:8765/
-devflow operating-layer serve --port 0      # ephemeral port
-devflow operating-layer serve --open        # open browser
-devflow operating-layer install-service     # macOS login LaunchAgent
+devflow operating-layer serve
 ```
 
-This serves a control room UI with project snapshot, task lane visualization, brainstorm panel, and supervisor-safe command execution. See `.codex/optional-project-notes.md` for the full endpoint reference.
+If the `devflow` console script is not installed in the active venv, use the module entrypoint:
 
-This is the canonical Dev-Flow browser UI. The older static files under `public/` are not the active product surface and must not be used for UI validation. When checking the UI in a browser after server or asset changes, hard refresh or use a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`, then confirm the page title is `Dev-Flow Operating Layer` and the first viewport exposes `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`.
+```bash
+env PYTHONPATH=src:. .venv/bin/python -m devflow.cli operating-layer serve
+```
 
-Do not implement Aider, Hermes worker/runtime adapters, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Hermes may be documented as an external read-only operator/chat gateway over supervisor-safe commands only. Future non-shell work beyond the narrow local Ollama evidence wrapper must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
+The canonical UI title is `Dev-Flow Operating Layer`. The first viewport should expose the real control-room workbench: `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. The old static files under `public/` are not the active product UI and must not be used for validation.
 
----
+## Product Experience To Protect
 
-## ⚡ Active Execution Rules
+The UI is close to the desired shape. Improvements should make it easier for the operator to start work without babysitting every small step while still knowing exactly what is happening.
 
-Before making any code changes, perform these checks:
+In particular:
 
-1. **Code Boundary Check:** All active control-room development must be constrained entirely inside `src/devflow/control_room/`. Legacy software-factory files are quarantined in `src/devflow/_legacy/` and top-level shims are compatibility bridges. **Never write new features under top-level modules or `_legacy/`.** Read [docs/agent-handoff.md](docs/agent-handoff.md) for details.
-2. Read [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) and check your plan against its *Periodic Self-Check* section.
-3. Read [docs/control-room-mvp.md](docs/control-room-mvp.md).
-4. Read [docs/token-optimization.md](docs/token-optimization.md) and invoke `devmode:token-budget` to manage active context and search policies.
-5. Consult [docs/verification-ledger.md](docs/verification-ledger.md) before running expensive verification.
-6. Inspect only the smallest relevant implementation files.
-7. Preserve useful code that supports the control-room MVP.
-8. Bypass old workflow machinery that conflicts with the MVP.
-9. Keep changes focused and verify them.
+- `Create task` should create a real Dev-Flow task, show the new task clearly, and offer the next executable action.
+- Any model or worker used by Brainstorm, orchestration, patch proposal, review, or execution must be named in the UI.
+- If system health says tasks are active, the UI must make those tasks visible with title, status, worker/model, last update, and next action.
+- Worker lanes, review queue, and evidence stream should show concrete task/log/evidence data, not vague summaries.
+- Current tasks need useful controls: inspect, run/start when eligible, verify, retry, close, cleanup preview/apply where supported, and promote when safe.
+- Automation is welcome when it is Dev-Flow-owned, logged, bounded, and gated. Invisible orchestration is not welcome.
 
-## Verification Escalation Policy
+## Automation Posture
 
-- Status questions use lightweight read-only commands plus [docs/verification-ledger.md](docs/verification-ledger.md).
-- Documentation-only changes use `git diff --check` and targeted stale-context searches.
-- Focused code changes use targeted tests around the touched behavior.
-- Full pytest is reserved for release gates, broad shared behavior changes, or explicit user request.
-- Production dogfood is reserved for dogfood/control-room end-to-end changes, release gates, or explicit user request; otherwise consult the latest ledger entry.
+The direction is aggressive local automation with hard stops:
 
----
+- automate routine Dev-Flow loops where policy and command flags allow it
+- prefer shell workers and existing verified task/loop machinery for code-changing work
+- keep provider/model runs as explicit evidence or patch-proposal lanes unless a later runtime contract promotes them
+- preserve human-readable evidence for every automated action
+- do not push, publish, open PRs, or perform broad promotion without explicit human approval
 
-## 🛡️ One Writer At A Time
+Future architecture is valuable and should remain in `docs/architecture/` or clearly marked roadmap docs. It is not startup authority for ordinary UI/product fixes unless the task is specifically about that future layer.
 
-Only one developer agent may edit files in the repository at a time. Other agents may review, inspect, or plan in a read-only capacity. The worktree must be clean and verified before switching active writers.
+## Where To Work
 
-## DevMode Git Bridge
+Active control-room implementation belongs in:
 
-Dev-Flow projects use DevMode as the agent discipline layer. When `.devflow/` exists, agents must apply DevMode `using-devmode` and `workspace-isolation`. Git-changing actions must go through Dev-Flow commands where available: `devflow git status`, `devflow sync-main`, `devflow task promote-preview`, `devflow task promote`, and `devflow push-main`. Do not run raw `git push origin main`, raw promotion merges, or conflict-resolution rebases unless the human explicitly authorizes it.
+```text
+src/devflow/control_room/
+tests/
+docs/
+```
 
----
+Top-level `src/devflow/*.py` files are mostly CLI entrypoints or compatibility bridges. Touch them only when the active control-room API requires it. Do not add new product behavior under `src/devflow/_legacy/`.
 
-## ✅ Milestone Closure Discipline
+## Working Rules
 
-Every major feature, milestone, or direction change must end with a clean checkpoint:
+For ordinary fixes:
 
-1. Update the active docs first so future agents do not inherit stale or conflicting context.
-2. Remove junk, outdated archive references, and confusing dead plans from the active repo.
-3. Run focused verification plus any broader suite needed for the blast radius.
-4. Confirm the tree is clean after commit.
-5. Merge the work to `main` and push the remote branch/mainline when explicitly approved.
-6. Write a compact handoff using [docs/handoff-template.md](docs/handoff-template.md), with one concrete next safe action.
+1. Read this file.
+2. Inspect the smallest relevant implementation or doc files.
+3. Make the focused change.
+4. Run verification scaled to the risk.
+5. Report what changed, what passed, and what remains risky.
 
-Archived or quarantined material must stay outside the active repo unless it is intentionally restored as current, non-archived source.
+Only expand into broader docs when the task actually needs them:
 
----
+- Product direction: [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md)
+- Current control-room contract: [docs/control-room-mvp.md](docs/control-room-mvp.md)
+- Verification reuse: [docs/verification-ledger.md](docs/verification-ledger.md)
+- DevMode discipline reference: [docs/devmode-contract.md](docs/devmode-contract.md)
 
-## ⚠️ Poison Context Warning
+Historical handoffs, milestone plans, archived specs, and old workflow notes are reference material. Do not treat them as process authority unless the user explicitly asks for that history.
 
-Old direction is not harmless. Conflicting docs, stale plans, archived rituals, obsolete command lists, and legacy architecture notes are **poison context**: they cause future agents to confidently build the wrong product.
+## Git And Worktree Safety
 
-When you find poison context in the active repo:
+There may be unrelated user or agent changes in the worktree. Do not revert work you did not make.
 
-1. Remove it if it is junk, obsolete, or archived material.
-2. Rewrite it if the file is still useful but points at the wrong direction.
-3. Quarantine it outside the active repo if history must be kept.
-4. Mark any intentionally retained historical note as non-authoritative.
-5. Re-run stale-context searches before committing.
+When `.devflow/` exists, prefer Dev-Flow git commands where they work:
 
-Do not leave "maybe useful later" context in active docs. If it is not current authority and it can steer implementation, it must be cleaned up before the milestone is closed.
+```bash
+devflow git status
+devflow sync-main
+devflow task promote-preview <task_id>
+devflow task promote <task_id>
+devflow push-main
+```
 
----
+If the console script is unavailable, use:
 
-## 🤫 Silent Work Mode
+```bash
+env PYTHONPATH=src:. .venv/bin/python -m devflow.cli git status
+```
 
-Operate silently without narration or progress commentary. Speak only to ask a blocking question, report a verification failure, or document a risk that changes the next safe action.
+Do not run raw `git push origin main`, raw promotion merges, or conflict-resolution rebases unless the human explicitly authorizes it.
 
----
+## Verification Policy
 
-## Standard Handoff Format
+- Documentation-only changes: run `git diff --check` and a targeted stale-context search.
+- Focused code changes: run targeted tests around touched behavior.
+- Operating-layer UI changes: run targeted operating-layer tests and, when practical, validate the served UI with a cache-busted browser URL.
+- Full pytest and dogfood are release/broad-change gates, not the default for every small fix.
 
-Every task completion report, status update, or shift handoff must use the standard headings defined in [docs/handoff-template.md](docs/handoff-template.md). Keep handoffs short enough to paste into a new chat without dragging the entire previous conversation forward.
+Use [docs/verification-ledger.md](docs/verification-ledger.md) before rerunning expensive verification.
 
+## Stale Context Policy
+
+Stale context is harmful when it claims to be current authority. Clean it up by rewriting, relocating, or marking it historical.
+
+Do not delete future architecture just because it is not active yet. Preserve useful future ideas as roadmap/reference material, but keep them clearly separated from the current product contract.
+
+## Communication
+
+Keep updates concise and useful. Avoid narrating every internal rule check, but do speak up for blockers, verification failures, or risks that change the next safe action.
+
+Completion reports should use the standard handoff headings from [docs/handoff-template.md](docs/handoff-template.md) when the task is more than a tiny answer:
+
+```text
 ## Status
-
-[complete | in-progress | blocked | needs-review | failed]
-
+## Outcome
 ## Files Changed
-
-- path/to/file (summary of what changed)
-
 ## Verification
-
-- `command run`: pass/fail + actual output logs
-
 ## Risks
-
-- Specific technical risks, limitations, or side-effects
-
+## Recommended Next Steps
 ## Next Safe Action
-
-- The single, concrete next action to take
+```

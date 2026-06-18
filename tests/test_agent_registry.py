@@ -38,6 +38,10 @@ DEEPSEEK_OPENROUTER_PROFILES = [
     "deepseek-v4-flash-patch-proposer",
 ]
 
+OPENROUTER_ADVISORY_PROFILES = [
+    "glm-5-2-brainstormer",
+]
+
 
 def test_valid_agent_registry_loads_enabled_default_agent(tmp_path: Path) -> None:
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -82,6 +86,7 @@ agents:
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
+        *OPENROUTER_ADVISORY_PROFILES,
     ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
@@ -135,6 +140,7 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
+        *OPENROUTER_ADVISORY_PROFILES,
     ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -200,6 +206,7 @@ agents:
         "local-shell",
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
+        *OPENROUTER_ADVISORY_PROFILES,
     ]
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
@@ -209,6 +216,7 @@ agents:
         "devflow-manual-codex-worker",
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
+        *OPENROUTER_ADVISORY_PROFILES,
     ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
@@ -616,6 +624,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
         "devflow-openai-reviewer",
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
+        *OPENROUTER_ADVISORY_PROFILES,
     ]
     
     for agent_id in expected_agents:
@@ -628,6 +637,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
                 "qwopus-implementer",
                 *STARTER_LOCAL_PROFILES,
                 *DEEPSEEK_OPENROUTER_PROFILES,
+                *OPENROUTER_ADVISORY_PROFILES,
             }
         )
         assert agent.workspace == "isolated_task_workspace"
@@ -668,7 +678,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert not any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes)
             assert agent.machine_class in {"mac_mini", "mac_studio", "either"}
             assert agent.weight_class in {"tiny", "small", "medium", "heavy"}
-        elif agent_id in DEEPSEEK_OPENROUTER_PROFILES:
+        elif agent_id in DEEPSEEK_OPENROUTER_PROFILES + OPENROUTER_ADVISORY_PROFILES:
             assert agent.provider == "openrouter"
             assert agent.adapter == "openai_compatible"
             assert agent.adapter_maturity == "experimental_readonly"

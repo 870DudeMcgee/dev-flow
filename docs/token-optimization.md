@@ -48,46 +48,29 @@ DevMode combines:
 
 Do not eagerly load every skill. Route to specialized skills only when the task clearly needs them.
 
-## Silent Work Mode
+## Low-Noise Collaboration
 
-DevMode must run silently across VS Code and Antigravity.
+Token optimization should prevent transcript bloat, not hide useful work from the operator.
 
-Agents use Superpowers, Matt Pocock skills, token optimization, and Dev-Flow rules internally. They must not narrate that workflow.
+Agents should keep progress updates concise and skip ritual narration such as listing every doc or skill they loaded. A short status note is useful when work takes time, when the agent is about to edit important files, when verification fails, or when a risk changes the next safe action.
 
-Do not produce progress narration unless the user explicitly asks for a live walkthrough.
+Do not turn routine work into a live transcript of internal rules. Do not paste full files, huge command output, or unchanged code into chat.
 
-Avoid phrases like:
-
-* "I'll..."
-* "I'm going to..."
-* "I'm reading..."
-* "I'm checking..."
-* "Let me..."
-* "Good..."
-* "Actually..."
-* "Now I..."
-* "Starting..."
-* "Completed..."
-* "The plan is..."
-
-Agent messages are allowed only for:
-
-* a blocking question
-* the final result
-* a verification failure
-* a risk that changes the next safe action
-
-Default final response:
+Default final response for task completion, status updates, and shift handoffs:
 
 ```text
-Decision:
+Status:
+Outcome:
 Files changed:
 Verification:
 Risks:
+Recommended next steps:
 Next safe action:
 ```
 
-When `/devmode` is invoked, print exactly one activation line before silent work:
+Keep the response compact, but do not omit the outcome or recommended next steps when they would save the human from reconstructing what happened from logs.
+
+When `/devmode` is invoked, print exactly one activation line before low-noise work:
 
 ```text
 DevMode loaded: token optimization, repo discipline, read-only/implementation gating.

@@ -1097,6 +1097,27 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
                 "<brainstorms>/**",
             ],
         },
+        {
+            "id": "glm-5-2-brainstormer",
+            "model": "z-ai/glm-5.2",
+            "role": "frontier_planner_architect_reviewer",
+            "tier": "frontier",
+            "default_mode": "frontier_read_only",
+            "purpose": "OpenRouter GLM 5.2 advisory profile for brainstorming, spec generation, and architecture review.",
+            "model_role_name": "glm-5-2-advisor",
+            "secondary_roles": ["brainstorm", "spec-intake", "architecture-review"],
+            "use_caution": [
+                "Advisory evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, or push."
+            ],
+            "hermes_delegable": False,
+            "allowed_reads": [
+                "<repo>/docs/verification-ledger.md",
+                "<brainstorms>/**",
+            ],
+            "allowed_writes": [
+                "<brainstorms>/**",
+            ],
+        },
     ]
 
     for profile in remote_advisory_profiles:

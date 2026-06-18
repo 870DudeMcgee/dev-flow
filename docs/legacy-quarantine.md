@@ -2,7 +2,7 @@
 
 The current Dev-Flow product is the local-first control room implemented under `src/devflow/control_room/`.
 
-WARNING: poison context. Legacy or archived direction is not neutral background. If it conflicts with the current control-room MVP, it can cause future agents to build the wrong product.
+WARNING: stale context can be harmful when it looks like current authority. Legacy or archived direction may be useful history, but it must not steer new control-room, registry, adapter-runtime, or worker implementation unless it is intentionally rewritten into the current product contract.
 
 The paths below are legacy or compatibility material. They may be useful for historical inspection, but they must not steer new supervisor-loop, registry, adapter-runtime, or worker implementation.
 

@@ -376,15 +376,13 @@ This is how Dev-Flow becomes trustworthy.
 
 ---
 
-## Near-Term MVP
+## Near-Term Product
 
-The first production-worthy MVP is not a full AI swarm.
+The current product is a local operating layer over Dev-Flow's task/workspace/evidence system. The shell-worker baseline is proven; the near-term work is making the browser control room useful enough that the operator can create tasks, start work, understand active lanes, inspect evidence, resolve blockers, verify, close/cleanup, retry, and promote without babysitting every small step.
 
-The first MVP is a non-AI control room that proves the infrastructure works.
+The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration as the default path, enabled non-shell task-run adapters, autonomous provider routing, auto-push, publication, and pull-request behavior. The approved automation direction is a DevFlow-native local loop that may create ready tasks, run shell workers, run verification, run promotion preview, and promote verified safe local work only when both durable loop policy and the run command explicitly allow it.
 
-The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration as the default path, enabled non-shell adapters, autonomous provider routing, auto-push, publication, and pull-request behavior. The approved automation direction is a DevFlow-native local loop that may create ready tasks, run shell workers, run verification, run promotion preview, and promote verified safe local work only when both durable loop policy and the run command explicitly allow it.
-
-The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker evidence, verification, questions, and promotion readiness without reading huge logs, execute supervisor-classified read-only commands from Advanced Commands, and run the normal local loop through exact approval-gated task creation, shell worker execution, task verification, and task promotion. The canonical browser surface is `devflow operating-layer serve`, whose first viewport is the real control-room workbench: Brainstorm, Pipeline, Worker lanes, Review queue, and Evidence stream. The older static `public/` marketing/simulator page is not product authority. Broad mutating commands still stop at trusted CLI execution. This slice does not add a database, autonomous routing, provider-backed worker calls, hidden memory, or direct merge/push/PR automation.
+The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker/model identity, evidence, verification, questions, close/cleanup state, and promotion readiness without reading huge logs. The canonical browser surface is `devflow operating-layer serve`, whose first viewport is the real control-room workbench: Brainstorm, Pipeline, Worker lanes, Review queue, and Evidence stream. The older static `public/` marketing/simulator page is not product authority. Broad mutating commands still stop at trusted CLI execution. This slice does not add a database, hidden memory, direct merge/push/PR automation, or provider-backed workers that silently edit outside the current task/workspace/evidence gates.
 
 The active registry and routing architecture is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md). Registry/runtime guardrails define agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. Milestone 17 implements evidence-only task-fit scoring, context estimation, scout signals, route decisions, and routing-quality scorecards. The current OpenRouter/DeepSeek lane is explicit evidence generation for advisory reports and patch proposals, not provider-backed worker execution. Autonomous worker assignment, provider-backed task-run execution, worker-owned verification, promotion, commit, push, and publication remain excluded.
 
@@ -450,26 +448,26 @@ The initial production hardening slice adds opt-in Git-native worker isolation a
 
 ---
 
-## What Not To Build Yet
+## Roadmap Boundaries
 
-Do not build these until the control room works:
+Keep these as roadmap ideas until the control room is clear and trustworthy:
 
-- complex autonomous planning
+- hidden or complex autonomous planning
 - memory/vector database
 - direct Aider integration before registry/manual/shell alignment
 - direct Hermes worker/runtime integration before registry/manual/shell alignment; external read-only operator guidance may consume supervisor-safe commands
 - direct OpenCode integration before registry/manual/shell alignment
 - direct Codex integration before registry/manual/shell alignment
-- multi-agent reasoning
+- opaque multi-agent reasoning
 - PR automation
 - ungated promotion, auto-push, or publication
 - cloud deployment
-- fancy dashboard design disconnected from filesystem evidence
+- dashboard design disconnected from filesystem evidence
 - plugin marketplace
 - complex DAG planner
 - self-improving agent behavior
 
-These are future layers.
+These are future layers, not bad ideas. Preserve useful architecture notes, but do not let them override the current product contract.
 
 The control room comes first.
 
@@ -685,7 +683,7 @@ Any AI working on Dev-Flow should periodically answer these questions:
 
 1. Are we building the control room, or are we accidentally building another coding agent?
 2. Does this change make parallel work more visible, isolated, or recoverable?
-3. Does this change reduce or increase process ceremony?
+3. Does this change reduce babysitting without hiding state or increasing ceremony?
 4. Is state becoming clearer or more scattered?
 5. Can the user tell what is happening without reading huge logs?
 6. Does this work without paid frontier-model credits?
