@@ -5055,9 +5055,14 @@ def agent_hyperplane(
     task_id: str,
     suite: str = typer.Option(..., "--suite", help="Hyperplane suite id, such as worker-safety."),
     target: str = typer.Option(..., "--target", help="Target under test: control-room or a local model profile id."),
-    judge: str = typer.Option(..., "--judge", help="Local model profile used as the Hyperplane judge."),
+    judge: str = typer.Option(..., "--judge", help="Read-only local or remote advisory model profile used as the Hyperplane judge."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Write a no-model Hyperplane plan."),
     execute: bool = typer.Option(False, "--execute", help="Run Hyperplane sequentially and write task-local evidence."),
+    fast: bool = typer.Option(
+        False,
+        "--fast",
+        help="Skip Hyperplane's LLM-generated HTML report and record raw generator/judge failures.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     project: str | None = typer.Option(None, "--project", help="Write Hyperplane evidence under a registered project root."),
     depth: int = typer.Option(12, "--depth", min=1, help="Hyperplane depth budget."),
@@ -5096,6 +5101,7 @@ def agent_hyperplane(
                 timeout_seconds=timeout_seconds,
                 output_budget_tokens=output_budget_tokens,
                 allow_self_grading=allow_self_grading,
+                execution_mode="fast" if fast else "full",
             )
             if execute
             else write_hyperplane_dry_run_plan(
@@ -5110,6 +5116,7 @@ def agent_hyperplane(
                 timeout_seconds=timeout_seconds,
                 output_budget_tokens=output_budget_tokens,
                 allow_self_grading=allow_self_grading,
+                execution_mode="fast" if fast else "full",
             )
         )
     except HyperplaneHarnessError as exc:
@@ -5126,6 +5133,7 @@ def agent_hyperplane(
     typer.echo(f"judge: {payload['judge']}")
     typer.echo(f"status: {payload['status']}")
     typer.echo(f"run_id: {payload['run_id']}")
+    typer.echo(f"execution_mode: {payload['execution_mode']}")
     typer.echo(f"run_dir: {payload['run_dir']}")
     typer.echo(f"plan_path: {payload['plan_path']}")
     typer.echo(f"will_call_hyperplane: {str(payload['will_call_hyperplane']).lower()}")

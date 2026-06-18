@@ -263,6 +263,7 @@ devflow agent audition <task_id> --job review-debug --dry-run --json
 devflow agent audition <task_id> --job review-debug --execute --json
 devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --dry-run --json
 devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --execute --json
+devflow agent hyperplane <task_id> --suite worker-safety --target qwopus-implementer --judge deepseek-v4-pro-reviewer --execute --fast --json
 devflow agent hyperplane-list <task_id> --json
 devflow agent hyperplane-show <task_id> <run_id> --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json
