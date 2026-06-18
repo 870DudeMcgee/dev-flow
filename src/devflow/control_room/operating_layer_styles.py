@@ -967,7 +967,8 @@ body {
   text-align: left;
 }
 .review-main strong,
-.review-main span {
+.review-main span,
+.review-main em {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -975,6 +976,7 @@ body {
 }
 .review-main strong { color: var(--text); font-size: 12px; }
 .review-main span { color: var(--text-muted); font-size: 10px; }
+.review-main em { color: var(--text-soft); font-size: 10px; font-style: normal; margin-top: 1px; }
 .review-branch { font-size: 11px; color: var(--text-soft); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-files { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
 .review-worker { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
@@ -1008,8 +1010,11 @@ body {
   text-align: left;
 }
 .evidence-icon { font-size: 13px; flex-shrink: 0; width: 16px; text-align: center; }
-.evidence-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.evidence-text,
+.evidence-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-text strong { color: var(--blue); }
+.evidence-path { font-size: 10px; color: var(--text-muted); }
 .evidence-time { font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
 .empty-panel-note {
   display: flex;
@@ -1278,7 +1283,20 @@ body {
   .bottom-dock { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .topbar { padding: 8px 12px; gap: 8px; }
-  .topbar-left { flex-wrap: wrap; }
+  .topbar-left { flex: 1 1 100%; gap: 8px; min-width: 0; }
+  .topbar-right { flex: 1 1 100%; justify-content: space-between; min-width: 0; }
+  .repo-selector { flex: 1 1 100%; min-width: 0; }
+  .repo-info { min-width: 0; }
+  .repo-info strong,
+  .repo-path {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar-pill { flex: 1 1 0; justify-content: center; min-width: 0; padding: 5px 8px; }
+  .topbar-pill strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .panel { margin-bottom: 10px; }
   .panel-header { min-height: 36px; padding: 8px 12px; }
   .brainstorm-transcript { min-height: 130px; max-height: 180px; padding: 10px 12px; }
@@ -1306,6 +1324,7 @@ body {
   .health-section { order: 4; }
   .history-panel { order: 5; }
   #mission-feed-section { order: 6; }
+  #builder-judge-section { order: 7; }
   .next-task-meta { grid-template-columns: 1fr; }
 }
 

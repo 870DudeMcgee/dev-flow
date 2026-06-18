@@ -103,6 +103,9 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "renderOrchestrator" in APP_JS
     assert "renderMissionFeed" in APP_JS
     assert "renderWorkerLanes" in APP_JS
+    assert "buildFirstViewportPresentation" in APP_JS
+    assert "renderFirstViewport" in APP_JS
+    assert "first_viewport" in APP_JS
     assert "rememberApprovedActionResult" in APP_JS
     assert "refreshSnapshotAfterApprovedAction" in APP_JS
     assert "executeAction" in APP_JS
@@ -150,6 +153,18 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert payload["action_rail"][0]["supervisor_may_auto_run"] is True
     assert payload["tasks"][0]["actions"][0]["command"] == "devflow task run task-0001 --worker shell -- <command>"
     assert payload["tasks"][0]["actions"][0]["requires_human_approval"] is True
+    controls = {control["intent"]: control for control in payload["tasks"][0]["controls"]}
+    assert controls["start_shell"]["command"] == "devflow task run task-0001 --worker shell -- <command>"
+    assert controls["start_shell"]["required_inputs"] == ["shell_command"]
+    assert controls["inspect"]["command"] == "devflow task show task-0001"
+    first_viewport = payload["first_viewport"]
+    assert first_viewport["active_task_count"] == 1
+    assert first_viewport["total_task_count"] == 1
+    assert first_viewport["worker_lanes"][0]["task_id"] == "task-0001"
+    assert first_viewport["worker_lanes"][0]["worker_model_label"] == "shell"
+    assert first_viewport["worker_lanes"][0]["action_label"] == "Start shell"
+    assert first_viewport["launchpad"]["selected_task_id"] == "task-0001"
+    assert first_viewport["launchpad"]["command"] == "devflow task run task-0001 --worker shell -- <command>"
     assert payload["gate_receipts"][0]["task_id"] == "task-0001"
     assert payload["gate_receipts"][0]["next_gate"] == "run_worker"
     assert payload["mission_feed"][0]["label"] == "Task progress"
@@ -293,6 +308,15 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
         review_loop["evidence_summary"]
         == "1 task has worker output; 0 tasks have passed verification; 0 tasks are ready for promotion."
     )
+    first_viewport = payload["first_viewport"]
+    assert first_viewport["review_queue"][0]["task_id"] == "task-0001"
+    assert first_viewport["review_queue"][0]["action_label"] == "Verify"
+    assert first_viewport["review_queue"][0]["review_state"] == "needs_verification"
+    assert first_viewport["review_queue"][0]["evidence_count"] >= 3
+    assert "verification has not passed" in first_viewport["review_queue"][0]["operator_summary"]
+    assert first_viewport["evidence_stream"][0]["kind"] in {"result", "verification", "worker log"}
+    assert first_viewport["evidence_stream"][0]["task_id"] == "task-0001"
+    assert first_viewport["evidence_stream"][0]["path"]
 
     verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
     assert verify.exit_code == 0, verify.output
@@ -441,7 +465,8 @@ def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
     )
 
     payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
-    summary = payload["tasks"][0]["agent_evidence_summary"]
+    task = payload["tasks"][0]
+    summary = task["agent_evidence_summary"]
 
     assert summary == {
         "has_worker_evidence": True,
@@ -450,6 +475,13 @@ def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
         "manual_result_present": False,
         "next_safe_action": "review worker evidence before verification or promotion",
     }
+    assert task["review_detail"]["agent_evidence_summary"] == summary
+    assert task["review_detail"]["operator_summary"] == "Worker/model evidence is captured; review it before the next gate."
+    assert f".devflow/tasks/task-0001/local-model-runs/run-1/run.json" in task["review_detail"]["evidence_paths"]
+    assert any(artifact["kind"] == "model run" for artifact in task["review_detail"]["artifacts"])
+    assert payload["evidence"][0]["kind"] == "model run"
+    assert payload["evidence"][0]["path"] == f".devflow/tasks/task-0001/local-model-runs/run-1/run.json"
+    assert payload["first_viewport"]["evidence_stream"][0]["kind"] == "model run"
 
 
 def test_operating_layer_goal_board_exposes_lifecycle(tmp_path: Path, monkeypatch) -> None:
@@ -785,6 +817,9 @@ def test_operating_layer_includes_multi_project_overview(
     assert snapshot.tasks[0].next_action.command == (
         "devflow task run task-0001 --worker shell --project demo -- <command>"
     )
+    controls = {control.intent: control for control in snapshot.tasks[0].controls}
+    assert controls["start_shell"].command == "devflow task run task-0001 --worker shell --project demo -- <command>"
+    assert controls["start_shell"].required_inputs == ["shell_command"]
     assert snapshot.tasks[0].actions[1].command == "devflow task show task-0001 --project demo"
     projects = {project.project_id: project for project in snapshot.multi_project.projects}
     assert projects["demo"].next_action == "devflow project status demo"
@@ -798,6 +833,9 @@ def test_operating_layer_includes_multi_project_overview(
     assert needs_verification.review_loop.next_safe_action == (
         'devflow task verify task-0001 --shell "<command>" --project demo'
     )
+    verify_controls = {control.intent: control for control in needs_verification.tasks[0].controls}
+    assert verify_controls["verify"].command == 'devflow task verify task-0001 --shell "<command>" --project demo'
+    assert verify_controls["verify"].required_inputs == ["verification_command"]
 
     verify = runner.invoke(app, ["task", "verify", "task-0001", "--shell", "test -f result.txt"])
     assert verify.exit_code == 0, verify.output
@@ -878,6 +916,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert response.status == 200
         assert "sendBrainstormMessage" in js
         assert "escalateBrainstormStage" in js
+        assert "pipeline_detail" in js
+        assert "taskActionFromPipelinePayload" in js
         assert "renderBrainstormTranscript" in js
         assert "renderWorkerLanes" in js
         assert "renderReviewQueue" in js
@@ -987,6 +1027,18 @@ def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
             "'Launchpad shows the created task and start composer.' 'Build brainstorm workbench'"
         )
         assert payload["action"]["safety_class"] == "approval_required_task_state"
+        assert payload["pipeline_detail"]["task_action"]["command"] == payload["action"]["command"]
+        assert payload["pipeline_detail"]["implementation_context"]["target_path_template"] == (
+            ".devflow/workspaces/{task_id}/implementation-context.md"
+        )
+
+        connection.request("GET", "/api/brainstorm/transcript?session_id=browser-session")
+        response = connection.getresponse()
+        transcript_payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 200
+        assert transcript_payload["implementation"].startswith("# Implementation Task")
+        assert transcript_payload["pipeline"]["has_implementation"] is True
+        assert transcript_payload["pipeline"]["task_action"]["command"] == payload["action"]["command"]
     finally:
         server.shutdown()
         server.server_close()
@@ -1013,6 +1065,14 @@ def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None
     assert "worker-card" in APP_JS
     assert "Worker lanes" in APP_JS
     assert "renderWorkerLanes" in APP_JS
+    assert "buildFirstViewportPresentation" in APP_JS
+    assert "renderFirstViewport" in APP_JS
+    assert "BROWSER ACTION CAPABILITIES" in APP_JS
+    assert "function taskCapabilities" in APP_JS
+    assert "task?.controls" in APP_JS
+    assert "required_inputs" in APP_JS
+    assert "fillCapabilityCommand" in APP_JS
+    assert "devflow task run ${task.id} --worker ${w.id}" not in APP_JS
     assert "data-task-run-shell" in APP_JS
     assert "data-select-task" in APP_JS
     assert "data-task-close" in APP_JS

@@ -16,6 +16,7 @@ from devflow.control_room.dashboard import (
 )
 from devflow.control_room.agent_evidence import compact_agent_evidence_summary
 from devflow.control_room.agent_onboarding import build_agent_catalog
+from devflow.control_room.evidence_review_detail import EvidenceReviewDetail
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
@@ -28,6 +29,11 @@ from devflow.control_room.review_readiness import build_review_readiness_project
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
 from devflow.control_room.supervisor_surface import classify_supervisor_command
+from devflow.control_room.operating_layer_presentation import (
+    FirstViewportPresentation,
+    build_first_viewport_presentation,
+)
+from devflow.control_room.task_workbench import build_task_workbench
 
 
 OPERATING_LAYER_SCHEMA_VERSION = 1
@@ -48,6 +54,19 @@ class OperatingLayerAction(BaseModel):
     safety_class: str
     requires_human_approval: bool
     supervisor_may_auto_run: bool
+    reason: str | None = None
+
+
+class OperatingLayerTaskControl(BaseModel):
+    intent: str
+    label: str
+    command: str
+    scope: str = "task"
+    enabled: bool = True
+    safety_class: str
+    requires_human_approval: bool
+    supervisor_may_auto_run: bool
+    required_inputs: list[str] = Field(default_factory=list)
     reason: str | None = None
 
 
@@ -175,6 +194,8 @@ class OperatingLayerTask(BaseModel):
     worker_lane: OperatingLayerWorkerLane | None = None
     local_worker_lane: OperatingLayerLocalWorkerLane | None = None
     actions: list[OperatingLayerAction] = Field(default_factory=list)
+    controls: list[OperatingLayerTaskControl] = Field(default_factory=list)
+    review_detail: EvidenceReviewDetail | None = None
     detail: OperatingLayerTaskDetail
 
 
@@ -214,6 +235,11 @@ class OperatingLayerEvidencePointer(BaseModel):
     result_path: str | None = None
     verification_log_path: str | None = None
     verification_command: str | None = None
+    kind: str = "evidence"
+    text: str = ""
+    path: str | None = None
+    command: str | None = None
+    timestamp: str | None = None
 
 
 class OperatingLayerFreshness(BaseModel):
@@ -407,6 +433,7 @@ class OperatingLayerSnapshot(BaseModel):
     focus_task_id: str | None = None
     lanes: list[OperatingLayerLane] = Field(default_factory=list)
     tasks: list[OperatingLayerTask] = Field(default_factory=list)
+    first_viewport: FirstViewportPresentation
     questions: list[OperatingLayerQuestion] = Field(default_factory=list)
     inbox: list[OperatingLayerInboxItem] = Field(default_factory=list)
     promotion_desk: list[OperatingLayerPromotionCandidate] = Field(default_factory=list)
@@ -434,30 +461,26 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     freshness = _try_freshness(root, warnings)
     scheduler = _try_scheduler(root, warnings)
     question_snapshot = build_question_snapshot(root)
-    tasks = [_task_card(root, projection, project_id=project_id) for projection in dashboard.tasks]
+    task_workbench = build_task_workbench(root, project_id=project_id, projections=dashboard.tasks)
+    warnings.extend(task_workbench.warnings)
+    tasks = [_operating_task_from_workbench(task) for task in task_workbench.tasks]
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(question_snapshot, dashboard.tasks)
     inbox = _inbox_items(dashboard.tasks, freshness, question_snapshot=question_snapshot, project_id=project_id)
-    promotion_desk = _promotion_candidates(dashboard.ready_to_promote, project_id=project_id)
-    evidence = _evidence(dashboard.tasks)
-    goal_board = _goal_board(root, freshness, project_id=project_id)
-    gate_receipts = _gate_receipts(root, dashboard.tasks)
-
-    lane_order = [
-        ("blocked", "Blocked"),
-        ("failed", "Failed"),
-        ("running", "Running"),
-        ("ready_to_promote", "Ready for Review"),
-        ("needs_review", "Needs Review"),
-        ("needs_verification", "Needs Verification"),
-        ("new", "New"),
-        ("idle", "Idle"),
-        ("closed", "Closed"),
+    promotion_desk = [
+        OperatingLayerPromotionCandidate(**candidate.model_dump())
+        for candidate in task_workbench.promotion_candidates
     ]
-    lane_lookup = {name: [] for name, _label in lane_order}
-    for task in tasks:
-        lane_lookup.setdefault(task.lane, []).append(task.id)
-    focus_task_id = _focus_task_id(tasks)
+    evidence = [
+        OperatingLayerEvidencePointer(**pointer.model_dump())
+        for pointer in task_workbench.evidence_stream
+    ]
+    goal_board = _goal_board(root, freshness, project_id=project_id)
+    gate_receipts = [
+        OperatingLayerGateReceipt(**receipt.model_dump())
+        for receipt in task_workbench.gate_receipts
+    ]
+    focus_task_id = task_workbench.focus_task_id
 
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
     if dashboard_next_action.command:
@@ -472,10 +495,11 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         focus_goal_id=focus_goal_id,
         focus_task_id=focus_task_id,
         lanes=[
-            OperatingLayerLane(name=name, label=label, task_ids=lane_lookup.get(name, []))
-            for name, label in lane_order
+            OperatingLayerLane(**lane.model_dump())
+            for lane in task_workbench.lanes
         ],
         tasks=tasks,
+        first_viewport=build_first_viewport_presentation(task_workbench),
         questions=questions,
         inbox=inbox,
         promotion_desk=promotion_desk,
@@ -485,7 +509,10 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         spec_board=_spec_board(root, freshness),
         gate_receipts=gate_receipts,
         multi_project=_multi_project_card(warnings),
-        worker_activity=_worker_activity(tasks),
+        worker_activity=[
+            OperatingLayerWorkerActivity(**activity.model_dump())
+            for activity in task_workbench.worker_activity
+        ],
         mission_feed=_mission_feed(
             tasks,
             inbox=inbox,
@@ -514,6 +541,13 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
 def render_operating_layer_snapshot_json(repo_root: Path | None = None, *, project_id: str | None = None) -> str:
     snapshot = build_operating_layer_snapshot(repo_root, project_id=project_id)
     return json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+
+
+def _operating_task_from_workbench(task: Any) -> OperatingLayerTask:
+    payload = task.model_dump()
+    for internal_field in ("worker_model_label", "next_safe_action", "evidence_paths"):
+        payload.pop(internal_field, None)
+    return OperatingLayerTask(**payload)
 
 
 def _try_freshness(root: Path, warnings: list[str]) -> FreshnessReport | None:

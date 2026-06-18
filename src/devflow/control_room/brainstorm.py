@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -16,6 +15,10 @@ from devflow.control_room.agent_registry import (
     is_remote_advisory_agent,
     load_agent_registry,
     load_provider_registry,
+)
+from devflow.control_room.brainstorm_pipeline import (
+    build_brainstorm_pipeline_detail,
+    write_brainstorm_pipeline_detail,
 )
 from devflow.control_room.env_loader import resolve_api_key
 from devflow.control_room.openrouter_agent import (
@@ -308,38 +311,6 @@ def escalate_brainstorm_session(
     if normalized_stage == "implementation":
         task_title = _implementation_title(title, records)
         done_text = _definition_of_done(definition_of_done)
-
-        # Build implementation context from spec/plan artifacts
-        session_path = _session_dir(root, session)
-        impl_context_parts: list[str] = []
-        for stage_file in ("spec.md", "plan.md"):
-            stage_path = session_path / stage_file
-            if stage_path.exists():
-                content = stage_path.read_text(encoding="utf-8").strip()
-                if content:
-                    impl_context_parts.append(content)
-        # Also include recent transcript messages as context
-        if not impl_context_parts:
-            for record in records[-8:]:
-                role = str(record.get("role") or "unknown").title()
-                content = str(record.get("content") or "").strip()
-                if content:
-                    impl_context_parts.append(f"### {role}\n\n{content}")
-        impl_context = "\n\n---\n\n".join(impl_context_parts) if impl_context_parts else ""
-
-        command_parts = ["devflow", "task", "create"]
-        if done_text:
-            command_parts.extend(["--definition-of-done", done_text])
-        command_parts.append(task_title)
-        action = {
-            "label": "Open Implementation Task",
-            "command": " ".join(shlex.quote(part) for part in command_parts),
-            "scope": "brainstorm",
-            "safety_class": "approval_required_task_state",
-            "requires_human_approval": True,
-            "supervisor_may_auto_run": False,
-            "reason": "Creates one Dev-Flow task from an approved brainstorm escalation.",
-        }
         artifact_path = _write_stage_artifact(
             root,
             session,
@@ -349,21 +320,45 @@ def escalate_brainstorm_session(
             definition_of_done=done_text,
             model_info=model_info,
         )
+        detail = build_brainstorm_pipeline_detail(
+            root,
+            session_id=session,
+            stage=normalized_stage,
+            records=records,
+            artifact_path=artifact_path,
+            title=task_title,
+            definition_of_done=done_text,
+            model_info=model_info,
+            advisory_profile=_advisory_profile_payload(root, profile_id=profile_id),
+        )
+        write_brainstorm_pipeline_detail(root, detail)
         result: dict[str, Any] = {
             "schema_version": 1,
             "status": "ready",
             "session_id": session,
             "stage": normalized_stage,
             "artifact_path": relative_path(root, artifact_path),
-            "action": action,
+            "action": detail.task_action.model_dump(mode="json") if detail.task_action else None,
             "model_info": model_info,
+            "pipeline_detail": detail.model_dump(mode="json"),
         }
-        if impl_context:
-            result["implementation_context"] = impl_context
-            result["implementation_context_path"] = relative_path(root, artifact_path)
+        if detail.implementation_context:
+            result["implementation_context"] = detail.implementation_context.text
+            result["implementation_context_path"] = detail.implementation_context.artifact_path
         return result
 
     artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=title, model_info=model_info)
+    detail = build_brainstorm_pipeline_detail(
+        root,
+        session_id=session,
+        stage=normalized_stage,
+        records=records,
+        artifact_path=artifact_path,
+        title=title,
+        model_info=model_info,
+        advisory_profile=_advisory_profile_payload(root, profile_id=profile_id),
+    )
+    write_brainstorm_pipeline_detail(root, detail)
     return {
         "schema_version": 1,
         "status": "ready",
@@ -371,6 +366,7 @@ def escalate_brainstorm_session(
         "stage": normalized_stage,
         "artifact_path": relative_path(root, artifact_path),
         "model_info": model_info,
+        "pipeline_detail": detail.model_dump(mode="json"),
     }
 
 
@@ -512,6 +508,19 @@ def _load_brainstorm_profile(root: Path, *, profile_id: str | None = None) -> tu
     if not is_ollama and not is_remote_advisory_agent(profile, provider=provider):
         raise OpenRouterAgentError(f"Profile '{profile.id}' is not an advisory OpenRouter profile.")
     return profile, provider
+
+
+def _advisory_profile_payload(root: Path, *, profile_id: str | None = None) -> dict[str, Any] | None:
+    try:
+        profile, provider = _load_brainstorm_profile(root, profile_id=profile_id)
+    except Exception:
+        return {"profile_id": profile_id} if profile_id else None
+    return {
+        "profile_id": profile.id,
+        "model": profile.model,
+        "provider": provider.id,
+        "adapter": profile.adapter,
+    }
 
 
 def _brainstorm_system_prompt(profile: AgentDefinition) -> str:

@@ -19,6 +19,7 @@ from devflow.control_room.brainstorm import (
     escalate_brainstorm_session,
     run_brainstorm_message,
 )
+from devflow.control_room.brainstorm_pipeline import load_brainstorm_pipeline_detail
 from devflow.control_room.builder_judge_loop import (
     DEFAULT_BUILDER_PROFILE,
     DEFAULT_JUDGE_PROFILE,
@@ -161,13 +162,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         approved_task_close = False
         approved_cleanup_preview = False
         approved_shell_worker_run = False
-        approved_ai_worker_run = False
         approved_verification = False
         approved_promotion = False
         approved_agent_add_provider = False
         approved_agent_add_model = False
-        approved_agent_run = False
-        approved_agent_advise = False
         approved_agent_propose_patch = False
         if classification["safety_class"] != PURE_READ_ONLY:
             try:
@@ -176,13 +174,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 approved_task_close = _is_approved_task_close(payload, command, classification)
                 approved_cleanup_preview = _is_approved_cleanup_preview(payload, command, classification)
                 approved_shell_worker_run = _is_approved_shell_worker_run(payload, command, classification)
-                approved_ai_worker_run = _is_approved_ai_worker_run(payload, command, classification)
                 approved_verification = _is_approved_task_verification(payload, command, classification)
                 approved_promotion = _is_approved_task_promotion(payload, command, classification)
                 approved_agent_add_provider = _is_approved_agent_add_provider(payload, command, classification)
                 approved_agent_add_model = _is_approved_agent_add_model(payload, command, classification)
-                approved_agent_run = _is_approved_agent_run(payload, command, classification)
-                approved_agent_advise = _is_approved_agent_advise(payload, command, classification)
                 approved_agent_propose_patch = _is_approved_agent_propose_patch(payload, command, classification)
             except ValueError as exc:
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
@@ -193,13 +188,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             or approved_task_close
             or approved_cleanup_preview
             or approved_shell_worker_run
-            or approved_ai_worker_run
             or approved_verification
             or approved_promotion
             or approved_agent_add_provider
             or approved_agent_add_model
-            or approved_agent_run
-            or approved_agent_advise
             or approved_agent_propose_patch
         ):
             self._send_json(
@@ -231,16 +223,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 args = _approved_agent_add_provider_command_args(command)
             elif approved_agent_add_model:
                 args = _approved_agent_add_model_command_args(command)
-            elif approved_agent_run:
-                args = _approved_agent_run_command_args(command)
-            elif approved_agent_advise:
-                args = _approved_agent_advise_command_args(command)
             elif approved_agent_propose_patch:
                 args = _approved_agent_propose_patch_command_args(command)
             elif approved_shell_worker_run:
                 args = _approved_shell_worker_run_command_args(command)
-            elif approved_ai_worker_run:
-                args = _approved_ai_worker_run_command_args(command)
             elif approved_verification:
                 args = _approved_task_verification_command_args(command)
             elif approved_promotion:
@@ -253,8 +239,6 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
 
         env = _devflow_subprocess_env()
-        # AI workers need much more time than shell commands
-        worker_timeout = 600 if approved_ai_worker_run else ACTION_TIMEOUT_SECONDS
         try:
             completed = subprocess.run(
                 args,
@@ -263,7 +247,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 text=True,
                 input="y\n" if approved_promotion else None,
                 capture_output=True,
-                timeout=worker_timeout,
+                timeout=ACTION_TIMEOUT_SECONDS,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
@@ -315,6 +299,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     msg_count = 0
                     has_spec = (entry / "spec.md").exists()
                     has_plan = (entry / "plan.md").exists()
+                    has_implementation = (entry / "implementation.md").exists()
                     for line in transcript.read_text(encoding="utf-8").splitlines():
                         if not line.strip():
                             continue
@@ -332,6 +317,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                         "preview": first_user_msg or "(no messages)",
                         "has_spec": has_spec,
                         "has_plan": has_plan,
+                        "has_implementation": has_implementation,
                         "modified_at": datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
                     })
             self._send_json({"sessions": sessions}, HTTPStatus.OK)
@@ -347,7 +333,18 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 return
             transcript_path = root / ".devflow" / "brainstorms" / session_id / "transcript.jsonl"
             if not transcript_path.exists():
-                self._send_json({"session_id": session_id, "messages": [], "spec": None, "plan": None}, HTTPStatus.OK)
+                pipeline = load_brainstorm_pipeline_detail(root, session_id=session_id, records=[])
+                self._send_json(
+                    {
+                        "session_id": session_id,
+                        "messages": [],
+                        "spec": None,
+                        "plan": None,
+                        "implementation": None,
+                        "pipeline": pipeline.model_dump(mode="json"),
+                    },
+                    HTTPStatus.OK,
+                )
                 return
             messages: list[dict[str, object]] = []
             for line in transcript_path.read_text(encoding="utf-8").splitlines():
@@ -368,11 +365,18 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             plan_path = session_dir / "plan.md"
             if plan_path.exists():
                 plan_content = plan_path.read_text(encoding="utf-8")
+            implementation_content = None
+            implementation_path = session_dir / "implementation.md"
+            if implementation_path.exists():
+                implementation_content = implementation_path.read_text(encoding="utf-8")
+            pipeline = load_brainstorm_pipeline_detail(root, session_id=session_id, records=messages)
             self._send_json({
                 "session_id": session_id,
                 "messages": messages,
                 "spec": spec_content,
                 "plan": plan_content,
+                "implementation": implementation_content,
+                "pipeline": pipeline.model_dump(mode="json"),
             }, HTTPStatus.OK)
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -965,56 +969,6 @@ def _approved_shell_worker_run_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
-def _approved_ai_worker_run_command_args(command: str) -> list[str]:
-    """Validate and return args for an AI worker run from the browser.
-
-    Unlike shell workers, AI workers (qwopus-implementer, deepseek-v4-flash-patch-proposer, etc.)
-    don't need a '--' separator or a concrete shell command — they read the task and produce
-    output autonomously. But they still need approval.
-    """
-    tokens = shlex.split(command)
-    normalized = _normalize_devflow_command_tokens(tokens)
-    if len(normalized) < 5 or normalized[1:3] != ["task", "run"]:
-        raise ValueError("only approved task worker runs may run from the operating layer")
-    task_id = normalized[3]
-    if not task_id or task_id.startswith("-"):
-        raise ValueError("AI worker run requires a task id")
-
-    # Parse options — no '--' required for AI workers
-    options = normalized[4:]
-    worker = None
-    index = 0
-    while index < len(options):
-        token = options[index]
-        if token == "--worker":
-            if index + 1 >= len(options):
-                raise ValueError("AI worker run requires a worker name after --worker")
-            worker = options[index + 1]
-            index += 2
-            continue
-        if token == "--project":
-            if index + 1 >= len(options) or options[index + 1].startswith("-"):
-                raise ValueError("AI worker run requires a project id after --project")
-            index += 2
-            continue
-        if token == "--timeout-seconds":
-            if index + 1 >= len(options) or not options[index + 1].isdigit():
-                raise ValueError("AI worker run requires a numeric --timeout-seconds value")
-            index += 2
-            continue
-        # Unknown option — stop parsing
-        break
-
-    if not worker:
-        raise ValueError("AI worker run requires --worker <worker-name>")
-
-    # Block shell workers — those go through _approved_shell_worker_run_command_args
-    if worker == "shell":
-        raise ValueError("shell workers must go through the shell worker approval path")
-
-    return _devflow_command_args_from_tokens(tokens)
-
-
 def _approved_task_verification_command_args(command: str) -> list[str]:
     tokens = shlex.split(command)
     normalized = _normalize_devflow_command_tokens(tokens)
@@ -1101,44 +1055,6 @@ def _approved_agent_add_model_command_args(command: str) -> list[str]:
     for option, field in (("--provider", "provider"), ("--model", "model"), ("--role", "role")):
         if _is_placeholder_text(values[option], field=field):
             raise ValueError(f"approved model onboarding requires a concrete {field}")
-    return _devflow_command_args_from_tokens(tokens)
-
-
-def _approved_agent_run_command_args(command: str) -> list[str]:
-    tokens = shlex.split(command)
-    normalized = _normalize_devflow_command_tokens(tokens)
-    if len(normalized) < 3 or normalized[1:3] != ["agent", "run"]:
-        raise ValueError("only approved agent run may run from the operating layer")
-    values = _parse_exact_options(
-        normalized[3:],
-        value_options={"--task", "--profile"},
-        flags={"--json"},
-        command_label="approved model run",
-    )
-    if "--task" not in values or "--profile" not in values:
-        raise ValueError("approved model run requires --task and --profile")
-    if _is_placeholder_text(values["--task"], field="task-id") or _is_placeholder_text(values["--profile"], field="profile"):
-        raise ValueError("approved model run requires concrete task and profile ids")
-    return _devflow_command_args_from_tokens(tokens)
-
-
-def _approved_agent_advise_command_args(command: str) -> list[str]:
-    tokens = shlex.split(command)
-    normalized = _normalize_devflow_command_tokens(tokens)
-    if len(normalized) < 3 or normalized[1:3] != ["agent", "advise"]:
-        raise ValueError("only approved agent advise may run from the operating layer")
-    values = _parse_exact_options(
-        normalized[3:],
-        value_options={"--profile", "--job", "--task"},
-        flags={"--json"},
-        command_label="approved advisory model run",
-    )
-    if "--profile" not in values or "--job" not in values:
-        raise ValueError("approved advisory model run requires --profile and --job")
-    if values["--job"] not in {"gap-analysis", "review", "status"}:
-        raise ValueError("approved advisory job must be gap-analysis, review, or status")
-    if _is_placeholder_text(values["--profile"], field="profile"):
-        raise ValueError("approved advisory model run requires a concrete profile id")
     return _devflow_command_args_from_tokens(tokens)
 
 
@@ -1272,17 +1188,6 @@ def _is_approved_shell_worker_run(payload: dict[str, object], command: str, clas
     return _approval_payload_matches(payload, command)
 
 
-def _is_approved_ai_worker_run(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
-    """Check if this is an approved AI worker run (non-shell worker)."""
-    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
-        return False
-    try:
-        _approved_ai_worker_run_command_args(command)
-    except ValueError:
-        return False
-    return _approval_payload_matches(payload, command)
-
-
 def _is_approved_task_verification(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
     if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
         return False
@@ -1318,26 +1223,6 @@ def _is_approved_agent_add_model(payload: dict[str, object], command: str, class
         return False
     try:
         _approved_agent_add_model_command_args(command)
-    except ValueError:
-        return False
-    return _approval_payload_matches(payload, command)
-
-
-def _is_approved_agent_run(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
-    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
-        return False
-    try:
-        _approved_agent_run_command_args(command)
-    except ValueError:
-        return False
-    return _approval_payload_matches(payload, command)
-
-
-def _is_approved_agent_advise(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
-    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
-        return False
-    try:
-        _approved_agent_advise_command_args(command)
     except ValueError:
         return False
     return _approval_payload_matches(payload, command)

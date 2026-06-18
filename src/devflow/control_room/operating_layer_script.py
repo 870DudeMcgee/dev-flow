@@ -54,40 +54,152 @@ function taskWorkerLabel(task) {
   }
   return task?.worker || 'unassigned';
 }
+
+// === BROWSER ACTION CAPABILITIES ===
+function intentForCommand(command) {
+  const value = String(command || '');
+  if (value.includes(' task run ') && value.includes('--worker shell')) return 'start_shell';
+  if (value.includes(' task verify ')) return 'verify';
+  if (value.includes(' task promote-preview ')) return 'review_preview';
+  if (value.includes(' task promote ')) return 'promote';
+  if (value.includes(' task cleanup ') && value.includes('--preview')) return 'cleanup_preview';
+  if (value.includes(' task close ')) return 'close';
+  if (value.includes(' task log ')) return 'inspect_log';
+  if (value.includes(' task show ')) return 'inspect';
+  return 'next_safe_action';
+}
+function labelForIntent(intent) {
+  const labels = {
+    start_shell: 'Start shell',
+    retry: 'Retry',
+    verify: 'Verify',
+    review_preview: 'Review preview',
+    promote: 'Promote',
+    cleanup_preview: 'Cleanup preview',
+    close: 'Close',
+    inspect: 'Inspect',
+    inspect_log: 'Inspect log',
+    next_safe_action: 'Next safe action',
+  };
+  return labels[intent] || sentenceCase(intent);
+}
+function inferredRequiredInputs(intent, command) {
+  const value = String(command || '');
+  if (intent === 'start_shell' || intent === 'retry' || /--\\s*<command>\\s*$/.test(value)) return ['shell_command'];
+  if (intent === 'verify' || /--shell\\s+["']?<command>/.test(value)) return ['verification_command'];
+  if (intent === 'close' || value.includes('<reason>')) return ['close_outcome', 'close_reason'];
+  return [];
+}
+function normalizeCapability(raw) {
+  if (!raw || !raw.command) return null;
+  const intent = raw.intent || intentForCommand(raw.command);
+  const requiredInputs = Array.isArray(raw.required_inputs) && raw.required_inputs.length
+    ? raw.required_inputs
+    : inferredRequiredInputs(intent, raw.command);
+  return {
+    intent,
+    label: raw.label || labelForIntent(intent),
+    command: raw.command,
+    scope: raw.scope || 'task',
+    enabled: raw.enabled !== false,
+    safety_class: raw.safety_class || '',
+    requires_human_approval: Boolean(raw.requires_human_approval),
+    supervisor_may_auto_run: Boolean(raw.supervisor_may_auto_run),
+    required_inputs: requiredInputs,
+    reason: raw.reason || null,
+  };
+}
+function taskCapabilities(task) {
+  const capabilities = [];
+  const seen = new Set();
+  const push = (raw) => {
+    const cap = normalizeCapability(raw);
+    if (!cap || !cap.command) return;
+    const key = `${cap.intent}\\n${cap.command}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    capabilities.push(cap);
+  };
+  for (const control of task?.controls || []) push(control);
+  for (const action of task?.actions || []) push({ ...action, intent: intentForCommand(action.command) });
+  if (task?.next_action?.command) {
+    push({ ...task.next_action, intent: intentForCommand(task.next_action.command), label: task.next_action.label || labelForIntent(intentForCommand(task.next_action.command)) });
+  }
+  return capabilities;
+}
+function taskCapability(task, intentOrLabel) {
+  const needle = String(intentOrLabel || '').toLowerCase();
+  const caps = taskCapabilities(task).filter(cap => cap.enabled);
+  return caps.find(cap => String(cap.intent || '').toLowerCase() === needle)
+    || caps.find(cap => String(cap.label || '').toLowerCase() === needle)
+    || caps.find(cap => String(cap.label || '').toLowerCase().startsWith(needle))
+    || null;
+}
+function taskCapabilityAny(task, intents) {
+  for (const intent of intents || []) {
+    const cap = taskCapability(task, intent);
+    if (cap) return cap;
+  }
+  return null;
+}
 function taskAction(task, labelOrPrefix) {
-  const actions = task?.actions || [];
-  const needle = String(labelOrPrefix || '').toLowerCase();
-  return actions.find(a => String(a.label || '').toLowerCase() === needle)
-    || actions.find(a => String(a.label || '').toLowerCase().startsWith(needle))
+  return taskCapability(task, labelOrPrefix);
+}
+function primaryTaskCapability(task) {
+  const capabilities = taskCapabilities(task).filter(cap => cap.enabled);
+  const nextCommand = task?.next_action?.command || '';
+  return capabilities.find(cap => cap.command === nextCommand)
+    || taskCapabilityAny(task, ['start_shell', 'retry', 'verify', 'review_preview', 'promote', 'cleanup_preview', 'inspect'])
     || null;
 }
 function primaryTaskCommand(task) {
-  return task?.next_action?.command || taskAction(task, 'Next safe action')?.command || '';
+  return primaryTaskCapability(task)?.command || task?.next_action?.command || '';
 }
-function commandNeedsShellInput(command) {
-  return /devflow task run .* -- .*<command>/.test(command || '');
+function commandNeedsShellInput(command, capability) {
+  return Boolean(capability?.required_inputs?.includes('shell_command')) || /devflow task run .* -- .*<command>/.test(command || '');
 }
-function commandNeedsVerificationInput(command) {
-  return /devflow task verify .*--shell\\s+["']?<command>/.test(command || '');
+function commandNeedsVerificationInput(command, capability) {
+  return Boolean(capability?.required_inputs?.includes('verification_command')) || /devflow task verify .*--shell\\s+["']?<command>/.test(command || '');
 }
 function shellQuote(value) {
   return "'" + String(value || '').replace(/'/g, "'\\''") + "'";
 }
-function buildShellRunCommand(taskId, shellCommand) {
-  return `devflow task run ${taskId} --worker shell -- /bin/sh -c ${shellQuote(shellCommand)}`;
+function fillCapabilityCommand(capability, replacements) {
+  let command = capability?.command || '';
+  if (replacements?.shellCommand) {
+    command = command.replace(/--\\s*<command>\\s*$/, `-- /bin/sh -c ${shellQuote(replacements.shellCommand)}`);
+    command = command.replace('<command>', `/bin/sh -c ${shellQuote(replacements.shellCommand)}`);
+  }
+  if (replacements?.verificationCommand) {
+    command = command.replace(/--shell\\s+["']?<command>["']?/, `--shell ${shellQuote(replacements.verificationCommand)}`);
+  }
+  if (replacements?.closeOutcome) {
+    command = command.replace(/--outcome\\s+\\S+/, `--outcome ${shellQuote(replacements.closeOutcome)}`);
+  }
+  if (replacements?.closeReason) {
+    command = command.replace(/--reason\\s+["']?<reason>["']?/, `--reason ${shellQuote(replacements.closeReason)}`);
+  }
+  return command;
 }
-function buildVerifyCommand(taskId, shellCommand) {
-  return `devflow task verify ${taskId} --shell ${shellQuote(shellCommand)}`;
+function buildShellRunCommand(taskId, shellCommand, task) {
+  const capability = taskCapabilityAny(task, ['start_shell', 'retry'])
+    || { command: `devflow task run ${taskId} --worker shell -- <command>` };
+  return fillCapabilityCommand(capability, { shellCommand });
 }
-function buildCloseCommand(taskId, outcome, reason) {
-  return `devflow task close ${taskId} --outcome ${shellQuote(outcome)} --reason ${shellQuote(reason)}`;
+function buildVerifyCommand(taskId, shellCommand, task) {
+  const capability = taskCapability(task, 'verify') || { command: `devflow task verify ${taskId} --shell "<command>"` };
+  return fillCapabilityCommand(capability, { verificationCommand: shellCommand });
+}
+function buildCloseCommand(taskId, outcome, reason, task) {
+  const capability = taskCapability(task, 'close') || { command: `devflow task close ${taskId} --outcome evidence-only --reason "<reason>"` };
+  return fillCapabilityCommand(capability, { closeOutcome: outcome, closeReason: reason });
 }
 function taskActionLabel(task) {
-  const label = task?.next_action?.label || taskAction(task, 'Next safe action')?.label || 'Inspect task';
-  const command = primaryTaskCommand(task);
-  if (commandNeedsShellInput(command)) return 'Start shell';
-  if (commandNeedsVerificationInput(command)) return 'Verify';
-  return label;
+  const capability = primaryTaskCapability(task);
+  const command = capability?.command || primaryTaskCommand(task);
+  if (commandNeedsShellInput(command, capability)) return capability?.label || 'Start shell';
+  if (commandNeedsVerificationInput(command, capability)) return capability?.label || 'Verify';
+  return capability?.label || task?.next_action?.label || 'Inspect task';
 }
 function statusTone(lane) {
   if (lane === 'failed' || lane === 'blocked') return 'bad';
@@ -117,6 +229,119 @@ function laneBadge(lane) {
   return `<span class="lane-badge lane-${c}">${esc(label)}</span>`;
 }
 
+// === FIRST VIEWPORT PRESENTATION ===
+function taskLookupById(tasks) {
+  return new Map((tasks || []).map(t => [t.id, t]));
+}
+
+function taskCardFromSnapshotTask(task) {
+  const status = task.lane || 'new';
+  const latestEvent = lastTaskEvent(task);
+  return {
+    task_id: task.id,
+    title: task.title || 'Untitled task',
+    lane: status,
+    display_status: task.display_status || status,
+    tone: statusTone(status),
+    worker_model_label: task.worker_model_label || taskWorkerLabel(task),
+    verification_status: task.verification_status || 'not_run',
+    latest: taskFreshness(task),
+    action_label: taskActionLabel(task),
+    command: primaryTaskCommand(task),
+    latest_event: latestEvent,
+  };
+}
+
+function reviewCardFromSnapshotTask(task) {
+  const command = primaryTaskCommand(task);
+  const detail = task.review_detail || {};
+  const blockers = detail.blockers || task.review_blockers || task.promotion_blockers || [];
+  const changedFiles = detail.changed_files || [];
+  const priority = task.lane === 'ready_to_promote' || task.lane === 'failed' || task.lane === 'blocked'
+    ? 'high'
+    : 'medium';
+  return {
+    task_id: task.id,
+    title: task.title || 'Untitled task',
+    lane: task.lane || 'new',
+    priority: detail.review_priority || priority,
+    reason: detail.review_reason || blockers[0] || task.next_action?.reason || task.display_status || '',
+    action_label: taskActionLabel(task),
+    command: detail.review_command || command || task.review_next_command || '',
+    evidence_paths: detail.evidence_paths || task.evidence_paths || task.detail?.evidence_paths || [],
+    review_state: detail.review_state || task.review_state || 'not_ready',
+    review_score: detail.review_score || task.review_score || 0,
+    operator_summary: detail.operator_summary || '',
+    blockers,
+    changed_files: changedFiles,
+    evidence_count: (detail.evidence_paths || task.evidence_paths || task.detail?.evidence_paths || []).length,
+  };
+}
+
+function evidenceCardFromSnapshotPointer(item, taskLookup) {
+  const task = taskLookup.get(item.task_id) || null;
+  const path = item.path || item.verification_log_path || item.result_path || item.log_path || '';
+  const command = item.command || item.verification_command || '';
+  const kind = item.kind || (item.verification_log_path ? 'verification' : item.result_path ? 'result' : item.log_path ? 'worker log' : 'evidence');
+  return {
+    task_id: item.task_id || '',
+    kind,
+    text: item.text || command || path || ('task ' + (item.task_id || '?')),
+    path,
+    command,
+    label: item.label || kind,
+    timestamp: taskTimestamp(task) || item.created_at || item.timestamp || item.generated_at || '',
+  };
+}
+
+function buildFirstViewportPresentation(snap) {
+  const source = snap || {};
+  const server = source.first_viewport || null;
+  const tasks = source.tasks || [];
+  const taskLookup = taskLookupById(tasks);
+  const activeTasks = tasks.filter(t => t.lane !== 'closed');
+  const laneRank = { failed: 0, blocked: 1, running: 2, needs_verification: 3, needs_review: 4, ready_to_promote: 5, new: 6, idle: 7 };
+  const sortedActiveTasks = [...activeTasks].sort((a, b) => (laneRank[a.lane] ?? 9) - (laneRank[b.lane] ?? 9) || String(b.id).localeCompare(String(a.id)));
+  const fallbackTaskId = source.focus_task_id || sortedActiveTasks[0]?.id || tasks[0]?.id || null;
+  const serverLaunchpad = server?.launchpad || {};
+  const selectedId = serverLaunchpad.selected_task_id || fallbackTaskId;
+  const selected = taskLookup.get(selectedId) || null;
+  const primary = selected ? primaryTaskCapability(selected) : null;
+  const reviewTasks = tasks.filter(t => ['needs_verification', 'needs_review', 'ready_to_promote', 'failed', 'blocked'].includes(t.lane));
+  const switcherIds = Array.isArray(serverLaunchpad.switcher_task_ids) && serverLaunchpad.switcher_task_ids.length
+    ? serverLaunchpad.switcher_task_ids
+    : (sortedActiveTasks.length ? sortedActiveTasks : tasks.slice(0, 6)).map(t => t.id);
+  return {
+    schema_version: server?.schema_version || 1,
+    tasks,
+    task_lookup: taskLookup,
+    active_tasks: activeTasks,
+    active_task_count: server?.active_task_count ?? activeTasks.length,
+    total_task_count: server?.total_task_count ?? tasks.length,
+    worker_lanes: Array.isArray(server?.worker_lanes) ? server.worker_lanes : sortedActiveTasks.map(taskCardFromSnapshotTask),
+    review_queue: Array.isArray(server?.review_queue) ? server.review_queue : reviewTasks.map(reviewCardFromSnapshotTask),
+    evidence_stream: Array.isArray(server?.evidence_stream)
+      ? server.evidence_stream
+      : (source.evidence || []).map(item => evidenceCardFromSnapshotPointer(item, taskLookup)),
+    mission_feed: source.feed || source.mission_feed || [],
+    review_loop: source.review_loop || null,
+    launchpad: {
+      selected_task_id: selected?.id || selectedId || null,
+      active_task_ids: Array.isArray(serverLaunchpad.active_task_ids) ? serverLaunchpad.active_task_ids : activeTasks.map(t => t.id),
+      switcher_task_ids: switcherIds,
+      command: serverLaunchpad.command || primary?.command || selected?.next_action?.command || '',
+      action_label: serverLaunchpad.action_label || (selected ? taskActionLabel(selected) : 'Inspect task'),
+      reason: serverLaunchpad.reason || selected?.next_action?.reason || null,
+    },
+  };
+}
+
+function asFirstViewportPresentation(input) {
+  if (input && Array.isArray(input.worker_lanes) && Array.isArray(input.review_queue)) return input;
+  if (Array.isArray(input)) return buildFirstViewportPresentation({ tasks: input });
+  return buildFirstViewportPresentation(input || snapshot || {});
+}
+
 function verificationBadge(status) {
   const s = String(status || 'not_run').toLowerCase();
   if (s === 'passed') return '<span class="verify-badge verify-passed">✓ passed</span>';
@@ -132,6 +357,27 @@ function shortCommand(command, limit) {
   if (!value) return '';
   const max = limit || 96;
   return value.length > max ? value.slice(0, max - 1) + '…' : value;
+}
+function pipelineDetailFromPayload(payload) {
+  return payload?.pipeline_detail || {};
+}
+function taskActionFromPipelinePayload(payload) {
+  const detail = pipelineDetailFromPayload(payload);
+  return detail.task_action || payload?.action || null;
+}
+function implementationContextFromPipelinePayload(payload) {
+  const detail = pipelineDetailFromPayload(payload);
+  const context = detail.implementation_context || null;
+  if (context && context.text) return context;
+  if (payload?.implementation_context) {
+    return {
+      text: payload.implementation_context,
+      source_paths: [],
+      artifact_path: payload.implementation_context_path || null,
+      target_path_template: '.devflow/workspaces/{task_id}/implementation-context.md',
+    };
+  }
+  return null;
 }
 function brainstormDefinitionStorageKey(sessionId) {
   return BRAINSTORM_DOD_PREFIX + String(sessionId || brainstormSessionId || 'default');
@@ -380,7 +626,7 @@ async function loadBrainstormTranscript(sessionId) {
       hasTranscript: (data.messages || []).length > 0,
       hasSpec: data.spec != null,
       hasPlan: data.plan != null,
-      hasImplementation: false,
+      hasImplementation: Boolean(data.implementation || data.pipeline?.has_implementation),
     };
     renderPipeline();
   } catch(e) {
@@ -417,6 +663,7 @@ async function loadBrainstormSessions() {
       const badges = [];
       if (s.has_spec) badges.push('<span class="si-badge">SPEC</span>');
       if (s.has_plan) badges.push('<span class="si-badge">PLAN</span>');
+      if (s.has_implementation) badges.push('<span class="si-badge">TASK</span>');
       return `<div class="session-item${isActive ? ' active' : ''}" data-session-id="${esc(s.session_id)}">
         <div class="si-preview">${esc(s.preview)}</div>
         <div class="si-meta">
@@ -586,7 +833,7 @@ async function refreshPipelineState() {
       hasTranscript: (data.messages || []).length > 0,
       hasSpec: data.spec != null,
       hasPlan: data.plan != null,
-      hasImplementation: false,
+      hasImplementation: Boolean(data.implementation || data.pipeline?.has_implementation),
     };
   } catch(e) { /* ignore */ }
   renderPipeline();
@@ -677,28 +924,29 @@ function setupPipelineButtons() {
           appendBrainstormMsg('system', payload.error, { kind: 'provider_error' });
         } else if (payload.status === 'ready') {
           const stageLabel = payload.stage ? payload.stage.charAt(0).toUpperCase() + payload.stage.slice(1) : 'Stage';
-          if (payload.stage === 'implementation' && payload.action) {
-            // Auto-create the task directly — no extra button clicks
-            appendBrainstormMsg('system', `Creating implementation task...`, {});
+          const detail = pipelineDetailFromPayload(payload);
+          const taskAction = taskActionFromPipelinePayload(payload);
+          if (payload.stage === 'implementation' && taskAction) {
+            appendBrainstormMsg('system', detail.operator_summary || 'Creating implementation task...', {});
             try {
-              const cmd = payload.action.command;
+              const cmd = taskAction.command;
               const actionResult = await runApprovedCommand(cmd, {});
               if (actionResult.executed && actionResult.exit_code === 0) {
                 const outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
                 const createdTaskId = parseCreatedTaskId(actionResult.stdout);
+                const implementationContext = implementationContextFromPipelinePayload(payload);
 
-                // Write implementation context to task workspace
-                if (createdTaskId && payload.implementation_context) {
+                if (createdTaskId && implementationContext?.text) {
                   try {
-                    await writeTaskImplementationContext(createdTaskId, payload.implementation_context);
+                    await writeTaskImplementationContext(createdTaskId, implementationContext.text);
                   } catch(e3) {
-                    // Non-fatal — task is still created
                     console.warn('Failed to write implementation context:', e3);
                   }
                 }
 
+                const contextTarget = implementationContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
                 const nextMsg = createdTaskId
-                  ? `Task created: ${outLine}. Implementation context written. Next: scroll down to the Next Task launchpad and click "Start" to begin work.`
+                  ? `Task created: ${outLine}. Implementation context target: ${contextTarget.replace('{task_id}', createdTaskId)}. Next: use the Next Task launchpad.`
                   : `Task created: ${outLine}`;
                 appendBrainstormMsg('system', nextMsg, {});
                 await loadSnapshot(selectedProjectId);
@@ -711,17 +959,18 @@ function setupPipelineButtons() {
             }
           } else {
             let info = `Escalated to ${stageLabel}. `;
-            if (payload.model_info && payload.model_info.used_model) {
-              info += `Generated by ${payload.model_info.model}. Artifact: ${payload.artifact_path || 'session dir'}`;
-              if (payload.model_info.content) {
+            const modelDetail = detail.advisory_model || payload.model_info;
+            if (modelDetail && modelDetail.used_model) {
+              info += `Generated by ${modelDetail.model || modelDetail.profile_id}. Artifact: ${payload.artifact_path || detail.artifact_path || 'session dir'}`;
+              if (payload.model_info && payload.model_info.content) {
                 appendBrainstormMsg('system', info, {});
                 appendBrainstormMsg('assistant', payload.model_info.content, { time: shortTime(new Date().toISOString()) });
                 info = '';
               }
-            } else if (payload.model_info && payload.model_info.error) {
-              info += `Model error: ${payload.model_info.error}. Artifact: ${payload.artifact_path || 'session dir'}`;
+            } else if (modelDetail && modelDetail.error) {
+              info += `Model error: ${modelDetail.error}. Artifact: ${payload.artifact_path || detail.artifact_path || 'session dir'}`;
             } else {
-              info += `Artifact written to ${payload.artifact_path || 'session dir'}.`;
+              info += `Artifact written to ${payload.artifact_path || detail.artifact_path || 'session dir'}.`;
             }
             if (info) appendBrainstormMsg('system', info, {});
           }
@@ -792,78 +1041,93 @@ function setupPipelineButtons() {
   });
 }
 
-// === WORKER LANES ===
-function renderWorkerLanes(tasks) {
+// === Worker lanes ===
+function renderWorkerLanes(input) {
   const container = $('active-work-groups');
   if (!container) return;
-  const all = (tasks || []).filter(t => t.lane !== 'closed');
-  const totalCount = (tasks || []).length;
+  const presentation = asFirstViewportPresentation(input);
+  const all = presentation.worker_lanes || [];
+  const totalCount = presentation.total_task_count || 0;
   const count = $('active-work-count');
-  if (count) count.textContent = all.length + ' active / ' + totalCount + ' total';
+  if (count) count.textContent = (presentation.active_task_count ?? all.length) + ' active / ' + totalCount + ' total';
   if (all.length === 0) {
     container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">No active tasks — all ' + totalCount + ' tasks are closed</div>';
     return;
   }
-  const laneRank = { failed: 0, blocked: 1, running: 2, needs_verification: 3, needs_review: 4, ready_to_promote: 5, new: 6, idle: 7 };
-  const sorted = [...all].sort((a, b) => (laneRank[a.lane] ?? 9) - (laneRank[b.lane] ?? 9) || String(b.id).localeCompare(String(a.id)));
-  container.innerHTML = sorted.map(t => {
-    const status = t.lane || 'new';
-    const tone = statusTone(status);
-    const actionLabel = taskActionLabel(t);
-    const latestEvent = lastTaskEvent(t);
-    return `<div class="worker-card guided-task-card ${esc(status)}${selectedTaskId === t.id ? ' selected' : ''}" data-task-id="${esc(t.id || '')}" role="listitem">
-      <button class="worker-card-main" type="button" data-select-task="${esc(t.id || '')}">
+  container.innerHTML = all.map(item => {
+    const taskId = item.task_id || item.id || '';
+    const status = item.lane || 'new';
+    const tone = item.tone || statusTone(status);
+    const actionLabel = item.action_label || 'Inspect task';
+    const latestEvent = item.latest_event || null;
+    const workerLabel = item.worker_model_label || 'unassigned';
+    return `<div class="worker-card guided-task-card ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" role="listitem">
+      <button class="worker-card-main" type="button" data-select-task="${esc(taskId)}">
         <span class="worker-light ${tone}"></span>
         <span class="worker-copy">
-          <strong><span class="task-id">${esc(t.id || '')}</span> ${esc(t.title || 'Untitled task')}</strong>
-          <span class="worker-meta">${esc(sentenceCase(t.display_status || status))} · ${esc(taskWorkerLabel(t))} · ${esc(t.verification_status || 'not_run')}</span>
+          <strong><span class="task-id">${esc(taskId)}</span> ${esc(item.title || 'Untitled task')}</strong>
+          <span class="worker-meta">${esc(sentenceCase(item.display_status || status))} · ${esc(workerLabel)} · ${esc(item.verification_status || 'not_run')}</span>
           ${latestEvent ? `<span class="worker-event">${esc(latestEvent.event)}${latestEvent.summary ? ': ' + esc(latestEvent.summary) : ''}</span>` : ''}
         </span>
       </button>
       <span class="worker-next">${esc(actionLabel)}</span>
-      <span class="worker-time">${esc(taskFreshness(t))}</span>
+      <span class="worker-time">${esc(item.latest || (latestEvent?.timestamp ? ago(latestEvent.timestamp) : ''))}</span>
       <span class="worker-actions">
-        <button type="button" class="icon-btn task-row-btn" data-select-task="${esc(t.id || '')}" title="Select in launchpad">Select</button>
-        <button type="button" class="icon-btn task-row-btn" data-inspect-task="${esc(t.id || '')}" title="Inspect task">Inspect</button>
+        <button type="button" class="icon-btn task-row-btn" data-select-task="${esc(taskId)}" title="Select in launchpad">Select</button>
+        <button type="button" class="icon-btn task-row-btn" data-inspect-task="${esc(taskId)}" title="Inspect task">Inspect</button>
       </span>
     </div>`;
   }).join('');
 }
 
-// === REVIEW QUEUE ===
+// === Review queue ===
 function renderReviewQueue(reviewLoop, tasks) {
   const container = $('guided-review-queue');
   if (!container) return;
-  const reviewTasks = (tasks || []).filter(t => ['needs_verification', 'needs_review', 'ready_to_promote', 'failed', 'blocked'].includes(t.lane));
-  const available = reviewTasks.length;
+  const presentation = reviewLoop && Array.isArray(reviewLoop.review_queue)
+    ? reviewLoop
+    : buildFirstViewportPresentation({ review_loop: reviewLoop, tasks: tasks || [] });
+  const items = presentation.review_queue || [];
+  const available = items.length;
   const count = $('review-queue-count');
   if (count) count.textContent = available + ' items';
   if (available === 0) {
-    const next = reviewLoop?.next_safe_action || '';
-    container.innerHTML = '<div class="empty-panel-note">' + esc(reviewLoop?.headline || 'No items to review') +
+    const next = presentation.review_loop?.next_safe_action || '';
+    container.innerHTML = '<div class="empty-panel-note">' + esc(presentation.review_loop?.headline || 'No items to review') +
       (next ? '<code>' + esc(shortCommand(next, 120)) + '</code>' : '') + '</div>';
     return;
   }
-  container.innerHTML = reviewTasks.slice(0, 12).map(t => {
-    const command = primaryTaskCommand(t);
-    const priority = t.lane === 'ready_to_promote' ? 'high' : (t.lane === 'failed' || t.lane === 'blocked' ? 'high' : 'med');
-    return `<div class="review-card" data-task-id="${esc(t.id)}">
-      <span class="review-priority ${priority}">${esc(sentenceCase(t.lane))}</span>
-      <button type="button" class="review-main" data-select-task="${esc(t.id)}">
-        <strong>${esc(t.id)} · ${esc(t.title || 'Untitled task')}</strong>
-        <span>${esc(t.verification_status || 'not_run')} · ${esc(shortCommand(command || t.review_next_command || 'Inspect task', 96))}</span>
+  container.innerHTML = items.slice(0, 12).map(item => {
+    const taskId = item.task_id || item.id || '';
+    const priority = item.priority || (item.lane === 'ready_to_promote' || item.lane === 'failed' || item.lane === 'blocked' ? 'high' : 'medium');
+    const command = item.command || '';
+    const changed = Array.isArray(item.changed_files) ? item.changed_files : [];
+    const blockers = Array.isArray(item.blockers) ? item.blockers : [];
+    const details = [];
+    if (item.operator_summary) details.push(item.operator_summary);
+    if (changed.length) details.push(changed.length + ' changed file' + (changed.length === 1 ? '' : 's'));
+    if (item.evidence_count) details.push(item.evidence_count + ' evidence path' + (item.evidence_count === 1 ? '' : 's'));
+    if (blockers.length) details.push(blockers[0]);
+    return `<div class="review-card" data-task-id="${esc(taskId)}">
+      <span class="review-priority ${priority === 'medium' ? 'med' : priority}">${esc(sentenceCase(item.lane || 'review'))}</span>
+      <button type="button" class="review-main" data-select-task="${esc(taskId)}">
+        <strong>${esc(taskId)} · ${esc(item.title || 'Untitled task')}</strong>
+        <span>${esc(item.reason || 'Review task')} · ${esc(shortCommand(command || 'Inspect task', 96))}</span>
+        ${details.length ? `<em>${esc(details.slice(0, 3).join(' · '))}</em>` : ''}
       </button>
-      <button type="button" class="btn btn-sm btn-secondary task-row-btn" data-select-task="${esc(t.id)}">${esc(taskActionLabel(t))}</button>
+      <button type="button" class="btn btn-sm btn-secondary task-row-btn" data-select-task="${esc(taskId)}">${esc(item.action_label || 'Inspect')}</button>
     </div>`;
   }).join('');
 }
 
-// === EVIDENCE STREAM ===
+// === Evidence stream ===
 function renderEvidenceStream(evidence, tasks) {
   const container = $('guided-evidence-stream');
   if (!container) return;
-  const items = evidence || [];
-  const taskLookup = new Map((tasks || []).map(t => [t.id, t]));
+  const presentation = evidence && Array.isArray(evidence.evidence_stream)
+    ? evidence
+    : buildFirstViewportPresentation({ evidence: evidence || [], tasks: tasks || [] });
+  const items = presentation.evidence_stream || [];
   const count = $('evidence-stream-count');
   if (count) count.textContent = items.length + ' items';
   if (items.length === 0) {
@@ -871,16 +1135,18 @@ function renderEvidenceStream(evidence, tasks) {
     return;
   }
   container.innerHTML = items.slice(0, 20).map(item => {
-    const task = taskLookup.get(item.task_id) || null;
-    const path = item.verification_log_path || item.result_path || item.log_path || '';
-    const cmd = item.verification_command || '';
-    const text = cmd || path || ('task ' + (item.task_id || '?'));
-    const kind = item.verification_log_path ? 'verification' : item.result_path ? 'result' : item.log_path ? 'worker log' : 'evidence';
-    const ts = taskTimestamp(task) || item.created_at || item.timestamp || item.generated_at;
-    return `<div class="evidence-item" data-task-id="${esc(item.task_id || '')}">
-      <button type="button" class="evidence-main" data-select-task="${esc(item.task_id || '')}">
+    const taskId = item.task_id || '';
+    const text = item.text || item.command || item.path || ('task ' + (taskId || '?'));
+    const kind = item.kind || 'evidence';
+    const ts = item.timestamp || item.created_at || item.generated_at;
+    const path = item.path || item.command || '';
+    return `<div class="evidence-item" data-task-id="${esc(taskId)}">
+      <button type="button" class="evidence-main" data-select-task="${esc(taskId)}">
         <span class="evidence-icon">></span>
-        <span class="evidence-text"><strong>${esc(item.task_id || 'task')}</strong> ${esc(kind)} · ${esc(shortCommand(text, 110))}</span>
+        <span class="evidence-copy">
+          <span class="evidence-text"><strong>${esc(taskId || 'task')}</strong> ${esc(kind)} · ${esc(shortCommand(text, 110))}</span>
+          ${path && path !== text ? `<span class="evidence-path">${esc(shortCommand(path, 120))}</span>` : ''}
+        </span>
       </button>
       <span class="evidence-time">${ts ? ago(ts) : ''}</span>
     </div>`;
@@ -956,8 +1222,9 @@ function renderLatestEvidence(task) {
   const detail = task.detail || {};
   const paths = detail.evidence_paths || [];
   const preview = detail.result_preview || detail.latest_verification_line || detail.latest_worker_line || '';
+  const label = '<span class="label">Latest Evidence</span>';
   if (!paths.length && !preview) {
-    return '<div class="next-task-evidence-empty">No task evidence yet.</div>';
+    return `${label}<div class="next-task-evidence-empty">No task evidence yet.</div>`;
   }
   const fileIcon = (path) => {
     if (path.endsWith('.patch')) return '📎';
@@ -969,12 +1236,12 @@ function renderLatestEvidence(task) {
   const pathsHtml = paths.length
     ? `<div class="nt-evidence-list">${paths.slice(0, 4).map(p => `<div class="nt-evidence-item"><span class="nt-evidence-icon">${fileIcon(p)}</span><code>${esc(p)}</code></div>`).join('')}</div>`
     : '';
-  return `${pathsHtml}${preview ? `<pre class="nt-evidence-preview">${esc(preview)}</pre>` : ''}`;
+  return `${label}${pathsHtml}${preview ? `<pre class="nt-evidence-preview">${esc(preview)}</pre>` : ''}`;
 }
 
 function renderPromotionControls(task) {
-  const previewAction = (task.actions || []).find(a => (a.command || '').includes('promote-preview'));
-  const promoteAction = (task.actions || []).find(a => /devflow task promote /.test(a.command || ''));
+  const previewAction = taskCapability(task, 'review_preview');
+  const promoteAction = taskCapability(task, 'promote');
   if (!previewAction && !promoteAction && task.lane !== 'ready_to_promote' && task.lane !== 'needs_review') return '';
   return `<div class="task-command-box launchpad-command-box">
     <label>Review and promotion</label>
@@ -987,32 +1254,12 @@ function renderPromotionControls(task) {
 }
 
 function renderWorkerOptions(task) {
-  // Build worker buttons from available agents
-  const workers = (availableAgents || []).filter(a =>
-    a.id && (
-      a.id.includes('implementer') ||
-      a.id.includes('patch-proposer') ||
-      a.id.includes('coder') ||
-      a.id.includes('worker')
-    )
-  );
-
-  if (!workers.length) {
-    return `<div class="nt-no-workers">
-      <p>No AI workers registered. You can still run a shell command below.</p>
-      <p class="nt-hint">To enable AI workers, run <code>ollama pull qwopus:latest</code> and restart.</p>
-    </div>`;
-  }
-
-  return workers.map(w => {
-    const isLocal = w.is_local;
-    const icon = isLocal ? '🖥️' : '☁️';
-    const label = w.label || w.id;
-    const cmd = `devflow task run ${task.id} --worker ${w.id}`;
-    return `<button class="btn btn-sm btn-primary nt-worker-btn" type="button" data-command="${esc(cmd)}" title="${esc(w.purpose || '')}">
-      ${icon} ${esc(label)}
-    </button>`;
-  }).join('');
+  const capability = taskCapabilityAny(task, ['start_shell', 'retry']);
+  if (!capability) return '';
+  return `<div class="nt-no-workers">
+    <p>${esc(capability.label || 'Shell worker')}</p>
+    <code>${esc(shortCommand(capability.command, 120))}</code>
+  </div>`;
 }
 
 function renderQualityLoopAction(task) {
@@ -1058,31 +1305,18 @@ function renderReconcileAction(task) {
   if (lane !== 'failed' && lane !== 'blocked') return '';
 
   const taskId = task.id;
-  const workers = (availableAgents || []).filter(a =>
-    a.id && (
-      a.id.includes('implementer') ||
-      a.id.includes('patch-proposer') ||
-      a.id.includes('coder') ||
-      a.id.includes('worker')
-    )
+  const retryCapability = taskCapabilityAny(task, ['retry', 'start_shell']);
+  const closeCapability = taskCapability(task, 'close');
+  const closeCmd = fillCapabilityCommand(
+    closeCapability || { command: `devflow task close ${taskId} --outcome evidence-only --reason "<reason>"` },
+    { closeOutcome: 'abandoned', closeReason: 'Worker failed, abandoning task' },
   );
-
-  const workerButtons = workers.map(w => {
-    const icon = w.is_local ? '🖥️' : '☁️';
-    const label = w.label || w.id;
-    const cmd = `devflow task run ${taskId} --worker ${w.id}`;
-    return `<button class="btn btn-sm btn-primary nt-worker-btn" type="button" data-command="${esc(cmd)}" title="${esc(w.purpose || '')}">
-      ${icon} Retry with ${esc(label)}
-    </button>`;
-  }).join('');
-
-  const closeCmd = `devflow task close ${taskId} --outcome abandoned --reason "Worker failed, abandoning task"`;
 
   return `<div class="task-command-box nt-reconcile-action">
     <label>🔧 Reconcile failed task</label>
-    <p>This task failed. Retry with a worker, or close it to clean up.</p>
+    <p>This task failed. Retry through the shell control, or close it to clean up.</p>
     <div class="nt-worker-options">
-      ${workerButtons || '<p class="nt-hint">No workers available.</p>'}
+      ${retryCapability ? `<code>${esc(shortCommand(retryCapability.command, 120))}</code>` : '<p class="nt-hint">No retry control available.</p>'}
     </div>
     <button class="btn btn-sm btn-secondary" type="button" data-command="${esc(closeCmd)}">
       🗑 Close as abandoned
@@ -1092,7 +1326,11 @@ function renderReconcileAction(task) {
 
 function renderLaunchpadActions(task) {
   const lane = task.lane || 'new';
-  const command = primaryTaskCommand(task);
+  const primaryCapability = primaryTaskCapability(task);
+  const command = primaryCapability?.command || primaryTaskCommand(task);
+  const startCapability = taskCapabilityAny(task, ['start_shell', 'retry']);
+  const verifyCapability = taskCapability(task, 'verify');
+  const cleanupCapability = taskCapability(task, 'cleanup_preview');
   const detail = task.detail || {};
   const evidencePaths = detail.evidence_paths || [];
   const hasImplContext = evidencePaths.some(p => p.includes('implementation-context.md'));
@@ -1106,26 +1344,26 @@ function renderLaunchpadActions(task) {
     : '';
 
   // Worker selection panel — this is the primary action for new tasks
-  const workerPanel = lane === 'new' || (commandNeedsShellInput(command) && lane !== 'closed')
-    ? `<div class="task-command-box nt-primary-action" id="next-task-worker-panel">
+  const workerPanel = lane === 'new' || (commandNeedsShellInput(command, startCapability || primaryCapability) && lane !== 'closed')
+    ? `<div class="task-command-box nt-primary-action" id="next-task-shell-panel">
         <label>Start work on ${esc(task.id)}</label>
         <div class="nt-worker-options">
           ${renderWorkerOptions(task)}
         </div>
         <div class="nt-shell-fallback">
-          <details>
+          <details open>
             <summary>Or run a raw shell command</summary>
             <div class="inline-command-row">
               <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
               <button class="btn btn-secondary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">▶ Run shell</button>
             </div>
-            <code>${esc(command || `devflow task run ${task.id} --worker shell -- <command>`)}</code>
+            <code>${esc(startCapability?.command || command || `devflow task run ${task.id} --worker shell -- <command>`)}</code>
           </details>
         </div>
       </div>`
     : '';
 
-  const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command))
+  const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command, verifyCapability || primaryCapability))
     ? `<div class="task-command-box nt-primary-action nt-verify-action" id="next-task-verify-panel">
         <label>Verify task</label>
         <div class="inline-command-row">
@@ -1150,7 +1388,7 @@ function renderLaunchpadActions(task) {
           <button class="btn btn-sm btn-secondary" type="button" data-task-close="${esc(task.id)}">Close</button>
         </div>
       </details>`
-    : `<div class="task-action-row"><button class="btn btn-sm btn-secondary" type="button" data-command="${esc(`devflow task cleanup ${task.id} --preview`)}">Cleanup preview</button></div>`;
+    : `<div class="task-action-row"><button class="btn btn-sm btn-secondary" type="button" data-command="${esc(cleanupCapability?.command || `devflow task cleanup ${task.id} --preview`)}">Cleanup preview</button></div>`;
   const utilityButtons = `<div class="nt-utility-row">
     <button class="btn btn-sm btn-ghost" type="button" data-inspect-task="${esc(task.id)}">🔍 Inspect</button>
     ${taskCommandButtons(task)}
@@ -1160,12 +1398,14 @@ function renderLaunchpadActions(task) {
     : `${utilityButtons}${closePanel}`;
 }
 
-function renderOrchestrator(snap) {
+function renderOrchestrator(snap, presentation) {
   if (!snap) return;
 
+  const firstViewport = presentation || buildFirstViewportPresentation(snap);
   const tasks = snap.tasks || [];
   const activeTasks = tasks.filter(t => t.lane !== 'closed');
-  const fallbackTaskId = snap.focus_task_id || activeTasks[0]?.id || tasks[0]?.id || null;
+  const launchpad = firstViewport.launchpad || {};
+  const fallbackTaskId = launchpad.selected_task_id || snap.focus_task_id || activeTasks[0]?.id || tasks[0]?.id || null;
   const selected = tasks.find(t => t.id === selectedTaskId) || tasks.find(t => t.id === fallbackTaskId) || null;
   selectedTaskId = selected?.id || null;
 
@@ -1189,10 +1429,13 @@ function renderOrchestrator(snap) {
     if (switcher) switcher.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No active tasks</div>';
   } else {
     const lane = selected.lane || 'new';
-    const command = primaryTaskCommand(selected);
+    const command = selected.id === launchpad.selected_task_id
+      ? (launchpad.command || primaryTaskCommand(selected))
+      : primaryTaskCommand(selected);
     if (title) title.innerHTML = `<span class="nt-task-id">${esc(selected.id)}</span><span class="nt-task-title">${esc(selected.title || 'Untitled task')}</span>`;
     if (directive) {
-      directive.innerHTML = `${laneBadge(lane)} <span class="nt-worker-info">${esc(taskWorkerLabel(selected))}</span>${selected.next_action?.reason ? ` <span class="nt-reason">· ${esc(selected.next_action.reason)}</span>` : ''}`;
+      const reason = selected.id === launchpad.selected_task_id ? launchpad.reason : selected.next_action?.reason;
+      directive.innerHTML = `${laneBadge(lane)} <span class="nt-worker-info">${esc(taskWorkerLabel(selected))}</span>${reason ? ` <span class="nt-reason">· ${esc(reason)}</span>` : ''}`;
     }
     if (meta) meta.innerHTML = renderTaskMetadata(selected);
     if (done) done.textContent = selected.definition_of_done || 'No definition captured yet.';
@@ -1200,8 +1443,11 @@ function renderOrchestrator(snap) {
     if (actionSlot) actionSlot.innerHTML = renderLaunchpadActions(selected);
     if (latestEvidence) latestEvidence.innerHTML = renderLatestEvidence(selected);
     if (switcher) {
-      const switchTasks = activeTasks.length ? activeTasks : tasks.slice(0, 6);
-      switcher.innerHTML = switchTasks.map(t => {
+      const switchTasks = (launchpad.switcher_task_ids || [])
+        .map(id => tasks.find(t => t.id === id))
+        .filter(Boolean);
+      const visibleSwitchTasks = switchTasks.length ? switchTasks : (activeTasks.length ? activeTasks : tasks.slice(0, 6));
+      switcher.innerHTML = visibleSwitchTasks.map(t => {
         const isSelected = t.id === selected.id;
         const tLane = t.lane || 'new';
         const c = laneColor(tLane);
@@ -1248,6 +1494,15 @@ function renderOrchestrator(snap) {
   setText('orchestrator-goal-id', snap.focus_goal_id || (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
 }
 
+function renderFirstViewport(presentation) {
+  renderPipeline();
+  renderWorkerLanes(presentation);
+  renderReviewQueue(presentation);
+  renderEvidenceStream(presentation);
+  renderMissionFeed(presentation.mission_feed || []);
+  renderOrchestrator(snapshot, presentation);
+}
+
 function setText(id, text) {
   const el = $(id);
   if (el) el.textContent = text;
@@ -1257,14 +1512,15 @@ function setText(id, text) {
 function taskCommandButtons(task) {
   const commands = [];
   const seen = new Set();
-  for (const action of task.actions || []) {
+  for (const action of taskCapabilities(task)) {
     if (!action.command || action.command.includes('<command>')) continue;
+    if ((action.required_inputs || []).length > 0 || action.command.includes('<reason>')) continue;
     if (seen.has(action.command)) continue;
     seen.add(action.command);
     commands.push(`<button class="btn btn-sm ${action.requires_human_approval ? 'btn-primary' : 'btn-secondary'}" type="button" data-command="${esc(action.command)}">${esc(action.label || 'Run command')}</button>`);
   }
-  if (task.lane === 'closed') {
-    const cleanupCommand = `devflow task cleanup ${task.id} --preview`;
+  if (task.lane === 'closed' && !commands.some(command => command.includes('cleanup'))) {
+    const cleanupCommand = taskCapability(task, 'cleanup_preview')?.command || `devflow task cleanup ${task.id} --preview`;
     commands.push(`<button class="btn btn-sm btn-secondary" type="button" data-command="${esc(cleanupCommand)}">Cleanup preview</button>`);
   }
   return commands.join(' ');
@@ -1278,22 +1534,25 @@ function openFocus(type, id, opts) {
   const task = snapshot?.tasks?.find(t => t.id === id);
   if (task) {
     const lane = task.lane || 'new';
-    const command = primaryTaskCommand(task);
+    const primaryCapability = primaryTaskCapability(task);
+    const command = primaryCapability?.command || primaryTaskCommand(task);
+    const startCapability = taskCapabilityAny(task, ['start_shell', 'retry']);
+    const verifyCapability = taskCapability(task, 'verify');
     const detail = task.detail || {};
     const local = task.local_worker_lane || {};
     const events = detail.recent_events || [];
     const evidencePaths = detail.evidence_paths || [];
-    const shellPanel = commandNeedsShellInput(command) && lane !== 'closed'
+    const shellPanel = commandNeedsShellInput(command, startCapability || primaryCapability) && lane !== 'closed'
       ? `<div class="task-command-box" id="focus-shell-panel">
           <label>Shell command to run in ${esc(task.id)} workspace</label>
           <div class="inline-command-row">
             <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
             <button class="btn btn-primary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">Start shell</button>
           </div>
-          <code>${esc(command)}</code>
+          <code>${esc(startCapability?.command || command)}</code>
         </div>`
       : '';
-    const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command))
+    const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command, verifyCapability || primaryCapability))
       ? `<div class="task-command-box" id="focus-verify-panel">
           <label>Verification shell command</label>
           <div class="inline-command-row">
@@ -1445,7 +1704,7 @@ async function executeAction(taskId, action) {
   if (!task) return;
   const command = typeof action === 'string' && action.startsWith('devflow ')
     ? action
-    : (taskAction(task, action)?.command || primaryTaskCommand(task));
+    : (taskCapability(task, action)?.command || primaryTaskCommand(task));
   try {
     await runApprovedCommand(command, {});
   } catch(e) {
@@ -1517,6 +1776,7 @@ function setupTaskSurfaceActions() {
     if (shellButton) {
       e.preventDefault();
       const taskId = shellButton.dataset.taskRunShell;
+      const task = snapshot?.tasks?.find(t => t.id === taskId);
       const input = shellButton.closest('.task-command-box')?.querySelector('[data-shell-command]')
         || document.querySelector('[data-shell-command]');
       const shellCommand = (input?.value || '').trim();
@@ -1526,7 +1786,7 @@ function setupTaskSurfaceActions() {
         return;
       }
       try {
-        await runApprovedCommand(buildShellRunCommand(taskId, shellCommand), {});
+        await runApprovedCommand(buildShellRunCommand(taskId, shellCommand, task), {});
       } catch(err) {
         renderActionResult({ executed: false, exit_code: null, error: err.message || 'Shell run failed' }, `devflow task run ${taskId}`);
       }
@@ -1537,6 +1797,7 @@ function setupTaskSurfaceActions() {
     if (verifyButton) {
       e.preventDefault();
       const taskId = verifyButton.dataset.taskVerify;
+      const task = snapshot?.tasks?.find(t => t.id === taskId);
       const input = verifyButton.closest('.task-command-box')?.querySelector('[data-verify-command]')
         || document.querySelector('[data-verify-command]');
       const verifyCommand = (input?.value || '').trim();
@@ -1546,7 +1807,7 @@ function setupTaskSurfaceActions() {
         return;
       }
       try {
-        await runApprovedCommand(buildVerifyCommand(taskId, verifyCommand), {});
+        await runApprovedCommand(buildVerifyCommand(taskId, verifyCommand, task), {});
       } catch(err) {
         renderActionResult({ executed: false, exit_code: null, error: err.message || 'Verification failed' }, `devflow task verify ${taskId}`);
       }
@@ -1557,6 +1818,7 @@ function setupTaskSurfaceActions() {
     if (closeTaskButton) {
       e.preventDefault();
       const taskId = closeTaskButton.dataset.taskClose;
+      const task = snapshot?.tasks?.find(t => t.id === taskId);
       const box = closeTaskButton.closest('.task-command-box');
       const outcome = box?.querySelector('[data-close-outcome]')?.value || document.querySelector('[data-close-outcome]')?.value || 'abandoned';
       const reasonInput = box?.querySelector('[data-close-reason]') || document.querySelector('[data-close-reason]');
@@ -1567,7 +1829,7 @@ function setupTaskSurfaceActions() {
         return;
       }
       try {
-        await runApprovedCommand(buildCloseCommand(taskId, outcome, reason), {});
+        await runApprovedCommand(buildCloseCommand(taskId, outcome, reason, task), {});
       } catch(err) {
         renderActionResult({ executed: false, exit_code: null, error: err.message || 'Close failed' }, `devflow task close ${taskId}`);
       }
@@ -1676,29 +1938,9 @@ function render() {
   setText('tree-state', repo.working_tree === 'clean' ? 'Clean' : (repo.working_tree || 'Clean'));
   setText('last-sync', ago(snapshot.generated_at || repo.last_sync));
 
-  // Pipeline
-  renderPipeline();
-
-  // Brainstorm transcript — managed by the chat form, not the snapshot.
-  // The snapshot has no brainstorm_messages field, so never clobber the DOM here.
-
-  // Worker lanes
-  const tasks = snapshot.tasks || [];
-  renderWorkerLanes(tasks);
-
-  // Review queue
-  renderReviewQueue(snapshot.review_loop || null, tasks);
-
-  // Evidence stream
-  const evidence = snapshot.evidence || [];
-  renderEvidenceStream(evidence, tasks);
-
-  // Mission feed
-  const feed = snapshot.feed || snapshot.mission_feed || [];
-  renderMissionFeed(feed);
-
-  // Orchestrator
-  renderOrchestrator(snapshot);
+  // Brainstorm transcript is managed by the chat form, not the snapshot.
+  // The first viewport consumes renderable presentation slices with snapshot fallbacks.
+  renderFirstViewport(buildFirstViewportPresentation(snapshot));
 }
 
 // === INIT ===

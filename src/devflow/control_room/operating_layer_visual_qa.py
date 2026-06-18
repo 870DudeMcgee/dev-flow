@@ -267,7 +267,7 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "pass"
             if all(
                 token in INDEX_HTML + APP_CSS + APP_JS
-                for token in ("active-work-groups", "worker-card", "renderWorkerLanes")
+                for token in ("active-work-groups", "worker-card", "renderWorkerLanes", "buildFirstViewportPresentation")
             )
             else "fail",
         ),
@@ -448,7 +448,9 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
             no_mission_feed_action_overlap: Boolean(
               !brainstormRect || !healthRect ||
               brainstormRect.right <= healthRect.left ||
-              healthRect.right <= brainstormRect.left
+              healthRect.right <= brainstormRect.left ||
+              brainstormRect.bottom <= healthRect.top ||
+              healthRect.bottom <= brainstormRect.top
             ),
           };
         }"""

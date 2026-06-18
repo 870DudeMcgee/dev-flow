@@ -75,7 +75,7 @@ Current Dev-Flow mapping:
 Orchestrator       operating_layer.py snapshot, operating_layer_assets.py facade plus split UI asset modules
 Goal/spec          .devflow/goals/, goal_projection.py, goal_tasks.py
 Standards/context  future .devflow/standards/index.yml, task_packet.py
-Task board         task.yaml, status_projection.py, dashboard.py
+Task board         task.yaml, status_projection.py, dashboard.py, task_workbench.py
 Parallel lanes     freshness.py, freshness_runner.py, parallel_worker.py
 Workers            shell_worker.py, worker_adapter.py, local model evidence wrappers
 Isolation          workspace.py, worktree.py, branch.py, promotion.py
@@ -200,7 +200,9 @@ The current local operating layer is the browser control layer and JSON snapshot
 Implemented pieces:
 
 - `operating_layer.py`: composes project health, goals, lanes, tasks, questions, inbox items, evidence pointers, freshness, spec board, task-progress receipts, multi-project status, worker activity, mission feed, action rail, and goal board into schema version 1.
-- Worker activity projection: `operating_layer.py` derives project-wide worker rows with worker id, plain display name, state, task count, verified percent, recent output count, and latest task evidence.
+- `task_workbench.py`: builds the read-only task workbench projection used by `operating_layer.py` for focus task, task lanes, task cards, review queue data, evidence stream pointers, progress receipts, worker activity rows, worker/model labels, and intent-labeled task controls.
+- Browser task controls: operating-layer task cards expose additive `controls` with intent, label, safety classification, approval requirement, required inputs, and command preview. `operating_layer_script.py` resolves launchpad, focus overlay, review, promotion, cleanup, shell-run, verification, and close affordances through this capability layer before falling back to legacy action rows.
+- Worker activity projection: `task_workbench.py` derives project-wide worker rows with worker id, plain display name, state, task count, verified percent, recent output count, and latest task evidence; `operating_layer.py` adapts those rows into the snapshot schema.
 - Mission feed projection: `operating_layer.py` derives plain-language Orchestrator updates such as "Task progress", "Task update", "Evidence", "Question", and "Ready for review" from existing Dev-Flow artifacts; the browser shell only renders this list.
 - Work Feed and Workers pages: browser rendering translates raw event names, cleanup markers, lane states, and task statuses into plain-language status cards while keeping evidence paths and command previews available in drilldowns.
 - `operating_layer_server.py`: serves `/`, `/api/snapshot`, `/api/actions/run`, `/app.css`, `/app.js`, and `/healthz` while keeping HTTP behavior separate from UI payloads and suppressing harmless disconnected-client tracebacks.

@@ -157,4 +157,22 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
         "devflow task create --definition-of-done "
         "'Start button is visible and task creation is logged.' 'Build brainstorm workbench'"
     )
+    pipeline = implementation_with_done["pipeline_detail"]
+    assert pipeline["has_spec"] is True
+    assert pipeline["has_plan"] is True
+    assert pipeline["has_implementation"] is True
+    assert pipeline["advisory_model"]["profile_id"] == "deepseek-v4-flash-free-brainstormer"
+    assert pipeline["task_action"]["command"] == implementation_with_done["action"]["command"]
+    assert pipeline["task_action"]["context_required"] is True
+    assert pipeline["implementation_context"]["source_paths"] == [
+        ".devflow/brainstorms/session-003/spec.md",
+        ".devflow/brainstorms/session-003/plan.md",
+    ]
+    assert pipeline["implementation_context"]["target_path_template"] == (
+        ".devflow/workspaces/{task_id}/implementation-context.md"
+    )
+    persisted = json.loads(
+        (tmp_path / ".devflow" / "brainstorms" / "session-003" / "pipeline.json").read_text(encoding="utf-8")
+    )
+    assert persisted["task_action"]["command"] == implementation_with_done["action"]["command"]
     assert "## Definition of Done" in (tmp_path / implementation_with_done["artifact_path"]).read_text(encoding="utf-8")

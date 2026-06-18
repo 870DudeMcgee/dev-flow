@@ -55,6 +55,16 @@ Primary callers:
 
 The projection module reads canonical artifacts and derived readiness evidence. It must remain read-only and cannot replace `task.yaml`, `events.jsonl`, or `verification.json`.
 
+### Task Workbench Projection
+
+`src/devflow/control_room/task_workbench.py` is the read-only task-centered projection for the operating-layer workbench. It composes task lanes, focus task, review queue items, evidence pointers, task-progress receipts, worker activity rows, worker/model labels, and intent-labeled task controls from existing filesystem-backed projections.
+
+Primary caller:
+
+- `operating_layer.py`
+
+The workbench projection adapts status, review-readiness, git-worktree, local-worker-lane, and agent-evidence modules. It does not spawn workers, verify tasks, promote tasks, mutate canonical artifacts, or widen browser command authority.
+
 ### Task Lifecycle
 
 `src/devflow/control_room/task_lifecycle.py` is the write facade for task status updates, lifecycle events, summary writes, merge-readiness writes, and verification invalidation after workspace mutation.
