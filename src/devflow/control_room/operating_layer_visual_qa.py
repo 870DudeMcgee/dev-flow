@@ -27,7 +27,7 @@ VIEWPORTS: tuple[dict[str, int | str], ...] = (
 
 
 VISUAL_FLOW = (
-    "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Worker lanes, "
+    "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Next Task launchpad, Worker lanes, "
     "Review queue, and Evidence stream without horizontal overflow"
 )
 
@@ -283,13 +283,13 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             else "fail",
         ),
         _check(
-            "advanced-commands-contained",
+            "next-task-launchpad",
             "#orchestrator-command",
-            "Orchestrator command panel shows safe next actions without leading the first viewport.",
+            "Next Task launchpad shows selected task safe actions without hiding worker controls in the dock.",
             "pass"
             if all(
                 token in INDEX_HTML + APP_JS
-                for token in ("orchestrator-command", "executeAction", "next_safe_action")
+                for token in ("Next Task", "orchestrator-command", "next-task-action-slot", "definition_of_done")
             )
             else "fail",
         ),
@@ -304,7 +304,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
         },
         {
             "id": "guided-first-viewport",
-            "script": "document.querySelector('main > section')?.id === 'brainstorm-section'",
+            "script": "document.querySelector('.center-column > section')?.id === 'brainstorm-section'",
         },
         {
             "id": "brainstorm-chat",
@@ -319,7 +319,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
             "script": "document.querySelector('#guided-review-queue')?.textContent.length >= 0",
         },
         {
-            "id": "advanced-commands-contained",
+            "id": "next-task-launchpad",
             "script": "document.querySelector('#orchestrator-command')?.textContent.length >= 0",
         },
     ]
@@ -336,7 +336,7 @@ def _fallback_visual_checks() -> dict[str, bool]:
         "brainstorm_chat": check_ids.get("brainstorm_chat", False),
         "active_work_cards": check_ids.get("active_work_cards", False),
         "approval_states": check_ids.get("approval_states", False),
-        "advanced_commands_contained": check_ids.get("advanced_commands_contained", False),
+        "next_task_launchpad": check_ids.get("next_task_launchpad", False),
         "no_mission_feed_action_overlap": True,
     }
 
@@ -384,7 +384,7 @@ def _capture_browser_png(base_url: str, viewport: dict[str, int | str]) -> Brows
             try:
                 page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
                 page.goto(base_url, wait_until="networkidle", timeout=15_000)
-                page.locator("#orchestrator").wait_for(state="visible", timeout=10_000)
+                page.locator("#orchestrator-section").wait_for(state="visible", timeout=10_000)
                 checks = _browser_visual_checks(page)
                 png = page.screenshot(full_page=False, type="png", timeout=15_000)
             finally:
@@ -424,23 +424,25 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
           const brainstormChat = document.querySelector('#brainstorm-chat-form textarea');
           const activeCards = document.querySelectorAll('#active-work-groups .worker-card');
           const reviewQueue = document.querySelector('#guided-review-queue');
-          const orchCommand = document.querySelector('#orchestrator-command');
+          const launchpadCommand = document.querySelector('#orchestrator-command');
+          const launchpadAction = document.querySelector('#next-task-action-slot');
           const missionFeed = document.querySelector('#mission-feed-section');
           const healthSection = document.querySelector('.health-section');
           const brainstormRect = brainstormSection ? brainstormSection.getBoundingClientRect() : null;
           const healthRect = healthSection ? healthSection.getBoundingClientRect() : null;
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
-            guided_first_viewport: document.querySelector('main > section')?.id === 'brainstorm-section',
+            guided_first_viewport: document.querySelector('.center-column > section')?.id === 'brainstorm-section',
             brainstorm_chat: Boolean(brainstormChat),
             active_work_cards: activeCards.length >= 0,
             approval_states: Boolean(
               reviewQueue &&
-              orchCommand &&
-              orchCommand.textContent.length > 0
+              launchpadCommand &&
+              launchpadCommand.textContent.length > 0
             ),
-            advanced_commands_contained: Boolean(
-              orchCommand &&
+            next_task_launchpad: Boolean(
+              launchpadCommand &&
+              launchpadAction &&
               document.querySelector('#orchestrator-section')
             ),
             no_mission_feed_action_overlap: Boolean(
@@ -497,7 +499,7 @@ def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:
         rows.append(_text(left + 14, y, f"{item.label}: {item.title}", 13 * scale, "#dfe7ff", 650))
 
     y += 48
-    rows.append(_text(left, y, "Advanced Commands", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Next Task", 18 * scale, "#f6f3ff", 800))
     for action in actions:
         y += 30
         safety = "read-only" if action.supervisor_may_auto_run else "approval required"

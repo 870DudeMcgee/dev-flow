@@ -141,9 +141,16 @@ def init_control_room(root: Path, project_seed: Any | None = None) -> None:
         )
 
 
-def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: str = "shell") -> TaskRecord:
+def create_task(
+    root: Path,
+    title: str,
+    git_worktree: bool = False,
+    worker_id: str = "shell",
+    definition_of_done: str | None = None,
+) -> TaskRecord:
     init_control_room(root)
     _require_managed_project_git_baseline(root)
+    done_text = str(definition_of_done).strip() if definition_of_done is not None else None
 
     # Concurrency Lock: Retryatomic directory creation to prevent task creation races
     lock_dir = devflow_dir(root) / ".lock"
@@ -175,6 +182,7 @@ def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: s
     record = TaskRecord(
         id=task_id,
         title=title,
+        definition_of_done=done_text or None,
         status="created",
         created_at=now,
         updated_at=now,
@@ -199,6 +207,7 @@ def create_task(root: Path, title: str, git_worktree: bool = False, worker_id: s
         refresh_git_worker_evidence(root, record, worker_id=worker_id)
     event_payload: dict[str, Any] = {
         "title": title,
+        "definition_of_done": record.definition_of_done,
         "workspace": record.workspace,
         "branch_name": workspace.branch_name,
         "workspace_commit": workspace.commit_sha,

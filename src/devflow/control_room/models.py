@@ -43,6 +43,7 @@ class TaskRecord(BaseModel):
     schema_version: int = TASK_SCHEMA_VERSION
     id: str
     title: str
+    definition_of_done: str | None = None
     status: TaskStatus = "created"
     created_at: datetime
     updated_at: datetime

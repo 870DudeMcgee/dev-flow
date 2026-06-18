@@ -457,6 +457,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 raise BrainstormError("stage is required")
             if title is not None and not isinstance(title, str):
                 raise BrainstormError("title must be a string")
+            definition_of_done = payload.get("definition_of_done")
+            if definition_of_done is not None and not isinstance(definition_of_done, str):
+                raise BrainstormError("definition_of_done must be a string")
             profile_id = payload.get("profile_id")
             if profile_id is not None and not isinstance(profile_id, str):
                 raise BrainstormError("profile_id must be a string")
@@ -465,6 +468,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 raise BrainstormError("use_model must be a boolean")
             result = escalate_brainstorm_session(
                 root=root, session_id=session_id, stage=stage, title=title,
+                definition_of_done=definition_of_done,
                 profile_id=profile_id, use_model=use_model,
             )
         except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
@@ -595,7 +599,7 @@ def _approved_task_creation_command_args(command: str) -> list[str]:
     if len(normalized) < 4 or normalized[1:3] != ["task", "create"]:
         raise ValueError("only approved task creation may run from the operating layer")
     allowed_flags = {"--git-worktree"}
-    allowed_value_options = {"--project"}
+    allowed_value_options = {"--project", "--definition-of-done"}
     index = 3
     titles: list[str] = []
     while index < len(normalized):
@@ -605,11 +609,15 @@ def _approved_task_creation_command_args(command: str) -> list[str]:
             continue
         if token in allowed_value_options:
             if index + 1 >= len(normalized) or normalized[index + 1].startswith("-"):
-                raise ValueError("approved browser task creation requires a project id after --project")
+                if token == "--project":
+                    raise ValueError("approved browser task creation requires a project id after --project")
+                raise ValueError("approved browser task creation requires definition text after --definition-of-done")
+            if token == "--definition-of-done" and _is_placeholder_text(normalized[index + 1], field="definition-of-done"):
+                raise ValueError("approved browser task creation requires concrete definition-of-done text")
             index += 2
             continue
         if token.startswith("-"):
-            raise ValueError("approved browser task creation allows only --project and --git-worktree")
+            raise ValueError("approved browser task creation allows only --project, --git-worktree, and --definition-of-done")
         titles.append(token)
         index += 1
     if len(titles) != 1:
@@ -1051,6 +1059,8 @@ def _is_placeholder_text(value: str, *, field: str) -> bool:
         placeholders.update({"your idea", "rough idea", "brainstorm", "brainstorm here"})
     if field == "title":
         placeholders.update({"task title", "untitled", "new task"})
+    if field == "definition-of-done":
+        placeholders.update({"definition of done", "done criteria", "completion criteria", "your definition of done"})
     if field in {"provider", "model", "profile", "task-id", "adapter", "url", "role"}:
         placeholders.update({
             f"<{field}>",

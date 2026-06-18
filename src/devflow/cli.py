@@ -1357,12 +1357,22 @@ def context_command(
 def task_create(
     title: str,
     git_worktree: bool = typer.Option(False, "--git-worktree", help="Create a Git branch/worktree-backed worker lane."),
+    definition_of_done: str | None = typer.Option(
+        None,
+        "--definition-of-done",
+        help="Optional text describing the task's completion criteria.",
+    ),
     project: str | None = typer.Option(None, "--project", help="Create the task in a registered project root."),
 ) -> None:
     """Create a task and its artifact directory."""
     scope = _resolve_task_project_root(project)
     try:
-        task = create_task(scope.root, title, git_worktree=git_worktree)
+        task = create_task(
+            scope.root,
+            title,
+            git_worktree=git_worktree,
+            definition_of_done=definition_of_done,
+        )
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
@@ -1585,6 +1595,8 @@ def task_show(
     if scope.project_id:
         typer.echo(f"project_root: {root}")
     typer.echo(f"title: {task.title}")
+    if task.definition_of_done:
+        typer.echo(f"definition_of_done: {task.definition_of_done}")
     typer.echo(f"status: {task.status}")
     typer.echo(f"worker: {task.worker}")
     typer.echo(f"workspace: {task.workspace}")

@@ -138,6 +138,13 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
         stage="implementation",
         title="Build brainstorm workbench",
     )
+    implementation_with_done = escalate_brainstorm_session(
+        root=tmp_path,
+        session_id="session-003",
+        stage="implementation",
+        title="Build brainstorm workbench",
+        definition_of_done="Start button is visible and task creation is logged.",
+    )
 
     assert spec_payload["status"] == "ready"
     assert (tmp_path / spec_payload["artifact_path"]).read_text(encoding="utf-8").startswith("# Brainstorm Spec")
@@ -146,3 +153,8 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
     assert implementation_payload["action"]["label"] == "Open Implementation Task"
     assert implementation_payload["action"]["command"] == "devflow task create 'Build brainstorm workbench'"
     assert implementation_payload["action"]["safety_class"] == "approval_required_task_state"
+    assert implementation_with_done["action"]["command"] == (
+        "devflow task create --definition-of-done "
+        "'Start button is visible and task creation is logged.' 'Build brainstorm workbench'"
+    )
+    assert "## Definition of Done" in (tmp_path / implementation_with_done["artifact_path"]).read_text(encoding="utf-8")

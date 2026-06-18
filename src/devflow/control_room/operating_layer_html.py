@@ -129,7 +129,7 @@ INDEX_HTML = """<!doctype html>
       <!-- ===== LAYOUT COLUMNS ===== -->
       <div class="layout-columns">
 
-        <!-- Center: Brainstorm + Orchestrator -->
+        <!-- Center: Brainstorm + Next Task -->
         <div class="center-column">
 
           <!-- Brainstorm -->
@@ -170,32 +170,34 @@ INDEX_HTML = """<!doctype html>
             </form>
           </section>
 
-          <!-- Orchestrator section (below brainstorm) -->
-          <section id="orchestrator-section" class="panel orchestrator-section" aria-label="Orchestrator">
+          <!-- Next Task section (below brainstorm) -->
+          <section id="orchestrator-section" class="panel orchestrator-section next-task-section" aria-label="Next Task">
             <div class="panel-header">
-              <h2 class="panel-title">Orchestrator</h2>
-              <output id="orchestrator-sync" class="status-badge online" aria-live="polite" aria-atomic="true">Synced</output>
+              <h2 class="panel-title">Next Task</h2>
+              <output id="orchestrator-sync" class="status-badge online" aria-live="polite" aria-atomic="true">Launchpad</output>
             </div>
-            <div class="orchestrator-content">
-              <div class="orchestrator-directive">
-                <span class="label">Current Directive</span>
-                <h3 id="orchestrator-goal-title">Loading current goal...</h3>
+            <div class="orchestrator-content next-task-content">
+              <div class="orchestrator-directive next-task-summary">
+                <span class="label">Selected Task</span>
+                <h3 id="orchestrator-goal-title">Loading task...</h3>
                 <p id="orchestrator-directive">Reading operating layer snapshot.</p>
-                <div class="next-action">
-                  <span class="label">Next Safe Action</span>
-                  <code id="orchestrator-command">Loading...</code>
-                </div>
               </div>
-              <div class="orchestrator-stats">
-                <div class="stat"><span class="stat-value" id="orchestrator-queue">0</span><span class="stat-label">Queue</span></div>
-                <div class="stat"><span class="stat-value" id="orchestrator-ready">0</span><span class="stat-label">Ready</span></div>
-                <div class="stat"><span class="stat-value" id="orchestrator-blocked">0</span><span class="stat-label">Blocked</span></div>
-                <div class="stat"><span class="stat-value" id="orchestrator-evidence">0</span><span class="stat-label">Evidence</span></div>
+              <div id="next-task-meta" class="next-task-meta" aria-label="Selected task metadata"></div>
+              <div class="next-task-definition">
+                <span class="label">Definition of Done</span>
+                <p id="next-task-definition-of-done">No definition captured yet.</p>
               </div>
-              <div class="orchestrator-agents">
-                <div class="label">Agent Progress</div>
-                <div id="orchestrator-agent-progress" class="agent-progress-list"></div>
+              <div class="next-action">
+                <span class="label">Next Safe Action</span>
+                <code id="orchestrator-command">Loading...</code>
               </div>
+              <div id="next-task-action-slot" class="next-task-action-slot"></div>
+              <div id="next-task-latest-evidence" class="next-task-evidence"></div>
+              <div class="orchestrator-agents next-task-switcher-wrap">
+                <div class="label">Task switcher</div>
+                <div id="orchestrator-agent-progress" class="agent-progress-list next-task-switcher"></div>
+              </div>
+              <div id="next-task-command-output"></div>
             </div>
           </section>
 
@@ -265,6 +267,10 @@ INDEX_HTML = """<!doctype html>
                   </p>
                 </div>
               </div>
+            </div>
+            <div class="definition-editor">
+              <label for="brainstorm-definition-of-done">Definition of Done</label>
+              <textarea id="brainstorm-definition-of-done" rows="4" placeholder="What must be true before this brainstorm becomes done?"></textarea>
             </div>
           </section>
 

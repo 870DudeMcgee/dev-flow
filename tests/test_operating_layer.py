@@ -138,6 +138,7 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert lanes["new"] == ["task-0001"]
     assert payload["tasks"][0]["id"] == "task-0001"
     assert payload["tasks"][0]["lane"] == "new"
+    assert payload["tasks"][0]["definition_of_done"] is None
     assert payload["tasks"][0]["detail"]["events_path"] == ".devflow/tasks/task-0001/events.jsonl"
     assert payload["tasks"][0]["detail"]["recent_events"][-1]["event"] == "task_created"
     assert payload["tasks"][0]["review_state"] == "not_ready"
@@ -158,6 +159,45 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
 
     assert not (tmp_path / ".devflow" / "freshness" / "latest.json").exists()
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
+
+
+def test_task_definition_of_done_persists_loads_old_tasks_shows_and_snapshots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    created = runner.invoke(
+        app,
+        [
+            "task",
+            "create",
+            "--definition-of-done",
+            "Tests pass and the launchpad shows the next action.",
+            "definition launchpad task",
+        ],
+    )
+    assert created.exit_code == 0, created.output
+
+    task_path = tmp_path / ".devflow" / "tasks" / "task-0001"
+    task_yaml = (task_path / "task.yaml").read_text(encoding="utf-8")
+    summary = json.loads((task_path / "summary.json").read_text(encoding="utf-8"))
+    assert 'definition_of_done: "Tests pass and the launchpad shows the next action."' in task_yaml
+    assert summary["definition_of_done"] == "Tests pass and the launchpad shows the next action."
+    assert get_task(tmp_path, "task-0001").definition_of_done == "Tests pass and the launchpad shows the next action."
+
+    show = runner.invoke(app, ["task", "show", "task-0001"])
+    assert show.exit_code == 0, show.output
+    assert "definition_of_done: Tests pass and the launchpad shows the next action." in show.output
+
+    snapshot = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    assert snapshot["tasks"][0]["definition_of_done"] == "Tests pass and the launchpad shows the next action."
+
+    (task_path / "task.yaml").write_text(
+        "\n".join(line for line in task_yaml.splitlines() if not line.startswith("definition_of_done:")) + "\n",
+        encoding="utf-8",
+    )
+    assert get_task(tmp_path, "task-0001").definition_of_done is None
 
 
 def test_operating_layer_approved_model_onboarding_actions_execute(
@@ -792,10 +832,10 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "Worker lanes" in body
         assert "Review queue" in body
         assert "Evidence stream" in body
-        assert "Orchestrator" in body
+        assert "Next Task" in body
+        assert "Definition of Done" in body
         assert "focus-overlay" in body
         assert "focus-panel" in body
-        assert "Current Directive" in body
         assert "Next Safe Action" in body
         assert "Work Feed" in body
         assert "System Health" in body
@@ -824,6 +864,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "focus-panel" in css
         assert "focus-overlay" in css
         assert "health-section" in css
+        assert "next-task-meta" in css
+        assert "definition-editor" in css
         assert "pipeline-stages" in css
         assert "agent-row" in css
         assert "feed-item" in css
@@ -843,6 +885,10 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "renderMissionFeed" in js
         assert "renderPipeline" in js
         assert "renderOrchestrator" in js
+        assert "selectTaskInLaunchpad" in js
+        assert "data-task-run-shell" in js
+        assert "data-task-verify" in js
+        assert "definition_of_done" in js
         assert "openFocus" in js
         assert "closeFocus" in js
         assert "loadSnapshot" in js
@@ -927,6 +973,7 @@ def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
                     "session_id": "browser-session",
                     "stage": "implementation",
                     "title": "Build brainstorm workbench",
+                    "definition_of_done": "Launchpad shows the created task and start composer.",
                 }
             ),
             headers={"Content-Type": "application/json"},
@@ -935,7 +982,10 @@ def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
         payload = json.loads(response.read().decode("utf-8"))
         assert response.status == 200
         assert payload["status"] == "ready"
-        assert payload["action"]["command"] == "devflow task create 'Build brainstorm workbench'"
+        assert payload["action"]["command"] == (
+            "devflow task create --definition-of-done "
+            "'Launchpad shows the created task and start composer.' 'Build brainstorm workbench'"
+        )
         assert payload["action"]["safety_class"] == "approval_required_task_state"
     finally:
         server.shutdown()
@@ -953,7 +1003,8 @@ def test_operating_layer_guided_sections_render_before_advanced_sections() -> No
     assert "Worker lanes" in INDEX_HTML
     assert "Review queue" in INDEX_HTML
     assert "Evidence stream" in INDEX_HTML
-    assert "Orchestrator" in INDEX_HTML
+    assert "Next Task" in INDEX_HTML
+    assert "brainstorm-definition-of-done" in INDEX_HTML
     assert "Pipeline" in INDEX_HTML
     assert "focus-overlay" in INDEX_HTML
 
@@ -963,6 +1014,7 @@ def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None
     assert "Worker lanes" in APP_JS
     assert "renderWorkerLanes" in APP_JS
     assert "data-task-run-shell" in APP_JS
+    assert "data-select-task" in APP_JS
     assert "data-task-close" in APP_JS
     assert "Cleanup preview" in APP_JS
     assert "Worker / model" in APP_JS
@@ -1039,7 +1091,7 @@ def test_operating_layer_visual_qa_cli_renders_json_plan(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["visual_flow"] == (
-        "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Worker lanes, "
+        "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Next Task launchpad, Worker lanes, "
         "Review queue, and Evidence stream without horizontal overflow"
     )
     assert payload["browser_runtime"] == "codex-in-app-browser"
@@ -1092,7 +1144,7 @@ def test_operating_layer_visual_qa_writes_browser_raster_when_capture_available(
                 "guided_first_viewport": True,
                 "active_work_cards": True,
                 "approval_states": True,
-                "advanced_commands_contained": True,
+                "next_task_launchpad": True,
                 "no_mission_feed_action_overlap": True,
             },
         )
@@ -1228,7 +1280,10 @@ def test_operating_layer_server_runs_approved_task_creation(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    command = 'devflow task create "browser created task"'
+    command = (
+        'devflow task create --definition-of-done '
+        '"Launchpad can start this task after creation." "browser created task"'
+    )
     server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
         status, payload = _post_action(host, port, command)
@@ -1239,7 +1294,10 @@ def test_operating_layer_server_runs_approved_task_creation(
         assert payload["classification"]["safety_class"] == "approval_required_task_state"
         assert payload["exit_code"] == 0
         assert "Created task-0001: browser created task" in payload["stdout"]
-        assert (tmp_path / ".devflow" / "tasks" / "task-0001" / "task.yaml").exists()
+        task_yaml = (tmp_path / ".devflow" / "tasks" / "task-0001" / "task.yaml").read_text(encoding="utf-8")
+        summary = json.loads((tmp_path / ".devflow" / "tasks" / "task-0001" / "summary.json").read_text())
+        assert 'definition_of_done: "Launchpad can start this task after creation."' in task_yaml
+        assert summary["definition_of_done"] == "Launchpad can start this task after creation."
         assert not (tmp_path / ".devflow" / "worktrees").exists()
     finally:
         server.shutdown()

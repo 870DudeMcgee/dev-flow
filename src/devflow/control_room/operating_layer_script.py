@@ -11,6 +11,7 @@ let selectedTaskId = null;
 let availableAgents = [];
 let selectedProfileId = localStorage.getItem('devflow-brainstorm-profile') || null;
 const ACTION_APPROVAL_PHRASE = 'I approve this exact Dev-Flow command';
+const BRAINSTORM_DOD_PREFIX = 'devflow-brainstorm-definition-of-done:';
 
 // === HELPERS ===
 function $(id) { return document.getElementById(id); }
@@ -103,6 +104,26 @@ function shortCommand(command, limit) {
   if (!value) return '';
   const max = limit || 96;
   return value.length > max ? value.slice(0, max - 1) + '…' : value;
+}
+function brainstormDefinitionStorageKey(sessionId) {
+  return BRAINSTORM_DOD_PREFIX + String(sessionId || brainstormSessionId || 'default');
+}
+function currentBrainstormDefinitionOfDone() {
+  const input = $('brainstorm-definition-of-done');
+  return String(input?.value || '').trim();
+}
+function loadBrainstormDefinitionOfDone() {
+  const input = $('brainstorm-definition-of-done');
+  if (!input) return;
+  input.value = localStorage.getItem(brainstormDefinitionStorageKey()) || '';
+}
+function setupBrainstormDefinitionOfDone() {
+  const input = $('brainstorm-definition-of-done');
+  if (!input) return;
+  loadBrainstormDefinitionOfDone();
+  input.addEventListener('input', () => {
+    localStorage.setItem(brainstormDefinitionStorageKey(), input.value);
+  });
 }
 
 // === SNAPSHOT LOADING ===
@@ -201,6 +222,7 @@ async function setRepoRoot(path) {
     selectedProjectId = null;
     loadSnapshot();
     loadBrainstormTranscript(brainstormSessionId);
+    loadBrainstormDefinitionOfDone();
     loadBrainstormSessions();
     refreshPipelineState();
   } catch(e) {
@@ -341,6 +363,7 @@ async function loadBrainstormTranscript(sessionId) {
 function newBrainstormSession() {
   brainstormSessionId = `browser-${Date.now().toString(36)}`;
   localStorage.setItem('devflow-brainstorm-session', brainstormSessionId);
+  loadBrainstormDefinitionOfDone();
   const container = $('brainstorm-transcript');
   if (container) {
     container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
@@ -381,6 +404,7 @@ async function loadBrainstormSessions() {
         if (!sid) return;
         brainstormSessionId = sid;
         localStorage.setItem('devflow-brainstorm-session', sid);
+        loadBrainstormDefinitionOfDone();
         loadBrainstormTranscript(sid);
         loadBrainstormSessions();
       });
@@ -406,6 +430,10 @@ async function escalateBrainstormStage(stage, useModel) {
   const body = { session_id: brainstormSessionId, stage };
   if (selectedProfileId) body.profile_id = selectedProfileId;
   if (useModel) body.use_model = true;
+  if (stage === 'implementation') {
+    const definitionOfDone = currentBrainstormDefinitionOfDone();
+    if (definitionOfDone) body.definition_of_done = definitionOfDone;
+  }
   const resp = await fetch('/api/brainstorm/escalate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -619,9 +647,9 @@ function setupPipelineButtons() {
               if (actionResult.executed && actionResult.exit_code === 0) {
                 const outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
                 const createdTaskId = parseCreatedTaskId(actionResult.stdout);
-                appendBrainstormMsg('system', 'Task created: ' + outLine + (createdTaskId ? `. Next: start ${createdTaskId} from the task detail panel.` : ''), {});
+                appendBrainstormMsg('system', 'Task created: ' + outLine + (createdTaskId ? `. Next: start ${createdTaskId} from the Next Task launchpad.` : ''), {});
                 await loadSnapshot(selectedProjectId);
-                if (createdTaskId) openFocus('task', createdTaskId, { focusShell: true });
+                if (createdTaskId) selectTaskInLaunchpad(createdTaskId, { focusShell: true });
               } else {
                 appendBrainstormMsg('system', 'Task creation failed: ' + (actionResult.message || actionResult.stderr || 'unknown'), { kind: 'provider_error' });
               }
@@ -678,8 +706,8 @@ function renderWorkerLanes(tasks) {
     const tone = statusTone(status);
     const actionLabel = taskActionLabel(t);
     const latestEvent = lastTaskEvent(t);
-    return `<div class="worker-card guided-task-card ${esc(status)}" data-task-id="${esc(t.id || '')}" role="listitem">
-      <button class="worker-card-main" type="button" data-open-task="${esc(t.id || '')}">
+    return `<div class="worker-card guided-task-card ${esc(status)}${selectedTaskId === t.id ? ' selected' : ''}" data-task-id="${esc(t.id || '')}" role="listitem">
+      <button class="worker-card-main" type="button" data-select-task="${esc(t.id || '')}">
         <span class="worker-light ${tone}"></span>
         <span class="worker-copy">
           <strong><span class="task-id">${esc(t.id || '')}</span> ${esc(t.title || 'Untitled task')}</strong>
@@ -690,9 +718,8 @@ function renderWorkerLanes(tasks) {
       <span class="worker-next">${esc(actionLabel)}</span>
       <span class="worker-time">${esc(taskFreshness(t))}</span>
       <span class="worker-actions">
-        <button type="button" class="icon-btn task-row-btn" data-open-task="${esc(t.id || '')}" title="Inspect task">Inspect</button>
-        ${commandNeedsShellInput(primaryTaskCommand(t)) ? `<button type="button" class="btn btn-sm btn-primary task-row-btn" data-open-task="${esc(t.id || '')}" data-focus-shell="1">Start</button>` : ''}
-        ${t.lane === 'needs_verification' ? `<button type="button" class="btn btn-sm btn-secondary task-row-btn" data-open-task="${esc(t.id || '')}" data-focus-verify="1">Verify</button>` : ''}
+        <button type="button" class="icon-btn task-row-btn" data-select-task="${esc(t.id || '')}" title="Select in launchpad">Select</button>
+        <button type="button" class="icon-btn task-row-btn" data-inspect-task="${esc(t.id || '')}" title="Inspect task">Inspect</button>
       </span>
     </div>`;
   }).join('');
@@ -717,11 +744,11 @@ function renderReviewQueue(reviewLoop, tasks) {
     const priority = t.lane === 'ready_to_promote' ? 'high' : (t.lane === 'failed' || t.lane === 'blocked' ? 'high' : 'med');
     return `<div class="review-card" data-task-id="${esc(t.id)}">
       <span class="review-priority ${priority}">${esc(sentenceCase(t.lane))}</span>
-      <button type="button" class="review-main" data-open-task="${esc(t.id)}">
+      <button type="button" class="review-main" data-select-task="${esc(t.id)}">
         <strong>${esc(t.id)} · ${esc(t.title || 'Untitled task')}</strong>
         <span>${esc(t.verification_status || 'not_run')} · ${esc(shortCommand(command || t.review_next_command || 'Inspect task', 96))}</span>
       </button>
-      <button type="button" class="btn btn-sm btn-secondary task-row-btn" data-open-task="${esc(t.id)}">${esc(taskActionLabel(t))}</button>
+      <button type="button" class="btn btn-sm btn-secondary task-row-btn" data-select-task="${esc(t.id)}">${esc(taskActionLabel(t))}</button>
     </div>`;
   }).join('');
 }
@@ -746,7 +773,7 @@ function renderEvidenceStream(evidence, tasks) {
     const kind = item.verification_log_path ? 'verification' : item.result_path ? 'result' : item.log_path ? 'worker log' : 'evidence';
     const ts = taskTimestamp(task) || item.created_at || item.timestamp || item.generated_at;
     return `<div class="evidence-item" data-task-id="${esc(item.task_id || '')}">
-      <button type="button" class="evidence-main" data-open-task="${esc(item.task_id || '')}">
+      <button type="button" class="evidence-main" data-select-task="${esc(item.task_id || '')}">
         <span class="evidence-icon">></span>
         <span class="evidence-text"><strong>${esc(item.task_id || 'task')}</strong> ${esc(kind)} · ${esc(shortCommand(text, 110))}</span>
       </button>
@@ -779,54 +806,173 @@ function renderMissionFeed(feedItems) {
   }).join('');
 }
 
-// === ORCHESTRATOR ===
+// === NEXT TASK LAUNCHPAD ===
+function selectTaskInLaunchpad(taskId, opts) {
+  if (!taskId) return;
+  selectedTaskId = taskId;
+  renderOrchestrator(snapshot);
+  document.querySelectorAll('.worker-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.taskId === taskId);
+  });
+  const section = $('orchestrator-section');
+  if (section && !opts?.silent) section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  setTimeout(() => {
+    if (opts?.focusShell) {
+      const input = $('orchestrator-section')?.querySelector('[data-shell-command]');
+      if (input) input.focus();
+    } else if (opts?.focusVerify) {
+      const input = $('orchestrator-section')?.querySelector('[data-verify-command]');
+      if (input) input.focus();
+    }
+  }, 0);
+}
+
+function renderTaskMetadata(task) {
+  const lane = task.lane || 'new';
+  const local = task.local_worker_lane || {};
+  const items = [
+    ['Status', sentenceCase(task.display_status || lane)],
+    ['Worker / model', taskWorkerLabel(task)],
+    ['Verification', task.verification_status || 'not_run'],
+    ['Last update', taskFreshness(task) || 'unknown'],
+    ['Workspace', task.workspace || '—'],
+    ['Runtime', `${local.adapter || task.worker || '—'}${local.permission_mode ? ' · ' + local.permission_mode : ''}`],
+  ];
+  return items.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
+}
+
+function renderLatestEvidence(task) {
+  const detail = task.detail || {};
+  const paths = detail.evidence_paths || [];
+  const preview = detail.result_preview || detail.latest_verification_line || detail.latest_worker_line || '';
+  if (!paths.length && !preview) {
+    return '<div class="next-task-evidence-empty">No task evidence yet.</div>';
+  }
+  const firstPath = paths[0] || task.result_path || task.log_path || task.verification_log_path || '';
+  return `<div class="next-task-evidence-head">
+      <span class="label">Latest Evidence</span>
+      ${firstPath ? `<code>${esc(firstPath)}</code>` : ''}
+    </div>
+    ${preview ? `<pre>${esc(preview)}</pre>` : ''}
+    ${paths.length > 1 ? `<div class="next-task-evidence-paths">${paths.slice(1, 4).map(path => `<code>${esc(path)}</code>`).join('')}</div>` : ''}`;
+}
+
+function renderPromotionControls(task) {
+  const previewAction = (task.actions || []).find(a => (a.command || '').includes('promote-preview'));
+  const promoteAction = (task.actions || []).find(a => /devflow task promote /.test(a.command || ''));
+  if (!previewAction && !promoteAction && task.lane !== 'ready_to_promote' && task.lane !== 'needs_review') return '';
+  return `<div class="task-command-box launchpad-command-box">
+    <label>Review and promotion</label>
+    <textarea data-promotion-note placeholder="Promotion context for the human approval record"></textarea>
+    <div class="task-action-row">
+      ${previewAction ? `<button class="btn btn-sm btn-secondary" type="button" data-command="${esc(previewAction.command)}">Review preview</button>` : ''}
+      ${promoteAction ? `<button class="btn btn-sm btn-primary" type="button" data-command="${esc(promoteAction.command)}">Promote</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderLaunchpadActions(task) {
+  const lane = task.lane || 'new';
+  const command = primaryTaskCommand(task);
+  const shellPanel = commandNeedsShellInput(command) && lane !== 'closed'
+    ? `<div class="task-command-box launchpad-command-box" id="next-task-shell-panel">
+        <label>Shell command to run in ${esc(task.id)} workspace</label>
+        <div class="inline-command-row">
+          <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
+          <button class="btn btn-primary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">Start</button>
+        </div>
+        <code>${esc(command)}</code>
+      </div>`
+    : '';
+  const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command))
+    ? `<div class="task-command-box launchpad-command-box" id="next-task-verify-panel">
+        <label>Verification shell command</label>
+        <div class="inline-command-row">
+          <input type="text" data-verify-command placeholder="git diff --check && pytest -q">
+          <button class="btn btn-primary btn-sm" type="button" data-task-verify="${esc(task.id)}">Verify</button>
+        </div>
+      </div>`
+    : '';
+  const promotionPanel = renderPromotionControls(task);
+  const closePanel = lane !== 'closed'
+    ? `<div class="task-command-box launchpad-command-box compact">
+        <label>Close task</label>
+        <div class="inline-command-row">
+          <select data-close-outcome>
+            <option value="duplicate">duplicate</option>
+            <option value="abandoned">abandoned</option>
+            <option value="rejected">rejected</option>
+            <option value="evidence-only">evidence-only</option>
+          </select>
+          <input type="text" data-close-reason placeholder="Reason required">
+          <button class="btn btn-secondary btn-sm" type="button" data-task-close="${esc(task.id)}">Close</button>
+        </div>
+      </div>`
+    : `<div class="task-action-row"><button class="btn btn-sm btn-secondary" type="button" data-command="${esc(`devflow task cleanup ${task.id} --preview`)}">Cleanup preview</button></div>`;
+  const utilityButtons = `<div class="task-action-row launchpad-utility-actions">
+    <button class="btn btn-sm btn-secondary" type="button" data-inspect-task="${esc(task.id)}">Inspect</button>
+    ${taskCommandButtons(task)}
+  </div>`;
+  return shellPanel || verifyPanel || promotionPanel
+    ? `${shellPanel}${verifyPanel}${promotionPanel}${utilityButtons}${closePanel}`
+    : `${utilityButtons}${closePanel}`;
+}
+
 function renderOrchestrator(snap) {
   if (!snap) return;
 
-  // Goal info — use goals list or goal_board, not a non-existent goal object
-  const goals = snap.goals || [];
-  const goalBoard = snap.goal_board || [];
-  const hasGoal = goals.length > 0 || goalBoard.length > 0;
-  const goal = hasGoal ? (goals[0] || goalBoard[0]) : null;
   const tasks = snap.tasks || [];
   const activeTasks = tasks.filter(t => t.lane !== 'closed');
+  const fallbackTaskId = snap.focus_task_id || activeTasks[0]?.id || tasks[0]?.id || null;
+  const selected = tasks.find(t => t.id === selectedTaskId) || tasks.find(t => t.id === fallbackTaskId) || null;
+  selectedTaskId = selected?.id || null;
+
   const title = $('orchestrator-goal-title');
   const directive = $('orchestrator-directive');
-  if (title) title.textContent = goal ? (goal.title || goal.id || 'Active goal') : (activeTasks.length ? `${activeTasks.length} active tasks` : 'No active goal');
-  if (directive) {
-    directive.textContent = goal
-      ? (goal.directive || goal.description || 'Goal active.')
-      : (activeTasks.length
-        ? 'Active Dev-Flow tasks are waiting below with worker, status, evidence, and next action controls.'
-        : 'No goal set. Create tasks from brainstorm escalations or the CLI.');
-  }
-
-  // Next Safe Action — use snap.next_action, not goal.next_safe_action
-  const na = snap.next_action || {};
+  const meta = $('next-task-meta');
+  const done = $('next-task-definition-of-done');
+  const actionSlot = $('next-task-action-slot');
+  const latestEvidence = $('next-task-latest-evidence');
+  const switcher = $('orchestrator-agent-progress');
   const cmd = $('orchestrator-command');
-  if (cmd) cmd.textContent = na.command || na.label || 'No actions pending';
 
-  // Stats — use actual lane counts from tasks
-  setText('orchestrator-queue', String(tasks.filter(t => t.lane === 'new' || t.lane === 'in_progress').length));
-  setText('orchestrator-ready', String(tasks.filter(t => t.lane === 'ready_to_promote').length));
-  setText('orchestrator-blocked', String(tasks.filter(t => t.lane === 'needs_verification').length));
-  setText('orchestrator-evidence', String(snap.evidence?.length ?? 0));
-
-  // Agent progress
-  const agents = $('orchestrator-agent-progress');
-  if (agents) {
-    const progress = snap.worker_activity || [];
-    if (progress.length === 0) {
-      agents.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No agents running</div>';
-    } else {
-      agents.innerHTML = progress.slice(0, 8).map(a => `<div class="agent-row" onclick="openFocus('agent','${esc(a.worker || a.name || a.id || '')}')">
-        <span class="agent-dot ${(a.state || a.status || 'waiting').toLowerCase()}"></span>
-        <span class="agent-name">${esc(a.worker || a.name || a.id || 'Agent')}</span>
-        <span class="agent-task">${esc(a.description || a.task || '')}</span>
-        <span class="agent-time">${a.latest ? ago(a.latest) : ''}</span>
-      </div>`).join('');
+  if (!selected) {
+    if (title) title.textContent = 'No task selected';
+    if (directive) directive.textContent = 'Create a task from Brainstorm or the CLI to start work.';
+    if (meta) meta.innerHTML = '';
+    if (done) done.textContent = 'No definition captured yet.';
+    if (cmd) cmd.textContent = snap.next_action?.command || snap.next_action?.label || 'No actions pending';
+    if (actionSlot) actionSlot.innerHTML = '';
+    if (latestEvidence) latestEvidence.innerHTML = '<div class="next-task-evidence-empty">No evidence yet.</div>';
+    if (switcher) switcher.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No active tasks</div>';
+  } else {
+    const lane = selected.lane || 'new';
+    const command = primaryTaskCommand(selected);
+    if (title) title.textContent = `${selected.id} · ${selected.title || 'Untitled task'}`;
+    if (directive) {
+      directive.textContent = `${sentenceCase(selected.display_status || lane)} · ${taskWorkerLabel(selected)} · ${selected.next_action?.reason || 'Ready for the next operator action.'}`;
+    }
+    if (meta) meta.innerHTML = renderTaskMetadata(selected);
+    if (done) done.textContent = selected.definition_of_done || 'No definition captured yet.';
+    if (cmd) cmd.textContent = command || 'No action pending';
+    if (actionSlot) actionSlot.innerHTML = renderLaunchpadActions(selected);
+    if (latestEvidence) latestEvidence.innerHTML = renderLatestEvidence(selected);
+    if (switcher) {
+      const switchTasks = activeTasks.length ? activeTasks : tasks.slice(0, 6);
+      switcher.innerHTML = switchTasks.map(t => {
+        const isSelected = t.id === selected.id;
+        return `<button type="button" class="task-switcher-row${isSelected ? ' selected' : ''}" data-select-task="${esc(t.id)}">
+          <span class="worker-light ${statusTone(t.lane || 'new')}"></span>
+          <span><strong>${esc(t.id)}</strong>${esc(t.title || 'Untitled task')}</span>
+          <em>${esc(sentenceCase(t.display_status || t.lane || 'new'))}</em>
+        </button>`;
+      }).join('');
     }
   }
+
+  document.querySelectorAll('.worker-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.taskId === selectedTaskId);
+  });
 
   // Health — render real metrics from the health object
   const health = $('orchestrator-health-bars');
@@ -855,7 +1001,7 @@ function renderOrchestrator(snap) {
     }
   }
   setText('orchestrator-freshness', typeof snap.freshness === 'object' ? (snap.freshness?.status || 'ok') : (snap.freshness || 'unknown'));
-  setText('orchestrator-goal-id', goal ? (goal.goal_id || goal.id || 'active') : (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
+  setText('orchestrator-goal-id', snap.focus_goal_id || (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
 }
 
 function setText(id, text) {
@@ -985,7 +1131,6 @@ function openFocus(type, id, opts) {
 function closeFocus() {
   const overlay = $('focus-overlay');
   if (overlay) overlay.hidden = true;
-  selectedTaskId = null;
 }
 
 // === ACTION EXECUTION ===
@@ -1011,6 +1156,8 @@ function renderActionPending(command) {
   </div>`;
   const container = $('guided-action-result');
   if (container) container.innerHTML = html;
+  const launchpadOutput = $('next-task-command-output');
+  if (launchpadOutput) launchpadOutput.innerHTML = html;
   const focusOutput = $('focus-command-output');
   if (focusOutput) focusOutput.innerHTML = html;
 }
@@ -1019,6 +1166,8 @@ function renderActionResult(result, command) {
   const html = actionResultHtml(result, command);
   const container = $('guided-action-result');
   if (container) container.innerHTML = html;
+  const launchpadOutput = $('next-task-command-output');
+  if (launchpadOutput) launchpadOutput.innerHTML = html;
   const focusOutput = $('focus-command-output');
   if (focusOutput) focusOutput.innerHTML = html;
 }
@@ -1102,15 +1251,21 @@ function setupTaskSurfaceActions() {
   if (closeButton) closeButton.addEventListener('click', closeFocus);
 
   document.addEventListener('click', async (e) => {
-    const openButton = e.target.closest('[data-open-task]');
-    if (openButton) {
+    const selectButton = e.target.closest('[data-select-task]');
+    if (selectButton) {
       e.preventDefault();
       e.stopPropagation();
-      const id = openButton.dataset.openTask;
-      if (id) openFocus('task', id, {
-        focusShell: openButton.dataset.focusShell === '1',
-        focusVerify: openButton.dataset.focusVerify === '1',
-      });
+      const id = selectButton.dataset.selectTask;
+      if (id) selectTaskInLaunchpad(id);
+      return;
+    }
+
+    const inspectButton = e.target.closest('[data-inspect-task]');
+    if (inspectButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = inspectButton.dataset.inspectTask;
+      if (id) openFocus('task', id, {});
       return;
     }
 
@@ -1118,7 +1273,8 @@ function setupTaskSurfaceActions() {
     if (shellButton) {
       e.preventDefault();
       const taskId = shellButton.dataset.taskRunShell;
-      const input = document.querySelector('[data-shell-command]');
+      const input = shellButton.closest('.task-command-box')?.querySelector('[data-shell-command]')
+        || document.querySelector('[data-shell-command]');
       const shellCommand = (input?.value || '').trim();
       if (!shellCommand) {
         renderActionResult({ executed: false, exit_code: null, error: 'Enter the shell command to run in the task workspace.' }, `devflow task run ${taskId}`);
@@ -1137,7 +1293,8 @@ function setupTaskSurfaceActions() {
     if (verifyButton) {
       e.preventDefault();
       const taskId = verifyButton.dataset.taskVerify;
-      const input = document.querySelector('[data-verify-command]');
+      const input = verifyButton.closest('.task-command-box')?.querySelector('[data-verify-command]')
+        || document.querySelector('[data-verify-command]');
       const verifyCommand = (input?.value || '').trim();
       if (!verifyCommand) {
         renderActionResult({ executed: false, exit_code: null, error: 'Enter the verification shell command.' }, `devflow task verify ${taskId}`);
@@ -1156,8 +1313,9 @@ function setupTaskSurfaceActions() {
     if (closeTaskButton) {
       e.preventDefault();
       const taskId = closeTaskButton.dataset.taskClose;
-      const outcome = document.querySelector('[data-close-outcome]')?.value || 'abandoned';
-      const reasonInput = document.querySelector('[data-close-reason]');
+      const box = closeTaskButton.closest('.task-command-box');
+      const outcome = box?.querySelector('[data-close-outcome]')?.value || document.querySelector('[data-close-outcome]')?.value || 'abandoned';
+      const reasonInput = box?.querySelector('[data-close-reason]') || document.querySelector('[data-close-reason]');
       const reason = (reasonInput?.value || '').trim();
       if (reason.length < 3) {
         renderActionResult({ executed: false, exit_code: null, error: 'Enter a concrete close reason.' }, `devflow task close ${taskId}`);
@@ -1177,7 +1335,7 @@ function setupTaskSurfaceActions() {
       e.preventDefault();
       const command = commandButton.dataset.command || '';
       const note = command.includes('devflow task promote ')
-        ? (document.querySelector('[data-promotion-note]')?.value || '').trim()
+        ? ((commandButton.closest('.task-command-box')?.querySelector('[data-promotion-note]') || document.querySelector('[data-promotion-note]'))?.value || '').trim()
         : '';
       try {
         await runApprovedCommand(command, { contextNote: note });
@@ -1232,6 +1390,7 @@ function init() {
   setupRepoSelector();
   setupModelSelector();
   setupBrainstormForm();
+  setupBrainstormDefinitionOfDone();
   setupPipelineButtons();
   setupFilter();
   setupTaskSurfaceActions();

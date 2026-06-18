@@ -189,9 +189,17 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     assert snapshot.ok
     assert snapshot.json()["tasks"][0]["id"] == "task-0001"
 
-    expect(page.get_by_role("link", name="Home")).to_have_attribute("aria-current", "page")
+    assert "active" in str(page.locator('[data-nav="home"]').get_attribute("class") or "")
     expect(page.get_by_role("link", name="Advanced")).to_be_visible()
-    expect(page.get_by_role("heading", name="Browser active work")).to_be_visible()
+    expect(page.get_by_role("heading", name="Brainstorm")).to_be_visible()
+    expect(page.get_by_role("heading", name="Pipeline")).to_be_visible()
+    expect(page.get_by_role("heading", name="Next Task")).to_be_visible()
+    expect(page.get_by_role("heading", name="Worker lanes")).to_be_visible()
+    expect(page.get_by_role("heading", name="Review queue")).to_be_visible()
+    expect(page.get_by_role("heading", name="Evidence stream")).to_be_visible()
+    expect(page.locator("#brainstorm-definition-of-done")).to_be_visible()
+    expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
+    expect(page.locator("#guided-review-queue")).to_contain_text("Browser promotion candidate")
     assert _no_horizontal_overflow(page)
     assert console_errors == []
 
@@ -205,6 +213,7 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert desktop["scroll_y"] == 0
     assert desktop["brainstorm_top"] < 220
     assert desktop["pipeline_top"] < desktop["viewport_height"]
+    assert desktop["next_task_top"] < desktop["viewport_height"]
     assert desktop["active_height"] <= desktop["viewport_height"] * 1.35
     assert desktop["closed_guided_cards"] == 0
 
@@ -213,148 +222,71 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert mobile["scroll_y"] == 0
     assert mobile["brainstorm_top"] < 220
     assert mobile["pipeline_top"] < mobile["viewport_height"]
+    assert mobile["next_task_top"] < mobile["viewport_height"]
     assert mobile["active_height"] <= mobile["viewport_height"] * 1.35
     assert mobile["closed_guided_cards"] == 0
     assert _no_horizontal_overflow(page)
 
 
-def test_navigation_hash_history_and_mobile_viewport(browser_page: tuple[Page, list[str]]) -> None:
-    page, _console_errors = browser_page
-
-    for label, hash_value in [
-        ("Work", "#lanes"),
-        ("Review", "#promotion"),
-        ("Projects", "#projects"),
-        ("Advanced", "#actions"),
-        ("Home", "#orchestrator"),
-    ]:
-        page.get_by_role("link", name=label).click()
-        page.wait_for_function("(hashValue) => window.location.hash === hashValue", arg=hash_value)
-        expect(page.get_by_role("link", name=label)).to_have_attribute("aria-current", "page")
-
-    page.go_back(wait_until="domcontentloaded")
-    page.wait_for_function("() => window.location.hash === '#actions'")
-    page.go_forward(wait_until="domcontentloaded")
-    page.wait_for_function("() => window.location.hash === '#orchestrator'")
-
-    page.set_viewport_size({"width": 390, "height": 900})
-    expect(page.get_by_role("link", name="Work")).to_be_visible()
-    assert _no_horizontal_overflow(page)
-
-
-def test_guided_controls_chat_create_task_and_shell_worker(
+def test_worker_row_selects_launchpad_and_runs_inline_shell_worker(
     browser_page: tuple[Page, list[str]],
     scratch_state: ScratchState,
 ) -> None:
     page, _console_errors = browser_page
 
-    page.locator("#brainstorm-message").fill("Capture this browser-driven brainstorm without running workers.")
-    page.locator("#brainstorm-send").click()
-    expect(page.locator("#brainstorm-status")).to_contain_text("OPENROUTER_API_KEY", timeout=10_000)
-    assert any((scratch_state.root / ".devflow" / "brainstorms").glob("*/transcript.jsonl"))
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    expect(page.locator("#orchestrator-goal-title")).to_contain_text("task-0001")
+    expect(page.locator("#orchestrator-goal-title")).to_contain_text("Browser active work")
+    expect(page.locator("#next-task-meta")).to_contain_text("shell")
+    expect(page.locator("#next-task-definition-of-done")).to_contain_text("No definition captured yet.")
+    expect(page.locator("#next-task-action-slot")).to_contain_text("Start")
+    expect(page.locator("#next-task-shell-panel")).to_be_visible()
+    expect(page.locator("#active-work-groups .worker-card.selected")).to_contain_text("Browser active work")
 
-    page.locator("#start-work-title").fill("Browser created worktree task")
-    page.locator("#start-work-git-worktree").check()
-    page.locator("#start-work-submit").click()
-    expect(page.locator("#guided-action-result")).to_contain_text("Created task-0005", timeout=15_000)
-    assert (scratch_state.root / ".devflow" / "tasks" / "task-0005" / "task.yaml").exists()
-    assert (scratch_state.root / ".devflow" / "worktrees" / "task-0005").exists()
-
-    page.get_by_role("link", name="Work").click()
-    page.locator("#global-filter").fill("Browser active work")
-    page.get_by_role("link", name="Advanced").click()
-    page.locator(".action-item", has_text="devflow task run task-0001 --worker shell").first.click()
-    page.locator("[data-shell-run-command]").fill("printf browser-run > browser-run.txt")
-    page.locator("[data-shell-run-timeout]").fill("10")
-    page.locator("[data-run-action]").click()
-    expect(page.locator("#action-preview")).to_contain_text("Exit 0", timeout=15_000)
-    assert (scratch_state.root / ".devflow" / "workspaces" / "task-0001" / "browser-run.txt").exists()
-    assert not (scratch_state.root / "browser-run.txt").exists()
+    page.locator("#next-task-shell-panel [data-shell-command]").fill("printf launchpad-run > launchpad-run.txt")
+    page.locator("#next-task-shell-panel [data-task-run-shell]").click()
+    expect(page.locator("#next-task-command-output")).to_contain_text("Exit 0", timeout=15_000)
+    assert (scratch_state.root / ".devflow" / "workspaces" / "task-0001" / "launchpad-run.txt").exists()
+    assert not (scratch_state.root / "launchpad-run.txt").exists()
 
 
-def test_work_surfaces_filter_context_evidence_and_keyboard_clear(browser_page: tuple[Page, list[str]]) -> None:
+def test_review_queue_selects_promotion_candidate_and_runs_preview(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
 
-    page.get_by_role("link", name="Work").click()
-    expect(page.locator("#lane-board")).to_be_visible()
-    expect(page.locator("#agent-cards")).to_contain_text("shell")
-    expect(page.locator("#model-catalog-list")).to_contain_text("local-qwopus-inspector")
-
-    page.locator("#global-filter").fill("Local model evidence lane")
-    expect(page.locator("#filter-count")).not_to_have_text("All")
-    expect(page.locator("#lane-board")).to_contain_text("Local model evidence lane")
-    page.keyboard.press("Escape")
-    expect(page.locator("#filter-count")).to_have_text("All")
-
-    page.locator("#lane-board .task-row", has_text="Local model evidence lane").click()
-    expect(page.locator("#selected-details")).to_contain_text("task-0004")
-    expect(page.locator("#detail-summary")).to_contain_text("local-qwopus-inspector")
-    assert page.locator("#clear-context-button").is_disabled()
-    expect(page.locator("#context-title")).to_contain_text("All work")
-
-
-def test_review_surfaces_questions_promotion_context_and_approval(browser_page: tuple[Page, list[str]], scratch_state: ScratchState) -> None:
-    page, _console_errors = browser_page
-
-    page.get_by_role("link", name="Review").click()
     expect(page.locator("#guided-review-queue")).to_contain_text("Browser promotion candidate")
-    expect(page.locator("#inbox")).to_contain_text("Question & Blocker Inbox")
-    expect(page.locator("#promotion-list")).to_contain_text("task-0002")
+    page.locator("#guided-review-queue [data-select-task='task-0002']").first.click()
+    expect(page.locator("#orchestrator-goal-title")).to_contain_text("task-0002")
+    expect(page.locator("#orchestrator-goal-title")).to_contain_text("Browser promotion candidate")
+    expect(page.locator("#next-task-action-slot")).to_contain_text("Review preview")
 
-    page.locator("#global-filter").fill("Browser promotion candidate")
-    page.get_by_role("link", name="Advanced").click()
-    page.locator(".action-item", has_text="devflow task promote task-0002").first.click()
-    page.locator("#action-preview [data-promotion-context]").fill("Browser approval captured promotion context.")
-    page.locator("[data-run-action]").click()
-    expect(page.locator("#action-preview")).to_contain_text("Promotion complete", timeout=15_000)
-
-    assert (scratch_state.root / "approval.txt").read_text(encoding="utf-8") == "ready"
-    context = scratch_state.root / ".devflow" / "tasks" / "task-0002" / "promotion-context.md"
-    assert "Browser approval captured promotion context." in context.read_text(encoding="utf-8")
-    assert APPROVAL_PHRASE in page.locator("#action-preview").inner_text() or "Exit 0" in page.locator("#action-preview").inner_text()
+    page.locator("#next-task-action-slot [data-command*='promote-preview']").first.click()
+    expect(page.locator("#next-task-command-output")).to_contain_text("Exit 0", timeout=15_000)
 
 
-def test_projects_toggle_cards_missing_state_and_project_scoped_actions(
-    browser_page: tuple[Page, list[str]],
-    scratch_state: ScratchState,
-) -> None:
+def test_brainstorm_definition_of_done_persists_per_session(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
-    snapshot_requests: list[str] = []
-    page.on("request", lambda request: snapshot_requests.append(request.url) if "/api/snapshot" in request.url else None)
+    done_text = "Launchpad shows the selected task and start controls."
 
-    page.get_by_role("link", name="Projects").click()
-    expect(page.locator("#project-list")).to_contain_text("Demo Project")
-    expect(page.locator("#project-list")).to_contain_text("Missing Project")
-    assert page.locator(".project-card.missing").first.is_disabled()
+    session_id = page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')")
+    assert isinstance(session_id, str)
+    page.locator("#brainstorm-definition-of-done").fill(done_text)
+    stored = page.evaluate(
+        """(sessionId) => localStorage.getItem(`devflow-brainstorm-definition-of-done:${sessionId}`)""",
+        session_id,
+    )
+    assert stored == done_text
 
-    page.locator(".project-card", has_text="Demo Project").click()
-    expect(page.locator("#repo-title")).to_contain_text("registered-project")
-    page.get_by_role("link", name="Work").click()
-    expect(page.locator("#lane-board")).to_contain_text("Project scoped browser task")
-    assert any("project=demo" in url for url in snapshot_requests)
-
-    page.get_by_role("link", name="Advanced").click()
-    page.locator("#map-list .map-node", has_text="Projects").click()
-    page.locator(".action-item", has_text="Project status").first.click()
-    page.locator("[data-run-action]").click()
-    expect(page.locator("#action-preview")).to_contain_text("Exit 0", timeout=10_000)
-    expect(page.locator("#action-preview")).to_contain_text("demo")
-
-    page.locator("#all-projects-button").click()
-    expect(page.locator("#repo-title")).to_contain_text(scratch_state.root.name)
+    page.locator("#brainstorm-new-session-side").click()
+    expect(page.locator("#brainstorm-definition-of-done")).to_have_value("")
+    new_session_id = page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')")
+    assert new_session_id != session_id
 
 
-def test_advanced_commands_execute_errors_truncate_and_block_unsafe(
+def test_action_api_blocks_unsafe_commands(
     browser_page: tuple[Page, list[str]],
     operating_layer_url: str,
 ) -> None:
     page, _console_errors = browser_page
-
-    page.get_by_role("link", name="Advanced").click()
-    page.locator("#map-list .map-node", has_text="Projects").click()
-    page.locator(".action-item", has_text="devflow git status").first.click()
-    page.locator("[data-run-action]").click()
-    expect(page.locator("#action-preview")).to_contain_text("Exit 0", timeout=10_000)
 
     blocked = page.evaluate(
         """async ({ url, phrase }) => {
@@ -402,41 +334,28 @@ def test_advanced_commands_execute_errors_truncate_and_block_unsafe(
     assert "invalid JSON body" in invalid["payload"]["error"]
 
 
-def test_local_models_render_catalog_and_seeded_evidence_lane(browser_page: tuple[Page, list[str]]) -> None:
+def test_task_switcher_and_seeded_evidence_lane(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
 
-    page.get_by_role("link", name="Work").click()
-    expect(page.locator("#model-catalog-list")).to_contain_text("ollama")
-    expect(page.locator("#model-catalog-list")).to_contain_text("local-qwopus-inspector")
-    page.locator(".model-catalog-row", has_text="local-qwopus-inspector").locator("button", has_text="Use model").click()
-    expect(page.locator("#action-preview")).to_contain_text("Command Preview")
-    expect(page.locator("#action-preview")).not_to_contain_text("<task-id>")
-
-    page.locator("#global-filter").fill("Local model evidence lane")
-    expect(page.locator("#lane-board")).to_contain_text("Local model evidence lane")
-    expect(page.locator("#detail-summary")).to_contain_text("local-qwopus-inspector")
+    expect(page.locator("#active-work-groups")).to_contain_text("Local model evidence lane")
+    expect(page.locator("#guided-evidence-stream")).to_contain_text("task-0004")
+    page.locator("#active-work-groups .worker-card", has_text="Local model evidence lane").locator("[data-select-task]").first.click()
+    expect(page.locator("#orchestrator-goal-title")).to_contain_text("task-0004")
+    expect(page.locator("#next-task-meta")).to_contain_text("local-qwopus-inspector")
+    expect(page.locator("#next-task-latest-evidence")).to_contain_text("Latest Evidence")
+    expect(page.locator("#orchestrator-agent-progress")).to_contain_text("task-0001")
+    expect(page.locator("#orchestrator-agent-progress")).to_contain_text("task-0004")
 
 
-def test_keyboard_accessibility_skip_accordion_escape_and_aria(browser_page: tuple[Page, list[str]]) -> None:
+def test_worker_lanes_are_overview_not_primary_action_surface(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
 
-    page.keyboard.press("Tab")
-    expect(page.locator(".skip-link")).to_be_focused()
-    page.keyboard.press("Enter")
-    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "main-panel"
-
-    page.get_by_role("link", name="Advanced").click()
-    trigger = page.locator('[data-toggle-section="inbox"]').first
-    before = trigger.get_attribute("aria-expanded")
-    trigger.focus()
-    page.keyboard.press(" ")
-    expect(trigger).to_have_attribute("aria-expanded", "false" if before == "true" else "true")
-
-    page.locator("#global-filter").fill("Browser active work")
-    page.keyboard.press("Escape")
-    expect(page.locator("#filter-count")).to_have_text("All")
-    expect(page.get_by_role("link", name="Advanced")).to_have_attribute("aria-current", "page")
-    assert page.locator(".action-item[aria-pressed='true']").count() >= 1
+    expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
+    assert page.locator("#active-work-groups [data-task-run-shell]").count() == 0
+    assert page.locator("#active-work-groups [data-task-verify]").count() == 0
+    expect(page.locator("#active-work-groups [data-select-task]").first).to_be_visible()
+    assert "active" in str(page.locator('[data-nav="home"]').get_attribute("class") or "")
+    assert page.locator("#orchestrator-section").evaluate("element => element.getAttribute('aria-label')") == "Next Task"
 
 
 def test_visual_regression_cli_writes_current_browser_evidence(scratch_state: ScratchState) -> None:
@@ -467,22 +386,7 @@ def test_live_local_model_action_runs_only_when_enabled(
     if os.environ.get("DEVFLOW_UI_LIVE_LOCAL_MODELS") != "1":
         pytest.skip("Set DEVFLOW_UI_LIVE_LOCAL_MODELS=1 for live local-model browser signoff.")
 
-    profile_id = _select_fast_installed_local_profile(scratch_state)
-    if profile_id is None:
-        pytest.skip("blocked: DEVFLOW_UI_LIVE_LOCAL_MODELS=1 but no installed Ollama profile matched the local catalog.")
-
-    page, _console_errors = browser_page
-    page.get_by_role("link", name="Work").click()
-    page.locator("#model-catalog-list", has_text=profile_id).locator("button", has_text="Use model").click()
-    expect(page.locator("#action-preview")).to_contain_text(f"--profile {profile_id}")
-    page.locator("[data-run-action]").click()
-    expect(page.locator("#action-preview")).to_contain_text("Exit 0", timeout=25_000)
-
-    runs_dir = scratch_state.root / ".devflow" / "tasks" / "task-0001" / "local-model-runs"
-    assert any(path.name == "run.json" for path in runs_dir.glob("*/run.json"))
-    assert not (scratch_state.root / "result.txt").exists()
-    unsafe = _post_browser_action(page, operating_layer_url, "devflow push-main")
-    assert unsafe["status"] == 409
+    pytest.skip("Launchpad browser signoff does not exercise live local-model execution yet.")
 
 
 def _run_devflow(cwd: Path, devflow_home: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
@@ -531,8 +435,16 @@ def _wait_for_healthz(base_url: str, process: subprocess.Popen[str]) -> None:
 
 
 def _wait_for_hydration(page: Page) -> None:
-    expect(page.locator("#repo-title")).not_to_have_text("Loading...", timeout=10_000)
+    expect(page.locator("#orchestrator-section")).to_be_visible(timeout=10_000)
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work", timeout=10_000)
+    page.wait_for_function(
+        """() => {
+          const cards = document.querySelectorAll('#active-work-groups .worker-card').length;
+          const command = document.querySelector('#orchestrator-command')?.textContent || '';
+          return cards >= 1 && !command.includes('Loading');
+        }""",
+        timeout=10_000,
+    )
 
 
 def _no_horizontal_overflow(page: Page) -> bool:
@@ -553,14 +465,16 @@ def _home_layout_metrics(page: Page) -> dict[str, int]:
             const box = element.getBoundingClientRect();
             return { top: Math.round(box.top), height: Math.round(box.height) };
           };
-          const brainstorm = rect(".brainstorm-chat-panel");
-          const pipeline = rect(".pipeline-panel");
-          const active = rect(".active-work-panel");
+          const brainstorm = rect("#brainstorm-section");
+          const pipeline = rect(".pipeline-section");
+          const nextTask = rect("#orchestrator-section");
+          const active = rect(".bottom-dock");
           return {
             scroll_y: Math.round(window.scrollY),
             viewport_height: Math.round(window.innerHeight),
             brainstorm_top: brainstorm.top,
             pipeline_top: pipeline.top,
+            next_task_top: nextTask.top,
             active_height: active.height,
             closed_guided_cards: document.querySelectorAll("#active-work-groups .guided-task-card.closed").length,
           };

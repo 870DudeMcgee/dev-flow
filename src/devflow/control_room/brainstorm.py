@@ -286,6 +286,7 @@ def escalate_brainstorm_session(
     session_id: str,
     stage: str,
     title: str | None = None,
+    definition_of_done: str | None = None,
     profile_id: str | None = None,
     use_model: bool | None = None,
 ) -> dict[str, Any]:
@@ -306,16 +307,29 @@ def escalate_brainstorm_session(
 
     if normalized_stage == "implementation":
         task_title = _implementation_title(title, records)
+        done_text = _definition_of_done(definition_of_done)
+        command_parts = ["devflow", "task", "create"]
+        if done_text:
+            command_parts.extend(["--definition-of-done", done_text])
+        command_parts.append(task_title)
         action = {
             "label": "Open Implementation Task",
-            "command": f"devflow task create {shlex.quote(task_title)}",
+            "command": " ".join(shlex.quote(part) for part in command_parts),
             "scope": "brainstorm",
             "safety_class": "approval_required_task_state",
             "requires_human_approval": True,
             "supervisor_may_auto_run": False,
             "reason": "Creates one Dev-Flow task from an approved brainstorm escalation.",
         }
-        artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=task_title, model_info=model_info)
+        artifact_path = _write_stage_artifact(
+            root,
+            session,
+            normalized_stage,
+            records,
+            title=task_title,
+            definition_of_done=done_text,
+            model_info=model_info,
+        )
         return {
             "schema_version": 1,
             "status": "ready",
@@ -561,6 +575,7 @@ def _write_stage_artifact(
     records: list[dict[str, Any]],
     *,
     title: str | None = None,
+    definition_of_done: str | None = None,
     model_info: dict[str, Any] | None = None,
 ) -> Path:
     heading = {"spec": "Brainstorm Spec", "plan": "Brainstorm Plan", "implementation": "Implementation Task"}[stage]
@@ -572,6 +587,8 @@ def _write_stage_artifact(
         f"Title: {title or _derive_title(records)}",
         "",
     ]
+    if definition_of_done:
+        body.extend(["## Definition of Done", "", definition_of_done, ""])
     if model_info and model_info.get("used_model"):
         body.extend([
             f"Model: `{model_info.get('model', '?')}` (`{model_info.get('profile_id', '?')}`)",
@@ -654,6 +671,11 @@ def _implementation_title(title: str | None, records: list[dict[str, Any]]) -> s
     if not candidate or candidate.lower() in {"todo", "tbd", "task", "<title>"}:
         raise BrainstormError("implementation title is required")
     return candidate[:120]
+
+
+def _definition_of_done(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    return text or None
 
 
 def _derive_title(records: list[dict[str, Any]]) -> str:

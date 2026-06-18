@@ -150,6 +150,7 @@ class OperatingLayerLocalWorkerLane(BaseModel):
 class OperatingLayerTask(BaseModel):
     id: str
     title: str
+    definition_of_done: str | None = None
     status: str
     display_status: str
     lane: str
@@ -1028,6 +1029,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
     return OperatingLayerTask(
         id=task.id,
         title=task.title,
+        definition_of_done=task.definition_of_done,
         status=task.status,
         display_status=projection.display_status,
         lane=_lane_for(projection, review_state=review_readiness.review_state),
