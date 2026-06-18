@@ -101,6 +101,35 @@ Dev-Flow should be a guided local control room:
 - Navigation: the browser shell uses hash-based page routing over one derived snapshot. Page changes must not spawn workers, mutate canonical state, or require a server-side route.
 - Controls: Advanced Commands execution supports supervisor-classified `pure_read_only` Dev-Flow commands plus exact approval-gated idea capture, task creation, shell worker execution, task verification, and task promotion. The Brainstorm panel may call the configured DeepSeek V4 Flash Free OpenRouter profile for advisory chat and write local transcript/spec/plan evidence, but it must not execute provider-backed workers or mutate project code. Non-shell workers, local/provider model runs as task execution, patch application, cleanup apply, sync, push, project publication, and broad mutations remain blocked in the browser.
 
+## Canonical Browser Entry Point
+
+Start the implemented browser UI from the repository root:
+
+```bash
+source .venv/bin/activate
+devflow operating-layer serve --host 127.0.0.1 --port 8765
+```
+
+Open `http://127.0.0.1:8765/`. If the browser has stale cached assets, use a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`.
+
+The current UI is served from bundled Python modules under `src/devflow/control_room/`:
+
+- `operating_layer_html.py`
+- `operating_layer_styles.py`
+- `operating_layer_script.py`
+- `operating_layer_assets.py`
+- `operating_layer_server.py`
+
+The `public/` directory is not the active Dev-Flow product UI. It contains older static marketing/simulator assets and must not be used as validation evidence for the operating layer.
+
+Browser smoke checks for the current UI:
+
+- Page title is `Dev-Flow Operating Layer`.
+- The first viewport shows `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`.
+- The page does not show `devflow | Git-Native AI Control Plane`, `The Git-native control plane for bounded agent work`, or the old task simulation hero.
+- `/healthz` returns `{"status": "ok"}`.
+- `/api/snapshot` returns JSON from the current project state.
+
 ## UI Spec
 
 The operating layer should expose these reader-facing sections:

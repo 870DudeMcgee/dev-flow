@@ -32,6 +32,10 @@ devflow operating-layer serve
 
 This serves the UI at `http://127.0.0.1:8765/` by default.
 
+This is the canonical browser UI. Do not validate Dev-Flow against the older `public/index.html` marketing/simulator page. If the in-app browser shows `devflow | Git-Native AI Control Plane`, `The Git-native control plane for bounded agent work`, or the simulation page, it is showing stale/non-authoritative UI content. Hard refresh or open `http://127.0.0.1:8765/?cb=<timestamp>`.
+
+The expected current page has title `Dev-Flow Operating Layer` and a first viewport centered on `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`.
+
 ### Options
 
 | Flag | Default | Description |
@@ -69,6 +73,7 @@ This installs a per-user LaunchAgent that starts the server at login from the cu
 ### Troubleshooting
 
 - **Port conflict**: Pass `--port 0` for an ephemeral port. The ready message prints the actual address.
+- **Stale browser cache**: Use a cache-busted URL (`/?cb=<timestamp>`) after UI asset changes or after accidentally opening the old static page.
 - **No provider key**: Brainstorm endpoints fail closed when the configured OpenRouter key is unavailable.
 - **Can't reach from another machine**: Server binds to `127.0.0.1` by default. Pass `--host 0.0.0.0` and configure firewall rules if remote access is needed.
 

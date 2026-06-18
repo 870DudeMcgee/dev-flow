@@ -49,6 +49,8 @@ devflow operating-layer install-service     # macOS login LaunchAgent
 
 This serves a control room UI with project snapshot, task lane visualization, brainstorm panel, and supervisor-safe command execution. See `.codex/optional-project-notes.md` for the full endpoint reference.
 
+This is the canonical Dev-Flow browser UI. The older static files under `public/` are not the active product surface and must not be used for UI validation. When checking the UI in a browser after server or asset changes, hard refresh or use a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`, then confirm the page title is `Dev-Flow Operating Layer` and the first viewport exposes `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`.
+
 Do not implement Aider, Hermes worker/runtime adapters, OpenCode, memory, complex scheduling, task-fit/context routing runtime, or autonomous routing. Hermes may be documented as an external read-only operator/chat gateway over supervisor-safe commands only. Future non-shell work beyond the narrow local Ollama evidence wrapper must follow the registry sequence: architecture doc, registry loading, agent list/show/packet commands, manual adapter, shell alignment, deterministic task-fit/context estimation, context pack building, then local/OpenAI-compatible/native provider adapters and conservative routing.
 
 ---

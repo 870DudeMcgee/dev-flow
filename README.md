@@ -27,6 +27,21 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
 
+### Canonical Browser UI
+
+The current Dev-Flow UI is the local operating layer:
+
+```bash
+source .venv/bin/activate
+devflow operating-layer serve              # http://127.0.0.1:8765/
+devflow operating-layer serve --port 0      # print an ephemeral port
+devflow operating-layer serve --open        # open the default browser
+```
+
+The browser should show the `Dev-Flow Operating Layer` page with a first viewport centered on `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. If a browser shows the old `devflow | Git-Native AI Control Plane` marketing/simulator page, it is stale or non-authoritative content; hard refresh or open a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`.
+
+The `public/` static files are not the active product UI. Use `src/devflow/control_room/operating_layer_html.py`, `operating_layer_styles.py`, `operating_layer_script.py`, and `devflow operating-layer serve` for browser UI work and validation.
+
 ### Planning And Manual Transition Commands
 - **Agent Registry**: `devflow agent list`, `devflow agent show`, `devflow agent policy`, `devflow agent catalog --json`, `devflow agent add-provider <provider-id> --adapter <adapter> --base-url <url> --dry-run --json`, `devflow agent add-model --provider <provider-id> --model <model-id> --authority <read-only|advisory|patch-proposer|disabled> --role <role> --dry-run --json`, `devflow agent packet`, `devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json`, `devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json`, `devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json`, `devflow agent propose-patch --task <task-id> --profile deepseek-v4-pro-patch-proposer --json`
 - **Task Estimation**: `devflow task fit`, `devflow task pack`

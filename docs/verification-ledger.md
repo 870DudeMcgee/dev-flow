@@ -62,6 +62,8 @@ Use this ledger before running expensive verification. If the question can be an
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_dogfood_harness.py -q`.
 - Live in-app browser smoke for brainstorm workbench: passed on `http://127.0.0.1:8766/#orchestrator`.
   - Observed: Home route opens at the top of the chat-first workbench, DeepSeek V4 Flash Free label is visible, pipeline escalation controls are visible, operations tray follows below, desktop/mobile have no horizontal overflow, and browser console warnings/errors are empty.
+- Live in-app browser smoke after canonical UI doc refresh: passed on `http://127.0.0.1:8765/?cb=1781740983094`.
+  - Observed: cache-busted URL opened `Dev-Flow Operating Layer`; DOM markers included `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`; old static marketing marker `The Git-native control plane for bounded agent work` was absent.
 - Prior idea-intake UI simplification, now superseded by the brainstorm workbench first viewport: passed, `65 passed in 18.81s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py tests/test_supervisor_operating_surface.py -q`.
   - Scope: guided idea intake, approved browser idea capture, simplified navigation, browser mutation policy, task/run/verify/promote guards, and supervisor policy.

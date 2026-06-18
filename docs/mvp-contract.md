@@ -410,7 +410,7 @@ Future production hardening items:
 
 ## Out Of The Current Contract
 
-- Browser or web dashboards.
+- Browser or web dashboards outside the approved local operating layer. The active browser surface is `devflow operating-layer serve`, a derived filesystem-evidence control room with guarded read-only commands and exact approval-gated local actions.
 - Token-context helper as runtime authority. The helper may exist as visible planning guidance, but it does not execute token tools, route models, install hooks, or change shell-worker, verification, or promotion behavior.
 - Task-fit/context routing runtime beyond the Milestone 17 evidence-only commands.
 - Provider-backed worker adapters. The stable non-shell model paths are limited to local `ollama run` evidence capture through `devflow task local`, explicit local patch proposal evidence through approved `ollama_chat` patch agents, and read-only local WorkerEvidence profiles. They do not use remote provider APIs, own canonical task state, verify, promote, or apply model output without explicit patch gates.

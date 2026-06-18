@@ -108,7 +108,8 @@ Confirm the release can be understood and upgraded safely:
 - [ ] Verify that broad lower-bound dependencies in `pyproject.toml` are correctly documented as alpha-compatible (and that production-grade strict environment verification is managed via separate clean virtualenvs and the CI matrix).
 - [ ] Document every state-shape change affecting `.devflow/config.yaml`, `task.yaml`, `verification.json`, `merge-readiness.json`, task event records, or workspace layout.
 - [ ] For each state-shape change, provide one of: backward compatibility, a migration path, or a clear refusal/upgrade message.
-- [ ] Confirm `README.md` describes the stable runtime surface without implying provider-backed execution, autonomous routing, web dashboard, database state, or git worktree orchestration are currently supported.
+- [ ] Confirm `README.md` describes the stable runtime surface without implying provider-backed execution, autonomous routing, database state, git worktree orchestration as the default, or any browser UI other than the approved local operating layer are currently supported.
+- [ ] Confirm browser UI docs identify `devflow operating-layer serve` as canonical, warn that `public/` is not the active product UI, and include a cache-busted smoke check for `Dev-Flow Operating Layer` with `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`.
 
 ---
 

@@ -105,7 +105,7 @@ Goal: improve visibility while preserving filesystem-backed control-room state.
 Acceptance:
 
 - text-only terminal dashboard remains active and read-only
-- browser UI, web dashboard, or frontend tooling requires a future contract change
+- browser UI work goes through the approved local operating layer (`devflow operating-layer serve`); any separate web dashboard or frontend tooling still requires a future contract change
 
 ## Phase 4: Workspace Promotion
 

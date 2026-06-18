@@ -24,6 +24,7 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 - Project code map: `src/devflow/control_room/code_map.py`
 - Freshness loop: `src/devflow/control_room/freshness.py`
 - Operating layer snapshot: `src/devflow/control_room/operating_layer.py`
+- Operating layer browser UI: `src/devflow/control_room/operating_layer_html.py`, `src/devflow/control_room/operating_layer_styles.py`, `src/devflow/control_room/operating_layer_script.py`, and `src/devflow/control_room/operating_layer_server.py`
 - Release readiness gate: `src/devflow/control_room/release_readiness.py`
 
 ## What to read first (worker orientation)
@@ -40,8 +41,9 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 - `src/devflow/_legacy/` - quarantined legacy code; do not modify or treat as authority.
 - Archived workflow docs or stale plans that conflict with the control-room MVP.
 - `.devflow/workspaces/`, `.devflow/worktrees/`, `.devflow/dogfood/`, and `.devflow/release-readiness/` unless the current task explicitly needs local evidence.
+- `public/` for current UI work. It is older static marketing/simulator content, not the active operating-layer browser surface.
 - Task-fit/context routing commands are evidence-only. They write derived fit, scout, route, and scorecard artifacts; autonomous route selection and provider-backed execution remain excluded.
-- Provider-backed adapters, autonomous route selection, memory, or dashboard expansion unless an approved active spec promotes that slice.
+- Provider-backed adapters, autonomous route selection, memory, or unapproved dashboard expansion unless an approved active spec promotes that slice.
 
 ## Owners / contacts
 
@@ -49,4 +51,4 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 
 ## Last reviewed
 
-2026-06-13
+2026-06-17

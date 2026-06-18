@@ -41,4 +41,4 @@ This document records the successful completion of the **CLI Verification Visibi
   - The suggested next action for verified tasks explicitly guides: `Task is verified. Review the result before any human-controlled promotion.`
 * **No Future Out-Of-Scope Architecture**:
   - No database dependencies or local model routers are added.
-  - External adapters (Codex, Aider, Hermes), browser/web dashboards, automatic merge behavior, and PR automation remain completely out of scope.
+  - External adapters (Codex, Aider, Hermes), browser/web dashboards beyond the approved local operating layer, automatic merge behavior, and PR automation remain completely out of scope.

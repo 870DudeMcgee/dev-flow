@@ -36,7 +36,7 @@ Patch dry-run preview must not:
 - call provider APIs
 - alter registries
 - add a database
-- add a web dashboard
+- add a web dashboard beyond the approved local operating layer
 - add a TUI dashboard
 - perform background automation
 
@@ -612,7 +612,7 @@ Boundary: Idea Foundry promotion is decision evidence only and never creates tas
 
 The following remain deferred and are not part of the current stable runtime:
 
-- web dashboard
+- web dashboard beyond the approved local operating layer
 - TUI dashboard
 - database
 - vector search
