@@ -33,6 +33,7 @@ Use related docs only when needed:
 - Product direction: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)
 - Runtime command/filesystem contract: [docs/mvp-contract.md](mvp-contract.md)
 - Operating-layer UI architecture: [docs/architecture/local-operating-layer-ui.md](architecture/local-operating-layer-ui.md)
+- Current operating-layer UI deepening backlog: [docs/architecture/operating-layer-ui-deepening-backlog.md](architecture/operating-layer-ui-deepening-backlog.md)
 - Future registry/adapter roadmap: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
 - Future/evidence-only routing roadmap: [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 - Verification reuse: [docs/verification-ledger.md](verification-ledger.md)
