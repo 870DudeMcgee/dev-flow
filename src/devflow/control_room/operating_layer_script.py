@@ -95,6 +95,34 @@ function statusTone(lane) {
   if (lane === 'ready_to_promote') return 'good';
   return 'neutral';
 }
+
+function laneColor(lane) {
+  if (lane === 'failed') return 'red';
+  if (lane === 'blocked') return 'orange';
+  if (lane === 'running') return 'blue';
+  if (lane === 'needs_verification' || lane === 'needs_review') return 'orange';
+  if (lane === 'ready_to_promote') return 'green';
+  if (lane === 'closed') return 'gray';
+  return 'blue';
+}
+
+function laneBadge(lane) {
+  const c = laneColor(lane);
+  const labels = {
+    failed: 'FAILED', blocked: 'BLOCKED', running: 'RUNNING',
+    needs_verification: 'NEEDS VERIFY', needs_review: 'NEEDS REVIEW',
+    ready_to_promote: 'READY', new: 'NEW', idle: 'IDLE', closed: 'CLOSED',
+  };
+  const label = labels[lane] || sentenceCase(lane);
+  return `<span class="lane-badge lane-${c}">${esc(label)}</span>`;
+}
+
+function verificationBadge(status) {
+  const s = String(status || 'not_run').toLowerCase();
+  if (s === 'passed') return '<span class="verify-badge verify-passed">✓ passed</span>';
+  if (s === 'failed') return '<span class="verify-badge verify-failed">✗ failed</span>';
+  return '<span class="verify-badge verify-notrun">— not run</span>';
+}
 function parseCreatedTaskId(stdout) {
   const match = String(stdout || '').match(/Created\\s+(task-\\d+)/);
   return match ? match[1] : null;
@@ -617,6 +645,17 @@ function renderPipeline() {
   });
 }
 
+// Write implementation context to a task workspace via the server
+async function writeTaskImplementationContext(taskId, context) {
+  try {
+    await fetch('/api/task/write-context', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId, context: context }),
+    });
+  } catch(e) { /* non-fatal */ }
+}
+
 function setupPipelineButtons() {
   document.querySelectorAll('[data-brainstorm-stage]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -647,7 +686,21 @@ function setupPipelineButtons() {
               if (actionResult.executed && actionResult.exit_code === 0) {
                 const outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
                 const createdTaskId = parseCreatedTaskId(actionResult.stdout);
-                appendBrainstormMsg('system', 'Task created: ' + outLine + (createdTaskId ? `. Next: start ${createdTaskId} from the Next Task launchpad.` : ''), {});
+
+                // Write implementation context to task workspace
+                if (createdTaskId && payload.implementation_context) {
+                  try {
+                    await writeTaskImplementationContext(createdTaskId, payload.implementation_context);
+                  } catch(e3) {
+                    // Non-fatal — task is still created
+                    console.warn('Failed to write implementation context:', e3);
+                  }
+                }
+
+                const nextMsg = createdTaskId
+                  ? `Task created: ${outLine}. Implementation context written. Next: scroll down to the Next Task launchpad and click "Start" to begin work.`
+                  : `Task created: ${outLine}`;
+                appendBrainstormMsg('system', nextMsg, {});
                 await loadSnapshot(selectedProjectId);
                 if (createdTaskId) selectTaskInLaunchpad(createdTaskId, { focusShell: true });
               } else {
@@ -679,6 +732,58 @@ function setupPipelineButtons() {
       } catch(e) {
         removeThinkingIndicator();
         appendBrainstormMsg('system', 'Escalation failed: ' + (e.message || 'unknown error'), { kind: 'provider_error' });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+  });
+
+  // Quality-gate buttons
+  document.querySelectorAll('[data-bj-quality-gate]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const stage = btn.dataset.bjQualityGate;
+      if (!stage) return;
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = 'QC running...';
+
+      appendBrainstormMsg('system', `Running builder-judge quality gate for ${stage}...`, {});
+      appendBrainstormMsg('assistant', '', { thinking: true });
+
+      try {
+        const body = {
+          session_id: brainstormSessionId,
+          stage: stage,
+          builder_profile_id: selectedProfileId || undefined,
+        };
+        const resp = await fetch('/api/builder-judge/quality-gate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        removeThinkingIndicator();
+
+        if (!resp.ok) {
+          appendBrainstormMsg('system', `QC gate failed: ${data.error || 'unknown'}`, { kind: 'provider_error' });
+          return;
+        }
+
+        // Show the quality-gate result in the builder-judge panel
+        renderBJRunResult(data);
+        loadBuilderJudgeLoops();
+
+        if (data.status === 'passed') {
+          appendBrainstormMsg('system', `QC gate PASSED for ${stage} (score: ${data.final_score}/100). Safe to escalate.`, {});
+        } else if (data.status === 'escalated') {
+          appendBrainstormMsg('system', `QC gate ESCALATED for ${stage} (last score: ${data.final_score || '—'}/100). Review the draft before escalating.`, {});
+        } else {
+          appendBrainstormMsg('system', `QC gate: ${data.status} (score: ${data.final_score || '—'}/100).`, {});
+        }
+      } catch(e) {
+        removeThinkingIndicator();
+        appendBrainstormMsg('system', `QC gate error: ${e.message}`, { kind: 'provider_error' });
       } finally {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -830,15 +935,21 @@ function selectTaskInLaunchpad(taskId, opts) {
 function renderTaskMetadata(task) {
   const lane = task.lane || 'new';
   const local = task.local_worker_lane || {};
+  const worker = taskWorkerLabel(task);
+  const workerShort = worker.length > 30 ? worker.slice(0, 28) + '…' : worker;
+  const runtime = `${local.adapter || task.worker || '—'}${local.permission_mode ? ' · ' + local.permission_mode : ''}`;
   const items = [
-    ['Status', sentenceCase(task.display_status || lane)],
-    ['Worker / model', taskWorkerLabel(task)],
-    ['Verification', task.verification_status || 'not_run'],
-    ['Last update', taskFreshness(task) || 'unknown'],
-    ['Workspace', task.workspace || '—'],
-    ['Runtime', `${local.adapter || task.worker || '—'}${local.permission_mode ? ' · ' + local.permission_mode : ''}`],
+    { label: 'Status', html: laneBadge(lane) },
+    { label: 'Verification', html: verificationBadge(task.verification_status) },
+    { label: 'Worker', value: workerShort, title: worker },
+    { label: 'Updated', value: taskFreshness(task) || 'unknown' },
+    { label: 'Workspace', value: task.workspace || '—' },
+    { label: 'Runtime', value: runtime },
   ];
-  return items.map(([label, value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
+  return items.map(item => {
+    const content = item.html || `<strong title="${esc(item.title || '')}">${esc(item.value || '—')}</strong>`;
+    return `<div class="nt-meta-card"><span>${esc(item.label)}</span>${content}</div>`;
+  }).join('');
 }
 
 function renderLatestEvidence(task) {
@@ -848,13 +959,17 @@ function renderLatestEvidence(task) {
   if (!paths.length && !preview) {
     return '<div class="next-task-evidence-empty">No task evidence yet.</div>';
   }
-  const firstPath = paths[0] || task.result_path || task.log_path || task.verification_log_path || '';
-  return `<div class="next-task-evidence-head">
-      <span class="label">Latest Evidence</span>
-      ${firstPath ? `<code>${esc(firstPath)}</code>` : ''}
-    </div>
-    ${preview ? `<pre>${esc(preview)}</pre>` : ''}
-    ${paths.length > 1 ? `<div class="next-task-evidence-paths">${paths.slice(1, 4).map(path => `<code>${esc(path)}</code>`).join('')}</div>` : ''}`;
+  const fileIcon = (path) => {
+    if (path.endsWith('.patch')) return '📎';
+    if (path.endsWith('.json')) return '⚙';
+    if (path.endsWith('.md')) return '📄';
+    if (path.endsWith('.jsonl')) return '📋';
+    return 'ƒ';
+  };
+  const pathsHtml = paths.length
+    ? `<div class="nt-evidence-list">${paths.slice(0, 4).map(p => `<div class="nt-evidence-item"><span class="nt-evidence-icon">${fileIcon(p)}</span><code>${esc(p)}</code></div>`).join('')}</div>`
+    : '';
+  return `${pathsHtml}${preview ? `<pre class="nt-evidence-preview">${esc(preview)}</pre>` : ''}`;
 }
 
 function renderPromotionControls(task) {
@@ -871,33 +986,160 @@ function renderPromotionControls(task) {
   </div>`;
 }
 
+function renderWorkerOptions(task) {
+  // Build worker buttons from available agents
+  const workers = (availableAgents || []).filter(a =>
+    a.id && (
+      a.id.includes('implementer') ||
+      a.id.includes('patch-proposer') ||
+      a.id.includes('coder') ||
+      a.id.includes('worker')
+    )
+  );
+
+  if (!workers.length) {
+    return `<div class="nt-no-workers">
+      <p>No AI workers registered. You can still run a shell command below.</p>
+      <p class="nt-hint">To enable AI workers, run <code>ollama pull qwopus:latest</code> and restart.</p>
+    </div>`;
+  }
+
+  return workers.map(w => {
+    const isLocal = w.is_local;
+    const icon = isLocal ? '🖥️' : '☁️';
+    const label = w.label || w.id;
+    const cmd = `devflow task run ${task.id} --worker ${w.id}`;
+    return `<button class="btn btn-sm btn-primary nt-worker-btn" type="button" data-command="${esc(cmd)}" title="${esc(w.purpose || '')}">
+      ${icon} ${esc(label)}
+    </button>`;
+  }).join('');
+}
+
+function renderQualityLoopAction(task) {
+  // Show the quality-loop button when a worker has produced output
+  const detail = task.detail || {};
+  const evidencePaths = detail.evidence_paths || [];
+  const hasWorkerOutput = evidencePaths.some(p =>
+    p.includes('proposal.patch') || p.includes('result.md') || p.includes('raw_output.md')
+  );
+  if (!hasWorkerOutput) return '';
+
+  const dod = task.definition_of_done || '';
+  const taskId = task.id;
+  const taskTitle = task.title || '';
+
+  // Build the quality loop command — feeds worker output into builder-judge loop
+  const dodText = dod || `Implement: ${taskTitle}`;
+  const builderModel = 'deepseek-v4-flash-free-brainstormer';
+  const judgeModel = 'glm-5-2-brainstormer';
+
+  return `<div class="task-command-box nt-quality-loop-action">
+    <label>🔄 Quality loop</label>
+    <p>Worker produced output. Run the builder-judge loop to grade and iterate until it meets the bar.</p>
+    <div class="nt-quality-controls">
+      <select id="nt-ql-builder-${esc(taskId)}">
+        <option value="${esc(builderModel)}">Builder: DeepSeek V4 Flash Free</option>
+      </select>
+      <select id="nt-ql-judge-${esc(taskId)}">
+        <option value="${esc(judgeModel)}">Judge: GLM 5.2</option>
+      </select>
+      <input type="number" id="nt-ql-threshold-${esc(taskId)}" value="85" min="50" max="100" style="width:60px;" title="Pass threshold">
+      <input type="number" id="nt-ql-rounds-${esc(taskId)}" value="5" min="1" max="20" style="width:50px;" title="Max rounds">
+    </div>
+    <button class="btn btn-sm btn-primary" type="button" data-task-quality-loop="${esc(taskId)}" data-task-dod="${esc(dodText)}" data-task-title="${esc(taskTitle)}">
+      🔄 Run quality loop
+    </button>
+  </div>`;
+}
+
+function renderReconcileAction(task) {
+  // Show reconciliation options for failed/blocked tasks
+  const lane = task.lane || 'new';
+  if (lane !== 'failed' && lane !== 'blocked') return '';
+
+  const taskId = task.id;
+  const workers = (availableAgents || []).filter(a =>
+    a.id && (
+      a.id.includes('implementer') ||
+      a.id.includes('patch-proposer') ||
+      a.id.includes('coder') ||
+      a.id.includes('worker')
+    )
+  );
+
+  const workerButtons = workers.map(w => {
+    const icon = w.is_local ? '🖥️' : '☁️';
+    const label = w.label || w.id;
+    const cmd = `devflow task run ${taskId} --worker ${w.id}`;
+    return `<button class="btn btn-sm btn-primary nt-worker-btn" type="button" data-command="${esc(cmd)}" title="${esc(w.purpose || '')}">
+      ${icon} Retry with ${esc(label)}
+    </button>`;
+  }).join('');
+
+  const closeCmd = `devflow task close ${taskId} --outcome abandoned --reason "Worker failed, abandoning task"`;
+
+  return `<div class="task-command-box nt-reconcile-action">
+    <label>🔧 Reconcile failed task</label>
+    <p>This task failed. Retry with a worker, or close it to clean up.</p>
+    <div class="nt-worker-options">
+      ${workerButtons || '<p class="nt-hint">No workers available.</p>'}
+    </div>
+    <button class="btn btn-sm btn-secondary" type="button" data-command="${esc(closeCmd)}">
+      🗑 Close as abandoned
+    </button>
+  </div>`;
+}
+
 function renderLaunchpadActions(task) {
   const lane = task.lane || 'new';
   const command = primaryTaskCommand(task);
-  const shellPanel = commandNeedsShellInput(command) && lane !== 'closed'
-    ? `<div class="task-command-box launchpad-command-box" id="next-task-shell-panel">
-        <label>Shell command to run in ${esc(task.id)} workspace</label>
-        <div class="inline-command-row">
-          <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
-          <button class="btn btn-primary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">Start</button>
-        </div>
-        <code>${esc(command)}</code>
+  const detail = task.detail || {};
+  const evidencePaths = detail.evidence_paths || [];
+  const hasImplContext = evidencePaths.some(p => p.includes('implementation-context.md'));
+
+  // If the task has implementation context, show a prominent info panel
+  const implContextPanel = hasImplContext && lane !== 'closed'
+    ? `<div class="task-command-box nt-primary-action nt-impl-action">
+        <label>📋 Implementation plan available</label>
+        <p>This task has a spec/plan from the brainstorm pipeline. Pick a worker below to start implementing.</p>
       </div>`
     : '';
+
+  // Worker selection panel — this is the primary action for new tasks
+  const workerPanel = lane === 'new' || (commandNeedsShellInput(command) && lane !== 'closed')
+    ? `<div class="task-command-box nt-primary-action" id="next-task-worker-panel">
+        <label>Start work on ${esc(task.id)}</label>
+        <div class="nt-worker-options">
+          ${renderWorkerOptions(task)}
+        </div>
+        <div class="nt-shell-fallback">
+          <details>
+            <summary>Or run a raw shell command</summary>
+            <div class="inline-command-row">
+              <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
+              <button class="btn btn-secondary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">▶ Run shell</button>
+            </div>
+            <code>${esc(command || `devflow task run ${task.id} --worker shell -- <command>`)}</code>
+          </details>
+        </div>
+      </div>`
+    : '';
+
   const verifyPanel = (lane === 'needs_verification' || commandNeedsVerificationInput(command))
-    ? `<div class="task-command-box launchpad-command-box" id="next-task-verify-panel">
-        <label>Verification shell command</label>
+    ? `<div class="task-command-box nt-primary-action nt-verify-action" id="next-task-verify-panel">
+        <label>Verify task</label>
         <div class="inline-command-row">
           <input type="text" data-verify-command placeholder="git diff --check && pytest -q">
-          <button class="btn btn-primary btn-sm" type="button" data-task-verify="${esc(task.id)}">Verify</button>
+          <button class="btn btn-primary btn-sm" type="button" data-task-verify="${esc(task.id)}">✓ Verify</button>
         </div>
       </div>`
     : '';
   const promotionPanel = renderPromotionControls(task);
+  const qualityLoopPanel = renderQualityLoopAction(task);
+  const reconcilePanel = renderReconcileAction(task);
   const closePanel = lane !== 'closed'
-    ? `<div class="task-command-box launchpad-command-box compact">
-        <label>Close task</label>
-        <div class="inline-command-row">
+    ? `<details class="nt-close-details"><summary>Close task</summary>
+        <div class="nt-close-inner">
           <select data-close-outcome>
             <option value="duplicate">duplicate</option>
             <option value="abandoned">abandoned</option>
@@ -905,16 +1147,16 @@ function renderLaunchpadActions(task) {
             <option value="evidence-only">evidence-only</option>
           </select>
           <input type="text" data-close-reason placeholder="Reason required">
-          <button class="btn btn-secondary btn-sm" type="button" data-task-close="${esc(task.id)}">Close</button>
+          <button class="btn btn-sm btn-secondary" type="button" data-task-close="${esc(task.id)}">Close</button>
         </div>
-      </div>`
+      </details>`
     : `<div class="task-action-row"><button class="btn btn-sm btn-secondary" type="button" data-command="${esc(`devflow task cleanup ${task.id} --preview`)}">Cleanup preview</button></div>`;
-  const utilityButtons = `<div class="task-action-row launchpad-utility-actions">
-    <button class="btn btn-sm btn-secondary" type="button" data-inspect-task="${esc(task.id)}">Inspect</button>
+  const utilityButtons = `<div class="nt-utility-row">
+    <button class="btn btn-sm btn-ghost" type="button" data-inspect-task="${esc(task.id)}">🔍 Inspect</button>
     ${taskCommandButtons(task)}
   </div>`;
-  return shellPanel || verifyPanel || promotionPanel
-    ? `${shellPanel}${verifyPanel}${promotionPanel}${utilityButtons}${closePanel}`
+  return workerPanel || verifyPanel || promotionPanel || implContextPanel || qualityLoopPanel || reconcilePanel
+    ? `${implContextPanel}${workerPanel}${reconcilePanel}${qualityLoopPanel}${verifyPanel}${promotionPanel}${utilityButtons}${closePanel}`
     : `${utilityButtons}${closePanel}`;
 }
 
@@ -937,7 +1179,7 @@ function renderOrchestrator(snap) {
   const cmd = $('orchestrator-command');
 
   if (!selected) {
-    if (title) title.textContent = 'No task selected';
+    if (title) title.innerHTML = 'No task selected';
     if (directive) directive.textContent = 'Create a task from Brainstorm or the CLI to start work.';
     if (meta) meta.innerHTML = '';
     if (done) done.textContent = 'No definition captured yet.';
@@ -948,9 +1190,9 @@ function renderOrchestrator(snap) {
   } else {
     const lane = selected.lane || 'new';
     const command = primaryTaskCommand(selected);
-    if (title) title.textContent = `${selected.id} · ${selected.title || 'Untitled task'}`;
+    if (title) title.innerHTML = `<span class="nt-task-id">${esc(selected.id)}</span><span class="nt-task-title">${esc(selected.title || 'Untitled task')}</span>`;
     if (directive) {
-      directive.textContent = `${sentenceCase(selected.display_status || lane)} · ${taskWorkerLabel(selected)} · ${selected.next_action?.reason || 'Ready for the next operator action.'}`;
+      directive.innerHTML = `${laneBadge(lane)} <span class="nt-worker-info">${esc(taskWorkerLabel(selected))}</span>${selected.next_action?.reason ? ` <span class="nt-reason">· ${esc(selected.next_action.reason)}</span>` : ''}`;
     }
     if (meta) meta.innerHTML = renderTaskMetadata(selected);
     if (done) done.textContent = selected.definition_of_done || 'No definition captured yet.';
@@ -961,10 +1203,12 @@ function renderOrchestrator(snap) {
       const switchTasks = activeTasks.length ? activeTasks : tasks.slice(0, 6);
       switcher.innerHTML = switchTasks.map(t => {
         const isSelected = t.id === selected.id;
-        return `<button type="button" class="task-switcher-row${isSelected ? ' selected' : ''}" data-select-task="${esc(t.id)}">
-          <span class="worker-light ${statusTone(t.lane || 'new')}"></span>
+        const tLane = t.lane || 'new';
+        const c = laneColor(tLane);
+        return `<button type="button" class="task-switcher-row${isSelected ? ' selected' : ''} ts-lane-${c}" data-select-task="${esc(t.id)}">
+          <span class="worker-light ${statusTone(tLane)}"></span>
           <span><strong>${esc(t.id)}</strong>${esc(t.title || 'Untitled task')}</span>
-          <em>${esc(sentenceCase(t.display_status || t.lane || 'new'))}</em>
+          <em>${esc(sentenceCase(t.display_status || tLane))}</em>
         </button>`;
       }).join('');
     }
@@ -1331,6 +1575,78 @@ function setupTaskSurfaceActions() {
     }
 
     const commandButton = e.target.closest('[data-command]');
+
+    // Quality loop button — feeds worker output into builder-judge loop
+    const qlButton = e.target.closest('[data-task-quality-loop]');
+    if (qlButton) {
+      e.preventDefault();
+      const taskId = qlButton.dataset.taskQualityLoop;
+      const dod = qlButton.dataset.taskDod || '';
+      const taskTitle = qlButton.dataset.taskTitle || '';
+      const builderModel = document.getElementById(`nt-ql-builder-${taskId}`)?.value || 'deepseek-v4-flash-free-brainstormer';
+      const judgeModel = document.getElementById(`nt-ql-judge-${taskId}`)?.value || 'glm-5-2-brainstormer';
+      const threshold = parseInt(document.getElementById(`nt-ql-threshold-${taskId}`)?.value || '85', 10);
+      const maxRounds = parseInt(document.getElementById(`nt-ql-rounds-${taskId}`)?.value || '5', 10);
+
+      qlButton.disabled = true;
+      qlButton.textContent = '⏳ Running quality loop...';
+
+      try {
+        // Fetch the worker's output to use as starting point
+        const task = snapshot?.tasks?.find(t => t.id === taskId);
+        const detail = task?.detail || {};
+        const evidencePaths = detail.evidence_paths || [];
+        const resultPath = evidencePaths.find(p => p.includes('result.md')) ||
+                           evidencePaths.find(p => p.includes('raw_output.md')) ||
+                           '';
+
+        // Read the worker output via the browse API
+        let startingPoint = '';
+        if (resultPath) {
+          try {
+            const resp = await fetch(`/api/browse?path=${encodeURIComponent(resultPath)}`);
+            const data = await resp.json();
+            if (data.content) startingPoint = data.content;
+          } catch(e) { /* non-fatal */ }
+        }
+
+        // Start the builder-judge loop
+        const body = {
+          definition_of_done: dod || `Implement: ${taskTitle}`,
+          starting_point: startingPoint || undefined,
+          builder_profile_id: builderModel,
+          judge_profile_id: judgeModel,
+          pass_threshold: threshold,
+          max_rounds: maxRounds,
+          escalate_on_max_rounds: true,
+          async: true,
+        };
+        const resp = await fetch('/api/builder-judge/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          renderActionResult({ executed: false, exit_code: null, error: data.error || 'Quality loop failed' }, `quality loop for ${taskId}`);
+          return;
+        }
+
+        // Poll for results
+        await pollBuilderJudgeLoop(data.loop_id);
+
+        // Refresh the task snapshot
+        await loadSnapshot(selectedProjectId);
+      } catch(err) {
+        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Quality loop failed' }, `quality loop for ${taskId}`);
+      } finally {
+        qlButton.disabled = false;
+        qlButton.textContent = '🔄 Run quality loop';
+      }
+      return;
+    }
+
     if (commandButton) {
       e.preventDefault();
       const command = commandButton.dataset.command || '';
@@ -1386,6 +1702,276 @@ function render() {
 }
 
 // === INIT ===
+// === BUILDER-JUDGE LOOP ===
+function setupBuilderJudge() {
+  populateBJModelSelectors();
+  loadBuilderJudgeLoops();
+
+  const runBtn = $('bj-run-btn');
+  if (runBtn) runBtn.addEventListener('click', runBuilderJudgeLoop);
+
+  const refreshBtn = $('bj-refresh-list');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadBuilderJudgeLoops);
+}
+
+function populateBJModelSelectors() {
+  const builderSel = $('bj-builder-model');
+  const judgeSel = $('bj-judge-model');
+  if (!builderSel || !judgeSel) return;
+
+  // Use availableAgents (populated from /api/agents)
+  const agents = availableAgents || [];
+  const advisoryAgents = agents.filter(a =>
+    a.adapter === 'openai_compatible' || a.adapter === 'ollama_chat'
+  );
+
+  const optionsHtml = advisoryAgents.length
+    ? advisoryAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
+    : '<option value="deepseek-v4-flash-free-brainstormer">DeepSeek V4 Flash Free</option>';
+
+  builderSel.innerHTML = optionsHtml;
+  judgeSel.innerHTML = advisoryAgents.length
+    ? advisoryAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
+    : '<option value="glm-5-2-brainstormer">GLM 5.2</option>';
+
+  // Default selections
+  builderSel.value = 'deepseek-v4-flash-free-brainstormer';
+  judgeSel.value = 'glm-5-2-brainstormer';
+}
+
+function setBJStatus(text, cls) {
+  const badge = $('bj-status-badge');
+  if (!badge) return;
+  badge.textContent = text;
+  badge.className = 'status-badge ' + (cls || 'online');
+}
+
+async function runBuilderJudgeLoop() {
+  const dod = ($('bj-definition-of-done')?.value || '').trim();
+  if (!dod) {
+    setBJStatus('Error', 'warn');
+    alert('Definition of Done is required — this is the bar.');
+    return;
+  }
+
+  const startingPoint = ($('bj-starting-point')?.value || '').trim();
+  const builderModel = $('bj-builder-model')?.value || '';
+  const judgeModel = $('bj-judge-model')?.value || '';
+  const passThreshold = parseInt($('bj-pass-threshold')?.value || '85', 10);
+  const maxRounds = parseInt($('bj-max-rounds')?.value || '5', 10);
+  const escalate = $('bj-escalate')?.checked ?? true;
+
+  if (builderModel === judgeModel) {
+    setBJStatus('Error', 'warn');
+    alert('Builder and Judge must be different models. The adversarial gap is the whole point.');
+    return;
+  }
+
+  const runBtn = $('bj-run-btn');
+  if (runBtn) { runBtn.disabled = true; runBtn.textContent = '⏳ Running...'; }
+  setBJStatus('Running...', 'warn');
+
+  // Show progress area
+  const progressArea = $('bj-progress-area');
+  const resultArea = $('bj-result-area');
+  const roundsList = $('bj-rounds-list');
+  if (progressArea) progressArea.hidden = false;
+  if (resultArea) resultArea.hidden = true;
+  if (roundsList) roundsList.innerHTML = '<div class="bj-running-msg">Builder writing draft, judge grading... walk away, come back to the result.</div>';
+
+  const body = {
+    definition_of_done: dod,
+    starting_point: startingPoint || undefined,
+    builder_profile_id: builderModel,
+    judge_profile_id: judgeModel,
+    pass_threshold: passThreshold,
+    max_rounds: maxRounds,
+    escalate_on_max_rounds: escalate,
+    async: true,
+  };
+
+  try {
+    const resp = await fetch('/api/builder-judge/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setBJStatus('Failed', 'warn');
+      if (roundsList) roundsList.innerHTML = `<div class="bj-error-msg">${esc(data.error || 'Unknown error')}</div>`;
+      return;
+    }
+
+    // Poll for updates
+    const loopId = data.loop_id;
+    await pollBuilderJudgeLoop(loopId);
+  } catch(e) {
+    setBJStatus('Error', 'warn');
+    if (roundsList) roundsList.innerHTML = `<div class="bj-error-msg">Request failed: ${esc(e.message)}</div>`;
+  } finally {
+    if (runBtn) { runBtn.disabled = false; runBtn.textContent = '▶ Run Loop'; }
+  }
+}
+
+async function pollBuilderJudgeLoop(loopId) {
+  const pollInterval = 3000; // 3 seconds
+  const maxPollTime = 600000; // 10 minutes max
+  const startTime = Date.now();
+
+  while (true) {
+    try {
+      const resp = await fetch(`/api/builder-judge/status?loop_id=${encodeURIComponent(loopId)}`);
+      const data = await resp.json();
+
+      if (data.status && data.status !== 'running') {
+        // Loop finished
+        renderBJRunResult(data);
+        loadBuilderJudgeLoops();
+        return;
+      }
+
+      // Still running — render partial progress
+      if (data.rounds && data.rounds.length > 0) {
+        renderBJRunResult(data);
+      }
+    } catch(e) { /* ignore poll errors */ }
+
+    if (Date.now() - startTime > maxPollTime) {
+      setBJStatus('Timeout', 'warn');
+      const roundsList = $('bj-rounds-list');
+      if (roundsList) roundsList.innerHTML += '<div class="bj-error-msg">Polling timed out after 10 minutes. Check status manually.</div>';
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+}
+
+function renderBJRunResult(run) {
+  const progressArea = $('bj-progress-area');
+  const resultArea = $('bj-result-area');
+  const roundsList = $('bj-rounds-list');
+  const roundSummary = $('bj-round-summary');
+
+  // Render rounds
+  const rounds = run.rounds || [];
+  if (roundSummary) {
+    const scores = rounds.filter(r => r.score != null).map(r => r.score);
+    const scoreLine = scores.length ? scores.join(' → ') : '—';
+    roundSummary.textContent = `${rounds.length} round(s) · scores: ${scoreLine}`;
+  }
+
+  if (roundsList) {
+    roundsList.innerHTML = rounds.map(r => {
+      const scoreClass = r.score == null ? 'bj-score-unknown' :
+        r.score >= (run.config?.pass_threshold || 85) ? 'bj-score-pass' :
+        r.score >= 70 ? 'bj-score-warn' : 'bj-score-fail';
+      const scoreText = r.score != null ? `${r.score}/100` : 'N/A';
+      const issuesHtml = (r.issues || []).length
+        ? `<ul class="bj-issues">${r.issues.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`
+        : '';
+      const passBadge = r.passed ? '<span class="bj-passed-badge">PASSED</span>' : '';
+      const errorHtml = r.error ? `<div class="bj-round-error">${esc(r.error)}</div>` : '';
+
+      return `
+        <div class="bj-round-card ${scoreClass}">
+          <div class="bj-round-header">
+            <span class="bj-round-num">Round ${r.round_number}</span>
+            <span class="bj-round-score">${scoreText}</span>
+            ${passBadge}
+          </div>
+          <div class="bj-round-models">
+            <span>Builder: ${esc(r.builder_model || r.builder_profile_id)}</span>
+            <span>Judge: ${esc(r.judge_model || r.judge_profile_id)}</span>
+          </div>
+          ${r.judge_feedback ? `<div class="bj-judge-feedback">${esc(r.judge_feedback)}</div>` : ''}
+          ${issuesHtml}
+          ${errorHtml}
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Render result
+  const statusMap = {
+    passed: { label: 'PASSED', cls: 'online' },
+    max_rounds: { label: 'MAX ROUNDS', cls: 'warn' },
+    escalated: { label: 'ESCALATED', cls: 'warn' },
+    failed: { label: 'FAILED', cls: 'warn' },
+    running: { label: 'RUNNING', cls: 'warn' },
+  };
+  const statusInfo = statusMap[run.status] || { label: run.status, cls: 'warn' };
+  setBJStatus(statusInfo.label, statusInfo.cls);
+
+  if (run.final_draft || run.status === 'passed' || run.status === 'max_rounds' || run.status === 'escalated') {
+    if (resultArea) resultArea.hidden = false;
+    const scoreBadge = $('bj-final-score');
+    if (scoreBadge) {
+      scoreBadge.textContent = run.final_score != null ? `${run.final_score}/100` : '—';
+      scoreBadge.className = 'bj-score-badge ' + (run.status === 'passed' ? 'bj-score-pass' : 'bj-score-warn');
+    }
+    const draftEl = $('bj-final-draft');
+    if (draftEl && run.final_draft) {
+      draftEl.innerHTML = `<pre class="bj-draft-pre">${esc(run.final_draft)}</pre>`;
+    }
+    const stopEl = $('bj-stop-reason');
+    if (stopEl) stopEl.textContent = run.stop_reason || '';
+    const nextEl = $('bj-next-action');
+    if (nextEl) nextEl.textContent = run.next_safe_action || '';
+  }
+}
+
+async function loadBuilderJudgeLoops() {
+  const container = $('bj-loops-list');
+  if (!container) return;
+  try {
+    const resp = await fetch('/api/builder-judge/list');
+    const data = await resp.json();
+    const loops = data.loops || [];
+    if (!loops.length) {
+      container.innerHTML = '<div class="bj-empty-state">No loops yet. Set the bar and run one.</div>';
+      return;
+    }
+    container.innerHTML = loops.slice(0, 10).map(loop => {
+      const statusCls = loop.status === 'passed' ? 'bj-status-pass' :
+        loop.status === 'escalated' ? 'bj-status-escalate' :
+        loop.status === 'failed' ? 'bj-status-fail' : 'bj-status-other';
+      const score = loop.final_score != null ? `${loop.final_score}/100` : '—';
+      const dodPreview = (loop.definition_of_done || '').substring(0, 80);
+      return `
+        <div class="bj-loop-item" data-bj-loop-id="${esc(loop.loop_id)}">
+          <div class="bj-loop-item-header">
+            <span class="bj-loop-status ${statusCls}">${esc(loop.status)}</span>
+            <span class="bj-loop-score">${score}</span>
+            <span class="bj-loop-rounds">${loop.rounds_completed} round(s)</span>
+          </div>
+          <div class="bj-loop-dod">${esc(dodPreview)}${dodPreview.length >= 80 ? '...' : ''}</div>
+          <div class="bj-loop-models">
+            <span>B: ${esc(loop.builder_profile_id)}</span>
+            <span>J: ${esc(loop.judge_profile_id)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Click to view full run
+    container.querySelectorAll('[data-bj-loop-id]').forEach(el => {
+      el.addEventListener('click', async () => {
+        const loopId = el.dataset.bjLoopId;
+        try {
+          const resp = await fetch(`/api/builder-judge/status?loop_id=${encodeURIComponent(loopId)}`);
+          const data = await resp.json();
+          if (resp.ok) renderBJRunResult(data);
+        } catch(e) { /* ignore */ }
+      });
+    });
+  } catch(e) {
+    container.innerHTML = '<div class="bj-empty-state">Failed to load loops.</div>';
+  }
+}
+
 function init() {
   setupRepoSelector();
   setupModelSelector();
@@ -1394,6 +1980,7 @@ function init() {
   setupPipelineButtons();
   setupFilter();
   setupTaskSurfaceActions();
+  setupBuilderJudge();
 
   // Load persisted brainstorm session
   loadBrainstormTranscript(brainstormSessionId);

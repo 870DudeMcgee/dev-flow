@@ -49,7 +49,7 @@ def _useful_context_tokens_for_agent(agent: AgentDefinition) -> int:
     if agent.reliable_context_tokens is not None:
         return agent.reliable_context_tokens
     ceilings = {
-        "tiny_local": 8192,
+        "tiny_local": 32768,
         "fast_local": 16384,
         "local": 32768,
         "strong_local": 48000,

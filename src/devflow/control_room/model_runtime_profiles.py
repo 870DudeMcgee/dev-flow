@@ -114,7 +114,7 @@ def suggest_reliable_context_adjustment(
     if profile.highest_successful_context > 0:
         safe_ceiling = int(profile.highest_successful_context * 1.1)  # 10% headroom
         if profile.current_reliable_context_tokens and safe_ceiling < profile.current_reliable_context_tokens:
-            return max(safe_ceiling, 8192)
+            return max(safe_ceiling, 32768)
         if profile.current_reliable_context_tokens is None and safe_ceiling < int(advertised_context * 0.9):
             return safe_ceiling
 
@@ -122,7 +122,7 @@ def suggest_reliable_context_adjustment(
     if (profile.lowest_failed_context
             and profile.current_reliable_context_tokens
             and profile.lowest_failed_context < profile.current_reliable_context_tokens):
-        return max(profile.lowest_failed_context - 4096, 8192)
+        return max(profile.lowest_failed_context - 4096, 32768)
 
     return None
 

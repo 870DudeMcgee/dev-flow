@@ -1,0 +1,500 @@
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from devflow.control_room.builder_judge_loop import (
+    DEFAULT_BUILDER_PROFILE,
+    DEFAULT_JUDGE_PROFILE,
+    BuilderJudgeConfig,
+    BuilderJudgeConfigError,
+    get_builder_judge_run,
+    list_builder_judge_loops,
+    run_builder_judge_loop,
+)
+from tests.helpers import setup_temp_git_repo
+
+
+class MockResponse:
+    def __init__(self, body: dict[str, Any]) -> None:
+        self.body = json.dumps(body).encode("utf-8")
+
+    def read(self, *args: Any, **kwargs: Any) -> bytes:
+        return self.body
+
+    def __enter__(self) -> "MockResponse":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        return None
+
+
+def _make_builder_response(text: str = "This is a draft.") -> dict[str, Any]:
+    return {
+        "choices": [{"message": {"content": text}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+    }
+
+
+def _make_judge_response(score: int, issues: list[str], feedback: str = "OK") -> dict[str, Any]:
+    content = json.dumps({"score": score, "issues": issues, "feedback": feedback})
+    return {
+        "choices": [{"message": {"content": content}}],
+        "usage": {"prompt_tokens": 15, "completion_tokens": 25},
+    }
+
+
+def _setup_mock_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    builder_responses: list[dict[str, Any]] | None = None,
+    judge_responses: list[dict[str, Any]] | None = None,
+) -> None:
+    """Mock OpenRouter API calls for builder and judge."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-key")
+    import devflow.control_room.env_loader as env_loader_mod
+    monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
+
+    builder_queue = list(builder_responses or [_make_builder_response()])
+    judge_queue = list(judge_responses or [_make_judge_response(90, [], "Good")])
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        req_body = json.loads(req.data.decode("utf-8"))
+        model = req_body.get("model", "")
+        # Route based on model in the request
+        if "deepseek" in model.lower() or "builder" in model.lower():
+            if builder_queue:
+                return MockResponse(builder_queue.pop(0))
+            return MockResponse(_make_builder_response())
+        else:
+            if judge_queue:
+                return MockResponse(judge_queue.pop(0))
+            return MockResponse(_make_judge_response(90, [], "Good"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+
+def test_config_validation_empty_dod(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    config = BuilderJudgeConfig(definition_of_done="")
+    with pytest.raises(BuilderJudgeConfigError, match="definition_of_done must not be empty"):
+        run_builder_judge_loop(tmp_path, config)
+
+
+def test_config_validation_same_builder_judge(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    config = BuilderJudgeConfig(
+        definition_of_done="Write a cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="deepseek-v4-flash-free-brainstormer",
+    )
+    with pytest.raises(BuilderJudgeConfigError, match="Builder and judge must be different"):
+        run_builder_judge_loop(tmp_path, config)
+
+
+def test_config_validation_threshold_bounds(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    config = BuilderJudgeConfig(
+        definition_of_done="Test",
+        pass_threshold=40,
+    )
+    with pytest.raises(BuilderJudgeConfigError, match="pass_threshold must be between"):
+        run_builder_judge_loop(tmp_path, config)
+
+
+def test_loop_passes_on_first_round(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("A perfect cold email.")],
+        judge_responses=[_make_judge_response(95, [], "Excellent.")],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A 5-line cold email for agency owners with one CTA.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=3,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "passed"
+    assert len(run.rounds) == 1
+    assert run.rounds[0].score == 95
+    assert run.rounds[0].passed is True
+    assert run.final_score == 95
+    assert run.final_draft == "A perfect cold email."
+
+
+def test_loop_iterates_then_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[
+            _make_builder_response("Draft v1 - missing CTA."),
+            _make_builder_response("Draft v2 - now with CTA."),
+        ],
+        judge_responses=[
+            _make_judge_response(60, ["Missing CTA", "Too long"], "Needs work."),
+            _make_judge_response(90, [], "Good now."),
+        ],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A 5-line cold email with one CTA.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=5,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "passed"
+    assert len(run.rounds) == 2
+    assert run.rounds[0].score == 60
+    assert run.rounds[0].passed is False
+    assert "Missing CTA" in run.rounds[0].issues
+    assert run.rounds[1].score == 90
+    assert run.rounds[1].passed is True
+    assert run.final_score == 90
+
+
+def test_loop_max_rounds_escalates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[
+            _make_builder_response("Draft v1."),
+            _make_builder_response("Draft v2."),
+            _make_builder_response("Draft v3."),
+        ],
+        judge_responses=[
+            _make_judge_response(50, ["Issue 1"], "Fail."),
+            _make_judge_response(60, ["Issue 2"], "Better but not enough."),
+            _make_judge_response(70, ["Issue 3"], "Still not passing."),
+        ],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A perfect cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=3,
+        escalate_on_max_rounds=True,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "escalated"
+    assert len(run.rounds) == 3
+    assert run.final_score == 70
+    assert "max_rounds" in run.stop_reason
+
+
+def test_loop_max_rounds_no_escalate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("Draft.")],
+        judge_responses=[_make_judge_response(60, ["Bad"], "Fail.")],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=1,
+        escalate_on_max_rounds=False,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "max_rounds"
+    assert len(run.rounds) == 1
+
+
+def test_evidence_persisted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("Good draft.")],
+        judge_responses=[_make_judge_response(92, [], "Great.")],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=3,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    # run.json should exist
+    run_path = tmp_path / ".devflow" / "builder-judge-loops" / run.loop_id / "run.json"
+    assert run_path.exists()
+    saved = json.loads(run_path.read_text(encoding="utf-8"))
+    assert saved["status"] == "passed"
+    assert saved["loop_id"] == run.loop_id
+
+    # Round evidence should exist
+    rounds_dir = tmp_path / ".devflow" / "builder-judge-loops" / run.loop_id / "rounds"
+    assert rounds_dir.exists()
+    round_file = rounds_dir / "round-01.json"
+    assert round_file.exists()
+    round_data = json.loads(round_file.read_text(encoding="utf-8"))
+    assert round_data["score"] == 92
+
+    # Builder and judge raw responses should exist
+    assert (rounds_dir / "round-01-builder.raw.json").exists()
+    assert (rounds_dir / "round-01-judge.raw.json").exists()
+
+
+def test_list_and_get_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("Draft.")],
+        judge_responses=[_make_judge_response(88, [], "Pass.")],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=3,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    loops = list_builder_judge_loops(tmp_path)
+    assert len(loops) == 1
+    assert loops[0]["loop_id"] == run.loop_id
+    assert loops[0]["status"] == "passed"
+    assert loops[0]["final_score"] == 88
+    assert loops[0]["rounds_completed"] == 1
+
+    full_run = get_builder_judge_run(tmp_path, run.loop_id)
+    assert full_run is not None
+    assert full_run["status"] == "passed"
+    assert len(full_run["rounds"]) == 1
+
+
+def test_judge_response_parsing_fallback() -> None:
+    """Judge response without JSON should still extract a score via regex."""
+    from devflow.control_room.builder_judge_loop import _parse_judge_response
+
+    score, issues, feedback = _parse_judge_response(
+        "The draft is decent. Score: 72. Missing CTA and too verbose."
+    )
+    assert score == 72
+    assert issues == []
+    assert "decent" in feedback
+
+
+def test_starting_point_used(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    captured_requests: list[dict[str, Any]] = []
+
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("Revised email.")],
+        judge_responses=[_make_judge_response(90, [], "Good.")],
+    )
+
+    # Capture the builder request to verify starting point is included
+    original_urlopen = urllib.request.urlopen
+
+    def capturing_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        req_body = json.loads(req.data.decode("utf-8"))
+        captured_requests.append(req_body)
+        return original_urlopen(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", capturing_urlopen)
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        starting_point="Dear Sir, I am writing to...",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=3,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "passed"
+    # The builder request should contain the starting point
+    builder_request = captured_requests[0]
+    user_prompt = builder_request["messages"][1]["content"]
+    assert "Dear Sir" in user_prompt
+
+
+def test_loop_failed_on_builder_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "***")
+    import devflow.control_room.env_loader as env_loader_mod
+    monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
+
+    def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        raise urllib.error.URLError("Connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=3,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "failed"
+    assert len(run.rounds) == 1
+    assert run.rounds[0].error is not None
+    assert "Builder failed" in run.rounds[0].error
+
+
+def test_escalation_creates_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("Draft.")],
+        judge_responses=[_make_judge_response(60, ["Bad"], "Fail.")],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=1,
+        escalate_on_max_rounds=True,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "escalated"
+    # A question record should have been created
+    questions_dir = tmp_path / ".devflow" / "questions"
+    assert questions_dir.exists()
+    question_files = list(questions_dir.glob("Q-bj-*.json"))
+    assert len(question_files) == 1
+    import json as _json
+    question = _json.loads(question_files[0].read_text(encoding="utf-8"))
+    assert question["status"] == "open"
+    assert question["task_id"] == run.loop_id
+    assert "max rounds" in question["question"].lower()
+    assert question["recommended_resume_command"] == f"devflow builder-judge show {run.loop_id}"
+
+
+def test_no_escalation_does_not_create_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("Draft.")],
+        judge_responses=[_make_judge_response(60, ["Bad"], "Fail.")],
+    )
+
+    config = BuilderJudgeConfig(
+        definition_of_done="A cold email.",
+        builder_profile_id="deepseek-v4-flash-free-brainstormer",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=1,
+        escalate_on_max_rounds=False,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "max_rounds"
+    questions_dir = tmp_path / ".devflow" / "questions"
+    if questions_dir.exists():
+        question_files = list(questions_dir.glob("Q-bj-*.json"))
+        assert len(question_files) == 0
+
+
+def test_quality_gate_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("# My Spec\n\nA spec document.")],
+        judge_responses=[_make_judge_response(92, [], "Excellent spec.")],
+    )
+
+    from devflow.control_room.builder_judge_loop import run_quality_gate
+
+    run = run_quality_gate(
+        tmp_path,
+        stage="spec",
+        transcript_text="### User\n\nI want a cold email tool.\n### Assistant\n\nGreat idea!",
+    )
+
+    assert run.status == "passed"
+    assert run.final_score == 92
+    assert "spec" in run.loop_id
+
+
+def test_quality_gate_invalid_stage(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    from devflow.control_room.builder_judge_loop import run_quality_gate
+
+    with pytest.raises(BuilderJudgeConfigError, match="Unknown quality-gate stage"):
+        run_quality_gate(tmp_path, stage="invalid", transcript_text="test")

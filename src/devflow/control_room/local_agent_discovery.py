@@ -70,9 +70,9 @@ class ModelCapabilityProfile:
     weight_class: str = "unknown"
 
     # Dimension 2: context
-    useful_context_tokens: int = 8192
-    max_safe_context_tokens: int = 8192
-    reliable_context_tokens: int = 8192       # empirically proven, not advertised
+    useful_context_tokens: int = 32768
+    max_safe_context_tokens: int = 32768
+    reliable_context_tokens: int = 32768       # empirically proven, not advertised
 
     # Dimension 3: modalities
     vision: bool = False
@@ -297,11 +297,11 @@ def _compute_reliable_context(
     max_safe: the absolute ceiling beyond which we never push
     """
     if advertised is None:
-        return (8192, 8192, 8192)
+        return (32768, 32768, 32768)
     is_moe = architecture_class == "moe"
     discount = 0.90 if is_moe else 0.95
     reliable = int(advertised * discount)
-    useful = min(reliable, max(8192, advertised - 4096))
+    useful = min(reliable, max(32768, advertised - 4096))
     max_safe = advertised
     return (reliable, useful, max_safe)
 
@@ -357,7 +357,7 @@ def classify_local_model(manifest: LocalModelManifest) -> ModelCapabilityProfile
     if has_completion:
         allowed_roles.extend(["summarizer", "reviewer"])
         strengths.extend(["summarization", "review"])
-    if has_completion and (manifest.context_length or 0) >= 8192:
+    if has_completion and (manifest.context_length or 0) >= 32768:
         allowed_roles.append("bounded_worker")
         strengths.append("bounded task packets")
     if has_completion and _looks_patch_capable(manifest):

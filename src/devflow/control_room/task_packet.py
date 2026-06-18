@@ -32,7 +32,7 @@ class TaskPacketLimits(BaseModel):
     recent_events_limit: int = Field(default=20, ge=0)
     worker_log_tail_lines: int = Field(default=20, ge=0)
     verify_log_tail_lines: int = Field(default=20, ge=0)
-    log_tail_bytes: int = Field(default=8192, ge=0)
+    log_tail_bytes: int = Field(default=32768, ge=0)
     code_map_excerpt_lines: int = Field(default=80, ge=0)
 
 

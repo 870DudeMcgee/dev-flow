@@ -118,7 +118,7 @@ class LocalModelClient:
         user_prompt: str,
         *,
         think: bool = False,
-        num_ctx: int = 8192,
+        num_ctx: int = 32768,
         num_predict: int = 1536,
     ) -> dict:
         if not self.model_id:

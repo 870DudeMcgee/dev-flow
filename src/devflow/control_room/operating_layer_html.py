@@ -210,6 +210,82 @@ INDEX_HTML = """<!doctype html>
             <div id="mission-feed-list" class="mission-feed-list"></div>
             <div id="guided-action-result" class="guided-action-result" aria-live="polite"></div>
           </section>
+
+          <!-- Builder-Judge Loop -->
+          <section id="builder-judge-section" class="panel builder-judge-section" aria-label="Builder-Judge Loop">
+            <div class="panel-header">
+              <h2 class="panel-title">Builder-Judge Loop</h2>
+              <output id="bj-status-badge" class="status-badge" aria-live="polite" aria-atomic="true">Idle</output>
+            </div>
+
+            <div id="bj-form-area" class="bj-form-area">
+              <div class="bj-form-group">
+                <label for="bj-definition-of-done">Definition of Done <span class="bj-required">*</span></label>
+                <textarea id="bj-definition-of-done" rows="3" placeholder="What does great look like? Be specific. The more honest you are, the better the judge can grade."></textarea>
+              </div>
+
+              <div class="bj-form-group">
+                <label for="bj-starting-point">Starting Point <span class="bj-optional">(optional)</span></label>
+                <textarea id="bj-starting-point" rows="2" placeholder="Seed text for the builder to start from, or leave blank."></textarea>
+              </div>
+
+              <div class="bj-form-row">
+                <div class="bj-form-group">
+                  <label for="bj-builder-model">Builder Model</label>
+                  <select id="bj-builder-model"></select>
+                </div>
+                <div class="bj-form-group">
+                  <label for="bj-judge-model">Judge Model</label>
+                  <select id="bj-judge-model"></select>
+                </div>
+              </div>
+
+              <div class="bj-form-row">
+                <div class="bj-form-group">
+                  <label for="bj-pass-threshold">Pass Threshold</label>
+                  <input type="number" id="bj-pass-threshold" min="50" max="100" value="85" style="width:80px;">
+                </div>
+                <div class="bj-form-group">
+                  <label for="bj-max-rounds">Max Rounds</label>
+                  <input type="number" id="bj-max-rounds" min="1" max="20" value="5" style="width:80px;">
+                </div>
+                <div class="bj-form-group bj-checkbox-group">
+                  <label class="bj-checkbox-label">
+                    <input type="checkbox" id="bj-escalate" checked>
+                    <span>Escalate if max rounds reached</span>
+                  </label>
+                </div>
+              </div>
+
+              <button id="bj-run-btn" class="btn btn-primary" type="button" style="width:100%;">
+                ▶ Run Loop
+              </button>
+            </div>
+
+            <div id="bj-progress-area" class="bj-progress-area" hidden>
+              <div class="bj-rounds-header">
+                <span class="label">Rounds</span>
+                <span id="bj-round-summary" class="bj-round-summary"></span>
+              </div>
+              <div id="bj-rounds-list" class="bj-rounds-list"></div>
+            </div>
+
+            <div id="bj-result-area" class="bj-result-area" hidden>
+              <div class="bj-result-header">
+                <h3>Final Result</h3>
+                <span id="bj-final-score" class="bj-score-badge"></span>
+              </div>
+              <div id="bj-final-draft" class="bj-final-draft"></div>
+              <div id="bj-stop-reason" class="bj-stop-reason"></div>
+              <div id="bj-next-action" class="bj-next-action"></div>
+            </div>
+
+            <div class="bj-history-header">
+              <span class="label">Recent Loops</span>
+              <button class="btn btn-sm btn-secondary" id="bj-refresh-list" type="button" style="padding:2px 8px;font-size:10px;">↻</button>
+            </div>
+            <div id="bj-loops-list" class="bj-loops-list"></div>
+          </section>
         </div>
 
         <!-- Right: Pipeline + Health -->
@@ -233,6 +309,7 @@ INDEX_HTML = """<!doctype html>
                   <p class="step-desc">Refining ideas in active discussion.</p>
                   <p class="step-action">
                     <button type="button" class="btn btn-sm btn-primary" data-brainstorm-stage="spec">Escalate to Spec →</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bj-quality-gate="spec" title="Run builder-judge quality gate before escalating">QC Gate</button>
                   </p>
                 </div>
               </div>
@@ -249,6 +326,7 @@ INDEX_HTML = """<!doctype html>
                   <p class="step-desc">Freeze the intent as local spec evidence.</p>
                   <p class="step-action">
                     <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="plan">Generate Plan →</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bj-quality-gate="plan" title="Run builder-judge quality gate before generating plan">QC Gate</button>
                   </p>
                 </div>
               </div>

@@ -25,7 +25,7 @@ from devflow.control_room.worker_evidence import expected_worker_evidence_output
 PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
 LOCAL_MODEL_WORKER_TYPE = "local_model_worker_pool"
 GEMMA_NATIVE_PROFILE_IDS = {"local-gemma4-summarizer"}
-GEMMA_NATIVE_NUM_CTX = 8192
+GEMMA_NATIVE_NUM_CTX = 32768
 GEMMA_NATIVE_NUM_PREDICT = 1536
 
 

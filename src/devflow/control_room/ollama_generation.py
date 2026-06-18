@@ -8,7 +8,7 @@ from devflow.control_room.agent_registry import AgentDefinition
 
 OllamaEndpoint = Literal["generate", "chat"]
 
-DEFAULT_PATCH_NUM_CTX = 8192
+DEFAULT_PATCH_NUM_CTX = 32768
 DEFAULT_PATCH_NUM_PREDICT = 4096
 DEFAULT_PATCH_TEMPERATURE = 0.2
 

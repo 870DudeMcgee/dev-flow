@@ -19,6 +19,19 @@ from devflow.control_room.brainstorm import (
     escalate_brainstorm_session,
     run_brainstorm_message,
 )
+from devflow.control_room.builder_judge_loop import (
+    DEFAULT_BUILDER_PROFILE,
+    DEFAULT_JUDGE_PROFILE,
+    DEFAULT_MAX_ROUNDS,
+    DEFAULT_PASS_THRESHOLD,
+    BuilderJudgeConfig,
+    BuilderJudgeConfigError,
+    BuilderJudgeRunError,
+    get_builder_judge_run,
+    list_builder_judge_loops,
+    run_builder_judge_loop,
+    run_quality_gate,
+)
 from devflow.control_room.env_loader import load_hermes_env_file
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
@@ -36,6 +49,10 @@ from devflow.control_room.supervisor_surface import (
 ACTION_TIMEOUT_SECONDS = 20
 ACTION_OUTPUT_LIMIT = 12000
 ACTION_APPROVAL_PHRASE = "I approve this exact Dev-Flow command"
+
+# In-memory registry of running builder-judge loops (loop_id → BuilderJudgeRun)
+_bj_running_loops: dict[str, dict] = {}
+_bj_threads: dict[str, threading.Thread] = {}
 
 
 class OperatingLayerHTTPServer(ThreadingHTTPServer):
@@ -91,6 +108,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             query = parse_qs(request.query)
             self._handle_brainstorm_transcript(query)
             return
+        if path == "/api/builder-judge/list":
+            self._handle_builder_judge_list()
+            return
+        if path == "/api/builder-judge/status":
+            query = parse_qs(request.query)
+            self._handle_builder_judge_status(query)
+            return
         if path == "/healthz":
             self._send_text(json.dumps({"status": "ok"}) + "\n", "application/json; charset=utf-8")
             return
@@ -103,6 +127,15 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         if request.path == "/api/brainstorm/escalate":
             self._handle_brainstorm_escalation()
+            return
+        if request.path == "/api/builder-judge/start":
+            self._handle_builder_judge_start()
+            return
+        if request.path == "/api/builder-judge/quality-gate":
+            self._handle_builder_judge_quality_gate()
+            return
+        if request.path == "/api/task/write-context":
+            self._handle_task_write_context()
             return
         if request.path == "/api/repo/set":
             self._handle_repo_set()
@@ -128,6 +161,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         approved_task_close = False
         approved_cleanup_preview = False
         approved_shell_worker_run = False
+        approved_ai_worker_run = False
         approved_verification = False
         approved_promotion = False
         approved_agent_add_provider = False
@@ -142,6 +176,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 approved_task_close = _is_approved_task_close(payload, command, classification)
                 approved_cleanup_preview = _is_approved_cleanup_preview(payload, command, classification)
                 approved_shell_worker_run = _is_approved_shell_worker_run(payload, command, classification)
+                approved_ai_worker_run = _is_approved_ai_worker_run(payload, command, classification)
                 approved_verification = _is_approved_task_verification(payload, command, classification)
                 approved_promotion = _is_approved_task_promotion(payload, command, classification)
                 approved_agent_add_provider = _is_approved_agent_add_provider(payload, command, classification)
@@ -158,6 +193,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             or approved_task_close
             or approved_cleanup_preview
             or approved_shell_worker_run
+            or approved_ai_worker_run
             or approved_verification
             or approved_promotion
             or approved_agent_add_provider
@@ -203,6 +239,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 args = _approved_agent_propose_patch_command_args(command)
             elif approved_shell_worker_run:
                 args = _approved_shell_worker_run_command_args(command)
+            elif approved_ai_worker_run:
+                args = _approved_ai_worker_run_command_args(command)
             elif approved_verification:
                 args = _approved_task_verification_command_args(command)
             elif approved_promotion:
@@ -215,6 +253,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
 
         env = _devflow_subprocess_env()
+        # AI workers need much more time than shell commands
+        worker_timeout = 600 if approved_ai_worker_run else ACTION_TIMEOUT_SECONDS
         try:
             completed = subprocess.run(
                 args,
@@ -223,7 +263,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 text=True,
                 input="y\n" if approved_promotion else None,
                 capture_output=True,
-                timeout=ACTION_TIMEOUT_SECONDS,
+                timeout=worker_timeout,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
@@ -347,6 +387,16 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 browse_path = Path.home()
             else:
                 browse_path = Path(raw_path).expanduser().resolve()
+
+            # If it's a file, return its content
+            if browse_path.is_file():
+                try:
+                    content = browse_path.read_text(encoding="utf-8")
+                    self._send_json({"path": str(browse_path), "content": content, "is_file": True}, HTTPStatus.OK)
+                except UnicodeDecodeError:
+                    self._send_json({"path": str(browse_path), "content": "(binary file)", "is_file": True}, HTTPStatus.OK)
+                return
+
             if not browse_path.is_dir():
                 self._send_json_error(f"Not a directory: {browse_path}", HTTPStatus.BAD_REQUEST)
                 return
@@ -475,6 +525,216 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
         self._send_json(result, HTTPStatus.OK)
+
+    def _handle_builder_judge_start(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            definition_of_done = payload.get("definition_of_done")
+            if not isinstance(definition_of_done, str) or not definition_of_done.strip():
+                raise ValueError("definition_of_done is required")
+            starting_point = payload.get("starting_point")
+            if starting_point is not None and not isinstance(starting_point, str):
+                raise ValueError("starting_point must be a string")
+            builder_profile_id = payload.get("builder_profile_id")
+            if builder_profile_id is not None and not isinstance(builder_profile_id, str):
+                raise ValueError("builder_profile_id must be a string")
+            judge_profile_id = payload.get("judge_profile_id")
+            if judge_profile_id is not None and not isinstance(judge_profile_id, str):
+                raise ValueError("judge_profile_id must be a string")
+            pass_threshold_raw = payload.get("pass_threshold")
+            pass_threshold = int(pass_threshold_raw) if isinstance(pass_threshold_raw, (int, float, str)) else None
+            max_rounds_raw = payload.get("max_rounds")
+            max_rounds = int(max_rounds_raw) if isinstance(max_rounds_raw, (int, float, str)) else None
+            escalate_raw = payload.get("escalate_on_max_rounds")
+            escalate_on_max_rounds = bool(escalate_raw) if escalate_raw is not None else True
+            async_mode = bool(payload.get("async", True))
+
+            config = BuilderJudgeConfig(
+                definition_of_done=definition_of_done,
+                starting_point=starting_point or None,
+                builder_profile_id=builder_profile_id or DEFAULT_BUILDER_PROFILE,
+                judge_profile_id=judge_profile_id or DEFAULT_JUDGE_PROFILE,
+                pass_threshold=pass_threshold if pass_threshold is not None else DEFAULT_PASS_THRESHOLD,
+                max_rounds=max_rounds if max_rounds is not None else DEFAULT_MAX_ROUNDS,
+                escalate_on_max_rounds=escalate_on_max_rounds,
+            )
+        except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Builder-judge config failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        # Validate config before starting
+        from devflow.control_room.builder_judge_loop import _validate_config, _generate_loop_id
+        try:
+            _validate_config(config)
+        except BuilderJudgeConfigError as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+
+        if async_mode:
+            # Start in background thread, return immediately
+            loop_id = _generate_loop_id()
+
+            def _run_bj_loop():
+                try:
+                    run = run_builder_judge_loop(root, config, loop_id=loop_id)
+                    _bj_running_loops[loop_id] = run.model_dump(mode="json")
+                except Exception as exc:
+                    _bj_running_loops[loop_id] = {
+                        "loop_id": loop_id,
+                        "status": "failed",
+                        "error": str(exc),
+                        "rounds": [],
+                        "config": config.model_dump(mode="json"),
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                        "finished_at": datetime.now(timezone.utc).isoformat(),
+                        "stop_reason": "background_thread_error",
+                        "next_safe_action": str(exc),
+                    }
+
+            thread = threading.Thread(target=_run_bj_loop, daemon=True)
+            _bj_threads[loop_id] = thread
+            _bj_running_loops[loop_id] = {
+                "loop_id": loop_id,
+                "run_id": "",
+                "status": "running",
+                "config": config.model_dump(mode="json"),
+                "rounds": [],
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "finished_at": None,
+                "stop_reason": "",
+                "next_safe_action": "",
+            }
+            thread.start()
+
+            self._send_json(_bj_running_loops[loop_id], HTTPStatus.OK)
+        else:
+            # Synchronous mode (for CLI or testing)
+            try:
+                run = run_builder_judge_loop(root, config)
+                result = run.model_dump(mode="json")
+            except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
+                self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+                return
+            except Exception as exc:
+                self._send_json_error(f"Builder-judge loop failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(result, HTTPStatus.OK)
+
+    def _handle_builder_judge_list(self) -> None:
+        try:
+            root = self.server.repo_root
+            loops = list_builder_judge_loops(root)
+        except (OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"loops": loops}, HTTPStatus.OK)
+
+    def _handle_builder_judge_status(self, query: dict[str, list[str]]) -> None:
+        loop_id = (query.get("loop_id") or [None])[0]
+        if not loop_id:
+            self._send_json_error("loop_id is required", HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            root = self.server.repo_root
+        except (OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        # Check in-memory registry first (for running loops)
+        if loop_id in _bj_running_loops:
+            run_data = _bj_running_loops[loop_id]
+            # If still running, also try to read incremental file state
+            if run_data.get("status") == "running":
+                file_run = get_builder_judge_run(root, loop_id)
+                if file_run and len(file_run.get("rounds", [])) > len(run_data.get("rounds", [])):
+                    self._send_json(file_run, HTTPStatus.OK)
+                    return
+            self._send_json(run_data, HTTPStatus.OK)
+            return
+        # Fall back to file
+        try:
+            run = get_builder_judge_run(root, loop_id)
+        except (OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        if run is None:
+            self._send_json_error(f"Loop not found: {loop_id}", HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(run, HTTPStatus.OK)
+
+    def _handle_builder_judge_quality_gate(self) -> None:
+        """Run a builder-judge quality gate for brainstorm→spec or spec→plan."""
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            session_id = payload.get("session_id")
+            if not isinstance(session_id, str) or not session_id.strip():
+                raise ValueError("session_id is required")
+            stage = payload.get("stage")
+            if not isinstance(stage, str) or stage not in ("spec", "plan"):
+                raise ValueError("stage must be 'spec' or 'plan'")
+
+            # Read brainstorm transcript
+            from devflow.control_room.brainstorm import _read_transcript, _session_dir
+            transcript_path = _session_dir(root, session_id) / "transcript.jsonl"
+            records = _read_transcript(transcript_path)
+            if not records:
+                raise ValueError(f"brainstorm session has no transcript: {session_id}")
+
+            # Build transcript text for the builder
+            transcript_lines = []
+            for record in records:
+                role = str(record.get("role") or "unknown")
+                content = str(record.get("content") or "").strip()
+                if content:
+                    transcript_lines.append(f"### {role.title()}\n\n{content}\n")
+            transcript_text = "\n".join(transcript_lines)
+
+            builder_profile_id = payload.get("builder_profile_id") or DEFAULT_BUILDER_PROFILE
+            judge_profile_id = payload.get("judge_profile_id") or DEFAULT_JUDGE_PROFILE
+            pass_threshold = int(payload.get("pass_threshold", DEFAULT_PASS_THRESHOLD))
+            max_rounds = int(payload.get("max_rounds", 3))
+
+            run = run_quality_gate(
+                root,
+                stage=stage,
+                transcript_text=transcript_text,
+                builder_profile_id=builder_profile_id,
+                judge_profile_id=judge_profile_id,
+                pass_threshold=pass_threshold,
+                max_rounds=max_rounds,
+            )
+            result = run.model_dump(mode="json")
+        except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Quality gate failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_task_write_context(self) -> None:
+        """Write implementation context markdown into a task workspace."""
+        try:
+            payload = self._read_json_body()
+            task_id = payload.get("task_id")
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise ValueError("task_id is required")
+            context = payload.get("context")
+            if not isinstance(context, str) or not context.strip():
+                raise ValueError("context is required")
+            root = self._payload_project_root(payload)
+            workspace = root / ".devflow" / "workspaces" / task_id
+            workspace.mkdir(parents=True, exist_ok=True)
+            context_path = workspace / "implementation-context.md"
+            context_path.write_text(context, encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"status": "ok", "path": str(context_path)}, HTTPStatus.OK)
 
     def _payload_project_root(self, payload: dict[str, object]) -> Path:
         project_id = payload.get("project")
@@ -702,6 +962,56 @@ def _approved_shell_worker_run_command_args(command: str) -> list[str]:
         raise ValueError("approved browser shell worker run requires a concrete command")
     if _looks_like_provider_or_local_model_command(command_tokens):
         raise ValueError("provider and local-model commands cannot run from the browser shell-worker path")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_ai_worker_run_command_args(command: str) -> list[str]:
+    """Validate and return args for an AI worker run from the browser.
+
+    Unlike shell workers, AI workers (qwopus-implementer, deepseek-v4-flash-patch-proposer, etc.)
+    don't need a '--' separator or a concrete shell command — they read the task and produce
+    output autonomously. But they still need approval.
+    """
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 5 or normalized[1:3] != ["task", "run"]:
+        raise ValueError("only approved task worker runs may run from the operating layer")
+    task_id = normalized[3]
+    if not task_id or task_id.startswith("-"):
+        raise ValueError("AI worker run requires a task id")
+
+    # Parse options — no '--' required for AI workers
+    options = normalized[4:]
+    worker = None
+    index = 0
+    while index < len(options):
+        token = options[index]
+        if token == "--worker":
+            if index + 1 >= len(options):
+                raise ValueError("AI worker run requires a worker name after --worker")
+            worker = options[index + 1]
+            index += 2
+            continue
+        if token == "--project":
+            if index + 1 >= len(options) or options[index + 1].startswith("-"):
+                raise ValueError("AI worker run requires a project id after --project")
+            index += 2
+            continue
+        if token == "--timeout-seconds":
+            if index + 1 >= len(options) or not options[index + 1].isdigit():
+                raise ValueError("AI worker run requires a numeric --timeout-seconds value")
+            index += 2
+            continue
+        # Unknown option — stop parsing
+        break
+
+    if not worker:
+        raise ValueError("AI worker run requires --worker <worker-name>")
+
+    # Block shell workers — those go through _approved_shell_worker_run_command_args
+    if worker == "shell":
+        raise ValueError("shell workers must go through the shell worker approval path")
+
     return _devflow_command_args_from_tokens(tokens)
 
 
@@ -957,6 +1267,17 @@ def _is_approved_shell_worker_run(payload: dict[str, object], command: str, clas
         return False
     try:
         _approved_shell_worker_run_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_ai_worker_run(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    """Check if this is an approved AI worker run (non-shell worker)."""
+    if classification["safety_class"] != APPROVAL_REQUIRED_WORKER_RUNTIME:
+        return False
+    try:
+        _approved_ai_worker_run_command_args(command)
     except ValueError:
         return False
     return _approval_payload_matches(payload, command)

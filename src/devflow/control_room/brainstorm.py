@@ -30,7 +30,7 @@ from devflow.control_room.persistence import atomic_write_text
 
 
 BRAINSTORM_PROFILE_ID = "deepseek-v4-flash-free-brainstormer"
-BRAINSTORM_MAX_MESSAGE_CHARS = 12_000
+BRAINSTORM_MAX_MESSAGE_CHARS = 100_000
 BRAINSTORM_MAX_HISTORY_MESSAGES = 16
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
@@ -308,6 +308,25 @@ def escalate_brainstorm_session(
     if normalized_stage == "implementation":
         task_title = _implementation_title(title, records)
         done_text = _definition_of_done(definition_of_done)
+
+        # Build implementation context from spec/plan artifacts
+        session_path = _session_dir(root, session)
+        impl_context_parts: list[str] = []
+        for stage_file in ("spec.md", "plan.md"):
+            stage_path = session_path / stage_file
+            if stage_path.exists():
+                content = stage_path.read_text(encoding="utf-8").strip()
+                if content:
+                    impl_context_parts.append(content)
+        # Also include recent transcript messages as context
+        if not impl_context_parts:
+            for record in records[-8:]:
+                role = str(record.get("role") or "unknown").title()
+                content = str(record.get("content") or "").strip()
+                if content:
+                    impl_context_parts.append(f"### {role}\n\n{content}")
+        impl_context = "\n\n---\n\n".join(impl_context_parts) if impl_context_parts else ""
+
         command_parts = ["devflow", "task", "create"]
         if done_text:
             command_parts.extend(["--definition-of-done", done_text])
@@ -330,7 +349,7 @@ def escalate_brainstorm_session(
             definition_of_done=done_text,
             model_info=model_info,
         )
-        return {
+        result: dict[str, Any] = {
             "schema_version": 1,
             "status": "ready",
             "session_id": session,
@@ -339,6 +358,10 @@ def escalate_brainstorm_session(
             "action": action,
             "model_info": model_info,
         }
+        if impl_context:
+            result["implementation_context"] = impl_context
+            result["implementation_context_path"] = relative_path(root, artifact_path)
+        return result
 
     artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=title, model_info=model_info)
     return {
