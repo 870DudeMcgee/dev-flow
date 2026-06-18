@@ -46,6 +46,13 @@ function taskFreshness(task) {
   const ts = taskTimestamp(task);
   return ts ? ago(ts) : (task?.latest || '');
 }
+function shortTaskLatest(item, latestEvent) {
+  const value = String(item?.latest || '').trim();
+  if (value && value.length <= 18 && !value.includes('/')) return value;
+  const valueAgo = ago(value);
+  if (valueAgo) return valueAgo;
+  return latestEvent?.timestamp ? ago(latestEvent.timestamp) : '';
+}
 function taskWorkerLabel(task) {
   const local = task?.local_worker_lane || null;
   if (local?.profile_id || local?.model) {
@@ -201,32 +208,82 @@ function taskActionLabel(task) {
   if (commandNeedsVerificationInput(command, capability)) return capability?.label || 'Verify';
   return capability?.label || task?.next_action?.label || 'Inspect task';
 }
+function normalizeStatusKey(value) {
+  return String(value || 'unknown').trim().toLowerCase().replace(/[\\s-]+/g, '_') || 'unknown';
+}
+
+function taskStatusInfo(value) {
+  const key = normalizeStatusKey(value);
+  const labels = {
+    active: 'Active',
+    blocked: 'Blocked',
+    closed: 'Closed',
+    command: 'Command',
+    complete: 'Complete',
+    created: 'New',
+    error: 'Error',
+    evidence: 'Evidence',
+    failed: 'Failed',
+    idle: 'Idle',
+    in_progress: 'In Progress',
+    log: 'Log',
+    needs_review: 'Needs Review',
+    needs_verification: 'Needs Verification',
+    new: 'New',
+    not_run: 'Not Run',
+    passed: 'Passed',
+    promoted: 'Promoted',
+    ready_to_promote: 'Ready',
+    result: 'Result',
+    retry: 'Retry',
+    running: 'Running',
+    success: 'Success',
+    timeout: 'Timeout',
+    unknown: 'Unknown',
+    verified: 'Verified',
+    verification: 'Verification',
+    verification_failed: 'Verification Failed',
+    worker_failed: 'Worker Failed',
+    worker_log: 'Worker Log',
+  };
+  let color = 'blue';
+  if (key.includes('fail') || key === 'error') color = 'red';
+  else if (['blocked', 'needs_review', 'needs_verification', 'retry', 'escalated', 'timeout'].includes(key)) color = 'orange';
+  else if (['ready_to_promote', 'verified', 'passed', 'promoted', 'complete', 'success', 'result'].includes(key)) color = 'green';
+  else if (['closed', 'idle', 'not_run', 'unknown', 'none'].includes(key)) color = 'gray';
+  const tone = color === 'red' ? 'bad' : color === 'orange' ? 'warn' : color === 'green' ? 'good' : 'neutral';
+  return {
+    key,
+    label: labels[key] || sentenceCase(key),
+    color,
+    tone,
+    badgeClass: `task-status-badge task-tone-${color}`,
+    railClass: `task-rail-${color}`,
+    toneClass: `task-tone-${color}`,
+  };
+}
+
+function evidenceStatusInfo(kind, text) {
+  const key = normalizeStatusKey(kind);
+  const value = `${key} ${normalizeStatusKey(text)}`;
+  if (value.includes('fail') || value.includes('error')) return taskStatusInfo('failed');
+  if (key.includes('verification')) return taskStatusInfo('verification');
+  if (key.includes('result') || value.includes('success') || value.includes('passed')) return taskStatusInfo('result');
+  if (key.includes('log') || key.includes('command') || key.includes('shell')) return taskStatusInfo('worker_log');
+  return taskStatusInfo(key || 'evidence');
+}
+
 function statusTone(lane) {
-  if (lane === 'failed' || lane === 'blocked') return 'bad';
-  if (lane === 'needs_verification' || lane === 'needs_review' || lane === 'running') return 'warn';
-  if (lane === 'ready_to_promote') return 'good';
-  return 'neutral';
+  return taskStatusInfo(lane).tone;
 }
 
 function laneColor(lane) {
-  if (lane === 'failed') return 'red';
-  if (lane === 'blocked') return 'orange';
-  if (lane === 'running') return 'blue';
-  if (lane === 'needs_verification' || lane === 'needs_review') return 'orange';
-  if (lane === 'ready_to_promote') return 'green';
-  if (lane === 'closed') return 'gray';
-  return 'blue';
+  return taskStatusInfo(lane).color;
 }
 
 function laneBadge(lane) {
-  const c = laneColor(lane);
-  const labels = {
-    failed: 'FAILED', blocked: 'BLOCKED', running: 'RUNNING',
-    needs_verification: 'NEEDS VERIFY', needs_review: 'NEEDS REVIEW',
-    ready_to_promote: 'READY', new: 'NEW', idle: 'IDLE', closed: 'CLOSED',
-  };
-  const label = labels[lane] || sentenceCase(lane);
-  return `<span class="lane-badge lane-${c}">${esc(label)}</span>`;
+  const info = taskStatusInfo(lane);
+  return `<span class="lane-badge lane-${info.color} ${info.badgeClass}">${esc(info.label)}</span>`;
 }
 
 // === FIRST VIEWPORT PRESENTATION ===
@@ -343,10 +400,10 @@ function asFirstViewportPresentation(input) {
 }
 
 function verificationBadge(status) {
-  const s = String(status || 'not_run').toLowerCase();
-  if (s === 'passed') return '<span class="verify-badge verify-passed">✓ passed</span>';
-  if (s === 'failed') return '<span class="verify-badge verify-failed">✗ failed</span>';
-  return '<span class="verify-badge verify-notrun">— not run</span>';
+  const info = taskStatusInfo(status || 'not_run');
+  const s = info.key;
+  const cls = s === 'passed' ? 'verify-passed' : s === 'failed' ? 'verify-failed' : 'verify-notrun';
+  return `<span class="verify-badge ${cls} ${info.badgeClass}">${esc(info.label)}</span>`;
 }
 function parseCreatedTaskId(stdout) {
   const match = String(stdout || '').match(/Created\\s+(task-\\d+)/);
@@ -1057,21 +1114,24 @@ function renderWorkerLanes(input) {
   container.innerHTML = all.map(item => {
     const taskId = item.task_id || item.id || '';
     const status = item.lane || 'new';
-    const tone = item.tone || statusTone(status);
+    const info = taskStatusInfo(item.display_status || status);
+    const verifyInfo = taskStatusInfo(item.verification_status || 'not_run');
+    const tone = item.tone || info.tone;
     const actionLabel = item.action_label || 'Inspect task';
     const latestEvent = item.latest_event || null;
+    const latest = shortTaskLatest(item, latestEvent);
     const workerLabel = item.worker_model_label || 'unassigned';
-    return `<div class="worker-card guided-task-card ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" role="listitem">
+    return `<div class="worker-card guided-task-card task-card ${info.toneClass} ${info.railClass} ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" role="listitem">
       <button class="worker-card-main" type="button" data-select-task="${esc(taskId)}">
         <span class="worker-light ${tone}"></span>
         <span class="worker-copy">
           <strong><span class="task-id">${esc(taskId)}</span> ${esc(item.title || 'Untitled task')}</strong>
-          <span class="worker-meta">${esc(sentenceCase(item.display_status || status))} · ${esc(workerLabel)} · ${esc(item.verification_status || 'not_run')}</span>
+          <span class="worker-meta"><span class="${info.badgeClass}">${esc(info.label)}</span><span class="worker-meta-text">${esc(workerLabel)} · ${esc(verifyInfo.label)}</span></span>
           ${latestEvent ? `<span class="worker-event">${esc(latestEvent.event)}${latestEvent.summary ? ': ' + esc(latestEvent.summary) : ''}</span>` : ''}
         </span>
       </button>
       <span class="worker-next">${esc(actionLabel)}</span>
-      <span class="worker-time">${esc(item.latest || (latestEvent?.timestamp ? ago(latestEvent.timestamp) : ''))}</span>
+      <span class="worker-time">${esc(latest)}</span>
       <span class="worker-actions">
         <button type="button" class="icon-btn task-row-btn" data-select-task="${esc(taskId)}" title="Select in launchpad">Select</button>
         <button type="button" class="icon-btn task-row-btn" data-inspect-task="${esc(taskId)}" title="Inspect task">Inspect</button>
@@ -1099,6 +1159,7 @@ function renderReviewQueue(reviewLoop, tasks) {
   }
   container.innerHTML = items.slice(0, 12).map(item => {
     const taskId = item.task_id || item.id || '';
+    const laneInfo = taskStatusInfo(item.lane || 'needs_review');
     const priority = item.priority || (item.lane === 'ready_to_promote' || item.lane === 'failed' || item.lane === 'blocked' ? 'high' : 'medium');
     const command = item.command || '';
     const changed = Array.isArray(item.changed_files) ? item.changed_files : [];
@@ -1108,10 +1169,10 @@ function renderReviewQueue(reviewLoop, tasks) {
     if (changed.length) details.push(changed.length + ' changed file' + (changed.length === 1 ? '' : 's'));
     if (item.evidence_count) details.push(item.evidence_count + ' evidence path' + (item.evidence_count === 1 ? '' : 's'));
     if (blockers.length) details.push(blockers[0]);
-    return `<div class="review-card" data-task-id="${esc(taskId)}">
-      <span class="review-priority ${priority === 'medium' ? 'med' : priority}">${esc(sentenceCase(item.lane || 'review'))}</span>
+    return `<div class="review-card task-card ${laneInfo.toneClass} ${laneInfo.railClass}" data-task-id="${esc(taskId)}">
+      <span class="review-priority ${priority === 'medium' ? 'med' : priority}">${esc(sentenceCase(priority))}</span>
       <button type="button" class="review-main" data-select-task="${esc(taskId)}">
-        <strong>${esc(taskId)} · ${esc(item.title || 'Untitled task')}</strong>
+        <strong>${esc(taskId)} · ${esc(item.title || 'Untitled task')} <span class="${laneInfo.badgeClass}">${esc(laneInfo.label)}</span></strong>
         <span>${esc(item.reason || 'Review task')} · ${esc(shortCommand(command || 'Inspect task', 96))}</span>
         ${details.length ? `<em>${esc(details.slice(0, 3).join(' · '))}</em>` : ''}
       </button>
@@ -1138,13 +1199,14 @@ function renderEvidenceStream(evidence, tasks) {
     const taskId = item.task_id || '';
     const text = item.text || item.command || item.path || ('task ' + (taskId || '?'));
     const kind = item.kind || 'evidence';
+    const evidenceInfo = evidenceStatusInfo(kind, text);
     const ts = item.timestamp || item.created_at || item.generated_at;
     const path = item.path || item.command || '';
-    return `<div class="evidence-item" data-task-id="${esc(taskId)}">
+    return `<div class="evidence-item task-card ${evidenceInfo.toneClass} ${evidenceInfo.railClass}" data-task-id="${esc(taskId)}">
       <button type="button" class="evidence-main" data-select-task="${esc(taskId)}">
-        <span class="evidence-icon">></span>
+        <span class="evidence-icon ${evidenceInfo.toneClass}">></span>
         <span class="evidence-copy">
-          <span class="evidence-text"><strong>${esc(taskId || 'task')}</strong> ${esc(kind)} · ${esc(shortCommand(text, 110))}</span>
+          <span class="evidence-text"><strong>${esc(taskId || 'task')}</strong> <span class="${evidenceInfo.badgeClass}">${esc(evidenceInfo.label)}</span> ${esc(shortCommand(text, 110))}</span>
           ${path && path !== text ? `<span class="evidence-path">${esc(shortCommand(path, 120))}</span>` : ''}
         </span>
       </button>
@@ -1201,42 +1263,60 @@ function selectTaskInLaunchpad(taskId, opts) {
 function renderTaskMetadata(task) {
   const lane = task.lane || 'new';
   const local = task.local_worker_lane || {};
+  const statusInfo = taskStatusInfo(task.display_status || lane);
+  const verifyInfo = taskStatusInfo(task.verification_status || 'not_run');
   const worker = taskWorkerLabel(task);
   const workerShort = worker.length > 30 ? worker.slice(0, 28) + '…' : worker;
   const runtime = `${local.adapter || task.worker || '—'}${local.permission_mode ? ' · ' + local.permission_mode : ''}`;
-  const items = [
-    { label: 'Status', html: laneBadge(lane) },
-    { label: 'Verification', html: verificationBadge(task.verification_status) },
-    { label: 'Worker', value: workerShort, title: worker },
-    { label: 'Updated', value: taskFreshness(task) || 'unknown' },
+  const primary = [
+    { key: 'status', label: 'Status', html: laneBadge(lane), info: statusInfo },
+    { key: 'verification', label: 'Verification', html: verificationBadge(task.verification_status), info: verifyInfo },
+    { key: 'worker', label: 'Worker / model', value: workerShort, title: worker, info: taskStatusInfo('running') },
+    { key: 'updated', label: 'Updated', value: taskFreshness(task) || 'unknown', info: taskStatusInfo('not_run') },
+  ];
+  const secondary = [
     { label: 'Workspace', value: task.workspace || '—' },
     { label: 'Runtime', value: runtime },
   ];
-  return items.map(item => {
+  const primaryHtml = primary.map(item => {
     const content = item.html || `<strong title="${esc(item.title || '')}">${esc(item.value || '—')}</strong>`;
-    return `<div class="nt-meta-card"><span>${esc(item.label)}</span>${content}</div>`;
+    return `<div class="nt-meta-card nt-meta-${esc(item.key)} ${item.info.toneClass} ${item.info.railClass}"><span>${esc(item.label)}</span>${content}</div>`;
   }).join('');
+  const secondaryHtml = secondary.map(item => `<span class="nt-meta-mini"><span>${esc(item.label)}</span><strong title="${esc(item.value)}">${esc(item.value)}</strong></span>`).join('');
+  return `${primaryHtml}<div class="nt-meta-secondary">${secondaryHtml}</div>`;
 }
 
 function renderLatestEvidence(task) {
   const detail = task.detail || {};
   const paths = detail.evidence_paths || [];
   const preview = detail.result_preview || detail.latest_verification_line || detail.latest_worker_line || '';
-  const label = '<span class="label">Latest Evidence</span>';
   if (!paths.length && !preview) {
-    return `${label}<div class="next-task-evidence-empty">No task evidence yet.</div>`;
+    return `<details class="nt-evidence-details">
+      <summary><span><strong>Latest Evidence</strong><em>No task evidence yet</em></span></summary>
+    </details>`;
   }
-  const fileIcon = (path) => {
-    if (path.endsWith('.patch')) return '📎';
-    if (path.endsWith('.json')) return '⚙';
-    if (path.endsWith('.md')) return '📄';
-    if (path.endsWith('.jsonl')) return '📋';
-    return 'ƒ';
+  const fileKind = (path) => {
+    const lower = String(path || '').toLowerCase();
+    if (lower.endsWith('.patch')) return { label: 'patch', info: taskStatusInfo('needs_review') };
+    if (lower.endsWith('.json') || lower.endsWith('.jsonl')) return { label: 'json', info: taskStatusInfo('worker_log') };
+    if (lower.endsWith('.md')) return { label: 'md', info: taskStatusInfo('result') };
+    if (lower.endsWith('.log')) return { label: 'log', info: taskStatusInfo('worker_log') };
+    return { label: 'file', info: taskStatusInfo('evidence') };
   };
   const pathsHtml = paths.length
-    ? `<div class="nt-evidence-list">${paths.slice(0, 4).map(p => `<div class="nt-evidence-item"><span class="nt-evidence-icon">${fileIcon(p)}</span><code>${esc(p)}</code></div>`).join('')}</div>`
+    ? `<div class="nt-evidence-list">${paths.slice(0, 4).map(p => {
+        const kind = fileKind(p);
+        return `<div class="nt-evidence-item ${kind.info.toneClass} ${kind.info.railClass}"><span class="nt-evidence-icon ${kind.info.toneClass}">${esc(kind.label)}</span><code>${esc(p)}</code></div>`;
+      }).join('')}</div>`
     : '';
-  return `${label}${pathsHtml}${preview ? `<pre class="nt-evidence-preview">${esc(preview)}</pre>` : ''}`;
+  const countLabel = paths.length
+    ? `${paths.length} evidence file${paths.length === 1 ? '' : 's'}`
+    : 'Preview available';
+  const summaryPath = paths[0] ? shortCommand(paths[0], 78) : shortCommand(preview, 78);
+  return `<details class="nt-evidence-details">
+    <summary><span><strong>Latest Evidence</strong><em>${esc(countLabel)}</em></span>${summaryPath ? `<code>${esc(summaryPath)}</code>` : ''}</summary>
+    <div class="nt-evidence-body">${pathsHtml}${preview ? `<pre class="nt-evidence-preview">${esc(preview)}</pre>` : ''}</div>
+  </details>`;
 }
 
 function renderPromotionControls(task) {
@@ -1262,43 +1342,6 @@ function renderWorkerOptions(task) {
   </div>`;
 }
 
-function renderQualityLoopAction(task) {
-  // Show the quality-loop button when a worker has produced output
-  const detail = task.detail || {};
-  const evidencePaths = detail.evidence_paths || [];
-  const hasWorkerOutput = evidencePaths.some(p =>
-    p.includes('proposal.patch') || p.includes('result.md') || p.includes('raw_output.md')
-  );
-  if (!hasWorkerOutput) return '';
-
-  const dod = task.definition_of_done || '';
-  const taskId = task.id;
-  const taskTitle = task.title || '';
-
-  // Build the quality loop command — feeds worker output into builder-judge loop
-  const dodText = dod || `Implement: ${taskTitle}`;
-  const builderModel = 'deepseek-v4-flash-free-brainstormer';
-  const judgeModel = 'glm-5-2-brainstormer';
-
-  return `<div class="task-command-box nt-quality-loop-action">
-    <label>🔄 Quality loop</label>
-    <p>Worker produced output. Run the builder-judge loop to grade and iterate until it meets the bar.</p>
-    <div class="nt-quality-controls">
-      <select id="nt-ql-builder-${esc(taskId)}">
-        <option value="${esc(builderModel)}">Builder: DeepSeek V4 Flash Free</option>
-      </select>
-      <select id="nt-ql-judge-${esc(taskId)}">
-        <option value="${esc(judgeModel)}">Judge: GLM 5.2</option>
-      </select>
-      <input type="number" id="nt-ql-threshold-${esc(taskId)}" value="85" min="50" max="100" style="width:60px;" title="Pass threshold">
-      <input type="number" id="nt-ql-rounds-${esc(taskId)}" value="5" min="1" max="20" style="width:50px;" title="Max rounds">
-    </div>
-    <button class="btn btn-sm btn-primary" type="button" data-task-quality-loop="${esc(taskId)}" data-task-dod="${esc(dodText)}" data-task-title="${esc(taskTitle)}">
-      🔄 Run quality loop
-    </button>
-  </div>`;
-}
-
 function renderReconcileAction(task) {
   // Show reconciliation options for failed/blocked tasks
   const lane = task.lane || 'new';
@@ -1312,14 +1355,14 @@ function renderReconcileAction(task) {
     { closeOutcome: 'abandoned', closeReason: 'Worker failed, abandoning task' },
   );
 
-  return `<div class="task-command-box nt-reconcile-action">
-    <label>🔧 Reconcile failed task</label>
-    <p>This task failed. Retry through the shell control, or close it to clean up.</p>
-    <div class="nt-worker-options">
-      ${retryCapability ? `<code>${esc(shortCommand(retryCapability.command, 120))}</code>` : '<p class="nt-hint">No retry control available.</p>'}
+  return `<div class="nt-reconcile-action task-tone-red task-rail-red">
+    <div class="nt-reconcile-copy">
+      <span class="nt-reconcile-label">Reconcile failed task</span>
+      <span class="nt-reconcile-note">Retry through the shell control, or close it to clean up.</span>
+      ${retryCapability ? `<code class="nt-reconcile-command">${esc(shortCommand(retryCapability.command, 120))}</code>` : '<span class="nt-hint">No retry control available.</span>'}
     </div>
-    <button class="btn btn-sm btn-secondary" type="button" data-command="${esc(closeCmd)}">
-      🗑 Close as abandoned
+    <button class="btn btn-sm btn-danger" type="button" data-command="${esc(closeCmd)}">
+      Close as abandoned
     </button>
   </div>`;
 }
@@ -1334,6 +1377,7 @@ function renderLaunchpadActions(task) {
   const detail = task.detail || {};
   const evidencePaths = detail.evidence_paths || [];
   const hasImplContext = evidencePaths.some(p => p.includes('implementation-context.md'));
+  const showWorkerPanel = lane === 'new' || (commandNeedsShellInput(command, primaryCapability) && lane !== 'closed');
 
   // If the task has implementation context, show a prominent info panel
   const implContextPanel = hasImplContext && lane !== 'closed'
@@ -1344,7 +1388,7 @@ function renderLaunchpadActions(task) {
     : '';
 
   // Worker selection panel — this is the primary action for new tasks
-  const workerPanel = lane === 'new' || (commandNeedsShellInput(command, startCapability || primaryCapability) && lane !== 'closed')
+  const workerPanel = showWorkerPanel
     ? `<div class="task-command-box nt-primary-action" id="next-task-shell-panel">
         <label>Start work on ${esc(task.id)}</label>
         <div class="nt-worker-options">
@@ -1373,10 +1417,9 @@ function renderLaunchpadActions(task) {
       </div>`
     : '';
   const promotionPanel = renderPromotionControls(task);
-  const qualityLoopPanel = renderQualityLoopAction(task);
   const reconcilePanel = renderReconcileAction(task);
   const closePanel = lane !== 'closed'
-    ? `<details class="nt-close-details"><summary>Close task</summary>
+    ? `<details class="nt-close-details"><summary><span>Close task</span></summary>
         <div class="nt-close-inner">
           <select data-close-outcome>
             <option value="duplicate">duplicate</option>
@@ -1385,16 +1428,19 @@ function renderLaunchpadActions(task) {
             <option value="evidence-only">evidence-only</option>
           </select>
           <input type="text" data-close-reason placeholder="Reason required">
-          <button class="btn btn-sm btn-secondary" type="button" data-task-close="${esc(task.id)}">Close</button>
+          <button class="btn btn-sm btn-danger" type="button" data-task-close="${esc(task.id)}">Close</button>
         </div>
       </details>`
     : `<div class="task-action-row"><button class="btn btn-sm btn-secondary" type="button" data-command="${esc(cleanupCapability?.command || `devflow task cleanup ${task.id} --preview`)}">Cleanup preview</button></div>`;
-  const utilityButtons = `<div class="nt-utility-row">
-    <button class="btn btn-sm btn-ghost" type="button" data-inspect-task="${esc(task.id)}">🔍 Inspect</button>
-    ${taskCommandButtons(task)}
-  </div>`;
-  return workerPanel || verifyPanel || promotionPanel || implContextPanel || qualityLoopPanel || reconcilePanel
-    ? `${implContextPanel}${workerPanel}${reconcilePanel}${qualityLoopPanel}${verifyPanel}${promotionPanel}${utilityButtons}${closePanel}`
+  const utilityButtons = `<details class="nt-more-actions">
+    <summary><span>More actions</span></summary>
+    <div class="nt-utility-row">
+      <button class="btn btn-sm btn-secondary" type="button" data-inspect-task="${esc(task.id)}">Inspect</button>
+      ${taskCommandButtons(task)}
+    </div>
+  </details>`;
+  return workerPanel || verifyPanel || promotionPanel || implContextPanel || reconcilePanel
+    ? `${implContextPanel}${workerPanel}${reconcilePanel}${verifyPanel}${promotionPanel}${utilityButtons}${closePanel}`
     : `${utilityButtons}${closePanel}`;
 }
 
@@ -1413,6 +1459,7 @@ function renderOrchestrator(snap, presentation) {
   const directive = $('orchestrator-directive');
   const meta = $('next-task-meta');
   const done = $('next-task-definition-of-done');
+  const doneWrap = done?.closest('.next-task-definition');
   const actionSlot = $('next-task-action-slot');
   const latestEvidence = $('next-task-latest-evidence');
   const switcher = $('orchestrator-agent-progress');
@@ -1423,10 +1470,15 @@ function renderOrchestrator(snap, presentation) {
     if (directive) directive.textContent = 'Create a task from Brainstorm or the CLI to start work.';
     if (meta) meta.innerHTML = '';
     if (done) done.textContent = 'No definition captured yet.';
+    if (doneWrap) doneWrap.hidden = true;
     if (cmd) cmd.textContent = snap.next_action?.command || snap.next_action?.label || 'No actions pending';
     if (actionSlot) actionSlot.innerHTML = '';
     if (latestEvidence) latestEvidence.innerHTML = '<div class="next-task-evidence-empty">No evidence yet.</div>';
-    if (switcher) switcher.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No active tasks</div>';
+    if (switcher) {
+      const switcherWrap = switcher.closest('.next-task-switcher-wrap');
+      if (switcherWrap) switcherWrap.hidden = true;
+      switcher.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No active tasks</div>';
+    }
   } else {
     const lane = selected.lane || 'new';
     const command = selected.id === launchpad.selected_task_id
@@ -1439,6 +1491,7 @@ function renderOrchestrator(snap, presentation) {
     }
     if (meta) meta.innerHTML = renderTaskMetadata(selected);
     if (done) done.textContent = selected.definition_of_done || 'No definition captured yet.';
+    if (doneWrap) doneWrap.hidden = !selected.definition_of_done;
     if (cmd) cmd.textContent = command || 'No action pending';
     if (actionSlot) actionSlot.innerHTML = renderLaunchpadActions(selected);
     if (latestEvidence) latestEvidence.innerHTML = renderLatestEvidence(selected);
@@ -1447,14 +1500,16 @@ function renderOrchestrator(snap, presentation) {
         .map(id => tasks.find(t => t.id === id))
         .filter(Boolean);
       const visibleSwitchTasks = switchTasks.length ? switchTasks : (activeTasks.length ? activeTasks : tasks.slice(0, 6));
+      const switcherWrap = switcher.closest('.next-task-switcher-wrap');
+      if (switcherWrap) switcherWrap.hidden = visibleSwitchTasks.length <= 1;
       switcher.innerHTML = visibleSwitchTasks.map(t => {
         const isSelected = t.id === selected.id;
         const tLane = t.lane || 'new';
-        const c = laneColor(tLane);
-        return `<button type="button" class="task-switcher-row${isSelected ? ' selected' : ''} ts-lane-${c}" data-select-task="${esc(t.id)}">
-          <span class="worker-light ${statusTone(tLane)}"></span>
+        const info = taskStatusInfo(t.display_status || tLane);
+        return `<button type="button" class="task-switcher-row task-card ${info.toneClass} ${info.railClass}${isSelected ? ' selected' : ''}" data-select-task="${esc(t.id)}">
+          <span class="worker-light ${info.tone}"></span>
           <span><strong>${esc(t.id)}</strong>${esc(t.title || 'Untitled task')}</span>
-          <em>${esc(sentenceCase(t.display_status || tLane))}</em>
+          <em class="${info.badgeClass}">${esc(info.label)}</em>
         </button>`;
       }).join('');
     }
@@ -1582,15 +1637,17 @@ function openFocus(type, id, opts) {
           </div>
         </div>`
       : '';
+    const statusInfo = taskStatusInfo(task.display_status || lane);
+    const verifyInfo = taskStatusInfo(task.verification_status || 'not_run');
     content.innerHTML = `<div class="focus-task-head">
         <span class="focus-task-id">${esc(task.id)}</span>
         <h2>${esc(task.title || task.id)}</h2>
-        <span class="focus-status ${esc(statusTone(lane))}">${esc(sentenceCase(task.display_status || lane))}</span>
+        <span class="focus-status ${statusInfo.badgeClass}">${esc(statusInfo.label)}</span>
       </div>
       <div class="focus-grid">
-        <div><span>Status</span><strong>${esc(sentenceCase(lane))}</strong></div>
+        <div class="${statusInfo.toneClass} ${statusInfo.railClass}"><span>Status</span>${laneBadge(lane)}</div>
         <div><span>Worker / model</span><strong>${esc(taskWorkerLabel(task))}</strong></div>
-        <div><span>Verification</span><strong>${esc(task.verification_status || 'not_run')}</strong></div>
+        <div class="${verifyInfo.toneClass} ${verifyInfo.railClass}"><span>Verification</span>${verificationBadge(task.verification_status)}</div>
         <div><span>Updated</span><strong>${esc(taskFreshness(task) || 'unknown')}</strong></div>
         <div><span>Workspace</span><strong>${esc(task.workspace || '—')}</strong></div>
         <div><span>Runtime</span><strong>${esc(local.adapter || task.worker || '—')}${local.permission_mode ? ' · ' + esc(local.permission_mode) : ''}</strong></div>
@@ -1837,77 +1894,6 @@ function setupTaskSurfaceActions() {
     }
 
     const commandButton = e.target.closest('[data-command]');
-
-    // Quality loop button — feeds worker output into builder-judge loop
-    const qlButton = e.target.closest('[data-task-quality-loop]');
-    if (qlButton) {
-      e.preventDefault();
-      const taskId = qlButton.dataset.taskQualityLoop;
-      const dod = qlButton.dataset.taskDod || '';
-      const taskTitle = qlButton.dataset.taskTitle || '';
-      const builderModel = document.getElementById(`nt-ql-builder-${taskId}`)?.value || 'deepseek-v4-flash-free-brainstormer';
-      const judgeModel = document.getElementById(`nt-ql-judge-${taskId}`)?.value || 'glm-5-2-brainstormer';
-      const threshold = parseInt(document.getElementById(`nt-ql-threshold-${taskId}`)?.value || '85', 10);
-      const maxRounds = parseInt(document.getElementById(`nt-ql-rounds-${taskId}`)?.value || '5', 10);
-
-      qlButton.disabled = true;
-      qlButton.textContent = '⏳ Running quality loop...';
-
-      try {
-        // Fetch the worker's output to use as starting point
-        const task = snapshot?.tasks?.find(t => t.id === taskId);
-        const detail = task?.detail || {};
-        const evidencePaths = detail.evidence_paths || [];
-        const resultPath = evidencePaths.find(p => p.includes('result.md')) ||
-                           evidencePaths.find(p => p.includes('raw_output.md')) ||
-                           '';
-
-        // Read the worker output via the browse API
-        let startingPoint = '';
-        if (resultPath) {
-          try {
-            const resp = await fetch(`/api/browse?path=${encodeURIComponent(resultPath)}`);
-            const data = await resp.json();
-            if (data.content) startingPoint = data.content;
-          } catch(e) { /* non-fatal */ }
-        }
-
-        // Start the builder-judge loop
-        const body = {
-          definition_of_done: dod || `Implement: ${taskTitle}`,
-          starting_point: startingPoint || undefined,
-          builder_profile_id: builderModel,
-          judge_profile_id: judgeModel,
-          pass_threshold: threshold,
-          max_rounds: maxRounds,
-          escalate_on_max_rounds: true,
-          async: true,
-        };
-        const resp = await fetch('/api/builder-judge/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = await resp.json();
-
-        if (!resp.ok) {
-          renderActionResult({ executed: false, exit_code: null, error: data.error || 'Quality loop failed' }, `quality loop for ${taskId}`);
-          return;
-        }
-
-        // Poll for results
-        await pollBuilderJudgeLoop(data.loop_id);
-
-        // Refresh the task snapshot
-        await loadSnapshot(selectedProjectId);
-      } catch(err) {
-        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Quality loop failed' }, `quality loop for ${taskId}`);
-      } finally {
-        qlButton.disabled = false;
-        qlButton.textContent = '🔄 Run quality loop';
-      }
-      return;
-    }
 
     if (commandButton) {
       e.preventDefault();
