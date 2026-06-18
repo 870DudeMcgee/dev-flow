@@ -39,6 +39,8 @@ Use related docs only when needed:
 
 Architecture documents are valuable, but they are not automatically active runtime behavior. If an architecture doc describes a future worker, model router, provider adapter, or autonomy policy, preserve it as roadmap context until a later implementation explicitly promotes it.
 
+Hyperplane is currently quarantined as experimental evidence infrastructure. It is not an active first-pass model validation path and must not be used as a fail-fast smoke test. Its stock pipeline can expand a small-looking run into many generator, target, and judge calls; use direct bounded target/judge smoke evidence instead until a later task explicitly reopens Hyperplane.
+
 
 ## Product Direction
 
@@ -261,11 +263,6 @@ devflow agent discover-local --json
 devflow agent select-local <task_id> --role implementation_worker --json
 devflow agent audition <task_id> --job review-debug --dry-run --json
 devflow agent audition <task_id> --job review-debug --execute --json
-devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --dry-run --json
-devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --execute --json
-devflow agent hyperplane <task_id> --suite worker-safety --target qwopus-implementer --judge deepseek-v4-pro-reviewer --execute --fast --json
-devflow agent hyperplane-list <task_id> --json
-devflow agent hyperplane-show <task_id> <run_id> --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --dry-run --json
 devflow agent run --task <task_id> --profile local-qwopus-inspector --json
 devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --dry-run --json

@@ -32,6 +32,7 @@ Documentation = "https://github.com/870DudeMcgee/dev-flow#readme"
 Issues = "https://github.com/870DudeMcgee/dev-flow/issues"
 
 [project.optional-dependencies]
+# Quarantined experimental harness; not active first-pass model validation.
 hyperplane = [
 	"hyperplane-eval>=0.1.14,<0.2",
 ]

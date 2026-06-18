@@ -1,12 +1,14 @@
 # Hyperplane Evidence Loop
 
-Status: Current evidence-only harness slice
+Status: Quarantined experimental reference
 
-Dev-Flow can optionally run Hyperplane as a task-local evaluation harness for local models and safety-critical control-room behavior.
+Hyperplane is not active Dev-Flow runtime guidance. It failed the fail-fast model smoke-test use case because a small-looking run can expand into many generator, target, and judge calls. Do not use Hyperplane for first-pass model validation unless a later task explicitly reopens and redesigns this integration.
+
+Dev-Flow previously explored Hyperplane as a task-local evaluation harness for local models and safety-critical control-room behavior. Preserve the notes below only as historical/reference material.
 
 This integration is advisory evidence only. It must not fine-tune weights, auto-route workers, edit source, apply patches, verify, promote, commit, merge, push, or update routing policy.
 
-## Commands
+## Historical Commands
 
 ```bash
 devflow agent hyperplane <task_id> --suite worker-safety --target control-room --judge local-gemma4-doc-reviewer --dry-run --json
@@ -14,6 +16,8 @@ devflow agent hyperplane <task_id> --suite worker-safety --target control-room -
 devflow agent hyperplane-list <task_id> --json
 devflow agent hyperplane-show <task_id> <run_id> --json
 ```
+
+These commands are not recommended for current first-pass model validation.
 
 `hyperplane-eval>=0.1.14,<0.2` is an optional project extra. Execute mode fails closed with install guidance when the package is absent. Dry-run mode writes only a plan and does not import Hyperplane or call models.
 

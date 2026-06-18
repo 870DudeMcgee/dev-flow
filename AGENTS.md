@@ -57,6 +57,8 @@ The direction is aggressive local automation with hard stops:
 
 Future architecture is valuable and should remain in `docs/architecture/` or clearly marked roadmap docs. It is not startup authority for ordinary UI/product fixes unless the task is specifically about that future layer.
 
+Hyperplane is quarantined as experimental evidence infrastructure. Do not use it for first-pass model validation or fail-fast smoke tests; it expands into a dynamic multi-call evaluation pipeline. Prefer direct, bounded one-target-call/one-judge-call smoke evidence until a separate task explicitly reopens Hyperplane.
+
 ## Where To Work
 
 Active control-room implementation belongs in:
