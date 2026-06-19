@@ -250,6 +250,21 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "pass" if _index_before('brainstorm-section', 'orchestrator-section') else "fail",
         ),
         _check(
+            "idea-greenhouse-panel",
+            "#idea-greenhouse-section",
+            "Idea Greenhouse appears after Brainstorm and before Next Task with capture form and lanes.",
+            "pass"
+            if (
+                _index_before("brainstorm-section", "idea-greenhouse-section")
+                and _index_before("idea-greenhouse-section", "orchestrator-section")
+                and all(
+                    token in INDEX_HTML
+                    for token in ("idea-capture-form", "idea-greenhouse-lanes")
+                )
+            )
+            else "fail",
+        ),
+        _check(
             "brainstorm-chat",
             "#brainstorm-chat-form",
             "DeepSeek brainstorm chat is available in the normal first-viewport loop.",
@@ -311,6 +326,21 @@ def _playwright_assertions() -> list[dict[str, str]]:
             "script": "Boolean(document.querySelector('#brainstorm-chat-form textarea'))",
         },
         {
+            "id": "idea-greenhouse-panel",
+            "script": (
+                "(() => {"
+                "const brainstorm = document.querySelector('#brainstorm-section');"
+                "const greenhouse = document.querySelector('#idea-greenhouse-section');"
+                "const orchestrator = document.querySelector('#orchestrator-section');"
+                "return Boolean(brainstorm && greenhouse && orchestrator && "
+                "brainstorm.compareDocumentPosition(greenhouse) & Node.DOCUMENT_POSITION_FOLLOWING && "
+                "greenhouse.compareDocumentPosition(orchestrator) & Node.DOCUMENT_POSITION_FOLLOWING && "
+                "greenhouse.querySelector('#idea-capture-form') && "
+                "greenhouse.querySelector('#idea-greenhouse-lanes'));"
+                "})()"
+            ),
+        },
+        {
             "id": "active-work-cards",
             "script": "document.querySelectorAll('#active-work-groups .worker-card').length >= 0",
         },
@@ -333,6 +363,7 @@ def _fallback_visual_checks() -> dict[str, bool]:
     return {
         "no_horizontal_overflow": check_ids.get("no_horizontal_overflow", False),
         "guided_first_viewport": check_ids.get("guided_first_viewport", False),
+        "idea_greenhouse_panel": check_ids.get("idea_greenhouse_panel", False),
         "brainstorm_chat": check_ids.get("brainstorm_chat", False),
         "active_work_cards": check_ids.get("active_work_cards", False),
         "approval_states": check_ids.get("approval_states", False),
@@ -421,6 +452,7 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
         """() => {
           const doc = document.documentElement;
           const brainstormSection = document.querySelector('#brainstorm-section');
+          const greenhouseSection = document.querySelector('#idea-greenhouse-section');
           const brainstormChat = document.querySelector('#brainstorm-chat-form textarea');
           const activeCards = document.querySelectorAll('#active-work-groups .worker-card');
           const reviewQueue = document.querySelector('#guided-review-queue');
@@ -433,6 +465,15 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
             guided_first_viewport: document.querySelector('.center-column > section')?.id === 'brainstorm-section',
+            idea_greenhouse_panel: Boolean(
+              brainstormSection &&
+              greenhouseSection &&
+              document.querySelector('#orchestrator-section') &&
+              brainstormSection.compareDocumentPosition(greenhouseSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              greenhouseSection.compareDocumentPosition(document.querySelector('#orchestrator-section')) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              greenhouseSection.querySelector('#idea-capture-form') &&
+              greenhouseSection.querySelector('#idea-greenhouse-lanes')
+            ),
             brainstorm_chat: Boolean(brainstormChat),
             active_work_cards: activeCards.length >= 0,
             approval_states: Boolean(

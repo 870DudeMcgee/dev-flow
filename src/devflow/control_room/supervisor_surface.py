@@ -127,6 +127,7 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow idea classify",
     "devflow idea promote",
     "devflow idea scaffold-goal",
+    "devflow idea park",
     "devflow idea archive",
 ]
 
@@ -429,7 +430,7 @@ def _classify_supervisor_command(command: str) -> str:
             return PURE_READ_ONLY
         if subcommand in {"create-goal", "create-task", "scaffold-goal"} and "--dry-run" in tokens:
             return PURE_READ_ONLY
-        if subcommand in {"capture", "classify", "promote", "scaffold-goal", "archive"}:
+        if subcommand in {"capture", "classify", "promote", "scaffold-goal", "park", "archive"}:
             return APPROVAL_REQUIRED_EVIDENCE_WRITING
         if subcommand in {"create-goal", "create-task"}:
             return APPROVAL_REQUIRED_TASK_STATE

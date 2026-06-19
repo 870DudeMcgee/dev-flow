@@ -5,6 +5,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+import devflow.control_room.idea_foundry as idea_foundry
 from devflow.cli import app
 from devflow.control_room.idea_foundry import (
     IdeaFoundryError,
@@ -97,6 +98,59 @@ def test_promote_requires_matching_maturity(tmp_path: Path) -> None:
         raise AssertionError("expected promotion to fail")
 
 
+def test_park_idea_preserves_evidence_and_marks_safe_later(tmp_path: Path) -> None:
+    item = capture_idea(
+        tmp_path,
+        "Build a voice capture inbox for ideas.",
+        title="Voice idea capture",
+    )
+
+    parked = idea_foundry.park_idea(
+        tmp_path,
+        item["id"],
+        reason="Great idea, not active this week.",
+    )
+
+    assert parked["status"] == "parked"
+    assert parked["park_reason"] == "Great idea, not active this week."
+    assert parked["parked_at"] is not None
+    idea_dir = tmp_path / ".devflow" / "ideas" / item["id"]
+    assert (idea_dir / "raw.md").exists()
+    assert '"event": "parked"' in (idea_dir / "events.jsonl").read_text(encoding="utf-8")
+
+
+def test_greenhouse_lane_projection_uses_existing_status_and_maturity(tmp_path: Path) -> None:
+    greenhouse_lane_for_idea = idea_foundry.greenhouse_lane_for_idea
+    raw = capture_idea(tmp_path, "Raw thought")
+    concept = capture_idea(tmp_path, "Needs clarification")
+    classify_idea(tmp_path, concept["id"], maturity="concept", note="Needs sharper scope.")
+    candidate = capture_idea(tmp_path, "Promising candidate")
+    classify_idea(
+        tmp_path,
+        candidate["id"],
+        maturity="candidate",
+        note="Looks promising.",
+    )
+    ready = capture_idea(tmp_path, "Task-sized idea")
+    classify_idea(
+        tmp_path,
+        ready["id"],
+        maturity="task_ready",
+        note="Ready for task promotion.",
+    )
+    promote_idea(tmp_path, ready["id"], target="task", rationale="Human approved.")
+    parked = capture_idea(tmp_path, "Later idea")
+    idea_foundry.park_idea(tmp_path, parked["id"], reason="Later.")
+
+    lanes = {item["id"]: greenhouse_lane_for_idea(item) for item in list_ideas(tmp_path)}
+
+    assert lanes[raw["id"]] == "raw"
+    assert lanes[concept["id"]] == "clarify"
+    assert lanes[candidate["id"]] == "candidate"
+    assert lanes[ready["id"]] == "promoted"
+    assert lanes[parked["id"]] == "parked"
+
+
 def test_invalid_idea_id_fails_cleanly(tmp_path: Path) -> None:
     old_cwd = Path.cwd()
     try:
@@ -173,6 +227,19 @@ def test_idea_cli_capture_list_show_classify_promote_archive(tmp_path: Path) -> 
     assert "created_task: no" in promoted.output
     assert archived.exit_code == 0, archived.output
     assert "status: archived" in archived.output
+
+
+def test_cli_park_idea(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["idea", "capture", "Save this for later", "--title", "Later idea"])
+
+    result = runner.invoke(app, ["idea", "park", "I-0001", "--reason", "Not this week."])
+    shown = runner.invoke(app, ["idea", "show", "I-0001"])
+
+    assert result.exit_code == 0, result.output
+    assert "status: parked" in result.output
+    assert "evidence_deleted: no" in result.output
+    assert "status: parked" in shown.output
 
 
 def test_cli_create_goal_from_promoted_idea(tmp_path: Path, monkeypatch) -> None:

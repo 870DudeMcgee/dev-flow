@@ -7,15 +7,21 @@ from http import HTTPStatus
 from http.client import HTTPConnection
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.idea_foundry import capture_idea, classify_idea, park_idea
 from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer_html import INDEX_HTML as SPLIT_INDEX_HTML
 from devflow.control_room.operating_layer_script import APP_JS as SPLIT_APP_JS
-from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer, OperatingLayerRequestHandler
+from devflow.control_room.operating_layer_server import (
+    OperatingLayerHTTPServer,
+    OperatingLayerRequestHandler,
+    _approved_idea_evidence_command_args,
+)
 from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
 from devflow.control_room.persistence import get_task, save_task, utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
@@ -112,6 +118,67 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "rememberApprovedActionResult" in APP_JS
     assert "renderWorkerLanes" in APP_JS
     assert "bottom-dock" in APP_CSS
+
+
+def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
+    assert "Idea Greenhouse" in INDEX_HTML
+    assert "idea-greenhouse-section" in INDEX_HTML
+    assert "idea-greenhouse-status" in INDEX_HTML
+    assert "idea-capture-form" in INDEX_HTML
+    assert "idea-capture-text" in INDEX_HTML
+    assert "idea-capture-title" in INDEX_HTML
+    assert "idea-capture-submit" in INDEX_HTML
+    assert "idea-greenhouse-lanes" in INDEX_HTML
+    assert "idea-greenhouse-primary-action" in INDEX_HTML
+
+
+def test_operating_layer_css_includes_idea_greenhouse_layout_contract() -> None:
+    for token in (
+        ".idea-greenhouse-section",
+        ".idea-capture-form",
+        ".idea-greenhouse-lanes",
+        "grid-template-columns: repeat(3, minmax(0, 1fr));",
+        ".idea-lane",
+        ".idea-lane-header",
+        ".idea-card",
+        ".idea-card.raw",
+        ".idea-card.clarify",
+        ".idea-card.candidate",
+        ".idea-card.promoted",
+        ".idea-card.parked",
+        ".idea-card.archived",
+        ".idea-primary-action",
+        ".status-pill.muted",
+        ".idea-card[role=\"button\"]",
+        ".idea-detail-grid",
+        ".idea-detail-evidence",
+        ".idea-detail-metadata",
+        ".idea-detail-metadata-list",
+    ):
+        assert token in APP_CSS
+
+    mobile_rules = APP_CSS[APP_CSS.index("@media (max-width: 900px)") :]
+    assert ".idea-greenhouse-lanes { grid-template-columns: 1fr; }" in mobile_rules
+    assert mobile_rules.index("#brainstorm-section { order: 1; }") < mobile_rules.index(
+        "#orchestrator-section"
+    ) < mobile_rules.index("#idea-greenhouse-section")
+
+
+def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
+    for token in (
+        "setupIdeaGreenhouse",
+        "renderIdeaGreenhouse",
+        "captureIdeaFromGreenhouse",
+        "secondaryIdeaActions",
+        "Parked from Idea Greenhouse",
+        "idea-greenhouse-lanes",
+        "data-inspect-idea",
+        "findIdeaCard",
+        "renderIdeaDetail",
+        "Raw metadata",
+        "Evidence paths",
+    ):
+        assert token in APP_JS
 
 
 def test_operating_layer_active_nav_item_scrolls_into_mobile_view() -> None:
@@ -213,6 +280,44 @@ def test_task_definition_of_done_persists_loads_old_tasks_shows_and_snapshots(
         encoding="utf-8",
     )
     assert get_task(tmp_path, "task-0001").definition_of_done is None
+
+
+def test_operating_layer_projects_idea_greenhouse_lanes(tmp_path: Path) -> None:
+    capture_idea(tmp_path, "Raw idea", title="Raw idea")
+    concept = capture_idea(tmp_path, "Needs clarity", title="Needs clarity")
+    classify_idea(tmp_path, concept["id"], maturity="concept", note="Needs clearer scope.")
+    candidate = capture_idea(tmp_path, "Candidate idea", title="Candidate idea")
+    classify_idea(tmp_path, candidate["id"], maturity="candidate", note="Worth considering.")
+    parked = capture_idea(tmp_path, "Parked idea", title="Parked idea")
+    park_idea(tmp_path, parked["id"], reason="Not now.")
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump()
+    greenhouse = payload["idea_greenhouse"]
+
+    assert greenhouse["counts"]["raw"] == 1
+    assert greenhouse["counts"]["clarify"] == 1
+    assert greenhouse["counts"]["candidate"] == 1
+    assert greenhouse["counts"]["parked"] == 1
+    assert greenhouse["primary_next_action"]["label"] == "Classify raw idea"
+    assert [lane["id"] for lane in greenhouse["lanes"]] == [
+        "raw",
+        "clarify",
+        "candidate",
+        "promoted",
+        "parked",
+        "archived",
+    ]
+    raw_card = greenhouse["lanes"][0]["cards"][0]
+    assert raw_card["id"] == "I-0001"
+    assert raw_card["evidence_paths"] == [
+        ".devflow/ideas/I-0001/idea.json",
+        ".devflow/ideas/I-0001/raw.md",
+        ".devflow/ideas/I-0001/events.jsonl",
+    ]
+    assert raw_card["metadata"]["id"] == "I-0001"
+    assert raw_card["metadata"]["greenhouse_lane"] == "raw"
+    assert raw_card["metadata"]["raw_path"] == ".devflow/ideas/I-0001/raw.md"
+    assert raw_card["metadata"]["evidence_paths"] == raw_card["evidence_paths"]
 
 
 def test_operating_layer_approved_model_onboarding_actions_execute(
@@ -866,6 +971,9 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "Escalate to Spec" in body
         assert "Generate Plan" in body
         assert "Create Task" in body
+        assert "Idea Greenhouse" in body
+        assert "idea-capture-form" in body
+        assert "idea-greenhouse-lanes" in body
         assert "Local evidence only" in body
         assert "Worker lanes" in body
         assert "Review queue" in body
@@ -895,6 +1003,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "brainstorm-section" in INDEX_HTML
         assert "pipeline-section" in INDEX_HTML
         assert "bottom-dock" in css
+        assert ".idea-greenhouse-lanes" in css
+        assert ".idea-card" in css
         assert "worker-lanes-list" in css
         assert "worker-card" in css
         assert "review-queue-list" in css
@@ -920,6 +1030,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "taskActionFromPipelinePayload" in js
         assert "renderBrainstormTranscript" in js
         assert "renderWorkerLanes" in js
+        assert "renderIdeaGreenhouse" in js
+        assert "idea-greenhouse-lanes" in js
         assert "renderReviewQueue" in js
         assert "renderEvidenceStream" in js
         assert "renderMissionFeed" in js
@@ -1124,15 +1236,33 @@ def test_operating_layer_visual_qa_plan_covers_core_regression_contracts(
             "fallback_baseline": ".devflow/operating-layer/visual-qa/baseline/mobile.svg",
         },
     ]
-    assert {check["id"] for check in plan["checks"]} >= {
+    checks = {check["id"]: check for check in plan["checks"]}
+    assert set(checks) >= {
         "desktop-screenshot",
         "mobile-screenshot",
         "no-horizontal-overflow",
         "guided-first-viewport",
+        "idea-greenhouse-panel",
         "brainstorm-chat",
         "active-work-cards",
         "approval-states",
     }
+    greenhouse_check = checks["idea-greenhouse-panel"]
+    assert greenhouse_check["target"] == "#idea-greenhouse-section"
+    assert greenhouse_check["status"] == "pass"
+    assert "after Brainstorm and before Next Task" in greenhouse_check["detail"]
+    assert "capture form and lanes" in greenhouse_check["detail"]
+
+    playwright_assertions = {assertion["id"]: assertion for assertion in plan["playwright_assertions"]}
+    greenhouse_assertion = playwright_assertions["idea-greenhouse-panel"]
+    greenhouse_script = greenhouse_assertion["script"]
+    assert "#brainstorm-section" in greenhouse_script
+    assert "#idea-greenhouse-section" in greenhouse_script
+    assert "#orchestrator-section" in greenhouse_script
+    assert "#idea-capture-form" in greenhouse_script
+    assert "#idea-greenhouse-lanes" in greenhouse_script
+    assert "DOCUMENT_POSITION_FOLLOWING" in greenhouse_script
+
     # At least 3 checks should pass (screenshot, brainstorm, and any working contract)
     passing = sum(1 for c in plan["checks"] if c["status"] == "pass")
     assert passing >= 3, [c for c in plan["checks"] if c["status"] != "pass"]
@@ -1421,6 +1551,37 @@ def test_operating_layer_server_runs_approved_cleanup_preview(
         thread.join(timeout=5)
 
 
+def test_approved_idea_evidence_command_args_accepts_only_safe_concrete_commands() -> None:
+    accepted = [
+        (
+            'devflow idea park I-0001 --reason "not this week"',
+            ["idea", "park", "I-0001", "--reason", "not this week"],
+        ),
+        (
+            'devflow idea archive I-0001 --reason "duplicate"',
+            ["idea", "archive", "I-0001", "--reason", "duplicate"],
+        ),
+    ]
+    for command, expected_tail in accepted:
+        args = _approved_idea_evidence_command_args(command)
+
+        assert args[-5:] == expected_tail
+
+    rejected = [
+        "devflow idea park I-0001",
+        "devflow idea park I-0001 --reason",
+        "devflow idea park I-0001 --reason <reason>",
+        'devflow idea park I-0001 --reason ""',
+        'devflow idea park I-0001 --reason "not this week" --tag later',
+        'devflow idea archive I-0001 --reason "duplicate" extra',
+        "devflow idea classify I-0001 --maturity candidate --note <note>",
+        "devflow idea promote I-0001 --to task --rationale <rationale>",
+    ]
+    for command in rejected:
+        with pytest.raises(ValueError):
+            _approved_idea_evidence_command_args(command)
+
+
 def test_operating_layer_server_runs_approved_idea_capture(
     tmp_path: Path,
     monkeypatch,
@@ -1443,6 +1604,34 @@ def test_operating_layer_server_runs_approved_idea_capture(
         assert (idea_path / "idea.json").exists()
         assert "rough project brainstorms" in (idea_path / "raw.md").read_text(encoding="utf-8")
         assert not (tmp_path / ".devflow" / "tasks" / "task-0001").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_runs_approved_idea_park(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    capture_idea(tmp_path, "Save this for later.", title="Later idea")
+    command = 'devflow idea park I-0001 --reason "not this week"'
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_evidence_writing"
+        assert payload["exit_code"] == 0
+        assert "idea_id: I-0001" in payload["stdout"]
+        assert "status: parked" in payload["stdout"]
+        metadata = json.loads((tmp_path / ".devflow" / "ideas" / "I-0001" / "idea.json").read_text())
+        assert metadata["status"] == "parked"
+        assert metadata["park_reason"] == "not this week"
     finally:
         server.shutdown()
         server.server_close()

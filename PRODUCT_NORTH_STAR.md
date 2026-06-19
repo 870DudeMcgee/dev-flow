@@ -14,6 +14,7 @@ Dev-Flow owns the jobsite.
 
 ### Scope & Operating Model
 
+- [docs/operator-centered-mission.md](docs/operator-centered-mission.md) defines the human-centered reason Dev-Flow exists: external executive function for high creative throughput, visual state, bounded active work, and evidence-based progress.
 - [docs/devflow-operating-model.md](docs/devflow-operating-model.md) defines the role split between human, main chat/control-room agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](docs/read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.

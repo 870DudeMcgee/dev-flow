@@ -170,6 +170,28 @@ INDEX_HTML = """<!doctype html>
             </form>
           </section>
 
+          <!-- Idea Greenhouse -->
+          <section id="idea-greenhouse-section" class="panel idea-greenhouse-section" aria-label="Idea Greenhouse">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Idea Greenhouse</h2>
+                <p class="panel-subtitle">Capture fast. Sort later. Keep active work constrained.</p>
+              </div>
+              <output id="idea-greenhouse-status" class="status-pill muted" aria-live="polite">Ready</output>
+            </div>
+
+            <form id="idea-capture-form" class="idea-capture-form">
+              <textarea id="idea-capture-text" rows="3" placeholder="Dump the idea here. No organization required."></textarea>
+              <div class="composer-row">
+                <input id="idea-capture-title" type="text" placeholder="Optional title">
+                <button id="idea-capture-submit" class="btn btn-primary" type="submit">Capture idea</button>
+              </div>
+            </form>
+
+            <div id="idea-greenhouse-primary-action" class="idea-primary-action"></div>
+            <div id="idea-greenhouse-lanes" class="idea-greenhouse-lanes"></div>
+          </section>
+
           <!-- Next Task section (below brainstorm) -->
           <section id="orchestrator-section" class="panel orchestrator-section next-task-section" aria-label="Next Task">
             <div class="panel-header">

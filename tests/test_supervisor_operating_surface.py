@@ -134,6 +134,7 @@ def test_evidence_writing_commands_are_not_pure_read_only() -> None:
         "devflow idea capture rough idea",
         "devflow idea classify I-0001 --maturity goal_ready",
         "devflow idea promote I-0001 --to goal --rationale reviewed",
+        "devflow idea park I-0001 --reason later",
         "devflow idea archive I-0001 --reason superseded",
     ):
         classification = classify_supervisor_command(command)
@@ -228,6 +229,14 @@ def test_idea_read_only_commands_are_supervisor_safe() -> None:
         assert classification["supervisor_may_auto_run"] is True
 
 
+def test_idea_park_requires_evidence_writing_approval() -> None:
+    classification = classify_supervisor_command("devflow idea park I-0001 --reason 'not now'")
+
+    assert classification["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+    assert classification["requires_human_approval"] is True
+    assert classification["supervisor_may_auto_run"] is False
+
+
 def test_idea_bridge_dry_run_commands_are_supervisor_safe() -> None:
     for command in (
         "devflow idea create-goal I-0001 --dry-run",
@@ -309,6 +318,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow project connect-github" in payload["commands_requiring_human_approval"]
     assert "devflow task review-patch" in payload["approval_required_evidence_writing"]
     assert "devflow task patch-dry-run" in payload["approval_required_evidence_writing"]
+    assert "devflow idea park" in payload["approval_required_evidence_writing"]
     assert "devflow task verify" in payload["approval_required_worker_runtime"]
     assert "devflow task create" in payload["approval_required_task_state"]
     assert "devflow project create" in payload["approval_required_task_state"]

@@ -158,6 +158,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
 
         classification = classify_supervisor_command(command)
         approved_idea_capture = False
+        approved_idea_evidence = False
         approved_task_creation = False
         approved_task_close = False
         approved_cleanup_preview = False
@@ -170,6 +171,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         if classification["safety_class"] != PURE_READ_ONLY:
             try:
                 approved_idea_capture = _is_approved_idea_capture(payload, command, classification)
+                approved_idea_evidence = _is_approved_idea_evidence(payload, command, classification)
                 approved_task_creation = _is_approved_task_creation(payload, command, classification)
                 approved_task_close = _is_approved_task_close(payload, command, classification)
                 approved_cleanup_preview = _is_approved_cleanup_preview(payload, command, classification)
@@ -184,6 +186,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 return
         if classification["safety_class"] != PURE_READ_ONLY and not (
             approved_idea_capture
+            or approved_idea_evidence
             or approved_task_creation
             or approved_task_close
             or approved_cleanup_preview
@@ -213,6 +216,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 root = resolve_project_root(self.server.repo_root, project_id.strip()).root
             if approved_idea_capture:
                 args = _approved_idea_capture_command_args(command)
+            elif approved_idea_evidence:
+                args = _approved_idea_evidence_command_args(command)
             elif approved_task_creation:
                 args = _approved_task_creation_command_args(command)
             elif approved_task_close:
@@ -857,6 +862,22 @@ def _approved_idea_capture_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
+def _approved_idea_evidence_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) != 6 or normalized[1] != "idea" or normalized[2] not in {"park", "archive"}:
+        raise ValueError("only approved idea park/archive may run from the operating layer")
+    idea_id = normalized[3]
+    if not idea_id or idea_id.startswith("-"):
+        raise ValueError("approved idea park/archive requires an idea id")
+    if normalized[4] != "--reason":
+        raise ValueError("approved idea park/archive requires exactly --reason")
+    reason = normalized[5]
+    if _is_placeholder_text(reason, field="reason") or len(reason.strip()) < 3:
+        raise ValueError("approved idea park/archive requires a concrete reason")
+    return _devflow_command_args_from_tokens(tokens)
+
+
 def _approved_task_creation_command_args(command: str) -> list[str]:
     tokens = shlex.split(command)
     normalized = _normalize_devflow_command_tokens(tokens)
@@ -1143,6 +1164,16 @@ def _is_approved_idea_capture(payload: dict[str, object], command: str, classifi
         return False
     try:
         _approved_idea_capture_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_idea_evidence(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_EVIDENCE_WRITING:
+        return False
+    try:
+        _approved_idea_evidence_command_args(command)
     except ValueError:
         return False
     return _approval_payload_matches(payload, command)

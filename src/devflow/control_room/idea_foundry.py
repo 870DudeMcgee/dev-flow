@@ -10,7 +10,7 @@ from devflow.control_room.paths import ideas_dir
 from devflow.control_room.persistence import atomic_write_text, utc_now
 
 
-ALLOWED_IDEA_STATUSES = {"inbox", "classified", "promoted", "archived"}
+ALLOWED_IDEA_STATUSES = {"inbox", "classified", "promoted", "parked", "archived"}
 ALLOWED_IDEA_MATURITIES = {"spark", "concept", "candidate", "goal_ready", "task_ready"}
 ALLOWED_PROMOTION_TARGETS = {"goal", "task"}
 
@@ -50,6 +50,8 @@ def capture_idea(
         "classification_path": None,
         "promotion_path": None,
         "archive_reason": None,
+        "parked_at": None,
+        "park_reason": None,
         "created_goal_id": None,
         "created_goal_path": None,
         "created_task_id": None,
@@ -157,6 +159,20 @@ def archive_idea(root: Path, idea_id: str, *, reason: str) -> dict[str, Any]:
     return metadata
 
 
+def park_idea(root: Path, idea_id: str, *, reason: str) -> dict[str, Any]:
+    metadata = _get_idea(root, idea_id)
+    if metadata["status"] == "archived":
+        raise IdeaFoundryError(f"Archived idea cannot be parked: {idea_id}")
+    now = utc_now().isoformat()
+    metadata["status"] = "parked"
+    metadata["updated_at"] = now
+    metadata["parked_at"] = now
+    metadata["park_reason"] = reason.strip() or "No reason supplied."
+    _write_idea(root, metadata)
+    _append_idea_event(root, idea_id, "parked", {"parked_at": now, "reason": metadata["park_reason"]})
+    return metadata
+
+
 def record_idea_creation(
     root: Path,
     idea_id: str,
@@ -218,6 +234,24 @@ def render_idea_show(metadata: dict[str, Any], raw: str, classification: str, pr
     lines.extend(["", "classification:", classification.rstrip() or "(empty)"])
     lines.extend(["", "promotion:", promotion.rstrip() or "(empty)"])
     return "\n".join(lines) + "\n"
+
+
+def greenhouse_lane_for_idea(metadata: dict[str, Any]) -> str:
+    status = metadata.get("status")
+    maturity = metadata.get("maturity")
+    if status == "parked":
+        return "parked"
+    if status == "archived":
+        return "archived"
+    if status == "promoted":
+        return "promoted"
+    if status == "inbox":
+        return "raw"
+    if status == "classified" and maturity in {"spark", "concept"}:
+        return "clarify"
+    if status == "classified" and maturity in {"candidate", "goal_ready", "task_ready"}:
+        return "candidate"
+    return "raw"
 
 
 def _derive_title(text: str) -> str:

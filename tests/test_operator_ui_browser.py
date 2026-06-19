@@ -228,6 +228,46 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert _no_horizontal_overflow(page)
 
 
+def test_idea_greenhouse_lanes_wrap_at_mobile_width(browser_page: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page
+
+    page.set_viewport_size({"width": 390, "height": 900})
+    expect(page.locator("#idea-greenhouse-lanes")).to_be_visible()
+    expect(page.locator("#idea-greenhouse-lanes .idea-lane").first).to_be_visible()
+    metrics = page.evaluate(
+        """() => {
+          const lanes = document.querySelector("#idea-greenhouse-lanes");
+          if (!lanes) {
+            return { exists: false };
+          }
+          const laneRects = Array.from(lanes.children).map((element) => element.getBoundingClientRect());
+          const lanesRect = lanes.getBoundingClientRect();
+          const maxRight = Math.max(lanesRect.right, ...laneRects.map((rect) => rect.right));
+          const columns = getComputedStyle(lanes)
+            .gridTemplateColumns
+            .split(" ")
+            .filter((part) => part && part !== "none")
+            .length;
+          return {
+            exists: true,
+            lane_count: lanes.children.length,
+            column_count: columns,
+            max_right: Math.round(maxRight),
+            viewport_width: Math.round(window.innerWidth),
+            no_horizontal_overflow:
+              document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 &&
+              document.body.scrollWidth <= document.body.clientWidth + 1,
+          };
+        }"""
+    )
+
+    assert metrics["exists"] is True
+    assert metrics["lane_count"] >= 1
+    assert metrics["column_count"] == 1
+    assert metrics["max_right"] <= metrics["viewport_width"] + 1
+    assert metrics["no_horizontal_overflow"] is True
+
+
 def test_worker_row_selects_launchpad_and_runs_inline_shell_worker(
     browser_page: tuple[Page, list[str]],
     scratch_state: ScratchState,

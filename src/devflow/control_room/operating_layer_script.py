@@ -879,6 +879,197 @@ function setupBrainstormForm() {
   });
 }
 
+// === IDEA GREENHOUSE ===
+function setIdeaGreenhouseStatus(message, tone) {
+  const status = $('idea-greenhouse-status');
+  if (!status) return;
+  status.textContent = message || 'Ready';
+  status.className = 'status-pill muted';
+  if (tone === 'error') {
+    status.style.color = 'var(--red)';
+    status.style.borderColor = 'var(--red-soft)';
+    status.style.background = 'rgba(248, 81, 73, 0.10)';
+  } else if (tone === 'success') {
+    status.style.color = 'var(--accent)';
+    status.style.borderColor = 'var(--accent-soft)';
+    status.style.background = 'var(--accent-bg)';
+  } else {
+    status.style.color = '';
+    status.style.borderColor = '';
+    status.style.background = '';
+  }
+}
+
+function ideaIdFromStdout(stdout) {
+  const match = String(stdout || '').match(/\\bI-\\d{4}\\b/);
+  return match ? match[0] : null;
+}
+
+function ideaCommandHasPlaceholder(command) {
+  return /<[^>]+>/.test(String(command || ''));
+}
+
+function isBrowserRunnableIdeaAction(action) {
+  const command = String(action?.command || '').trim();
+  if (!command || ideaCommandHasPlaceholder(command)) return false;
+  if (command.startsWith('devflow idea capture ')) return false;
+  if (/^devflow idea (park|archive) I-\\d{4} --reason \\S/.test(command)) return true;
+  if (/^devflow idea show I-\\d{4}$/.test(command)) return true;
+  if (/^devflow idea create-(goal|task) I-\\d{4} --dry-run$/.test(command)) return true;
+  return false;
+}
+
+function renderIdeaAction(action) {
+  const command = String(action?.command || '').trim();
+  const label = action?.label || 'Open CLI';
+  if (!command) return `<span class="idea-card-command">${esc(label)}</span>`;
+  if (isBrowserRunnableIdeaAction(action)) {
+    return `<button class="btn btn-sm btn-secondary" type="button" data-command="${esc(command)}">${esc(label)}</button>`;
+  }
+  return `<code class="idea-card-command">${esc(shortCommand(command, 110))}</code>`;
+}
+
+function secondaryIdeaActions(card) {
+  const ideaId = String(card?.id || '').trim();
+  const lane = String(card?.lane || '').trim();
+  if (!/^I-\\d{4}$/.test(ideaId)) return [];
+  if (['raw', 'clarify', 'candidate'].includes(lane)) {
+    return [
+      {
+        label: 'Park',
+        command: `devflow idea park ${ideaId} --reason ${shellQuote('Parked from Idea Greenhouse.')}`,
+      },
+    ];
+  }
+  if (lane === 'parked') {
+    return [
+      {
+        label: 'Archive',
+        command: `devflow idea archive ${ideaId} --reason ${shellQuote('Archived from Idea Greenhouse.')}`,
+      },
+    ];
+  }
+  return [];
+}
+
+function renderIdeaPrimaryAction(action) {
+  const container = $('idea-greenhouse-primary-action');
+  if (!container) return;
+  if (!action?.label && !action?.command) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `<strong>${esc(action.label || 'Next idea action')}</strong>${renderIdeaAction(action)}`;
+}
+
+function renderIdeaCard(card) {
+  const action = card?.primary_action || card?.primaryAction || null;
+  const tags = Array.isArray(card?.tags) ? card.tags.slice(0, 3) : [];
+  const secondaryActions = secondaryIdeaActions(card);
+  const tagHtml = tags.length
+    ? `<div class="idea-card-meta">${tags.map(tag => `<span class="lane-badge lane-gray">${esc(tag)}</span>`).join(' ')}</div>`
+    : '';
+  const secondaryHtml = secondaryActions.length
+    ? `<div class="idea-card-secondary-actions">${secondaryActions.map(renderIdeaAction).join('')}</div>`
+    : '';
+  const updated = card?.updated_at ? ago(card.updated_at) : '';
+  const meta = [card?.status || 'unknown', card?.maturity || 'unknown', updated || 'updated unknown'].filter(Boolean).join(' · ');
+  return `<article class="idea-card ${esc(card?.lane || 'raw')}" data-inspect-idea="${esc(card?.id || '')}" tabindex="0" role="button" aria-label="Inspect idea ${esc(card?.id || '')}">
+    <header class="idea-card-head">
+      <span class="idea-card-id">${esc(card?.id || 'I-????')}</span>
+      <strong class="idea-card-title">${esc(card?.title || 'Untitled idea')}</strong>
+    </header>
+    <p class="idea-card-meta">${esc(meta)}</p>
+    ${tagHtml}
+    <p class="idea-card-action">${esc(action?.label || 'Inspect idea')}</p>
+    ${renderIdeaAction(action)}
+    ${secondaryHtml}
+  </article>`;
+}
+
+function renderIdeaGreenhouse(greenhouse) {
+  const lanesContainer = $('idea-greenhouse-lanes');
+  if (!lanesContainer) return;
+  if (!greenhouse) {
+    renderIdeaPrimaryAction(null);
+    lanesContainer.innerHTML = '';
+    return;
+  }
+  renderIdeaPrimaryAction(greenhouse.primary_next_action || null);
+  const lanes = Array.isArray(greenhouse.lanes) ? greenhouse.lanes : [];
+  lanesContainer.innerHTML = lanes.map(lane => {
+    const laneId = lane?.id || 'raw';
+    const cards = Array.isArray(lane?.cards) ? lane.cards : [];
+    const cardHtml = cards.length
+      ? cards.map(renderIdeaCard).join('')
+      : '<p class="idea-card-meta" style="padding:8px 10px;">No ideas in this lane.</p>';
+    return `<section class="idea-lane ${esc(laneId)}">
+      <div class="idea-lane-header">
+        <strong>${esc(lane?.label || sentenceCase(laneId))}</strong>
+        <output>${esc(lane?.count ?? cards.length)}</output>
+      </div>
+      ${cardHtml}
+    </section>`;
+  }).join('');
+}
+
+async function captureIdeaFromGreenhouse() {
+  const textInput = $('idea-capture-text');
+  const titleInput = $('idea-capture-title');
+  const submit = $('idea-capture-submit');
+  const text = String(textInput?.value || '').trim();
+  const title = String(titleInput?.value || '').trim();
+  if (!text) {
+    setIdeaGreenhouseStatus('Write the idea first.', 'error');
+    textInput?.focus();
+    return null;
+  }
+  const command = `devflow idea capture ${shellQuote(text)} --source operating-layer${title ? ` --title ${shellQuote(title)}` : ''} --tag greenhouse`;
+  const body = {
+    command,
+    human_approved: true,
+    approval_phrase: ACTION_APPROVAL_PHRASE,
+    approved_command: command,
+  };
+  if (selectedProjectId) body.project = selectedProjectId;
+  setIdeaGreenhouseStatus('Capturing...', 'neutral');
+  if (submit) submit.disabled = true;
+  try {
+    const resp = await fetch('/api/actions/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await resp.json();
+    const ok = resp.ok && payload?.executed && payload?.exit_code === 0;
+    if (!ok) {
+      const message = payload?.message || payload?.error || payload?.stderr || `Capture failed (${resp.status})`;
+      setIdeaGreenhouseStatus(shortCommand(message, 80), 'error');
+      return payload;
+    }
+    const ideaId = ideaIdFromStdout(payload.stdout);
+    if (textInput) textInput.value = '';
+    if (titleInput) titleInput.value = '';
+    setIdeaGreenhouseStatus(ideaId ? `Captured ${ideaId}` : 'Captured idea.', 'success');
+    await loadSnapshot(selectedProjectId);
+    return payload;
+  } catch(e) {
+    setIdeaGreenhouseStatus(shortCommand(e.message || 'Capture failed', 80), 'error');
+    return null;
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+function setupIdeaGreenhouse() {
+  const form = $('idea-capture-form');
+  if (!form) return;
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    captureIdeaFromGreenhouse();
+  });
+}
+
 // === PIPELINE ===
 let pipelineState = { hasTranscript: false, hasSpec: false, hasPlan: false, hasImplementation: false };
 
@@ -1581,10 +1772,73 @@ function taskCommandButtons(task) {
   return commands.join(' ');
 }
 
+function ideaCardsFromSnapshot() {
+  const lanes = snapshot?.idea_greenhouse?.lanes || [];
+  return lanes.flatMap(lane => Array.isArray(lane?.cards) ? lane.cards : []);
+}
+
+function findIdeaCard(ideaId) {
+  return ideaCardsFromSnapshot().find(card => card?.id === ideaId) || null;
+}
+
+function ideaDetailMetadataRows(metadata) {
+  const entries = Object.entries(metadata || {}).filter(([, value]) => value !== null && value !== undefined && value !== '');
+  if (!entries.length) return '<p class="idea-detail-muted">No metadata available.</p>';
+  return `<dl class="idea-detail-metadata-list">${entries.map(([key, value]) => {
+    const shown = Array.isArray(value) || typeof value === 'object'
+      ? JSON.stringify(value)
+      : String(value);
+    return `<div><dt>${esc(key)}</dt><dd>${esc(shortCommand(shown, 180))}</dd></div>`;
+  }).join('')}</dl>`;
+}
+
+function renderIdeaDetail(card) {
+  const action = card?.primary_action || card?.primaryAction || null;
+  const tags = Array.isArray(card?.tags) ? card.tags : [];
+  const evidencePaths = Array.isArray(card?.evidence_paths) ? card.evidence_paths : [];
+  const metadata = card?.metadata || {};
+  const actionCommand = String(action?.command || '').trim();
+  const updated = card?.updated_at ? ago(card.updated_at) : '';
+  return `<div class="focus-task-head idea-detail-head">
+      <span class="focus-task-id">${esc(card?.id || 'I-????')}</span>
+      <h2>${esc(card?.title || 'Untitled idea')}</h2>
+      <span class="focus-status lane-${esc(card?.lane || 'gray')}">${esc(sentenceCase(card?.lane || 'idea'))}</span>
+    </div>
+    <div class="focus-grid idea-detail-grid">
+      <div><span>Lane</span><strong>${esc(card?.lane || 'raw')}</strong></div>
+      <div><span>Status</span><strong>${esc(card?.status || 'unknown')}</strong></div>
+      <div><span>Maturity</span><strong>${esc(card?.maturity || 'unknown')}</strong></div>
+      <div><span>Source</span><strong>${esc(card?.source || 'unknown')}</strong></div>
+      <div><span>Updated</span><strong>${esc(updated || card?.updated_at || 'unknown')}</strong></div>
+      <div><span>Tags</span><strong>${tags.length ? tags.map(esc).join(', ') : '—'}</strong></div>
+    </div>
+    <div class="task-command-box idea-detail-next-action">
+      <label>Current next action</label>
+      <strong>${esc(action?.label || 'Inspect idea')}</strong>
+      ${actionCommand ? `<code>${esc(actionCommand)}</code>` : '<p>No command attached.</p>'}
+    </div>
+    <div class="focus-section idea-detail-evidence"><h3>Evidence paths</h3>
+      ${evidencePaths.length ? evidencePaths.map(path => `<code class="path-line">${esc(path)}</code>`).join('') : '<p class="idea-detail-muted">No evidence paths recorded.</p>'}
+    </div>
+    <div class="focus-section idea-detail-metadata"><h3>Raw metadata</h3>
+      ${ideaDetailMetadataRows(metadata)}
+      <pre>${esc(JSON.stringify(metadata, null, 2))}</pre>
+    </div>`;
+}
+
 function openFocus(type, id, opts) {
   const overlay = $('focus-overlay');
   const content = $('focus-content');
   if (!overlay || !content) return;
+  if (type === 'idea') {
+    const idea = findIdeaCard(id);
+    if (idea) {
+      selectedTaskId = null;
+      content.innerHTML = renderIdeaDetail(idea);
+      overlay.hidden = false;
+      return;
+    }
+  }
   selectedTaskId = id;
   const task = snapshot?.tasks?.find(t => t.id === id);
   if (task) {
@@ -1829,6 +2083,15 @@ function setupTaskSurfaceActions() {
       return;
     }
 
+    const ideaCard = e.target.closest('[data-inspect-idea]');
+    if (ideaCard && !e.target.closest('button,a,input,textarea,select,[data-command]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = ideaCard.dataset.inspectIdea;
+      if (id) openFocus('idea', id, {});
+      return;
+    }
+
     const shellButton = e.target.closest('[data-task-run-shell]');
     if (shellButton) {
       e.preventDefault();
@@ -1906,7 +2169,16 @@ function setupTaskSurfaceActions() {
       } catch(err) {
         renderActionResult({ executed: false, exit_code: null, error: err.message || 'Command failed' }, command);
       }
+      return;
     }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const ideaCard = e.target.closest?.('[data-inspect-idea]');
+    if (!ideaCard || !['Enter', ' '].includes(e.key)) return;
+    e.preventDefault();
+    const id = ideaCard.dataset.inspectIdea;
+    if (id) openFocus('idea', id, {});
   });
 }
 
@@ -1926,6 +2198,7 @@ function render() {
 
   // Brainstorm transcript is managed by the chat form, not the snapshot.
   // The first viewport consumes renderable presentation slices with snapshot fallbacks.
+  renderIdeaGreenhouse(snapshot?.idea_greenhouse || null);
   renderFirstViewport(buildFirstViewportPresentation(snapshot));
 }
 
@@ -2205,6 +2478,7 @@ function init() {
   setupModelSelector();
   setupBrainstormForm();
   setupBrainstormDefinitionOfDone();
+  setupIdeaGreenhouse();
   setupPipelineButtons();
   setupFilter();
   setupTaskSurfaceActions();

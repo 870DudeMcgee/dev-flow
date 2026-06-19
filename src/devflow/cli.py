@@ -4713,6 +4713,24 @@ def idea_create_task(
     typer.echo("verification_ran: no")
 
 
+@idea_app.command("park")
+def idea_park(
+    idea_id: str,
+    reason: str = typer.Option("No reason supplied.", "--reason", help="Why this idea is safe to revisit later."),
+) -> None:
+    """Park an idea without losing its evidence."""
+    try:
+        from devflow.control_room.idea_foundry import IdeaFoundryError, park_idea
+
+        item = park_idea(Path.cwd(), idea_id, reason=reason)
+    except IdeaFoundryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"idea_id: {item['id']}")
+    typer.echo(f"status: {item['status']}")
+    typer.echo("evidence_deleted: no")
+
+
 @idea_app.command("archive")
 def idea_archive(
     idea_id: str,

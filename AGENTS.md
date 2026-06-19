@@ -2,6 +2,8 @@
 
 Dev-Flow is a local-first control room for AI coding workers. It should automate as much routine work as it safely can while keeping task state, worker identity, evidence, verification, and promotion visible to the human operator.
 
+Dev-Flow's operator-centered mission is documented in [docs/operator-centered-mission.md](docs/operator-centered-mission.md). Read it when shaping product direction, UI flows, idea intake, worker orchestration, or any feature that affects cognitive load. The short version: Dev-Flow exists to help a highly creative, neurodivergent operator convert a flood of ideas into visible, prioritized, verified work. Preserve unlimited capture, constrain active execution, show state visually, provide the next action, and never claim completion without evidence.
+
 Local checkout note: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work.
 
 This file is the first-read instruction surface for agents. Use it to start useful work quickly. Do not turn every task into a repository archaeology pass.

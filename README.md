@@ -10,9 +10,9 @@ Workers are replaceable. The stable code-changing runtime supports shell workers
 
 ## Current Product Contract
 
-The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md).
+The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) and the operator-centered mission in [docs/operator-centered-mission.md](docs/operator-centered-mission.md).
 
-The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and gated promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts. Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/promote/create-goal/create-task/archive`.
+The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and gated promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts. Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/park/promote/create-goal/create-task/archive`, and Idea Greenhouse V1 projects those local records into the operating layer.
 
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`, `devflow freshness loop`, `devflow loop init/show/list/run`
@@ -22,7 +22,7 @@ The staged evidence path for proposal patches, patch review, patch dry-run previ
 - **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Policy & Evidence**: `devflow task orchestrate --plan-only`, `devflow worker validate-outcome`
 - **Knowledge Foundry**: `devflow knowledge capture`, `devflow knowledge list`, `devflow knowledge show`, `devflow knowledge promote`, `devflow knowledge reject`, `devflow knowledge search`
-- **Idea Foundry**: `devflow idea capture`, `devflow idea list`, `devflow idea show`, `devflow idea classify`, `devflow idea promote`, `devflow idea create-goal --dry-run`, `devflow idea create-goal`, `devflow idea create-task --dry-run`, `devflow idea create-task`, `devflow idea archive`
+- **Idea Foundry**: `devflow idea capture`, `devflow idea list`, `devflow idea show`, `devflow idea classify`, `devflow idea park`, `devflow idea promote`, `devflow idea create-goal --dry-run`, `devflow idea create-goal`, `devflow idea create-task --dry-run`, `devflow idea create-task`, `devflow idea archive`
 - **Git-Native Task Lane**: `devflow task create --git-worktree`, `devflow task finalize` (dry-run & `--commit`)
 - **Promotion & Merging**: `devflow task promote-preview`, `devflow task promote`
 - **Git Cleanup & Repair**: `devflow worktree list`, `devflow worktree prune`, `devflow branch list`, `devflow branch archive`, `devflow task cleanup`
@@ -38,7 +38,7 @@ devflow operating-layer serve --port 0      # print an ephemeral port
 devflow operating-layer serve --open        # open the default browser
 ```
 
-The browser should show the `Dev-Flow Operating Layer` page with a first viewport centered on `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. If a browser shows the old `devflow | Git-Native AI Control Plane` marketing/simulator page, it is stale or non-authoritative content; hard refresh or open a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`.
+The browser should show the `Dev-Flow Operating Layer` page with a first viewport centered on `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. Idea Greenhouse V1 is visible there as the current local intake UI over `.devflow/ideas/`; browser capture, parking, and archive actions use approval-gated Dev-Flow commands where supported. If a browser shows the old `devflow | Git-Native AI Control Plane` marketing/simulator page, it is stale or non-authoritative content; hard refresh or open a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`.
 
 The `public/` static files are not the active product UI. Use `src/devflow/control_room/operating_layer_html.py`, `operating_layer_styles.py`, `operating_layer_script.py`, and `devflow operating-layer serve` for browser UI work and validation.
 
@@ -149,7 +149,7 @@ Dev-Flow `0.1.0` is an unreleased local MVP for a trusted single-user machine. I
 - `devflow task orchestrate <task-id> --plan-only` writes orchestration policy evidence only. It records Git/DevMode guardrails, worker roles, permissions, stop conditions, and human-promotion requirements; it does not execute workers, call providers, apply patches, verify, promote, or mutate main.
 - `devflow worker validate-outcome <outcome.json>` validates worker outcome metadata only and writes validation evidence. It does not run agents, apply patches, verify code, promote tasks, route models, or mutate `task.yaml`.
 - Knowledge Foundry commands store proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never converts ideas into tasks or goals and is not ML training, hidden memory, vector search, or RAG.
-- Idea Foundry commands store local intake evidence under `.devflow/ideas/`. Idea promotion records a human decision only; explicit `devflow idea create-goal` and `devflow idea create-task` commands require that prior promotion evidence and create linked Dev-Flow state only. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
+- Idea Foundry commands store local intake evidence under `.devflow/ideas/`. Parking is non-destructive and preserves the raw evidence while marking the idea safe-later. Idea promotion records a human decision only; explicit `devflow idea create-goal` and `devflow idea create-task` commands require that prior promotion evidence and create linked Dev-Flow state only. Idea Greenhouse V1 does not run models, cluster ideas, or auto-create tasks/goals. Idea creation commands do not run workers, call providers, verify, promote code, commit, push, open pull requests, or route models.
 - `devflow dogfood run --suite production-readiness` runs a deterministic local production-readiness harness and writes scorecards under `.devflow/dogfood/`. It exercises existing task, orchestration, worker outcome, verification, knowledge, and operating-layer visual QA surfaces; it does not call providers, route models, promote, push, create a new dashboard surface, create a database, or train anything.
 - The shell worker is path-isolated, not sandboxed. A command can still use the local user's permissions, spawn processes until killed, read accessible files, use available network access, and consume local resources.
 - Default task workspaces are copy-based scratchpads. This keeps the MVP simple and is the default mode, but it can be slow for large repositories, does not use git merge machinery inside the workspace, and is recommended only for simple/experimental work.
@@ -260,6 +260,7 @@ Capture policy, validation, knowledge, and idea evidence without executing worke
 .venv/bin/python -m devflow.cli knowledge list
 .venv/bin/python -m devflow.cli idea capture "raw idea"
 .venv/bin/python -m devflow.cli idea list
+.venv/bin/python -m devflow.cli idea park <idea-id> --reason "safe later"
 .venv/bin/python -m devflow.cli idea create-goal <idea-id> --dry-run
 .venv/bin/python -m devflow.cli idea create-task <idea-id> --dry-run
 ```
