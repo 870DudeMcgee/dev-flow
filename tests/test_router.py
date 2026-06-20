@@ -7,9 +7,42 @@ from typer.testing import CliRunner
 
 from devflow.control_room.persistence import save_task, get_task
 from devflow.control_room.service import create_task
-from devflow.control_room.router import route_task, save_routing_decision
+from devflow.control_room.router import _useful_context_tokens_for_agent, route_task, save_routing_decision
 from devflow.control_room.agent_registry import AgentDefinition, AgentRegistry
 from devflow.cli import app
+
+
+def test_router_tier_fallbacks_do_not_neuter_context_to_8k_or_32k() -> None:
+    agent = AgentDefinition(
+        id="qwen-worker",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        workspace="isolated_task_workspace",
+        enabled=True,
+    )
+
+    assert _useful_context_tokens_for_agent(agent) == 262144
+
+
+def test_router_respects_explicit_reliable_context_tokens() -> None:
+    agent = AgentDefinition(
+        id="measured-worker",
+        provider="ollama",
+        model="measured:latest",
+        adapter="ollama_chat",
+        role="implementation_worker",
+        tier="strong_local",
+        default_mode="workspace_write",
+        workspace="isolated_task_workspace",
+        reliable_context_tokens=131072,
+        enabled=True,
+    )
+
+    assert _useful_context_tokens_for_agent(agent) == 131072
 
 
 def test_router_heuristics_and_saving(tmp_path: Path) -> None:

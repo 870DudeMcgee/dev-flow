@@ -6,6 +6,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from devflow.control_room.local_model_client import DEFAULT_LOCAL_NUM_CTX
 from devflow.control_room.agent_registry import (
     AgentDefinition,
     ProviderDefinition,
@@ -49,14 +50,14 @@ def _useful_context_tokens_for_agent(agent: AgentDefinition) -> int:
     if agent.reliable_context_tokens is not None:
         return agent.reliable_context_tokens
     ceilings = {
-        "tiny_local": 32768,
-        "fast_local": 16384,
-        "local": 32768,
-        "strong_local": 48000,
-        "premium_local": 65536,
-        "frontier": 128000,
+        "tiny_local": DEFAULT_LOCAL_NUM_CTX,
+        "fast_local": DEFAULT_LOCAL_NUM_CTX,
+        "local": DEFAULT_LOCAL_NUM_CTX,
+        "strong_local": DEFAULT_LOCAL_NUM_CTX,
+        "premium_local": DEFAULT_LOCAL_NUM_CTX,
+        "frontier": DEFAULT_LOCAL_NUM_CTX,
     }
-    return ceilings.get(agent.tier.lower(), 32768)
+    return ceilings.get(agent.tier.lower(), DEFAULT_LOCAL_NUM_CTX)
 
 
 def _tier_cost(tier: str) -> int:

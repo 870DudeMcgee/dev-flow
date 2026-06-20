@@ -205,10 +205,11 @@ def build_bounded_sources(
     source_pointers = []
     excluded_sources = list(context_budget_data.get("forbidden_context") or [])
 
-    # Let's list constants for caps
-    MAX_INCLUDED_SOURCE_CHARS = 4000
-    MAX_OUT_OF_SCOPE_CHARS = 2000
-    MAX_TOTAL_INCLUDED_SOURCE_CHARS = 12000
+    # Local Qwen-class workers are run with large contexts on the operator's machine.
+    # Keep safety bounds, but do not silently neuter task packets to ~8K tokens.
+    MAX_INCLUDED_SOURCE_CHARS = 64_000
+    MAX_OUT_OF_SCOPE_CHARS = 32_000
+    MAX_TOTAL_INCLUDED_SOURCE_CHARS = 200_000
     total_loaded_chars = 0
 
     # Let's check for slice.md

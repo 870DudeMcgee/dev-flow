@@ -3,6 +3,8 @@ import os
 import urllib.request
 import urllib.error
 
+DEFAULT_LOCAL_NUM_CTX = 262144
+
 class LocalModelClientError(Exception):
     def __init__(self, message: str, status_code: int | None = None, response_body: str | None = None):
         super().__init__(message)
@@ -55,13 +57,6 @@ class LocalModelClient:
     def chat_completion(self, system_prompt: str, user_prompt: str) -> dict:
         if not self.model_id:
             raise LocalModelClientError("LOCAL_MODEL_ID is missing. Please set the environment variable or pass --model.")
-
-        # Hard cap prompt lengths to protect the endpoint and memory
-        MAX_PROMPT_CHARS = 20000
-        if len(system_prompt) > MAX_PROMPT_CHARS:
-            system_prompt = system_prompt[:MAX_PROMPT_CHARS]
-        if len(user_prompt) > MAX_PROMPT_CHARS:
-            user_prompt = user_prompt[:MAX_PROMPT_CHARS]
 
         url = self.get_completions_url()
         payload = {
@@ -118,17 +113,11 @@ class LocalModelClient:
         user_prompt: str,
         *,
         think: bool = False,
-        num_ctx: int = 32768,
+        num_ctx: int = DEFAULT_LOCAL_NUM_CTX,
         num_predict: int = 1536,
     ) -> dict:
         if not self.model_id:
             raise LocalModelClientError("LOCAL_MODEL_ID is missing. Please set the environment variable or pass --model.")
-
-        max_prompt_chars = 40_000
-        if len(system_prompt) > max_prompt_chars:
-            system_prompt = system_prompt[:max_prompt_chars]
-        if len(user_prompt) > max_prompt_chars:
-            user_prompt = user_prompt[:max_prompt_chars]
 
         url = self.get_native_chat_url()
         payload = {
