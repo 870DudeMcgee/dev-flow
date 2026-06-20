@@ -11,6 +11,7 @@ from typing import Any, Literal
 import yaml
 
 from devflow.control_room.log_sanitizer import DEFAULT_LATEST_LOG_LINE_MAX_CHARS, sanitize_log_line
+from devflow.control_room.local_model_runtime_lock import LocalModelRuntimeLockError, local_model_runtime_lock
 from devflow.control_room.persistence import atomic_write_text
 from devflow.control_room.paths import relative_path, task_dir
 
@@ -236,20 +237,35 @@ def run_local_ollama_worker(
     )
     atomic_write_text(prompt_path, prompt)
 
+    lock_error_message: str | None = None
     try:
-        completed = subprocess.run(
-            command,
-            cwd=workspace,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        with local_model_runtime_lock(
+            root,
+            provider="ollama",
+            model=definition.model,
+            task_id=task_id,
+            worker_id=worker_name,
+            operation="local-ollama-worker",
+        ):
+            completed = subprocess.run(
+                command,
+                cwd=workspace,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
         stdout = _coerce_text(completed.stdout)
         stderr = _coerce_text(completed.stderr)
         exit_code = completed.returncode
         status: RunStatus = "success" if exit_code == 0 else "failed"
+    except LocalModelRuntimeLockError as exc:
+        lock_error_message = str(exc)
+        stdout = ""
+        stderr = f"{type(exc).__name__}: {exc}\n"
+        exit_code = 1
+        status = "failed"
     except subprocess.TimeoutExpired as exc:
         stdout = _coerce_text(exc.stdout or exc.output)
         stderr = _coerce_text(exc.stderr)
@@ -266,7 +282,7 @@ def run_local_ollama_worker(
     atomic_write_text(stderr_path, stderr)
     error_message = None
     if status == "failed":
-        error_message = f"Local worker '{worker_name}' exited with {exit_code}."
+        error_message = lock_error_message or f"Local worker '{worker_name}' exited with {exit_code}."
     elif status == "timeout":
         error_message = f"Local worker '{worker_name}' timed out after {timeout} seconds."
 

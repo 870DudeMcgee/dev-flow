@@ -13,6 +13,10 @@ from devflow.control_room.persistence import get_task, list_tasks
 from devflow.control_room.qwopus_evidence import qwopus_suggested_next_action
 from devflow.control_room.readiness import promotion_readiness_errors
 from devflow.control_room.task_closure import closure_next_action, read_closure
+from devflow.control_room.task_next_gate import (
+    DashboardActionAdapter,
+    resolve_task_next_gate,
+)
 
 
 class ProjectedNextAction(BaseModel):
@@ -164,6 +168,24 @@ class TaskStatusProjection(BaseModel):
     @property
     def dashboard_next_action(self) -> ProjectedNextAction:
         task_id = self.task.id
+
+        # Use canonical resolver for patch-gate states before falling through.
+        _root = self.task_path.parents[2]  # .devflow/tasks/<task> → repo root
+        try:
+            _canonical = resolve_task_next_gate(_root, task_id)
+        except Exception:
+            _canonical = None
+
+        gate_name = getattr(_canonical, "gate", "") if _canonical else ""
+        if gate_name in ("review_patch", "patch_dry_run", "apply_patch"):
+            adapter = DashboardActionAdapter.from_gate(_canonical)  # type: ignore[arg-type]
+            return ProjectedNextAction(
+                label=adapter["label"],
+                task_id=task_id,
+                command=adapter["command"],
+                reason=adapter["reason"],
+            )
+
         if self.is_blocked:
             return ProjectedNextAction(
                 label="Resolve blocker",

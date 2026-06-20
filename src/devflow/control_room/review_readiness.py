@@ -19,6 +19,9 @@ ReviewState = Literal[
     "needs_verification",
     "verification_failed",
     "needs_promotion_preview",
+    "review_patch",
+    "patch_dry_run",
+    "apply_patch",
     "blocked",
     "worker_failed",
     "running",
@@ -30,6 +33,9 @@ REVIEW_STATES: tuple[ReviewState, ...] = (
     "needs_verification",
     "verification_failed",
     "needs_promotion_preview",
+    "review_patch",
+    "patch_dry_run",
+    "apply_patch",
     "blocked",
     "worker_failed",
     "running",
@@ -233,6 +239,19 @@ def _classify_review_readiness(
     project_id: str | None,
 ) -> tuple[ReviewState, int, list[str], str]:
     task_id = projection.task.id
+
+    # Classify before generic checks: patch gates drive review state.
+    cmd = (projection.dashboard_next_action.command or "").lower()
+    if "review-patch" in cmd:
+        command = projection.dashboard_next_action.command or _task_command("review-patch", task_id, project_id)
+        return ("review_patch", 95, ["patch needs review"], _scope_task_command(command, project_id))
+    if "patch-dry-run" in cmd:
+        command = projection.dashboard_next_action.command or _task_command("patch-dry-run", task_id, project_id)
+        return ("patch_dry_run", 80, ["patch dry-run needed"], _scope_task_command(command, project_id))
+    if "apply-patch" in cmd:
+        command = projection.dashboard_next_action.command or _task_command("apply-patch", task_id, project_id)
+        return ("apply_patch", 75, ["patch needs application"], _scope_task_command(command, project_id))
+
     if not projection.is_active:
         return "not_ready", 0, ["task is not active"], _task_command("show", task_id, project_id)
     if projection.is_worker_failed or projection.is_timeout:

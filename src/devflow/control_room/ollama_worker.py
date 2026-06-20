@@ -16,6 +16,7 @@ from devflow.control_room.context_pack import build_context_pack
 from devflow.control_room.json_utils import repair_and_parse_json
 from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.models import WorkerInput, WorkerResult
+from devflow.control_room.local_model_runtime_lock import LocalModelRuntimeLockError, local_model_runtime_lock
 from devflow.control_room.ollama_generation import (
     OllamaPatchGenerationSettings,
     build_ollama_patch_request_payload,
@@ -229,9 +230,22 @@ class OllamaChatWorkerAdapter:
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                res_body = json.loads(response.read().decode("utf-8"))
-                run_meta["ollama_response"] = _ollama_response_metadata(res_body)
+            with local_model_runtime_lock(
+                worker_input.repo_root,
+                provider=provider_id,
+                model=model,
+                task_id=worker_input.task_id,
+                worker_id=evidence_agent_id,
+                operation=self.name,
+            ):
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    res_body = json.loads(response.read().decode("utf-8"))
+                    run_meta["ollama_response"] = _ollama_response_metadata(res_body)
+        except LocalModelRuntimeLockError as exc:
+            message = str(exc)
+            with worker_input.log_file.open("a", encoding="utf-8") as log:
+                log.write(f"{message}\n")
+            return finish(status="worker_failed", summary=message, exit_code=1)
         except urllib.error.HTTPError as exc:
             raw_error = _http_error_detail(exc)
             if _looks_like_missing_model(raw_error, model, exc.code):

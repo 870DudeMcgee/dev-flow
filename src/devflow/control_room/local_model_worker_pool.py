@@ -20,6 +20,7 @@ from devflow.control_room.local_model_client import (
     LocalModelClient,
     LocalModelClientError,
 )
+from devflow.control_room.local_model_runtime_lock import LocalModelRuntimeLockError, local_model_runtime_lock
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import get_task, utc_now
 from devflow.control_room.task_packet import build_agent_packet, render_task_packet_text
@@ -189,18 +190,26 @@ def run_local_model_profile(
     evidence_base_url = client.base_url
 
     try:
-        if _uses_native_ollama_chat(profile):
-            result = client.native_chat_completion(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                think=False,
-                num_ctx=GEMMA_NATIVE_NUM_CTX,
-                num_predict=GEMMA_NATIVE_NUM_PREDICT,
-            )
-            runtime = "local_model_client.native_ollama_chat"
-            evidence_base_url = client.get_native_chat_url()
-        else:
-            result = client.chat_completion(system_prompt=system_prompt, user_prompt=user_prompt)
+        with local_model_runtime_lock(
+            root,
+            provider=profile.provider,
+            model=profile.model,
+            task_id=task_id,
+            worker_id=profile.id,
+            operation=LOCAL_MODEL_WORKER_TYPE,
+        ):
+            if _uses_native_ollama_chat(profile):
+                result = client.native_chat_completion(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    think=False,
+                    num_ctx=GEMMA_NATIVE_NUM_CTX,
+                    num_predict=GEMMA_NATIVE_NUM_PREDICT,
+                )
+                runtime = "local_model_client.native_ollama_chat"
+                evidence_base_url = client.get_native_chat_url()
+            else:
+                result = client.chat_completion(system_prompt=system_prompt, user_prompt=user_prompt)
         raw_output = json.dumps(result.get("response", result), indent=2, sort_keys=True)
         response_text = _assistant_text(result.get("response", {}))
         if not response_text:
@@ -210,7 +219,7 @@ def run_local_model_profile(
         quality_score, quality_notes = _response_quality(profile, task_id=task.id, response_text=response_text)
         if quality_score is not None and quality_score < 0.75:
             status = "low_quality"
-    except (LocalModelClientError, LocalModelWorkerPoolError, ValueError) as exc:
+    except (LocalModelClientError, LocalModelWorkerPoolError, LocalModelRuntimeLockError, ValueError) as exc:
         raw_output = getattr(exc, "response_body", None) or str(exc)
         response_text = ""
         status = "failed"

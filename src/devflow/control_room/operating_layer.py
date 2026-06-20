@@ -20,6 +20,7 @@ from devflow.control_room.evidence_review_detail import EvidenceReviewDetail
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.idea_foundry import IdeaFoundryError, greenhouse_lane_for_idea, list_ideas
+from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
@@ -506,6 +507,7 @@ class OperatingLayerSnapshot(BaseModel):
     idea_greenhouse: OperatingLayerIdeaGreenhouse | None = None
     operator_readiness: OperatorReadinessSnapshot | None = None
     agent_catalog: dict[str, Any] = Field(default_factory=dict)
+    local_model_runtime: dict[str, Any] = Field(default_factory=dict)
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -592,6 +594,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         idea_greenhouse=idea_greenhouse,
         operator_readiness=dashboard.operator_readiness,
         agent_catalog=_agent_catalog_card(root, warnings),
+        local_model_runtime=list_local_model_runtime_status(root),
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )
@@ -1003,6 +1006,7 @@ def _review_loop_summary(
     promotion_desk: list[OperatingLayerPromotionCandidate],
     next_action: DashboardNextAction,
 ) -> OperatingLayerReviewLoop:
+    needs_review = [task for task in tasks if task.lane == "needs_review"]
     needs_verification = [task for task in tasks if task.lane == "needs_verification"]
     ready_to_promote = [task for task in tasks if task.lane == "ready_to_promote"]
     blocked_decisions = [
@@ -1021,6 +1025,9 @@ def _review_loop_summary(
     elif ready_to_promote:
         status = "ready_to_promote"
         headline = f"{len(ready_to_promote)} task{'s' if len(ready_to_promote) != 1 else ''} ready for browser approval"
+    elif needs_review:
+        status = "needs_review"
+        headline = f"{len(needs_review)} task{'s' if len(needs_review) != 1 else ''} need{'s' if len(needs_review) == 1 else ''} patch review"
     elif needs_verification:
         status = "needs_verification"
         headline = f"{len(needs_verification)} task{'s' if len(needs_verification) != 1 else ''} need{'s' if len(needs_verification) == 1 else ''} verification"
@@ -1031,10 +1038,13 @@ def _review_loop_summary(
     promotion_command = promotion_desk[0].command if promotion_desk else None
     blocked_command = blocked_decisions[0].command if status == "needs_human_decision" and blocked_decisions else None
     ready_command = ready_to_promote[0].next_action.command if ready_to_promote else None
+    review_command = needs_review[0].next_action.command if needs_review else None
     verification_command = needs_verification[0].next_action.command if needs_verification else None
     command = blocked_command
     if not command and status == "ready_to_promote":
         command = promotion_command or ready_command
+    if not command and status == "needs_review":
+        command = review_command
     if not command and status == "needs_verification":
         command = verification_command
     if not command:
@@ -1424,6 +1434,8 @@ def _lane_for(projection: TaskStatusProjection, *, review_state: str | None = No
         return "running"
     if projection.ready_to_promote:
         return "ready_to_promote"
+    if review_state in {"review_patch", "patch_dry_run", "apply_patch"}:
+        return "needs_review"
     if review_state == "needs_promotion_preview" and projection.is_verified:
         return "needs_review"
     if review_state == "needs_verification":

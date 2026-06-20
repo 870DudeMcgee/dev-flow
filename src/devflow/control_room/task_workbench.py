@@ -412,6 +412,8 @@ def _lane_for(projection: TaskStatusProjection, *, review_state: str | None = No
         return "running"
     if projection.ready_to_promote:
         return "ready_to_promote"
+    if review_state in {"review_patch", "patch_dry_run", "apply_patch"}:
+        return "needs_review"
     if review_state == "needs_promotion_preview" and projection.is_verified:
         return "needs_review"
     if review_state == "needs_verification":
@@ -1081,6 +1083,14 @@ def _task_controls(
     else:
         if next_action_command:
             commands.append((_intent_for_command(next_action_command), _label_for_command(next_action_command), next_action_command))
+        if projection.task.status == "created":
+            commands.append(
+                (
+                    "start_shell",
+                    "Start shell",
+                    _scope_task_command(f"devflow task run {task_id} --worker shell -- <command>", project_id),
+                )
+            )
         if projection.failed_verification:
             commands.append(
                 (
