@@ -278,7 +278,7 @@ def test_gemma_summarizer_prompt_requires_grounded_task_brief(
     assert captured_urls == ["http://127.0.0.1:11434/api/chat"]
     native_payload = captured_payloads[0]
     assert native_payload["think"] is False
-    assert native_payload["options"]["num_ctx"] >= 8192
+    assert native_payload["options"]["num_ctx"] == 262144
     assert native_payload["options"]["temperature"] == 0
     messages = native_payload["messages"]
     system_prompt = messages[0]["content"]

@@ -452,7 +452,7 @@ def test_gemma_patch_worker_uses_native_chat_with_explicit_generation_options(tm
     assert payload["think"] is False
     assert payload["format"] == "json"
     assert payload["options"]["temperature"] == 0.2
-    assert payload["options"]["num_ctx"] == 8192
+    assert payload["options"]["num_ctx"] == 262144
     assert payload["options"]["num_predict"] == 4096
     assert [message["role"] for message in payload["messages"]] == ["system", "user"]
 
@@ -460,7 +460,7 @@ def test_gemma_patch_worker_uses_native_chat_with_explicit_generation_options(tm
     run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
     assert run_json["request_endpoint"] == "/api/chat"
     assert run_json["request_payload_shape"] == "native_chat_messages"
-    assert run_json["request_options"] == {"num_ctx": 8192, "num_predict": 4096, "temperature": 0.2}
+    assert run_json["request_options"] == {"num_ctx": 262144, "num_predict": 4096, "temperature": 0.2}
     assert run_json["native_chat_think"] is False
     assert run_json["request_format"] == "json"
     assert run_json["ollama_response"]["done_reason"] == "stop"
@@ -511,13 +511,13 @@ def test_non_gemma_patch_worker_keeps_generate_endpoint_with_explicit_generation
     assert payload["model"] == "qwopus:latest"
     assert payload["format"] == "json"
     assert payload["stream"] is False
-    assert payload["options"] == {"num_ctx": 8192, "num_predict": 4096, "temperature": 0.2}
+    assert payload["options"] == {"num_ctx": 262144, "num_predict": 4096, "temperature": 0.2}
 
     agent_dir = tmp_path / ".devflow" / "tasks" / task.id / "agents" / "qwopus-implementer"
     run_json = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
     assert run_json["request_endpoint"] == "/api/generate"
     assert run_json["request_payload_shape"] == "generate_prompt_system"
-    assert run_json["request_options"] == {"num_ctx": 8192, "num_predict": 4096, "temperature": 0.2}
+    assert run_json["request_options"] == {"num_ctx": 262144, "num_predict": 4096, "temperature": 0.2}
 
 
 def test_ollama_worker_malformed_json_reports_length_truncation(tmp_path: Path) -> None:

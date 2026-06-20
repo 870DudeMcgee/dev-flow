@@ -169,7 +169,7 @@ def execute_model_audition(
     base_url: str | None = None,
     timeout_seconds: float | None = None,
     temperature: float | None = None,
-    max_packet_chars: int = 16_000,
+    max_packet_chars: int = 200_000,
     discovery_report: LocalDiscoveryReport | None = None,
     run_profile: Any | None = None,
 ) -> dict[str, Any]:

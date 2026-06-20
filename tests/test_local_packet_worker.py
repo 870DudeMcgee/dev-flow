@@ -417,6 +417,45 @@ def test_12_base_url_joining_is_safe() -> None:
     assert client4.get_completions_url() == "http://host/v1/chat/completions"
 
 
+def test_native_chat_default_uses_large_context_and_preserves_large_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_payload: dict = {}
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        request_data = req.data
+        assert isinstance(request_data, bytes)
+        captured_payload.update(json.loads(request_data.decode("utf-8")))
+        return MockResponse(json.dumps({"message": {"content": "ok"}, "done": True}).encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    client = LocalModelClient(base_url="http://127.0.0.1:11434/v1", model_id="qwen3.6-32b-256k:latest")
+    large_prompt = "A" * 60000
+
+    client.native_chat_completion("system", large_prompt)
+
+    assert captured_payload["options"]["num_ctx"] == 262144
+    assert captured_payload["messages"][1]["content"] == large_prompt
+
+
+def test_openai_compatible_client_preserves_large_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_payload: dict = {}
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        request_data = req.data
+        assert isinstance(request_data, bytes)
+        captured_payload.update(json.loads(request_data.decode("utf-8")))
+        return MockResponse(
+            json.dumps({"choices": [{"message": {"role": "assistant", "content": "ok"}}]}).encode("utf-8")
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    client = LocalModelClient(base_url="http://127.0.0.1:11434/v1", model_id="qwen3.6-32b-256k:latest")
+    large_prompt = "B" * 60000
+
+    client.chat_completion("system", large_prompt)
+
+    assert captured_payload["messages"][1]["content"] == large_prompt
+
+
 def test_regression_1_packet_excludes_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # 1. packet generation excludes .devflow/workspaces/**
     setup_temp_git_repo(tmp_path)
@@ -588,7 +627,6 @@ def test_regression_6_prompt_size_cap(tmp_path: Path, monkeypatch: pytest.Monkey
     run_dir = next(runs_dir.iterdir())
     prompt_text = (run_dir / "prompt.md").read_text(encoding="utf-8")
 
-    # Assert total loaded chars limit is enforced (under 20000 total prompt length)
-    assert len(prompt_text) < 20000
-    assert prompt_text.count("A") <= 4100
-    assert prompt_text.count("B") <= 2100
+    # Assert local packet generation does not silently neuter normal project context.
+    assert "A" * 10000 in prompt_text
+    assert "B" * 5000 in prompt_text

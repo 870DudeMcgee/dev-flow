@@ -2675,7 +2675,7 @@ def task_local_review(
     timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1, help="Timeout in seconds."),
     temperature: float | None = typer.Option(None, "--temperature", min=0.0, max=2.0, help="Temperature for local model."),
     save_prompt: bool = typer.Option(True, "--save-prompt", help="Save prompt.md under the run folder."),
-    max_packet_chars: int = typer.Option(16000, "--max-packet-chars", help="Capping size of rendered task packet text."),
+    max_packet_chars: int = typer.Option(200_000, "--max-packet-chars", help="Capping size of rendered task packet text."),
 ) -> None:
     """Run an advisory local model packet review for a task."""
     from devflow.control_room.local_packet_worker import run_local_packet_review
@@ -5341,7 +5341,7 @@ def agent_advise(
     job: str = typer.Option(..., "--job", help="Advisory job: gap-analysis, review, or status."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Build the bounded prompt plan without calling OpenRouter."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
-    max_prompt_chars: int = typer.Option(20_000, "--max-prompt-chars", min=1),
+    max_prompt_chars: int = typer.Option(200_000, "--max-prompt-chars", min=1),
 ) -> None:
     """Write bounded remote advisory evidence through an OpenRouter profile."""
     from devflow.control_room.openrouter_agent import (
@@ -5398,7 +5398,7 @@ def agent_propose_patch(
     task_id: str = typer.Option(..., "--task", help="Dev-Flow task id for explicit patch proposal evidence."),
     profile_id: str = typer.Option(..., "--profile", help="Patch-proposal profile id."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
-    max_prompt_chars: int = typer.Option(24_000, "--max-prompt-chars", min=1),
+    max_prompt_chars: int = typer.Option(200_000, "--max-prompt-chars", min=1),
 ) -> None:
     """Write explicit remote patch proposal evidence without applying it."""
     from devflow.control_room.openrouter_agent import OpenRouterAgentError, run_patch_proposal
@@ -5487,7 +5487,7 @@ def agent_run(
     base_url: str | None = typer.Option(None, "--base-url", help="Override local OpenAI-compatible base URL for worker-pool runs."),
     timeout_seconds: int | None = typer.Option(None, "--timeout-seconds", min=1, help="Override local model timeout seconds."),
     temperature: float | None = typer.Option(None, "--temperature", min=0.0, max=2.0, help="Local model temperature."),
-    max_packet_chars: int = typer.Option(16000, "--max-packet-chars", help="Capping size of rendered task packet text."),
+    max_packet_chars: int = typer.Option(200_000, "--max-packet-chars", help="Capping size of rendered task packet text."),
     prompt: str | None = typer.Option(None, "--prompt"),
     prompt_file: str | None = typer.Option(None, "--prompt-file"),
     stdin: bool = typer.Option(False, "--stdin"),

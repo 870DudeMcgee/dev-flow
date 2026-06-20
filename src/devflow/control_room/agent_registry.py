@@ -961,9 +961,9 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             "weight_class": "heavy",
             "secondary_roles": ["strict-reviewer", "final-local-judge", "ux-spec-verifier", "multimodal-artifact-reviewer"],
             "purpose": "Provide strict local final review and goal-satisfaction judgment from bounded task packets.",
-            "use_caution": ["Use as a reviewer/judge, not a default implementation worker; tuned alias constrains context to reduce local memory pressure."],
+            "use_caution": ["Use as a reviewer/judge, not a default implementation worker; tuned alias should preserve the operator's large local context window."],
             "required_verification_command": "ollama show gemma4-review:latest",
-            "manifest_notes": ["Mac Studio dense 31B Gemma reviewer/judge via local gemma4-review:latest alias from gemma4:31b with num_ctx 32768."],
+            "manifest_notes": ["Mac Studio dense 31B Gemma reviewer/judge via local gemma4-review:latest alias from gemma4:31b with num_ctx 262144."],
             "hermes_delegable": True,
         },
     ]

@@ -15,7 +15,11 @@ from devflow.control_room.agent_registry import (
     load_provider_registry,
 )
 from devflow.control_room.agent_runtime import agent_runtime_contract, resolve_agent_runtime_definition
-from devflow.control_room.local_model_client import LocalModelClient, LocalModelClientError
+from devflow.control_room.local_model_client import (
+    DEFAULT_LOCAL_NUM_CTX,
+    LocalModelClient,
+    LocalModelClientError,
+)
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import get_task, utc_now
 from devflow.control_room.task_packet import build_agent_packet, render_task_packet_text
@@ -25,8 +29,9 @@ from devflow.control_room.worker_evidence import expected_worker_evidence_output
 PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
 LOCAL_MODEL_WORKER_TYPE = "local_model_worker_pool"
 GEMMA_NATIVE_PROFILE_IDS = {"local-gemma4-summarizer"}
-GEMMA_NATIVE_NUM_CTX = 32768
+GEMMA_NATIVE_NUM_CTX = DEFAULT_LOCAL_NUM_CTX
 GEMMA_NATIVE_NUM_PREDICT = 1536
+DEFAULT_LOCAL_PACKET_MAX_CHARS = 200_000
 
 
 class LocalModelWorkerPoolError(ValueError):
@@ -104,7 +109,7 @@ def dry_run_local_model_profile(
     root: Path,
     task_id: str,
     profile_id: str,
-    max_packet_chars: int = 16_000,
+    max_packet_chars: int = DEFAULT_LOCAL_PACKET_MAX_CHARS,
 ) -> dict[str, Any]:
     root = root.resolve()
     profile, provider_base_url, timeout_seconds = _load_runnable_profile(root, profile_id)
@@ -160,7 +165,7 @@ def run_local_model_profile(
     base_url: str | None = None,
     timeout_seconds: float | None = None,
     temperature: float | None = None,
-    max_packet_chars: int = 16_000,
+    max_packet_chars: int = DEFAULT_LOCAL_PACKET_MAX_CHARS,
     max_raw_output_chars: int = 200_000,
 ) -> dict[str, Any]:
     root = root.resolve()
@@ -318,7 +323,7 @@ def _build_packet_text(
         raise LocalModelWorkerPoolError(str(exc)) from exc
     packet_text = _render_compact_evidence_packet(packet) if _uses_compact_packet(profile) else render_task_packet_text(packet)
     if max_packet_chars < 1:
-        max_packet_chars = 16_000
+        max_packet_chars = DEFAULT_LOCAL_PACKET_MAX_CHARS
     if len(packet_text) <= max_packet_chars:
         return packet_text, False
     suffix = f"\n\n[packet capped at {max_packet_chars} characters]\n"

@@ -793,7 +793,7 @@ def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_
     assert gemma_dense.machine_class == "mac_studio"
     assert gemma_dense.model_role_name == "gemma-dense-judge"
     assert gemma_dense.required_verification_command == "ollama show gemma4-review:latest"
-    assert "num_ctx 32768" in " ".join(gemma_dense.manifest_notes)
+    assert "num_ctx 262144" in " ".join(gemma_dense.manifest_notes)
 
 
 def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_runtime(tmp_path: Path) -> None:

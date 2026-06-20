@@ -42,9 +42,10 @@ PATCH_MAX_TOKENS = 2048
 PATCH_REASONING_EFFORT = "minimal"
 PATCH_PROMPT_MODE_ENV = "DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE"
 PATCH_PROMPT_MODES = {"standard", "minimal"}
-MINIMAL_PATCH_SNIPPET_MAX_FILES = 3
-MINIMAL_PATCH_SNIPPET_MAX_CHARS_PER_FILE = 2_500
-MINIMAL_PATCH_SNIPPET_MAX_CHARS_TOTAL = 4_500
+DEFAULT_AGENT_PROMPT_MAX_CHARS = 200_000
+MINIMAL_PATCH_SNIPPET_MAX_FILES = 6
+MINIMAL_PATCH_SNIPPET_MAX_CHARS_PER_FILE = 16_000
+MINIMAL_PATCH_SNIPPET_MAX_CHARS_TOTAL = 80_000
 
 
 class OpenRouterAgentError(ValueError):
@@ -57,7 +58,7 @@ def dry_run_advice(
     profile_id: str,
     job: str,
     task_id: str | None = None,
-    max_prompt_chars: int = 20_000,
+    max_prompt_chars: int = DEFAULT_AGENT_PROMPT_MAX_CHARS,
 ) -> dict[str, Any]:
     root = root.resolve()
     profile, provider = _load_advisory_profile(root, profile_id)
@@ -91,7 +92,7 @@ def run_advice(
     profile_id: str,
     job: str,
     task_id: str | None = None,
-    max_prompt_chars: int = 20_000,
+    max_prompt_chars: int = DEFAULT_AGENT_PROMPT_MAX_CHARS,
     max_response_chars: int = 200_000,
 ) -> dict[str, Any]:
     root = root.resolve()
@@ -192,7 +193,7 @@ def run_patch_proposal(
     root: Path,
     task_id: str,
     profile_id: str,
-    max_prompt_chars: int = 24_000,
+    max_prompt_chars: int = DEFAULT_AGENT_PROMPT_MAX_CHARS,
     max_response_chars: int = 240_000,
 ) -> dict[str, Any]:
     root = root.resolve()
@@ -597,8 +598,8 @@ def _build_patch_context_excerpt(root: Path, task_id: str) -> dict[str, Any]:
     sources_metadata = context_pack.get("sources_metadata") if isinstance(context_pack, dict) else []
     included_sources: list[dict[str, Any]] = []
     total_chars = 0
-    max_total_chars = 16_000
-    max_source_chars = 6_000
+    max_total_chars = 120_000
+    max_source_chars = 64_000
 
     if isinstance(sources_metadata, list):
         for source in sources_metadata:
@@ -662,9 +663,9 @@ def _patch_retry_prompt(base_prompt: str, *, error: str, previous_content: str) 
         "Return corrected JSON only, with a structurally valid unified diff. "
         "Do not change the requested scope. Recount every hunk header against the diff body before returning.\n\n"
         "Previous JSON content:\n"
-        f"{_cap_text(previous_content, 12_000)}\n"
+        f"{_cap_text(previous_content, 64_000)}\n"
     )
-    return _cap_prompt(base_prompt + retry_context, 48_000)[0]
+    return _cap_prompt(base_prompt + retry_context, DEFAULT_AGENT_PROMPT_MAX_CHARS)[0]
 
 
 def _patch_workspace_validation_error(root: Path, task: TaskRecord, diff_text: str) -> str | None:
@@ -1066,7 +1067,7 @@ def _safety_flags() -> dict[str, bool]:
 
 def _cap_prompt(prompt: str, max_chars: int) -> tuple[str, bool]:
     if max_chars < 1:
-        max_chars = 20_000
+        max_chars = DEFAULT_AGENT_PROMPT_MAX_CHARS
     if len(prompt) <= max_chars:
         return prompt, False
     suffix = f"\n\n[prompt capped at {max_chars} characters]\n"

@@ -14,7 +14,7 @@ def run_local_packet_review(
     timeout_seconds: float | None = None,
     temperature: float | None = None,
     save_prompt: bool = True,
-    max_packet_chars: int = 16000,
+    max_packet_chars: int = 200_000,
     root: Path | None = None,
 ) -> dict:
     repo_root = (root or Path.cwd()).resolve()

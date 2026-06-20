@@ -103,7 +103,7 @@ Worker-pool profiles include model allocation metadata for Josh's heterogeneous 
 
 - `mac_mini`: small utility/control-loop workers such as `gemma4:latest`, `qwen2.5-coder:7b-instruct`, and `qwen2.5-coder:1.5b`.
 - `either`: configurable medium workers such as `qwen2.5-coder:14b`.
-- `mac_studio`: heavy local reasoning, implementation, and review workers such as `qwopus:latest`, `qwen3.6:latest`, `qwen2.5-coder:32b-instruct`, and `gemma4-review:latest` (a tuned `gemma4:31b` review alias with `num_ctx 32768`).
+- `mac_studio`: heavy local reasoning, implementation, and review workers such as `qwopus:latest`, `qwen3.6:latest`, `qwen2.5-coder:32b-instruct`, and `gemma4-review:latest` (a tuned `gemma4:31b` review alias that should preserve the operator's large local context window, e.g. `num_ctx 262144` on capable machines).
 
 Model names are starter assumptions, not proof. Prefer actual manifests:
 
