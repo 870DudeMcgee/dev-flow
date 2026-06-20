@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.goals import goal_dir
+from devflow.control_room.task_packet import MAX_INCLUDED_SOURCE_CHARS
 from tests.helpers import setup_temp_git_repo
 
 
@@ -169,9 +170,9 @@ def test_7_packet_caps_large_prd_content(tmp_path: Path, monkeypatch: pytest.Mon
     runner = CliRunner()
     runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
     
-    # Overwrite prd.md with a very large text
+    # Overwrite prd.md with text that exceeds the production packet cap.
     prd_path = goal_dir(tmp_path, "G-0001") / "prd.md"
-    large_text = "# PRD\n" + ("A" * 5000) + "\nDISTINCTIVE_TAIL"
+    large_text = "# PRD\n" + ("A" * (MAX_INCLUDED_SOURCE_CHARS + 1000)) + "\nDISTINCTIVE_TAIL"
     prd_path.write_text(large_text, encoding="utf-8")
 
     runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0001"])
@@ -184,10 +185,10 @@ def test_7_packet_caps_large_prd_content(tmp_path: Path, monkeypatch: pytest.Mon
     prd_summary = next(item for item in included if "prd.md" in item["source"])
     
     assert prd_summary["truncated"] is True
-    assert prd_summary["original_chars"] > 4000
-    assert prd_summary["included_chars"] == 4000
+    assert prd_summary["original_chars"] > MAX_INCLUDED_SOURCE_CHARS
+    assert prd_summary["included_chars"] == MAX_INCLUDED_SOURCE_CHARS
     assert "DISTINCTIVE_TAIL" not in prd_summary["content"]
-    assert len(prd_summary["content"]) <= 4000
+    assert len(prd_summary["content"]) <= MAX_INCLUDED_SOURCE_CHARS
 
 
 def test_8_preview_is_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

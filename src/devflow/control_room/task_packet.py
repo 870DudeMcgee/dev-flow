@@ -27,6 +27,12 @@ DOCS_POLISH_ANTI_PLACEHOLDER_INSTRUCTION = (
     "over creating placeholder docs."
 )
 
+# Local Qwen-class workers are run with large contexts on the operator's machine.
+# Keep safety bounds, but do not silently neuter task packets to ~8K tokens.
+MAX_INCLUDED_SOURCE_CHARS = 64_000
+MAX_OUT_OF_SCOPE_CHARS = 32_000
+MAX_TOTAL_INCLUDED_SOURCE_CHARS = 200_000
+
 
 class TaskPacketLimits(BaseModel):
     recent_events_limit: int = Field(default=20, ge=0)
@@ -205,11 +211,6 @@ def build_bounded_sources(
     source_pointers = []
     excluded_sources = list(context_budget_data.get("forbidden_context") or [])
 
-    # Local Qwen-class workers are run with large contexts on the operator's machine.
-    # Keep safety bounds, but do not silently neuter task packets to ~8K tokens.
-    MAX_INCLUDED_SOURCE_CHARS = 64_000
-    MAX_OUT_OF_SCOPE_CHARS = 32_000
-    MAX_TOTAL_INCLUDED_SOURCE_CHARS = 200_000
     total_loaded_chars = 0
 
     # Let's check for slice.md
