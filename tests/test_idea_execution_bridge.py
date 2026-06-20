@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+from devflow.control_room.brainstorm import start_brainstorm_from_idea
 from devflow.control_room.idea_execution_bridge import (
     IdeaExecutionBridgeError,
     create_goal_from_idea,
@@ -109,6 +110,7 @@ def test_create_goal_from_promoted_idea_consumes_scaffold_evidence(tmp_path: Pat
 
 def test_create_task_from_promoted_idea_creates_task_without_running_worker(tmp_path: Path) -> None:
     idea_id = _promoted_task_idea(tmp_path)
+    brainstorm = start_brainstorm_from_idea(tmp_path, idea_id)
 
     created = create_task_from_idea(tmp_path, idea_id)
 
@@ -121,12 +123,18 @@ def test_create_task_from_promoted_idea_creates_task_without_running_worker(tmp_
     assert link["idea_id"] == idea_id
     assert link["promotion_target"] == "task"
     assert link["created_from_idea"] is True
+    assert link["source_brainstorm_session_id"] == brainstorm["session_id"]
+    assert link["source_brainstorm_session_path"] == f".devflow/brainstorms/{brainstorm['session_id']}"
+    assert link["brainstorm_session_ids"] == [brainstorm["session_id"]]
 
     task_yaml = yaml.safe_load((task_dir / "task.yaml").read_text(encoding="utf-8"))
     assert task_yaml["status"] == "created"
     assert task_yaml["verification_status"] == "not_run"
     assert (task_dir / "logs" / "worker.log").read_text(encoding="utf-8") == ""
     assert (task_dir / "logs" / "verify.log").read_text(encoding="utf-8") == ""
+    assert f"source_brainstorm_session_id: {brainstorm['session_id']}" in (task_dir / "idea.md").read_text(
+        encoding="utf-8"
+    )
 
     metadata, _, _, _ = show_idea(tmp_path, idea_id)
     assert metadata["created_task_id"] == "task-0001"

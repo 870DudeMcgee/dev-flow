@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from devflow.control_room.brainstorm import (
     BrainstormError,
     escalate_brainstorm_session,
     run_brainstorm_message,
+    start_brainstorm_from_idea,
 )
 from devflow.control_room.brainstorm_pipeline import load_brainstorm_pipeline_detail
 from devflow.control_room.builder_judge_loop import (
@@ -129,6 +131,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         if request.path == "/api/brainstorm/escalate":
             self._handle_brainstorm_escalation()
             return
+        if request.path == "/api/brainstorm/start-from-idea":
+            self._handle_start_from_idea()
+            return
         if request.path == "/api/builder-judge/start":
             self._handle_builder_judge_start()
             return
@@ -165,6 +170,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         approved_shell_worker_run = False
         approved_verification = False
         approved_promotion = False
+        approved_idea_classify = False
         approved_agent_add_provider = False
         approved_agent_add_model = False
         approved_agent_propose_patch = False
@@ -173,6 +179,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 approved_idea_capture = _is_approved_idea_capture(payload, command, classification)
                 approved_idea_evidence = _is_approved_idea_evidence(payload, command, classification)
                 approved_task_creation = _is_approved_task_creation(payload, command, classification)
+                approved_idea_classify = _is_approved_idea_classify(payload, command, classification)
                 approved_task_close = _is_approved_task_close(payload, command, classification)
                 approved_cleanup_preview = _is_approved_cleanup_preview(payload, command, classification)
                 approved_shell_worker_run = _is_approved_shell_worker_run(payload, command, classification)
@@ -193,6 +200,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             or approved_shell_worker_run
             or approved_verification
             or approved_promotion
+            or approved_idea_classify
             or approved_agent_add_provider
             or approved_agent_add_model
             or approved_agent_propose_patch
@@ -220,6 +228,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 args = _approved_idea_evidence_command_args(command)
             elif approved_task_creation:
                 args = _approved_task_creation_command_args(command)
+            elif approved_idea_classify:
+                args = _approved_idea_classify_command_args(command)
             elif approved_task_close:
                 args = _approved_task_close_command_args(command)
             elif approved_cleanup_preview:
@@ -530,6 +540,27 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 definition_of_done=definition_of_done,
                 profile_id=profile_id, use_model=use_model,
             )
+        except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_start_from_idea(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self.server.repo_root
+            idea_id_raw = payload.get("idea_id")
+            if not isinstance(idea_id_raw, str):
+                raise BrainstormError("idea_id is required and must be a string")
+            idea_id = idea_id_raw.strip().upper()
+            if not re.fullmatch(r"I-[0-9]{4}", idea_id):
+                raise BrainstormError(f"idea_id must match I-NNNN pattern, got: {idea_id_raw!r}")
+            profile_id = payload.get("profile_id")
+            if isinstance(profile_id, str) and not profile_id.strip():
+                profile_id = None
+            result = start_brainstorm_from_idea(root, idea_id)
+            if result.get("status") == "reuse":
+                result["session_id"] = result["session_id"]  # keep original existing name
         except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
@@ -878,6 +909,30 @@ def _approved_idea_evidence_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
+def _approved_idea_classify_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 6 or normalized[1] != "idea" or normalized[2] != "classify":
+        raise ValueError("only approved idea classify may run from the operating layer")
+    idea_id = normalized[3]
+    if not idea_id or not re.fullmatch(r"I-\d{4}", idea_id):
+        raise ValueError("approved idea classify requires a valid idea id (I-0000)")
+    values = _parse_exact_options(
+        normalized[4:],
+        value_options={"--maturity", "--note", "--tag"},
+        flags=set(),
+        command_label="approved idea classify",
+    )
+    maturity_value = values.get("--maturity", "")
+    allowed_maturities = {"spark", "concept", "candidate", "goal_ready", "task_ready"}
+    if maturity_value not in allowed_maturities:
+        raise ValueError(f"approved idea classify requires one of: {', '.join(sorted(allowed_maturities))}")
+    note_value = values.get("--note", "")
+    if _is_placeholder_text(note_value, field="note") or len(note_value.strip()) < 1:
+        raise ValueError("approved idea classify requires a concrete (non-empty, non-placeholder) note")
+    return _devflow_command_args_from_tokens(tokens)
+
+
 def _approved_task_creation_command_args(command: str) -> list[str]:
     tokens = shlex.split(command)
     normalized = _normalize_devflow_command_tokens(tokens)
@@ -1164,6 +1219,16 @@ def _is_approved_idea_capture(payload: dict[str, object], command: str, classifi
         return False
     try:
         _approved_idea_capture_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_idea_classify(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_EVIDENCE_WRITING:
+        return False
+    try:
+        _approved_idea_classify_command_args(command)
     except ValueError:
         return False
     return _approval_payload_matches(payload, command)

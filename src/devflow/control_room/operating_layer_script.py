@@ -1792,6 +1792,44 @@ function ideaDetailMetadataRows(metadata) {
   }).join('')}</dl>`;
 }
 
+function renderIdeaClassifyForm(card) {
+  const ideaId = String(card?.id || '').trim();
+  if (!/^I-[0-9]{4}$/.test(ideaId)) return '';
+  return `<div class="focus-section idea-detail-classify-section"><h3 class="idea-classify-title">Classify this idea</h3>
+    <div id="idea-classify-status" class="idea-detail-status idea-detail-status-neutral" aria-live="polite"></div>
+    <div class="idea-classify-row">
+      <label for="idea-classify-maturity-${ideaId}">Maturity</label>
+      <select class="idea-classify-select" data-idea-classify="maturity" id="idea-classify-maturity-${ideaId}">
+        <option value="">Choose maturity...</option>
+        <option value="spark">Spark — vague or unresolved</option>
+        <option value="concept">Concept — defined direction</option>
+        <option value="candidate">Candidate — concrete, actionable</option>
+        <option value="goal_ready">Goal Ready — scoped for a goal</option>
+        <option value="task_ready">Task Ready — ready to create task</option>
+      </select>
+    </div>
+    <label for="idea-classify-note-${ideaId}">Classification note (required)</label>
+    <textarea class="idea-classify-note" data-idea-classify="note" id="idea-classify-note-${ideaId}" placeholder="Why this maturity? What did you observe?" rows="3"></textarea>
+    <button class="btn btn-primary" type="button" data-idea-classify-submit="${ideaId}">Apply classification</button>
+  </div>`;
+}
+
+function renderIdeaParkArchiveForm(card) {
+  const ideaId = String(card?.id || '').trim();
+  if (!/^I-[0-9]{4}$/.test(ideaId)) return '';
+  const lane = String(card?.lane || '').trim();
+  const isParkable = ['raw', 'clarify', 'candidate'].includes(lane);
+  const isArchivable = lane === 'parked';
+  if (!isParkable && !isArchivable) return '';
+  const actionVerb = isParkable ? 'Park' : 'Archive';
+  return `<div class="focus-section idea-detail-${isParkable ? 'park' : 'archive'}-section"><h3 class="idea-archive-title">${actionVerb} this idea</h3>
+    <div id="idea-${isParkable ? 'park' : 'archive'}-status" class="idea-detail-status idea-detail-status-neutral" aria-live="polite"></div>
+    <label for="idea-${isParkable ? 'park' : 'archive'}-reason-${ideaId}">Reason (required, at least 3 characters)</label>
+    <textarea class="idea-archive-reason" data-idea-${isParkable ? 'park' : 'archive'}="reason" id="idea-${isParkable ? 'park' : 'archive'}-reason-${ideaId}" placeholder="Why are you ${isParkable ? 'parking' : 'archiving'} this idea?" rows="3"></textarea>
+    <button class="btn btn-primary" type="button" data-idea-${isParkable ? 'park' : 'archive'}-submit="${ideaId}">${actionVerb}</button>
+  </div>`;
+}
+
 function renderIdeaDetail(card) {
   const action = card?.primary_action || card?.primaryAction || null;
   const tags = Array.isArray(card?.tags) ? card.tags : [];
@@ -1799,6 +1837,9 @@ function renderIdeaDetail(card) {
   const metadata = card?.metadata || {};
   const actionCommand = String(action?.command || '').trim();
   const updated = card?.updated_at ? ago(card.updated_at) : '';
+  const lane = card?.lane || 'raw';
+  // Only show classify form on Raw and Clarify lanes
+  const classifyFormHtml = (lane === 'raw' || lane === 'clarify') ? renderIdeaClassifyForm(card) : '';
   return `<div class="focus-task-head idea-detail-head">
       <span class="focus-task-id">${esc(card?.id || 'I-????')}</span>
       <h2>${esc(card?.title || 'Untitled idea')}</h2>
@@ -1812,6 +1853,8 @@ function renderIdeaDetail(card) {
       <div><span>Updated</span><strong>${esc(updated || card?.updated_at || 'unknown')}</strong></div>
       <div><span>Tags</span><strong>${tags.length ? tags.map(esc).join(', ') : '—'}</strong></div>
     </div>
+    ${classifyFormHtml}
+    ${renderIdeaParkArchiveForm(card)}
     <div class="task-command-box idea-detail-next-action">
       <label>Current next action</label>
       <strong>${esc(action?.label || 'Inspect idea')}</strong>
@@ -1823,8 +1866,168 @@ function renderIdeaDetail(card) {
     <div class="focus-section idea-detail-metadata"><h3>Raw metadata</h3>
       ${ideaDetailMetadataRows(metadata)}
       <pre>${esc(JSON.stringify(metadata, null, 2))}</pre>
+    </div>
+    <div class="task-command-box idea-detail-brainstorm">
+      <label>Bridge to Brainstorm</label>
+      <p>Seed a brainstorm session from this idea while preserving source lineage.</p>
+      <div id="idea-brainstorm-status" class="idea-detail-status idea-detail-status-neutral" aria-live="polite"></div>
+      <button class="btn btn-primary" type="button" data-idea-brainstorm="${esc(card?.id || '')}">Start brainstorm from idea</button>
     </div>`;
 }
+
+async function classifyIdeaFromDetail(card) {
+  const ideaId = String(card?.id || '').trim();
+  if (!/^I-[0-9]{4}$/.test(ideaId)) return null;
+  const cardEl = document.querySelector(`[data-idea-classify-submit="${esc(ideaId)}"]`)?.closest('.focus-section.idea-detail-classify-section');
+
+  const maturitySelect = cardEl?.querySelector('[data-idea-classify="maturity"]')
+    || document.querySelector('[data-idea-classify="maturity"]');
+  const noteInput = cardEl?.querySelector('[data-idea-classify="note"]')
+    || document.querySelector('[data-idea-classify="note"]');
+
+  const maturityValue = (maturitySelect?.value || '').trim();
+  const noteValue = (noteInput?.value || '').trim();
+  const allowedMaturities = new Set(['spark', 'concept', 'candidate', 'goal_ready', 'task_ready']);
+
+  maturitySelect?.classList.remove('idea-classify-select-error');
+  noteInput?.classList.remove('idea-classify-note-error');
+
+  if (!allowedMaturities.has(maturityValue)) {
+    setIdeaDetailStatus('Choose a maturity before classifying.', 'error');
+    maturitySelect?.classList.add('idea-classify-select-error');
+    maturitySelect?.focus();
+    return null;
+  }
+
+  if (!noteValue) {
+    setIdeaDetailStatus('Please write a classification note.', 'error');
+    noteInput?.classList.add('idea-classify-note-error');
+    noteInput?.focus();
+    return null;
+  }
+
+  const command = `devflow idea classify ${ideaId} --maturity ${maturityValue} --note ${shellQuote(noteValue)}`;
+
+  // Guard: no placeholder commands
+  if (command.includes('<') || command.includes('>') || !/^devflow idea classify I-[0-9]{4} --maturity /.test(command)) {
+    setIdeaDetailStatus('This action requires a concrete command first.', 'error');
+    return null;
+  }
+
+  renderActionPending(command);
+  const body = {
+    command,
+    human_approved: true,
+    approval_phrase: ACTION_APPROVAL_PHRASE,
+    approved_command: command,
+  };
+  if (selectedProjectId) body.project = selectedProjectId;
+
+  setIdeaDetailStatus('Classifying...', 'neutral');
+  try {
+    const resp = await fetch('/api/actions/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await resp.json();
+    renderActionResult(payload, command);
+
+    if (resp.ok && payload?.executed && payload?.exit_code === 0) {
+      setIdeaDetailStatus('Idea classified successfully.', 'success');
+      // Refresh snapshot so the idea moves lanes
+      setTimeout(() => loadSnapshot(selectedProjectId), 500);
+      return payload;
+    } else {
+      const message = payload?.message || payload?.error || `Classification failed (${resp.status})`;
+      setIdeaDetailStatus(shortCommand(message, 80), 'error');
+      return null;
+    }
+  } catch(e) {
+    setIdeaDetailStatus(shortCommand(e.message || 'Classification failed', 80), 'error');
+    return null;
+  }
+}
+
+
+async function _submitParkOrArchive(card, actionType) {
+  const ideaId = String(card?.id || '').trim();
+  if (!/^I-[0-9]{4}$/.test(ideaId)) return null;
+  const selAttr = `data-idea-${actionType}="reason"`;
+  const textarea = document.querySelector(`textarea[${selAttr}]`);
+  const reasonValue = (textarea?.value || '').trim();
+
+  if (!reasonValue || reasonValue.length < 3) {
+    setIdeaDetailStatus('Reason is required (at least 3 characters).', 'error', `idea-${actionType}-status`);
+    textarea?.focus();
+    return null;
+  }
+
+  const verb = actionType === 'park' ? 'Park' : 'Archive';
+  const command = `devflow idea ${actionType} ${ideaId} --reason ${shellQuote(reasonValue)}`;
+
+  if (command.includes('<') || command.includes('>') || !/^devflow idea (park|archive) I-[0-9]{4} --reason /.test(command)) {
+    setIdeaDetailStatus('This action requires a concrete reason first.', 'error', `idea-${actionType}-status`);
+    return null;
+  }
+
+  renderActionPending(command);
+  const body = {
+    command,
+    human_approved: true,
+    approval_phrase: ACTION_APPROVAL_PHRASE,
+    approved_command: command,
+  };
+  if (selectedProjectId) body.project = selectedProjectId;
+
+  setIdeaDetailStatus(`${verb}ing...`, 'neutral', `idea-${actionType}-status`);
+  try {
+    const resp = await fetch('/api/actions/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await resp.json();
+    renderActionResult(payload, command);
+
+    if (resp.ok && payload?.executed && payload?.exit_code === 0) {
+      setIdeaDetailStatus(`${ideaId} ${verb.toLowerCase()}d successfully.`, 'success', `idea-${actionType}-status`);
+      // Refresh snapshot so the idea moves lanes
+      setTimeout(() => loadSnapshot(selectedProjectId), 500);
+      return payload;
+    } else {
+      const message = payload?.message || payload?.error || `${verb} failed (${resp.status})`;
+      setIdeaDetailStatus(shortCommand(message, 80), 'error', `idea-${actionType}-status`);
+      return null;
+    }
+  } catch(e) {
+    setIdeaDetailStatus(shortCommand(e.message || `${verb} failed`, 80), 'error', `idea-${actionType}-status`);
+    return null;
+  }
+}
+
+function setIdeaDetailStatus(message, tone, statusId) {
+  const statusEl = statusId ? $(statusId) : $('idea-classify-status');
+  if (!statusEl) return;
+  statusEl.textContent = message || '';
+  if (tone === 'error') {
+    statusEl.style.color = 'var(--red)';
+    statusEl.style.borderColor = 'var(--red-soft)';
+    statusEl.style.background = 'rgba(248, 81, 73, 0.10)';
+    statusEl.className = 'idea-detail-status idea-detail-status-error';
+  } else if (tone === 'success') {
+    statusEl.style.color = 'var(--accent)';
+    statusEl.style.borderColor = 'var(--accent-soft)';
+    statusEl.style.background = 'var(--accent-bg)';
+    statusEl.className = 'idea-detail-status idea-detail-status-success';
+  } else {
+    statusEl.style.color = '';
+    statusEl.style.borderColor = '';
+    statusEl.style.background = '';
+    statusEl.className = 'idea-detail-status idea-detail-status-neutral';
+  }
+}
+
 
 function openFocus(type, id, opts) {
   const overlay = $('focus-overlay');
@@ -2152,6 +2355,92 @@ function setupTaskSurfaceActions() {
         await runApprovedCommand(buildCloseCommand(taskId, outcome, reason, task), {});
       } catch(err) {
         renderActionResult({ executed: false, exit_code: null, error: err.message || 'Close failed' }, `devflow task close ${taskId}`);
+      }
+      return;
+    }
+
+    const classifyButton = e.target.closest('[data-idea-classify-submit]');
+    if (classifyButton) {
+      e.preventDefault();
+      const ideaId = classifyButton.dataset.ideaClassifySubmit;
+      const idea = findIdeaCard(ideaId);
+      if (!idea) {
+        setIdeaDetailStatus('Idea not found in current snapshot.', 'error');
+        return;
+      }
+      try {
+        await classifyIdeaFromDetail(idea);
+      } catch(err) {
+        setIdeaDetailStatus(shortCommand(err.message || 'Classification failed', 80), 'error');
+      }
+      return;
+    }
+
+    const parkButton = e.target.closest('[data-idea-park-submit]');
+    if (parkButton) {
+      e.preventDefault();
+      const ideaId = parkButton.dataset.ideaParkSubmit;
+      const idea = findIdeaCard(ideaId);
+      if (!idea) {
+        setIdeaDetailStatus('Idea not found in current snapshot.', 'error');
+        return;
+      }
+      try {
+        await _submitParkOrArchive(idea, 'park');
+      } catch(err) {
+        setIdeaDetailStatus(shortCommand(err.message || 'Park failed', 80), 'error');
+      }
+      return;
+    }
+
+    const archiveButton = e.target.closest('[data-idea-archive-submit]');
+    if (archiveButton) {
+      e.preventDefault();
+      const ideaId = archiveButton.dataset.ideaArchiveSubmit;
+      const idea = findIdeaCard(ideaId);
+      if (!idea) {
+        setIdeaDetailStatus('Idea not found in current snapshot.', 'error');
+        return;
+      }
+      try {
+        await _submitParkOrArchive(idea, 'archive');
+      } catch(err) {
+        setIdeaDetailStatus(shortCommand(err.message || 'Archive failed', 80), 'error');
+      }
+      return;
+    }
+
+    const brainstormButton = e.target.closest('[data-idea-brainstorm]');
+    if (brainstormButton) {
+      e.preventDefault();
+      const ideaId = brainstormButton.dataset.ideaBrainstorm;
+      if (!/^I-[0-9]{4}$/.test(ideaId)) return;
+      const statusId = 'idea-brainstorm-status';
+      setIdeaDetailStatus('Starting brainstorm from ' + ideaId + '...', 'neutral', statusId);
+      try {
+        const resp = await fetch('/api/brainstorm/start-from-idea', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idea_id: ideaId }),
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.session_id) {
+          setIdeaDetailStatus(data.error || 'Failed to start brainstorm.', 'error', statusId);
+          return;
+        }
+        localStorage.setItem('devflow-brainstorm-session', data.session_id);
+        brainstormSessionId = data.session_id;
+        setIdeaDetailStatus('Session: ' + data.session_id, 'success', statusId);
+        setActiveNav('brainstorm');
+        closeFocus();
+        await loadBrainstormTranscript(data.session_id);
+        appendBrainstormMsg('system', 'Brainstorm session started from ' + ideaId + '. Next: add context or escalate to Spec when the idea is clear.', {});
+        loadBrainstormSessions();
+        refreshPipelineState();
+        const input = $('brainstorm-message');
+        if (input) input.focus();
+      } catch(e) {
+        setIdeaDetailStatus(e.message || 'Failed to start brainstorm.', 'error', statusId);
       }
       return;
     }

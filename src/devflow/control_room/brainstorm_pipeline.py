@@ -37,6 +37,7 @@ class BrainstormImplementationContext(BaseModel):
     artifact_path: str | None = None
     write_endpoint: str = "/api/task/write-context"
     target_path_template: str = ".devflow/workspaces/{task_id}/implementation-context.md"
+    lineage: dict[str, Any] | None = None
 
 
 class BrainstormTaskCreationAction(BaseModel):
@@ -53,6 +54,7 @@ class BrainstormTaskCreationAction(BaseModel):
     evidence_paths: list[str] = Field(default_factory=list)
     follow_up_intent: str = "start_shell"
     context_required: bool = False
+    lineage: dict[str, Any] | None = None
 
 
 class BrainstormPipelineDetail(BaseModel):
@@ -70,6 +72,7 @@ class BrainstormPipelineDetail(BaseModel):
     advisory_model: BrainstormAdvisoryModel | None = None
     task_action: BrainstormTaskCreationAction | None = None
     implementation_context: BrainstormImplementationContext | None = None
+    lineage: dict[str, Any] | None = None
     next_step_label: str
     operator_summary: str
 
@@ -84,6 +87,7 @@ def build_brainstorm_pipeline_detail(
     title: str | None = None,
     definition_of_done: str | None = None,
     model_info: dict[str, Any] | None = None,
+    source_idea_id: str | None = None,
     advisory_profile: dict[str, Any] | None = None,
 ) -> BrainstormPipelineDetail:
     """Build the shared Brainstorm -> Pipeline -> task creation story."""
@@ -94,21 +98,35 @@ def build_brainstorm_pipeline_detail(
     stages = _pipeline_stages(root, session_id, records=records, current_artifact=artifact_path)
     advisory_model = _advisory_model(model_info=model_info, advisory_profile=advisory_profile)
     evidence_paths = _evidence_paths(stages, artifact_rel, advisory_model)
+
+    lineage = _lineage_payload(
+        root,
+        session_id=session_id,
+        artifact_stage=normalized_stage,
+        artifact_path=artifact_path,
+        source_idea_id=source_idea_id,
+    )
+
     task_action: BrainstormTaskCreationAction | None = None
     implementation_context: BrainstormImplementationContext | None = None
 
     if normalized_stage == "implementation" and title:
-        implementation_context = build_implementation_context(
+        impl_ctx = build_implementation_context(
             root,
             session_id=session_id,
             records=records,
             artifact_path=artifact_path,
+            source_idea_id=source_idea_id,
+            lineage=lineage,
         )
+        implementation_context = impl_ctx
         task_action = build_task_creation_action(
             title=title,
             definition_of_done=definition_of_done,
             evidence_paths=evidence_paths,
-            has_context=implementation_context is not None,
+            has_context=impl_ctx is not None,
+            source_idea_id=source_idea_id,
+            lineage=lineage,
         )
 
     has_transcript = bool(records)
@@ -138,6 +156,7 @@ def build_brainstorm_pipeline_detail(
         advisory_model=advisory_model,
         task_action=task_action,
         implementation_context=implementation_context,
+        lineage=lineage,
         next_step_label=next_step_label,
         operator_summary=_operator_summary(normalized_stage, task_action, advisory_model, artifact_rel),
     )
@@ -190,17 +209,28 @@ def build_task_creation_action(
     definition_of_done: str | None = None,
     evidence_paths: list[str] | None = None,
     has_context: bool = False,
+    source_idea_id: str | None = None,
+    lineage: dict[str, Any] | None = None,
 ) -> BrainstormTaskCreationAction:
     command_parts = ["devflow", "task", "create"]
     if definition_of_done:
         command_parts.extend(["--definition-of-done", definition_of_done])
     command_parts.append(title)
+
+    action_lineage = lineage
+    if action_lineage is None and source_idea_id:
+        action_lineage = {
+            "schema_version": 1,
+            "source_idea_id": source_idea_id,
+        }
+
     return BrainstormTaskCreationAction(
         command=" ".join(shlex.quote(part) for part in command_parts),
         title=title,
         definition_of_done=definition_of_done,
         evidence_paths=evidence_paths or [],
         context_required=has_context,
+        lineage=action_lineage,
     )
 
 
@@ -210,6 +240,8 @@ def build_implementation_context(
     session_id: str,
     records: list[dict[str, Any]],
     artifact_path: Path | None = None,
+    source_idea_id: str | None = None,
+    lineage: dict[str, Any] | None = None,
 ) -> BrainstormImplementationContext | None:
     root = root.resolve()
     session_path = _session_dir(root, session_id)
@@ -237,11 +269,57 @@ def build_implementation_context(
     text = "\n\n---\n\n".join(parts).strip()
     if not text:
         return None
+
+    context_lineage = lineage
+    if context_lineage is None:
+        context_lineage = _lineage_payload(
+            root,
+            session_id=session_id,
+            artifact_stage="implementation",
+            artifact_path=artifact_path,
+            source_idea_id=source_idea_id,
+        )
+
     return BrainstormImplementationContext(
         text=text,
         source_paths=source_paths,
         artifact_path=relative_path(root, artifact_path) if artifact_path else None,
+        lineage=context_lineage,
     )
+
+
+def _lineage_payload(
+    root: Path,
+    *,
+    session_id: str,
+    artifact_stage: str,
+    artifact_path: Path | None = None,
+    source_idea_id: str | None = None,
+) -> dict[str, Any]:
+    session_path = _session_dir(root, session_id)
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "brainstorm_session_id": session_id,
+        "brainstorm_path": relative_path(root, session_path),
+        "artifact_stage": artifact_stage,
+    }
+    if source_idea_id:
+        payload["source_idea_id"] = source_idea_id
+    if artifact_path is not None:
+        payload["artifact_path"] = relative_path(root, artifact_path)
+
+    for stage_id, filename in (
+        ("spec", "spec.md"),
+        ("plan", "plan.md"),
+        ("implementation", "implementation.md"),
+    ):
+        candidate = artifact_path if artifact_stage == stage_id and artifact_path is not None else session_path / filename
+        if candidate.exists():
+            payload[f"{stage_id}_path"] = relative_path(root, candidate)
+            sidecar = candidate.with_suffix(".lineage.json")
+            if sidecar.exists():
+                payload[f"{stage_id}_lineage_path"] = relative_path(root, sidecar)
+    return payload
 
 
 def _pipeline_stages(

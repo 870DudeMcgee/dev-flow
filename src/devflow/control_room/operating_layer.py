@@ -733,10 +733,17 @@ def _idea_evidence_paths(metadata: dict[str, Any]) -> list[str]:
         "promotion_path",
         "created_goal_path",
         "created_task_path",
+        "latest_brainstorm_session_path",
     ):
         value = str(metadata.get(key) or "").strip()
         if value:
             paths.append(value)
+    brainstorm_paths = metadata.get("brainstorm_session_paths")
+    if isinstance(brainstorm_paths, list):
+        for value in brainstorm_paths:
+            path = str(value or "").strip()
+            if path:
+                paths.append(path)
     if idea_id:
         paths.append(f".devflow/ideas/{idea_id}/events.jsonl")
     deduped: list[str] = []
@@ -750,7 +757,27 @@ def _idea_detail_metadata(metadata: dict[str, Any], lane_id: str) -> dict[str, A
     payload = json.loads(json.dumps(metadata, default=str))
     payload["greenhouse_lane"] = lane_id
     payload["evidence_paths"] = _idea_evidence_paths(metadata)
+    payload["lineage"] = _idea_lineage(metadata)
     return payload
+
+
+def _idea_lineage(metadata: dict[str, Any]) -> dict[str, Any]:
+    idea_id = str(metadata.get("id") or "").strip()
+    lineage: dict[str, Any] = {
+        "schema_version": 1,
+        "source_idea_id": idea_id,
+        "idea_path": f".devflow/ideas/{idea_id}" if idea_id else None,
+    }
+    latest_session = str(metadata.get("latest_brainstorm_session_id") or "").strip()
+    latest_path = str(metadata.get("latest_brainstorm_session_path") or "").strip()
+    if latest_session:
+        lineage["latest_brainstorm_session_id"] = latest_session
+    if latest_path:
+        lineage["latest_brainstorm_session_path"] = latest_path
+    sessions = metadata.get("brainstorm_session_ids")
+    if isinstance(sessions, list) and sessions:
+        lineage["brainstorm_session_ids"] = [str(item) for item in sessions if str(item).strip()]
+    return {key: value for key, value in lineage.items() if value}
 
 
 def _idea_primary_action(metadata: dict[str, Any], lane_id: str) -> OperatingLayerIdeaAction:

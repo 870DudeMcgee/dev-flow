@@ -2120,4 +2120,23 @@ summary:focus-visible {
 .bj-loop-rounds { font-size: 11px; color: var(--text-muted); }
 .bj-loop-dod { font-size: 11px; color: var(--text-soft); margin: 4px 0 2px; }
 .bj-loop-models { display: flex; gap: 12px; font-size: 10px; color: var(--text-muted); }
+
+/* ===== CLASSIFY FORM (Slice 2) ===== */
+.idea-detail-classify-section { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-top: 8px; }
+.idea-classify-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 8px; }
+.idea-classify-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 8px; }
+.idea-classify-select { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text); font-size: 12px; font-family: inherit; cursor: pointer; flex: none; width: 150px; }
+.idea-classify-select:focus { border-color: var(--accent); outline: none; }
+.idea-classify-note { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text); font-size: 12px; font-family: inherit; flex: 1; resize: vertical; min-height: 32px; }
+.idea-classify-note:focus { border-color: var(--accent); outline: none; }
+.idea-classify-error { color: var(--red); font-size: 11px; margin-top: 4px; margin-bottom: 4px; }
+.idea-classify-note-error, .idea-classify-select-error { border-color: var(--red) !important; }
+
+/* ===== PARK/ARCHIVE FORM (Slice 3) ===== */
+.idea-detail-park-section,
+.idea-detail-archive-section { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-top: 8px; }
+.idea-archive-title { font-size: 13px; font-weight: 600; color: var(--text); margin: 0 0 8px; }
+.idea-archive-reason { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 8px; color: var(--text); font-size: 12px; font-family: inherit; flex: 1; resize: vertical; min-height: 32px; width: 100%; }
+.idea-archive-reason:focus { border-color: var(--accent); outline: none; }
+.idea-archive-reason::placeholder { color: var(--text-muted); }
 """

@@ -20,6 +20,7 @@ from devflow.control_room.operating_layer_script import APP_JS as SPLIT_APP_JS
 from devflow.control_room.operating_layer_server import (
     OperatingLayerHTTPServer,
     OperatingLayerRequestHandler,
+    _approved_idea_classify_command_args,
     _approved_idea_evidence_command_args,
 )
 from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
@@ -181,9 +182,114 @@ def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
         assert token in APP_JS
 
 
-def test_operating_layer_active_nav_item_scrolls_into_mobile_view() -> None:
+def test_operating_layer_css_includes_park_archive_form_tokens() -> None:
+    for token in (
+        ".idea-detail-park-section",
+        ".idea-detail-archive-section",
+        ".idea-archive-title",
+        ".idea-archive-reason",
+        ".idea-archive-reason::placeholder",
+    ):
+        assert token in APP_CSS
+
+
+def test_operating_layer_js_includes_park_archive_detail_form_contract() -> None:
+    """Slice 3: detail drawer park/archive reason form renders and is wired."""
+    # Form renderer exists
+    assert "renderIdeaParkArchiveForm" in APP_JS
+    # Card-level park command uses a concrete, non-empty reason (not placeholder)
+    assert "Parked from Idea Greenhouse" in APP_JS
+    assert "Archived from Idea Greenhouse" in APP_JS
+
+    # Park and archive actions are present where appropriate
+    for lane_id in ("raw", "clarify", "candidate"):
+        assert f"'{lane_id}'" in APP_JS  # confirm lanes checked
+
+
+def test_operating_layer_js_park_archive_form_has_required_tokens() -> None:
+    """Confirm the detail-form has reason textarea, submit buttons, and status div."""
+    # Data attributes are built via template literal with ternary; confirm all keys exist
+    assert 'data-idea-' in APP_JS and '-submit=' in APP_JS
+    assert '="reason"' in APP_JS
+    assert '[data-idea-park-submit]' in APP_JS
+    assert '[data-idea-archive-submit]' in APP_JS
+
+
+def test_operating_layer_js_park_archive_command_construction() -> None:
+    """PARK/ARCHIVE command strings are literal, user-supplied, never placeholders."""
+    assert 'devflow idea park ${ideaId} --reason' in APP_JS
+    assert 'devflow idea archive ${ideaId} --reason' in APP_JS
+    # shellQuote guards the reason so arbitrary text is safely escaped
+    assert "shellQuote" in APP_JS
+
+
+def test_operating_layer_js_park_archive_approval_payload_required() -> None:
+    """Full approval payload (human_approved, approval_phrase, approved_command) included."""
+    assert "human_approved" in APP_JS
+    assert "approval_phrase" in APP_JS
+    assert "approved_command" in APP_JS
+    # The action URL is the actions/run endpoint
+    assert "'/api/actions/run'" in APP_JS
+
+
+def test_operating_layer_js_park_archive_snapshot_refresh_on_success() -> None:
+    """After successful park/archive, loadSnapshot is triggered."""
     assert "loadSnapshot" in APP_JS
-    assert "render" in APP_JS
+    # The _submitParkOrArchive function uses setTimeout + loadSnapshot for refresh
+    assert "_submitParkOrArchive" in APP_JS
+    # Confirm the pattern: reason validation rejects < 3 chars and writes to the action-specific status.
+    assert "reasonValue.length < 3" in APP_JS
+    assert "`idea-${actionType}-status`" in APP_JS
+    assert "function setIdeaDetailStatus(message, tone, statusId)" in APP_JS
+
+
+def test_operating_layer_js_park_archive_click_handlers_wired() -> None:
+    """Click handlers for the park/archive submit buttons exist."""
+    assert "[data-idea-park-submit]" in APP_JS
+    assert "[data-idea-archive-submit]" in APP_JS
+
+
+def test_operating_layer_js_start_brainstorm_from_idea_contract() -> None:
+    """Slice 4: idea detail drawer can open a brainstorm session with lineage."""
+    assert "data-idea-brainstorm" in APP_JS
+    assert "idea-brainstorm-status" in APP_JS
+    assert "'/api/brainstorm/start-from-idea'" in APP_JS
+    assert "JSON.stringify({ idea_id: ideaId })" in APP_JS
+    assert "localStorage.setItem('devflow-brainstorm-session', data.session_id)" in APP_JS
+    assert "setActiveNav('brainstorm')" in APP_JS
+    assert "await loadBrainstormTranscript(data.session_id)" in APP_JS
+    assert "Brainstorm session started from " in APP_JS
+    assert "Next: add context or escalate to Spec" in APP_JS
+    assert APP_JS.index("await loadBrainstormTranscript(data.session_id)") < APP_JS.index("Brainstorm session started from ")
+
+
+def test_operating_layer_start_brainstorm_from_idea_endpoint(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    idea = capture_idea(tmp_path, "Seed this into brainstorm.", title="Seeded idea")
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        connection.request(
+            "POST",
+            "/api/brainstorm/start-from-idea",
+            body=json.dumps({"idea_id": idea["id"]}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == HTTPStatus.OK
+        assert payload["source_idea_id"] == idea["id"]
+        assert payload["session_id"].startswith("brainstorm-")
+        transcript = tmp_path / ".devflow" / "brainstorms" / payload["session_id"] / "transcript.jsonl"
+        records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines()]
+        assert records[0]["kind"] == "brainstorm_start"
+        assert records[0]["metadata"]["source_idea_id"] == idea["id"]
+        assert records[0]["content"] == "Seed this into brainstorm."
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_operating_layer_snapshot_json_is_read_only_contract(
@@ -1580,6 +1686,82 @@ def test_approved_idea_evidence_command_args_accepts_only_safe_concrete_commands
     for command in rejected:
         with pytest.raises(ValueError):
             _approved_idea_evidence_command_args(command)
+
+
+def test_approved_idea_classify_command_args_accepts_only_safe_concrete_commands() -> None:
+    accepted = [
+        (
+            'devflow idea classify I-0001 --maturity candidate --note "ready for planning"',
+            ["idea", "classify", "I-0001", "--maturity", "candidate", "--note", "ready for planning"],
+        ),
+        (
+            'devflow idea classify I-0001 --maturity goal_ready --note "scoped" --tag launchpad',
+            ["idea", "classify", "I-0001", "--maturity", "goal_ready", "--note", "scoped", "--tag", "launchpad"],
+        ),
+    ]
+    for command, expected_tail in accepted:
+        args = _approved_idea_classify_command_args(command)
+
+        assert args[-len(expected_tail) :] == expected_tail
+
+    rejected = [
+        "devflow idea classify I-0001",
+        "devflow idea classify 0001 --maturity candidate --note ready",
+        "devflow idea classify I-0001 --maturity nope --note ready",
+        "devflow idea classify I-0001 --maturity candidate",
+        "devflow idea classify I-0001 --maturity candidate --note",
+        "devflow idea classify I-0001 --maturity candidate --note <note>",
+        'devflow idea classify I-0001 --maturity candidate --note ""',
+        'devflow idea classify I-0001 --maturity candidate --note "ready" extra',
+        'devflow idea classify I-0001 --maturity candidate --note "ready" --shell echo',
+        "devflow idea promote I-0001 --to task --rationale ready",
+    ]
+    for command in rejected:
+        with pytest.raises(ValueError):
+            _approved_idea_classify_command_args(command)
+
+
+def test_operating_layer_server_runs_approved_idea_classify(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    capture_idea(tmp_path, "Turn this rough thought into a scoped candidate.", title="Candidate seed")
+    command = 'devflow idea classify I-0001 --maturity candidate --note "clear next step"'
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_action(host, port, command)
+
+        assert status == HTTPStatus.OK
+        assert payload["executed"] is True
+        assert payload["requires_human_approval"] is True
+        assert payload["classification"]["safety_class"] == "approval_required_evidence_writing"
+        assert payload["exit_code"] == 0
+        assert "idea_id: I-0001" in payload["stdout"]
+        assert "maturity: candidate" in payload["stdout"]
+        idea_path = tmp_path / ".devflow" / "ideas" / "I-0001"
+        metadata = json.loads((idea_path / "idea.json").read_text(encoding="utf-8"))
+        assert metadata["status"] == "classified"
+        assert metadata["maturity"] == "candidate"
+        assert "clear next step" in (idea_path / "classification.md").read_text(encoding="utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_classify_form_uses_full_idea_ids_and_requires_choices() -> None:
+    assert "function renderIdeaClassifyForm" in APP_JS
+    assert "if (!/^I-[0-9]{4}$/.test(ideaId)) return '';" in APP_JS
+    assert "if (!/^I-[0-9]{4}$/.test(ideaId)) return null;" in APP_JS
+    assert 'option value="">Choose maturity...' in APP_JS
+    assert "Choose a maturity before classifying." in APP_JS
+    assert "Please write a classification note." in APP_JS
+    assert "devflow idea classify ${ideaId} --maturity ${maturityValue}" in APP_JS
+    assert "human_approved: true" in APP_JS
+    assert "approved_command: command" in APP_JS
+    assert ".idea-detail-classify-section" in APP_CSS
+    assert ".idea-classify-note" in APP_CSS
 
 
 def test_operating_layer_server_runs_approved_idea_capture(

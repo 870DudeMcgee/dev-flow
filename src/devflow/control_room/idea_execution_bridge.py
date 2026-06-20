@@ -203,6 +203,15 @@ def _idea_link(metadata: dict[str, Any], target: str, *, has_scaffold: bool = Fa
     }
     if has_scaffold:
         link["source_scaffold_path"] = f".devflow/ideas/{idea_id}/scaffold-goal.json"
+    brainstorm_session_id = str(metadata.get("latest_brainstorm_session_id") or "").strip()
+    brainstorm_session_path = str(metadata.get("latest_brainstorm_session_path") or "").strip()
+    if brainstorm_session_id:
+        link["source_brainstorm_session_id"] = brainstorm_session_id
+    if brainstorm_session_path:
+        link["source_brainstorm_session_path"] = brainstorm_session_path
+    sessions = metadata.get("brainstorm_session_ids")
+    if isinstance(sessions, list) and sessions:
+        link["brainstorm_session_ids"] = [str(item) for item in sessions if str(item).strip()]
     return link
 
 
@@ -241,13 +250,18 @@ def _task_brief(metadata: dict[str, Any], raw: str, classification: str, promoti
 
 
 def _source_brief(kind: str, metadata: dict[str, Any], raw: str, classification: str, promotion: str, title: str) -> str:
-    return "\n".join(
+    header = [
+        f"# {kind} From Idea: {title}",
+        "",
+        f"- idea_id: {metadata['id']}",
+        f"- maturity: {metadata['maturity']}",
+        f"- promotion_target: {metadata.get('promotion_target')}",
+    ]
+    brainstorm_session_id = str(metadata.get("latest_brainstorm_session_id") or "").strip()
+    if brainstorm_session_id:
+        header.append(f"- source_brainstorm_session_id: {brainstorm_session_id}")
+    header.extend(
         [
-            f"# {kind} From Idea: {title}",
-            "",
-            f"- idea_id: {metadata['id']}",
-            f"- maturity: {metadata['maturity']}",
-            f"- promotion_target: {metadata.get('promotion_target')}",
             "",
             "## Raw Idea",
             "",
@@ -263,6 +277,7 @@ def _source_brief(kind: str, metadata: dict[str, Any], raw: str, classification:
             "",
         ]
     )
+    return "\n".join(header)
 
 
 def _read_goal_scaffold(root: Path, idea_id: str) -> dict[str, Any] | None:

@@ -28,7 +28,7 @@ from devflow.control_room.openrouter_agent import (
     _redact,
     _safe_json,
 )
-from devflow.control_room.paths import relative_path
+from devflow.control_room.paths import ideas_dir, relative_path
 from devflow.control_room.persistence import atomic_write_text
 
 
@@ -304,6 +304,7 @@ def escalate_brainstorm_session(
     if not records:
         raise BrainstormError(f"brainstorm session has no transcript: {session}")
 
+    source_idea_id = _extract_source_idea_id(records)
     model_info: dict[str, Any] | None = None
     if use_model and normalized_stage in {"spec", "plan"}:
         model_info = _generate_stage_with_model(root, session, normalized_stage, records, profile_id=profile_id)
@@ -319,6 +320,7 @@ def escalate_brainstorm_session(
             title=task_title,
             definition_of_done=done_text,
             model_info=model_info,
+            source_idea_id=source_idea_id,
         )
         detail = build_brainstorm_pipeline_detail(
             root,
@@ -329,6 +331,7 @@ def escalate_brainstorm_session(
             title=task_title,
             definition_of_done=done_text,
             model_info=model_info,
+            source_idea_id=source_idea_id,
             advisory_profile=_advisory_profile_payload(root, profile_id=profile_id),
         )
         write_brainstorm_pipeline_detail(root, detail)
@@ -338,6 +341,7 @@ def escalate_brainstorm_session(
             "session_id": session,
             "stage": normalized_stage,
             "artifact_path": relative_path(root, artifact_path),
+            "lineage": detail.lineage,
             "action": detail.task_action.model_dump(mode="json") if detail.task_action else None,
             "model_info": model_info,
             "pipeline_detail": detail.model_dump(mode="json"),
@@ -347,7 +351,15 @@ def escalate_brainstorm_session(
             result["implementation_context_path"] = detail.implementation_context.artifact_path
         return result
 
-    artifact_path = _write_stage_artifact(root, session, normalized_stage, records, title=title, model_info=model_info)
+    artifact_path = _write_stage_artifact(
+        root,
+        session,
+        normalized_stage,
+        records,
+        title=title,
+        model_info=model_info,
+        source_idea_id=source_idea_id,
+    )
     detail = build_brainstorm_pipeline_detail(
         root,
         session_id=session,
@@ -356,6 +368,7 @@ def escalate_brainstorm_session(
         artifact_path=artifact_path,
         title=title,
         model_info=model_info,
+        source_idea_id=source_idea_id,
         advisory_profile=_advisory_profile_payload(root, profile_id=profile_id),
     )
     write_brainstorm_pipeline_detail(root, detail)
@@ -365,6 +378,7 @@ def escalate_brainstorm_session(
         "session_id": session,
         "stage": normalized_stage,
         "artifact_path": relative_path(root, artifact_path),
+        "lineage": detail.lineage,
         "model_info": model_info,
         "pipeline_detail": detail.model_dump(mode="json"),
     }
@@ -600,6 +614,19 @@ def _run_payload(
     return payload
 
 
+def _extract_source_idea_id(records: list[dict[str, Any]]) -> str | None:
+    """Pull source_idea_id from the transcript's brainstorm_start seed record.
+
+    Returns None when the session was started manually (no `brainstorm_start` kind).
+    """
+    for record in records:
+        if record.get("kind") == "brainstorm_start":
+            meta = record.get("metadata")
+            if isinstance(meta, dict):
+                return str(meta.get("source_idea_id", "")).strip() or None
+    return None
+
+
 def _write_stage_artifact(
     root: Path,
     session_id: str,
@@ -609,16 +636,22 @@ def _write_stage_artifact(
     title: str | None = None,
     definition_of_done: str | None = None,
     model_info: dict[str, Any] | None = None,
+    source_idea_id: str | None = None,
 ) -> Path:
     heading = {"spec": "Brainstorm Spec", "plan": "Brainstorm Plan", "implementation": "Implementation Task"}[stage]
     path = _session_dir(root, session_id) / f"{stage}.md"
+    sourced_id = source_idea_id or _extract_source_idea_id(records)
     body = [
         f"# {heading}",
         "",
         f"Session: `{session_id}`",
-        f"Title: {title or _derive_title(records)}",
-        "",
     ]
+    if sourced_id:
+        body.extend([f"Idea: `{sourced_id}`", ""])
+    resolved_title = title or _derive_title(records)
+    body.append(f"Title: {resolved_title}")
+    body.append("")
+
     if definition_of_done:
         body.extend(["## Definition of Done", "", definition_of_done, ""])
     if model_info and model_info.get("used_model"):
@@ -651,7 +684,36 @@ def _write_stage_artifact(
         if content:
             body.extend([f"### {role.title()}", "", content, ""])
     atomic_write_text(path, "\n".join(body).rstrip() + "\n")
+    _write_stage_lineage_sidecar(
+        root,
+        session_id=session_id,
+        stage=stage,
+        artifact_path=path,
+        source_idea_id=sourced_id,
+    )
     return path
+
+
+def _write_stage_lineage_sidecar(
+    root: Path,
+    *,
+    session_id: str,
+    stage: str,
+    artifact_path: Path,
+    source_idea_id: str | None,
+) -> Path:
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "artifact_stage": stage,
+        "artifact_path": relative_path(root, artifact_path),
+        "brainstorm_session_id": session_id,
+        "brainstorm_path": relative_path(root, _session_dir(root, session_id)),
+    }
+    if source_idea_id:
+        payload["source_idea_id"] = source_idea_id
+    sidecar_path = artifact_path.with_suffix(".lineage.json")
+    atomic_write_text(sidecar_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return sidecar_path
 
 
 def _append_transcript(path: Path, record: dict[str, Any]) -> None:
@@ -721,3 +783,96 @@ def _derive_title(records: list[dict[str, Any]]) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+# ---------------------------------------------------------------------------
+# Slice 4 — start brainstorm from idea
+# ---------------------------------------------------------------------------
+
+def start_brainstorm_from_idea(
+    root: Path,
+    idea_id: str,
+) -> dict[str, Any]:
+    """Open (or create) a brainstorm session seeded with the raw content of *idea_id*.
+
+    The session folder is keyed by ``<session>-source-<idea_id>`` so repeated calls
+    for the same idea return the existing session.
+    """
+    root = root.resolve()
+    from devflow.control_room.idea_foundry import IdeaFoundryError, _get_idea, _read_optional_text
+
+    try:
+        metadata = _get_idea(root, idea_id)
+        item_dir = ideas_dir(root) / idea_id
+        raw_text = (
+            _read_optional_text(item_dir / "raw.md")
+            or (metadata.get("title", "") + "\n(No raw text found.)")
+        ).strip()
+    except IdeaFoundryError as exc:
+        raise BrainstormError(f"Idea not found: {idea_id}") from exc
+
+    folder_name = f"brainstorm-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-source-{idea_id}"
+    brainstorms_root = root / ".devflow" / "brainstorms"
+    brainstorms_root.mkdir(parents=True, exist_ok=True)
+    session_dir = brainstorms_root / folder_name
+
+    # If a previous brainstorm already owns this idea, reuse it
+    candidates = [
+        entry for entry in brainstorms_root.iterdir()
+        if entry.is_dir() and entry.name.endswith(f"-source-{idea_id}")
+    ]
+    if candidates:
+        reusable = candidates[0]
+        transcript_path = reusable / "transcript.jsonl"
+        already_has_seed = (
+            transcript_path.exists()
+            and any(
+                json.loads(line).get("kind") == "brainstorm_start"
+                for line in transcript_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        )
+        if not already_has_seed:
+            _append_transcript(transcript_path, {
+                "created_at": _now(),
+                "role": "user",
+                "kind": "brainstorm_start",
+                "content": raw_text,
+                "metadata": {"source_idea_id": idea_id},
+            })
+        _record_idea_brainstorm_link(root, metadata, reusable.name)
+        return {"status": "reuse", "session_id": reusable.name, "source_idea_id": idea_id, "appended_seed_record": not already_has_seed}
+
+    session_dir.mkdir(parents=True, exist_ok=True)
+    transcript_path = session_dir / "transcript.jsonl"
+    _append_transcript(transcript_path, {
+        "created_at": _now(),
+        "role": "user",
+        "kind": "brainstorm_start",
+        "content": raw_text,
+        "metadata": {"source_idea_id": idea_id},
+    })
+    _record_idea_brainstorm_link(root, metadata, folder_name)
+    return {"status": "ready", "session_id": folder_name, "source_idea_id": idea_id}
+
+
+def _record_idea_brainstorm_link(root: Path, metadata: dict[str, Any], session_id: str) -> None:
+    """Persist the latest brainstorm session on the source idea metadata."""
+    from devflow.control_room.idea_foundry import _write_idea
+
+    idea_id = str(metadata.get("id") or "").strip()
+    if not idea_id:
+        return
+    session_path = f".devflow/brainstorms/{session_id}"
+    sessions = list(metadata.get("brainstorm_session_ids") or [])
+    if session_id not in sessions:
+        sessions.append(session_id)
+    paths = list(metadata.get("brainstorm_session_paths") or [])
+    if session_path not in paths:
+        paths.append(session_path)
+    metadata["brainstorm_session_ids"] = sessions
+    metadata["brainstorm_session_paths"] = paths
+    metadata["latest_brainstorm_session_id"] = session_id
+    metadata["latest_brainstorm_session_path"] = session_path
+    metadata["updated_at"] = _now()
+    _write_idea(root, metadata)

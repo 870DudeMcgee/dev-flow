@@ -8,7 +8,12 @@ from typing import Any
 import pytest
 
 from devflow.control_room.agent_registry import load_agent_registry
-from devflow.control_room.brainstorm import escalate_brainstorm_session, run_brainstorm_message
+from devflow.control_room.brainstorm import (
+    BrainstormError,
+    escalate_brainstorm_session,
+    run_brainstorm_message,
+    start_brainstorm_from_idea,
+)
 from tests.helpers import setup_temp_git_repo
 
 
@@ -73,7 +78,7 @@ def test_brainstorm_message_calls_deepseek_free_and_appends_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     setup_temp_git_repo(tmp_path)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-brainstorm-secret")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-...cret")
     captured_requests: list[dict[str, Any]] = []
 
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
@@ -119,7 +124,7 @@ def test_brainstorm_message_calls_deepseek_free_and_appends_transcript(
     transcript = tmp_path / payload["transcript_path"]
     records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines()]
     assert [record["role"] for record in records] == ["user", "assistant"]
-    assert "sk-or-brainstorm-secret" not in (tmp_path / payload["run_path"]).read_text(encoding="utf-8")
+    assert "sk-or-...cret" not in (tmp_path / payload["run_path"]).read_text(encoding="utf-8")
 
 
 def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path: Path) -> None:
@@ -176,3 +181,113 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
     )
     assert persisted["task_action"]["command"] == implementation_with_done["action"]["command"]
     assert "## Definition of Done" in (tmp_path / implementation_with_done["artifact_path"]).read_text(encoding="utf-8")
+
+
+def test_start_brainstorm_from_idea_creates_session_and_seeds_transcript(tmp_path: Path) -> None:
+    from devflow.control_room.idea_foundry import capture_idea, show_idea
+
+    setup_temp_git_repo(tmp_path)
+    idea = capture_idea(tmp_path, "Seed text for the brainstorm", title="My Idea")
+    idea_id = idea["id"]
+
+    result = start_brainstorm_from_idea(tmp_path, idea_id)
+
+    assert result["status"] == "ready"
+    assert result["session_id"].startswith("brainstorm-")
+    assert result["source_idea_id"] == idea_id
+    metadata, _, _, _ = show_idea(tmp_path, idea_id)
+    assert metadata["latest_brainstorm_session_id"] == result["session_id"]
+    assert metadata["latest_brainstorm_session_path"] == f".devflow/brainstorms/{result['session_id']}"
+    assert metadata["brainstorm_session_ids"] == [result["session_id"]]
+    transcript_path = tmp_path / ".devflow" / "brainstorms" / result["session_id"] / "transcript.jsonl"
+    records = [json.loads(line) for line in transcript_path.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 1
+    assert records[0]["role"] == "user"
+    assert records[0]["kind"] == "brainstorm_start"
+    assert records[0]["content"] == "Seed text for the brainstorm"
+    assert records[0]["metadata"]["source_idea_id"] == idea_id
+
+
+def test_idea_started_brainstorm_lineage_flows_to_spec_plan_and_implementation(tmp_path: Path) -> None:
+    from devflow.control_room.idea_foundry import capture_idea
+
+    setup_temp_git_repo(tmp_path)
+    idea = capture_idea(tmp_path, "Turn rough ideas into linked execution artifacts.", title="Linked execution")
+    idea_id = idea["id"]
+    session = start_brainstorm_from_idea(tmp_path, idea_id)["session_id"]
+
+    spec_payload = escalate_brainstorm_session(root=tmp_path, session_id=session, stage="spec")
+    plan_payload = escalate_brainstorm_session(root=tmp_path, session_id=session, stage="plan")
+    implementation_payload = escalate_brainstorm_session(
+        root=tmp_path,
+        session_id=session,
+        stage="implementation",
+        title="Build linked execution artifacts",
+        definition_of_done="Spec, plan, and task context retain source idea lineage.",
+    )
+
+    spec_lineage = json.loads((tmp_path / ".devflow" / "brainstorms" / session / "spec.lineage.json").read_text())
+    plan_lineage = json.loads((tmp_path / ".devflow" / "brainstorms" / session / "plan.lineage.json").read_text())
+    implementation_lineage = json.loads(
+        (tmp_path / ".devflow" / "brainstorms" / session / "implementation.lineage.json").read_text()
+    )
+
+    assert spec_payload["lineage"]["source_idea_id"] == idea_id
+    assert spec_payload["lineage"]["brainstorm_session_id"] == session
+    assert spec_payload["lineage"]["artifact_stage"] == "spec"
+    assert spec_payload["lineage"]["spec_path"] == f".devflow/brainstorms/{session}/spec.md"
+    assert spec_lineage == {
+        "schema_version": 1,
+        "artifact_stage": "spec",
+        "artifact_path": f".devflow/brainstorms/{session}/spec.md",
+        "brainstorm_path": f".devflow/brainstorms/{session}",
+        "brainstorm_session_id": session,
+        "source_idea_id": idea_id,
+    }
+
+    assert plan_payload["lineage"]["source_idea_id"] == idea_id
+    assert plan_payload["lineage"]["spec_path"] == f".devflow/brainstorms/{session}/spec.md"
+    assert plan_payload["lineage"]["plan_path"] == f".devflow/brainstorms/{session}/plan.md"
+    assert plan_lineage["artifact_stage"] == "plan"
+    assert plan_lineage["source_idea_id"] == idea_id
+
+    lineage = implementation_payload["lineage"]
+    assert lineage["source_idea_id"] == idea_id
+    assert lineage["brainstorm_session_id"] == session
+    assert lineage["spec_path"] == f".devflow/brainstorms/{session}/spec.md"
+    assert lineage["plan_path"] == f".devflow/brainstorms/{session}/plan.md"
+    assert lineage["implementation_path"] == f".devflow/brainstorms/{session}/implementation.md"
+    assert implementation_lineage["artifact_stage"] == "implementation"
+    assert implementation_lineage["source_idea_id"] == idea_id
+    assert implementation_payload["action"]["lineage"] == lineage
+    assert implementation_payload["pipeline_detail"]["lineage"] == lineage
+    assert implementation_payload["pipeline_detail"]["implementation_context"]["lineage"] == lineage
+    assert implementation_payload["pipeline_detail"]["implementation_context"]["source_paths"] == [
+        f".devflow/brainstorms/{session}/spec.md",
+        f".devflow/brainstorms/{session}/plan.md",
+    ]
+    assert f"Idea: `{idea_id}`" in (tmp_path / spec_payload["artifact_path"]).read_text(encoding="utf-8")
+    assert f"Idea: `{idea_id}`" in (tmp_path / plan_payload["artifact_path"]).read_text(encoding="utf-8")
+
+
+def test_start_brainstorm_from_idea_reuses_existing_session_for_same_idea(tmp_path: Path) -> None:
+    from devflow.control_room.idea_foundry import capture_idea
+
+    setup_temp_git_repo(tmp_path)
+    idea = capture_idea(tmp_path, "Some text", title="Reuse Test")
+    idea_id = idea["id"]
+
+    first = start_brainstorm_from_idea(tmp_path, idea_id)
+    second = start_brainstorm_from_idea(tmp_path, idea_id)
+
+    assert second["status"] == "reuse"
+    assert second["session_id"] == first["session_id"]
+    assert second["source_idea_id"] == idea_id
+    assert isinstance(second["appended_seed_record"], bool)
+
+
+def test_start_brainstorm_from_idea_nonexistent_idea_fails(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+
+    with pytest.raises(BrainstormError, match="Idea not found: I-9999"):
+        start_brainstorm_from_idea(tmp_path, "I-9999")
