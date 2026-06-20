@@ -1151,6 +1151,31 @@ async function writeTaskImplementationContext(taskId, context) {
   } catch(e) { /* non-fatal */ }
 }
 
+// === ATOMIC BRAINSTORM -> TASK BRIDGE (Slice 2) ==========================
+async function createTaskFromBrainstorm(sessionId, title, options = {}) {
+  const body = { session_id: sessionId, title };
+  if (options.definition_of_done) body.definition_of_done = options.definition_of_done;
+  if (options.source_idea_id) body.source_idea_id = options.source_idea_id;
+  const resp = await fetch('/api/brainstorm/create-task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const raw = await resp.text();
+  let payload = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw);
+    } catch(e) {
+      payload = { error: raw };
+    }
+  }
+  if (!resp.ok) {
+    throw new Error(payload.error || payload.message || `create-task returned ${resp.status}`);
+  }
+  return payload;
+}
+
 function setupPipelineButtons() {
   document.querySelectorAll('[data-brainstorm-stage]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1177,30 +1202,46 @@ function setupPipelineButtons() {
           if (payload.stage === 'implementation' && taskAction) {
             appendBrainstormMsg('system', detail.operator_summary || 'Creating implementation task...', {});
             try {
-              const cmd = taskAction.command;
-              const actionResult = await runApprovedCommand(cmd, {});
-              if (actionResult.executed && actionResult.exit_code === 0) {
-                const outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
-                const createdTaskId = parseCreatedTaskId(actionResult.stdout);
-                const implementationContext = implementationContextFromPipelinePayload(payload);
+              // Prefer atomic bridge: single round-trip for task + context
+              const implContext = implementationContextFromPipelinePayload(payload);
+              let createdTaskId = null;
+              let outLine = '';
 
-                if (createdTaskId && implementationContext?.text) {
-                  try {
-                    await writeTaskImplementationContext(createdTaskId, implementationContext.text);
-                  } catch(e3) {
-                    console.warn('Failed to write implementation context:', e3);
-                  }
+              if (implContext?.text && implContext.text.trim()) {
+                // Use the new /api/brainstorm/create-task bridge
+                const dodValue = currentBrainstormDefinitionOfDone();
+                const bridgePayload = await createTaskFromBrainstorm(
+                  brainstormSessionId,
+                  taskAction.title,
+                  { definition_of_done: dodValue || undefined }
+                );
+                if (!bridgePayload || !bridgePayload.task_id) {
+                  throw new Error('Brainstorm task bridge did not return a task id');
                 }
+                createdTaskId = bridgePayload.task_id;
+                outLine = `Task ${createdTaskId}: ${taskAction.title}`;
+              } else {
+                // Fallback to legacy two-step choreography
+                const cmd = taskAction.command;
+                const actionResult = await runApprovedCommand(cmd, {});
+                if (actionResult.executed && actionResult.exit_code === 0) {
+                  outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
+                  createdTaskId = parseCreatedTaskId(actionResult.stdout);
+                  if (!createdTaskId) {
+                    throw new Error('Legacy task creation did not return a task id');
+                  }
+                } else {
+                  throw new Error(actionResult.message || actionResult.stderr || 'Legacy task creation failed');
+                }
+              }
 
-                const contextTarget = implementationContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
-                const nextMsg = createdTaskId
-                  ? `Task created: ${outLine}. Implementation context target: ${contextTarget.replace('{task_id}', createdTaskId)}. Next: use the Next Task launchpad.`
-                  : `Task created: ${outLine}`;
+              if (createdTaskId && outLine) {
+                const contextTarget = implContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
+                const contextPath = contextTarget.replace('{task_id}', createdTaskId);
+                const nextMsg = `Task created: ${outLine}. Implementation context target: ${contextPath}. Next: use the Next Task launchpad.`;
                 appendBrainstormMsg('system', nextMsg, {});
                 await loadSnapshot(selectedProjectId);
-                if (createdTaskId) selectTaskInLaunchpad(createdTaskId, { focusShell: true });
-              } else {
-                appendBrainstormMsg('system', 'Task creation failed: ' + (actionResult.message || actionResult.stderr || 'unknown'), { kind: 'provider_error' });
+                selectTaskInLaunchpad(createdTaskId, { focusShell: true });
               }
             } catch(e2) {
               appendBrainstormMsg('system', 'Task creation error: ' + (e2.message || 'unknown'), { kind: 'provider_error' });

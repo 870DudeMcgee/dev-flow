@@ -22,6 +22,7 @@ from devflow.control_room.brainstorm import (
     start_brainstorm_from_idea,
 )
 from devflow.control_room.brainstorm_pipeline import load_brainstorm_pipeline_detail
+from devflow.control_room.brainstorm_task_bridge import create_task_from_brainstorm
 from devflow.control_room.builder_judge_loop import (
     DEFAULT_BUILDER_PROFILE,
     DEFAULT_JUDGE_PROFILE,
@@ -133,6 +134,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         if request.path == "/api/brainstorm/start-from-idea":
             self._handle_start_from_idea()
+            return
+        if request.path == "/api/brainstorm/create-task":
+            self._handle_brainstorm_create_task()
             return
         if request.path == "/api/builder-judge/start":
             self._handle_builder_judge_start()
@@ -561,6 +565,35 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             result = start_brainstorm_from_idea(root, idea_id)
             if result.get("status") == "reuse":
                 result["session_id"] = result["session_id"]  # keep original existing name
+        except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_brainstorm_create_task(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            session_id = payload.get("session_id")
+            title = payload.get("title")
+            if not isinstance(session_id, str):
+                raise BrainstormError("session_id is required and must be a string")
+            if not isinstance(title, str) or not title.strip():
+                raise BrainstormError("title is required and must be a non-empty string")
+            definition_of_done = payload.get("definition_of_done")
+            if definition_of_done is not None and not isinstance(definition_of_done, str):
+                raise BrainstormError("definition_of_done must be a string")
+            source_idea_id = payload.get("source_idea_id")
+            if source_idea_id is not None and not isinstance(source_idea_id, str):
+                raise BrainstormError("source_idea_id must be a string")
+            result = create_task_from_brainstorm(
+                root=root,
+                session_id=session_id,
+                stage="implementation",
+                title=title,
+                definition_of_done=definition_of_done or None,
+                source_idea_id=source_idea_id or None,
+            )
         except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
