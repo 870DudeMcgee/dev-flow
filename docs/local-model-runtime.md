@@ -7,7 +7,7 @@ This document outlines the architectural boundaries and best practices for integ
 DevFlow is designed around a local-first engineering philosophy where the execution engine is strictly separated from LLM reasoning runtimes.
 
 1. **Weight Isolation**: Do NOT load model weights (such as 27B or 35B parameter models) directly inside the DevFlow Python application process space. Doing so introduces massive resource overhead, memory leak risks, and tight coupling between coding assistance and runtime execution.
-2. **Runtime Boundary**: DevFlow interacts with local models exclusively over a stable, local network socket using an OpenAI-compatible HTTP interface. 
+2. **Runtime Boundary**: DevFlow interacts with local models exclusively over a stable, local network socket using an OpenAI-compatible HTTP interface.
 3. **No `transformers.pipeline`**: Avoid using libraries like `transformers` or `torch` in DevFlow code. GGUF runtimes hosted on optimized external servers provide superior performance, VRAM management, and concurrency.
 4. **Hugging Face and GGUF**: Hugging Face is used solely for hosting, version control, and downloading model weights. GGUF format combined with `llama.cpp` (or similar runners) is the preferred runtime path.
 5. **Qwopus is Replaceable**: Qwopus is a powerful local model option served behind the OpenAI-compatible API boundary. It is not hardcoded as a core concept of DevFlow; operators can seamlessly swap it for other coding models by changing environment variables.
@@ -41,7 +41,7 @@ python scripts/local_model_smoke.py
 
 ### 2. Alternative Local Runtimes (Ollama, LM Studio, vLLM)
 
-If Qwopus (or another coding model) is served through Ollama, LM Studio, vLLM, or another OpenAI-compatible local server, only `LOCAL_MODEL_BASE_URL` and `LOCAL_MODEL_ID` need to change. 
+If Qwopus (or another coding model) is served through Ollama, LM Studio, vLLM, or another OpenAI-compatible local server, only `LOCAL_MODEL_BASE_URL` and `LOCAL_MODEL_ID` need to change.
 
 For example, when using Ollama:
 ```bash
@@ -146,6 +146,31 @@ Rules:
 - Worker self-report never satisfies the final gate. The supervisor must rerun commands and inspect the changed-file allowlist.
 
 `devflow task orchestrate <task-id> --plan-only` writes the pipeline into `.devflow/tasks/<task-id>/orchestration-plan.yaml` and prints the phase order in the CLI summary. This makes the serial local-agent handoff visible without executing any local model or mutating task state beyond the plan artifact.
+
+
+---
+
+## Serial Local-Agent Run Packet Contract
+
+DevFlow now has a packet-only run-directory contract for one serial local-agent phase at a time. The builder writes durable evidence under:
+
+```text
+.devflow/local-agent-runs/<run-id>/
+```
+
+Slice 1 intentionally stops at packet generation. It does **not** launch Qwen/Ollama, run verification, edit source files, stage, commit, push, or promote. Supervisors can inspect and hand the packet to an external launcher only after the single-flight/runtime preflight gate is satisfied.
+
+Each packet directory contains:
+
+| Artifact | Purpose |
+|---|---|
+| `run.json` | Manifest with phase, provider/model, allowed files, verification commands, baseline branch/HEAD, git dirty state, artifact names, and packet-only safety flags. |
+| `worker-packet.md` | Human/model-readable bounded packet for exactly one phase. |
+| `allowlist.txt` | Newline-delimited exact files the worker may touch. |
+| `non-goals.txt` | Explicit out-of-scope actions such as no git stage/commit/push and no model launch from packet creation. |
+| `verification-commands.json` | Ordered command list for the later deterministic verifier. |
+
+The contract refuses empty allowed-file or verification-command lists. Run IDs are path-safe and deterministic from the packet inputs when the caller does not provide one. Future slices layer runtime-lock preflight, generated completion verifiers, CLI access, and read-only snapshot projection on top of this evidence format.
 
 ---
 

@@ -29,6 +29,7 @@ from devflow.control_room.project_registry import ProjectRegistryError, load_pro
 from devflow.control_room.question_resume import QuestionSnapshot, build_question_snapshot
 from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
+from devflow.control_room.serial_local_agent_run import serial_local_agent_run_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
 from devflow.control_room.supervisor_surface import classify_supervisor_command
 from devflow.control_room.operating_layer_presentation import (
@@ -509,6 +510,7 @@ class OperatingLayerSnapshot(BaseModel):
     operator_readiness: OperatorReadinessSnapshot | None = None
     agent_catalog: dict[str, Any] = Field(default_factory=dict)
     local_model_runtime: dict[str, Any] = Field(default_factory=dict)
+    serial_local_agent_run: dict[str, Any] = Field(default_factory=dict)
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -596,6 +598,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         operator_readiness=dashboard.operator_readiness,
         agent_catalog=_agent_catalog_card(root, warnings),
         local_model_runtime=list_local_model_runtime_status(root),
+        serial_local_agent_run=_serial_local_agent_run_card(root, warnings),
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )
@@ -915,6 +918,27 @@ def _agent_catalog_card(root: Path, warnings: list[str]) -> dict[str, Any]:
             "profiles": [],
             "local_ollama": {"status": "unavailable", "error": str(exc), "installed_models": [], "unregistered_models": []},
             "actions": [],
+        }
+
+
+def _serial_local_agent_run_card(root: Path, warnings: list[str]) -> dict[str, Any]:
+    try:
+        return serial_local_agent_run_snapshot(root)
+    except Exception as exc:  # pragma: no cover - defensive dashboard projection
+        warnings.append(f"serial local-agent run snapshot unavailable: {exc}")
+        return {
+            "schema_version": 1,
+            "status": "unavailable",
+            "run_state": "unavailable",
+            "verification_status": "unknown",
+            "status_source": "projection_error",
+            "read_only": True,
+            "latest_run": None,
+            "run_count": 0,
+            "runs": [],
+            "browser_actions": [],
+            "next_safe_action": "Inspect .devflow/local-agent-runs manually before launching local workers.",
+            "error": str(exc),
         }
 
 

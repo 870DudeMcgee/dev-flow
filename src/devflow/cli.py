@@ -4968,6 +4968,71 @@ def agent_policy(
     _echo_list("allowed_evidence_outputs", payload["allowed_evidence_outputs"])
 
 
+@agent_app.command("serial-packet")
+def agent_serial_packet(
+    phase: str = typer.Option(..., "--phase", help="Serial local-agent phase to packetize."),
+    provider: str = typer.Option(..., "--provider", help="Local/runtime provider id, such as ollama."),
+    model: str = typer.Option(..., "--model", help="Provider model id for the manual worker launch."),
+    allowed_files: list[str] | None = typer.Option(
+        None,
+        "--allowed-file",
+        help="Repo-relative file the local worker may edit. Repeat for each allowed file.",
+    ),
+    verification_commands: list[str] | None = typer.Option(
+        None,
+        "--verify",
+        help="Verification command for the completion verifier. Repeat for each command.",
+    ),
+    mission: str | None = typer.Option(None, "--mission", help="Optional packet mission text."),
+    run_id: str | None = typer.Option(None, "--run-id", help="Optional stable run id."),
+    task_id: str | None = typer.Option(None, "--task-id", help="Optional DevFlow task id."),
+    worker_id: str | None = typer.Option(None, "--worker-id", help="Optional intended worker id."),
+) -> None:
+    """Write a packet-only serial local-agent run directory without launching a worker."""
+    from devflow.control_room.serial_local_agent_run import (
+        SerialLocalAgentRunError,
+        create_serial_local_agent_run,
+    )
+
+    root = Path.cwd()
+    try:
+        result = create_serial_local_agent_run(
+            root,
+            phase=phase,
+            provider=provider,
+            model=model,
+            allowed_files=allowed_files or [],
+            verification_commands=verification_commands or [],
+            mission=mission,
+            run_id=run_id,
+            task_id=task_id,
+            worker_id=worker_id,
+        )
+    except SerialLocalAgentRunError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    run_dir = _relative(root, result.run_dir)
+    artifacts = result.manifest["artifacts"]
+    preflight = result.manifest["preflight"]
+    typer.echo(f"run_id: {result.run_id}")
+    typer.echo(f"run_dir: {run_dir}")
+    typer.echo(f"worker_packet: {run_dir}/{artifacts['worker_packet']}")
+    typer.echo(f"preflight: {run_dir}/{artifacts['preflight']}")
+    typer.echo(f"completion_verifier: {run_dir}/{artifacts['completion_verifier']}")
+    typer.echo(f"runtime_preflight_state: {preflight['state']}")
+    typer.echo(f"launch_packet_ready: {str(preflight['launch_packet_ready']).lower()}")
+    typer.echo("model_launch: false")
+    typer.echo("worker_ran: no")
+    typer.echo("git_mutation: false")
+    typer.echo(
+        "next_safe_manual_launch: review "
+        f"{run_dir}/{artifacts['preflight']} and {run_dir}/{artifacts['worker_packet']}; "
+        "if launch_packet_ready=true, launch one single-flight local worker manually, "
+        "then run completion-verifier.py from the packet directory."
+    )
+
+
 @agent_app.command("packet")
 def agent_packet(task_id: str, agent_id: str) -> None:
     """Build and print a task's TaskPacket bounded by the target agent's permissions."""

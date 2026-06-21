@@ -11,8 +11,9 @@ import urllib.error
 import pytest
 from typer.testing import CliRunner
 
-from devflow.cli import df_app
+from devflow.cli import app, df_app
 from devflow.control_room.agent_terminal import AgentTerminalRunner, resolve_and_include_file
+from tests.helpers import init_test_git_repo
 
 runner = CliRunner()
 
@@ -67,6 +68,129 @@ agents:
     (prov_dir / "ollama.yaml").write_text("base_url: http://localhost:11434\nenabled: true\n", encoding="utf-8")
 
     return tmp_path
+
+
+def test_agent_serial_packet_writes_packet_only_run_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with patch("urllib.request.urlopen", side_effect=AssertionError("serial-packet must not call providers")):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "serial-packet",
+                "--phase",
+                "implementer",
+                "--provider",
+                "ollama",
+                "--model",
+                "qwen3.6-32b-256k:latest",
+                "--allowed-file",
+                "src/devflow/control_room/foo.py",
+                "--allowed-file",
+                "tests/test_foo.py",
+                "--verify",
+                "env PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_foo.py -q",
+                "--mission",
+                "Implement a bounded slice from a packet only.",
+                "--run-id",
+                "cli-slice4",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "run_dir: .devflow/local-agent-runs/cli-slice4" in result.output
+    assert "worker_packet: .devflow/local-agent-runs/cli-slice4/worker-packet.md" in result.output
+    assert "completion_verifier: .devflow/local-agent-runs/cli-slice4/completion-verifier.py" in result.output
+    assert "model_launch: false" in result.output
+    assert "worker_ran: no" in result.output
+    assert "git_mutation: false" in result.output
+    assert "next_safe_manual_launch:" in result.output
+    assert "preflight.json" in result.output
+
+    run_dir = tmp_path / ".devflow/local-agent-runs/cli-slice4"
+    assert (run_dir / "run.json").exists()
+    assert (run_dir / "completion-verifier.py").exists()
+    manifest = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert manifest["phase"] == "implementer"
+    assert manifest["provider"] == "ollama"
+    assert manifest["model"] == "qwen3.6-32b-256k:latest"
+    assert manifest["allowed_files"] == [
+        "src/devflow/control_room/foo.py",
+        "tests/test_foo.py",
+    ]
+    assert manifest["verification_commands"] == [
+        {
+            "order": 1,
+            "command": "env PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_foo.py -q",
+        }
+    ]
+    assert manifest["safety"]["model_launch"] is False
+    assert manifest["safety"]["git_mutation"] is False
+
+
+def test_agent_serial_packet_requires_allowlist_and_verification_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    missing_allowlist = runner.invoke(
+        app,
+        [
+            "agent",
+            "serial-packet",
+            "--phase",
+            "implementer",
+            "--provider",
+            "ollama",
+            "--model",
+            "qwen3.6-32b-256k:latest",
+            "--verify",
+            "pytest tests/test_foo.py -q",
+        ],
+    )
+    assert missing_allowlist.exit_code == 1
+    assert "allowed_files must contain at least one path" in missing_allowlist.output
+
+    missing_verify = runner.invoke(
+        app,
+        [
+            "agent",
+            "serial-packet",
+            "--phase",
+            "implementer",
+            "--provider",
+            "ollama",
+            "--model",
+            "qwen3.6-32b-256k:latest",
+            "--allowed-file",
+            "src/example.py",
+        ],
+    )
+    assert missing_verify.exit_code == 1
+    assert "verification_commands must contain at least one command" in missing_verify.output
+
+    assert not (tmp_path / ".devflow/local-agent-runs").exists()
+
+
+def test_agent_serial_packet_leaves_existing_df_local_worker_command_unchanged(
+    mock_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(mock_repo)
+    mock_response = MagicMock()
+    mock_response.read.return_value = json.dumps({"response": "legacy command still works"}).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+        result = runner.invoke(df_app, ["ask", "hello"])
+
+    assert result.exit_code == 0
+    assert "legacy command still works" in result.output
+    runs_dir = mock_repo / ".devflow" / "agent-runs"
+    assert len(list(runs_dir.iterdir())) == 1
+    assert not (mock_repo / ".devflow" / "local-agent-runs").exists()
 
 
 def test_resolve_and_include_file_valid(mock_repo: Path) -> None:
@@ -514,7 +638,7 @@ def test_project_context_qwopus_basic(mock_repo: Path, monkeypatch: pytest.Monke
         req = args[0]
         payload = json.loads(req.data.decode("utf-8"))
         sent_prompt = payload["prompt"]
-        
+
         assert "tell me what this project is" in sent_prompt
         assert "Project context: DevFlow repository" in sent_prompt
         assert "File: README.md" in sent_prompt
@@ -585,12 +709,12 @@ def test_project_context_df_run_basic(mock_repo: Path, monkeypatch: pytest.Monke
 
 def test_project_context_exclusions(mock_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(mock_repo)
-    
+
     # Create file inside excluded dirs
     git_conf = mock_repo / ".git" / "config"
     git_conf.parent.mkdir(parents=True, exist_ok=True)
     git_conf.write_text("git secret stuff", encoding="utf-8")
-    
+
     venv_sec = mock_repo / ".venv" / "secret.txt"
     venv_sec.parent.mkdir(parents=True, exist_ok=True)
     venv_sec.write_text("venv secret stuff", encoding="utf-8")
@@ -642,10 +766,10 @@ def test_project_context_registry_provider_inclusion(mock_repo: Path, monkeypatc
 
 def test_project_context_tasks_inclusion(mock_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(mock_repo)
-    
+
     # Create mock tasks
     tasks_dir = mock_repo / ".devflow" / "tasks"
-    
+
     t1_dir = tasks_dir / "task-0001"
     t1_dir.mkdir(parents=True, exist_ok=True)
     (t1_dir / "task.yaml").write_text(

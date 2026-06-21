@@ -14,6 +14,7 @@ from devflow.cli import app
 from devflow.control_room.browser_action_policy import get_browser_allowed_mutations
 from devflow.control_room.idea_foundry import capture_idea, classify_idea, park_idea
 from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
+from devflow.control_room.local_model_runtime_lock import local_model_runtime_lock
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer_html import INDEX_HTML as SPLIT_INDEX_HTML
@@ -28,6 +29,7 @@ from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
 from devflow.control_room.persistence import get_task, save_task, utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
 from devflow.control_room.project_registry import register_project, write_project_metadata
+from devflow.control_room.serial_local_agent_run import create_serial_local_agent_run
 from devflow.control_room.worker_evidence import write_worker_evidence
 from tests.helpers import setup_temp_git_repo
 
@@ -536,8 +538,93 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     assert review_loop["ready_to_promote_count"] == 1
 
 
+def test_operating_layer_snapshot_includes_latest_serial_local_agent_run_status(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = create_serial_local_agent_run(
+        tmp_path,
+        run_id="snapshot-serial-run",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        mission="Implement a bounded packet-only slice.",
+        allowed_files=["src/example.py"],
+        verification_commands=["pytest tests/test_example.py -q"],
+    )
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    serial = payload["serial_local_agent_run"]
+    assert serial["status"] == "pending"
+    assert serial["run_state"] == "pending"
+    assert serial["verification_status"] == "not_run"
+    assert serial["status_source"] == "run_manifest"
+    assert serial["read_only"] is True
+    assert serial["browser_actions"] == []
+    assert serial["next_safe_action"] == "Review worker-packet.md, launch manually outside the browser, then run completion-verifier.py."
+    latest = serial["latest_run"]
+    assert latest["run_id"] == "snapshot-serial-run"
+    assert latest["phase"] == "implementer"
+    assert latest["provider"] == "ollama"
+    assert latest["model"] == "qwen3.6-32b-256k:latest"
+    assert latest["verification_status"] == "not_run"
+    assert latest["failure_class"] is None
+    assert latest["run_dir"] == ".devflow/local-agent-runs/snapshot-serial-run"
+    assert latest["evidence_paths"] == [
+        ".devflow/local-agent-runs/snapshot-serial-run/run.json",
+        ".devflow/local-agent-runs/snapshot-serial-run/worker-packet.md",
+        ".devflow/local-agent-runs/snapshot-serial-run/preflight.json",
+        ".devflow/local-agent-runs/snapshot-serial-run/completion-verifier.py",
+    ]
+    assert latest["safety"]["model_launch"] is False
+    assert latest["safety"]["git_mutation"] is False
+    assert not (result.run_dir / "verification-report.json").exists(), "snapshot surface must not run verification"
+
+
+def test_operating_layer_snapshot_keeps_serial_preflight_and_runtime_lock_visible(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with local_model_runtime_lock(
+        tmp_path,
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        task_id="task-serial",
+        worker_id="qwen-worker",
+        operation="serial-local-agent",
+    ):
+        create_serial_local_agent_run(
+            tmp_path,
+            run_id="snapshot-running-lock",
+            phase="implementer",
+            provider="ollama",
+            model="qwen3.6-32b-256k:latest",
+            allowed_files=["src/example.py"],
+            verification_commands=["pytest tests/test_example.py -q"],
+        )
+        payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    serial = payload["serial_local_agent_run"]
+    latest = serial["latest_run"]
+    assert latest["run_id"] == "snapshot-running-lock"
+    assert latest["preflight"]["state"] == "running"
+    assert latest["preflight"]["launch_packet_ready"] is False
+    assert latest["preflight"]["owner"]["worker_id"] == "qwen-worker"
+    runtime = payload["local_model_runtime"]["ollama/qwen3.6-32b-256k:latest"]
+    assert runtime["state"] == "running"
+    assert runtime["worker_id"] == "qwen-worker"
+    assert serial["browser_actions"] == []
+
+
 def test_operating_layer_snapshot_includes_scheduler_summary(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+
     created = runner.invoke(app, ["task", "create", "scheduler retry"])
     assert created.exit_code == 0, created.output
     task = get_task(tmp_path, "task-0001")
