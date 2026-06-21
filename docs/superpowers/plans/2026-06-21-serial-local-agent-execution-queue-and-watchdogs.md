@@ -1,8 +1,8 @@
 # Serial Local-Agent Execution Queue and Watchdogs Plan
 
 Date: 2026-06-21
-Status: ready for implementation handoff
-Scope: implementation plan only; no code changes in this document.
+Status: completed
+Scope: packet-only serial local-agent workflow implemented and verified.
 
 > **For Hermes:** Use `devflow-analysis`, `subagent-driven-development`, and `subagent-driven-development/references/serial-local-agent-pipeline.md` before supervising implementation. Local Qwen/Qwopus workers are bounded implementers, not final verifiers. The supervisor owns diff review, allowlist checks, verification, commits, and pushes.
 
@@ -23,6 +23,29 @@ Each phase must leave durable evidence and one visible next safe action. Worker 
 DevFlow should own the evidence contract and packet/run-directory generation. Hermes or another supervisor may still launch the actual `qwen-worker` process, but the launch packet, preflight snapshot, allowed files, verification commands, and final status should be generated from a stable DevFlow record instead of ad hoc one-off scripts.
 
 The first milestone is deliberately conservative: **packet-only / evidence-only**. It writes run directories, manifests, packets, verification command lists, and optional watchdog scripts, but does not start models, apply patches, stage, commit, push, or promote.
+
+
+## Completion Summary
+
+Completed all five slices in implementation commit `18c2e1e617105a37b8c901cd53330029a65995cb` (`feat(control-room): add serial local-agent packet workflow`).
+
+| Slice | Outcome | Evidence |
+|---|---|---|
+| 1 — SerialLocalRun Packet Contract | Complete | Deterministic `.devflow/local-agent-runs/<run-id>/` artifacts, manifest, packet, allowlist, non-goals, and verification commands. |
+| 2 — Runtime Lock Preflight Projection | Complete | Packet preflight records free/running/stale runtime locks with owner metadata and launch readiness. |
+| 3 — Completion Verifier Script Generator | Complete | Generated `completion-verifier.py` emits `SERIAL_PHASE_VERIFY=PASS|FAIL`, checks allowlist/diff hygiene, runs manifest commands, and writes `verification-report.json`. |
+| 4 — CLI Packet-Only Command | Complete | `devflow agent serial-packet` writes packets and prints manual next steps without launching models or mutating git. |
+| 5 — Read-Only Snapshot Surface | Complete | Operating-layer snapshot exposes `serial_local_agent_run` with explicit `run_state`, `verification_status`, evidence paths, and `browser_actions: []`. |
+
+Closure verification:
+
+```text
+Focused suite: 121 passed in 42.57s
+Aggregate focused suite: 219 passed in 53.34s
+py_compile relevant source/tests: rc=0
+git diff --check: rc=0
+custom whitespace/EOF check: PASS
+```
 
 ## Existing Surfaces To Reuse
 
@@ -105,7 +128,7 @@ commands=<exit codes>
 
 ## P1 — Snapshot visibility is missing
 
-Operators need a read-only summary of the latest serial run phase: pending/running/verify_failed/accepted. This should be projected after the run evidence format is stable.
+Operators need a read-only summary of the latest serial run phase: pending/running/verify_failed/accepted. This is now projected through `serial_local_agent_run` in the operating-layer snapshot, while model launch remains outside the browser surface.
 
 ---
 
@@ -273,4 +296,4 @@ Also keep the completed prior-plan aggregate result in the closure record:
 
 ## Next Safe Action
 
-Implement **Slice 1 — SerialLocalRun Packet Contract**. Start with tests for deterministic run-directory generation and packet content. Do not launch Qwen/Ollama in Slice 1.
+Plan complete. Use `devflow agent serial-packet` for the next bounded local-agent run, or draft a new approved follow-on plan before adding automatic launch/browser execution behavior.
