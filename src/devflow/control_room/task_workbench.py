@@ -15,6 +15,7 @@ from devflow.control_room.paths import absolute_path, relative_path, task_dir
 from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.status_projection import TaskStatusProjection, list_task_status_projections
 from devflow.control_room.supervisor_surface import classify_supervisor_command
+from devflow.control_room.worker_options import build_worker_options
 
 
 LANE_ORDER: tuple[tuple[str, str], ...] = (
@@ -165,6 +166,7 @@ class TaskWorkbenchTask(BaseModel):
     evidence_paths: list[str] = Field(default_factory=list)
     review_detail: EvidenceReviewDetail
     detail: TaskWorkbenchTaskDetail
+    worker_options: list[dict[str, object]] = Field(default_factory=list)
 
 
 class TaskWorkbenchPromotionCandidate(BaseModel):
@@ -363,6 +365,24 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         ready_to_promote=projection.ready_to_promote,
     )
     local_lane = TaskWorkbenchLocalWorkerLane(**local_worker_lane) if local_worker_lane else None
+    worker_opts_raw = build_worker_options(root, task.id, project_id=project_id)
+    # Flatten to serializable dicts: ai workers + blocked details.
+    wo_dicts: list[dict[str, object]] = []
+    for w in worker_opts_raw.get("ai_workers", []):
+        if isinstance(w, dict):
+            wo_dicts.append(w)
+        else:
+            wo_dicts.append({k: v for k, v in w.model_dump().items() if not k.startswith("_")})
+    for wid, w in worker_opts_raw.get("blocked_details", {}).items():
+        if isinstance(w, dict):
+            wo_dicts.append({"worker_id": wid, "is_blocked_reason": True, **w})
+        else:
+            wo_dicts.append({"worker_id": wid, "is_blocked_reason": True, **{k: v for k, v in w.model_dump().items() if not k.startswith("_")}})
+    # Always append the shell fallback last.
+    fo = worker_opts_raw.get("fallback_shell")
+    if fo:
+        wo_dicts.append({k: v for k, v in fo.model_dump().items() if not k.startswith("_")})
+
     return TaskWorkbenchTask(
         id=task.id,
         title=task.title,
@@ -397,6 +417,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         evidence_paths=evidence_review_detail.evidence_paths,
         review_detail=evidence_review_detail,
         detail=detail,
+        worker_options=wo_dicts,
     )
 
 

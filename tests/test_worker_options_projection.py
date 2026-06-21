@@ -1,0 +1,322 @@
+"""WorkerOptionsProjection tests.
+
+Validates:
+- build_worker_options returns ai_workers, fallback_shell, blocked_details keys.
+- Fallback shell is always present and enabled=True.
+- Routing-decision agent appears as an AI worker option with source=routing-decision.
+- Rejected agents appear in blocked_details with concrete reasons.
+- Agent-selection evidence adds a local-model AI worker.
+- Local-model run evidence shows up with blocked reason when failed.
+- No worker has supervisor_may_auto_run=True.
+"""
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+from typer.testing import CliRunner
+
+from devflow.cli import app
+from devflow.control_room.task_workbench import build_task_workbench
+from devflow.control_room.worker_options import WorkerOption, build_worker_options
+
+
+runner = CliRunner()
+
+
+# ---------------------------------------------------------------------------
+# Fixtures: temp root dir for task dirs
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def tmp_root(tmp_path: Path) -> Path:
+    """Create a project root with .devflow/tasks/<task>."""
+    root = tmp_path
+    (root / ".devflow" / "tasks" / "test-001").mkdir(parents=True)
+    (root / ".devflow" / "tasks" / "test-001" / "workspace_ai").mkdir()
+    return root
+
+
+# ---------------------------------------------------------------------------
+# Core contract tests
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_shell_always_present(tmp_root: Path) -> None:
+    """Fallback shell worker must always appear, even with zero source files."""
+    result = build_worker_options(tmp_root, "test-001")
+    assert "fallback_shell" in result
+    fallback = result["fallback_shell"]
+    assert isinstance(fallback, WorkerOption)
+    assert fallback.worker_id == "shell"
+    assert fallback.enabled is True
+    # Projection-only: no worker may auto-run.
+    assert fallback.supervisor_may_auto_run is False
+
+
+def test_ai_workers_list_always_present(tmp_root: Path) -> None:
+    """ai_workers list must always be present (may be empty)."""
+    result = build_worker_options(tmp_root, "test-001")
+    assert isinstance(result["ai_workers"], list)
+
+
+def test_blocked_details_dict_always_present(tmp_root: Path) -> None:
+    """blocked_details dict must always be present."""
+    result = build_worker_options(tmp_root, "test-001")
+    assert isinstance(result["blocked_details"], dict)
+
+
+# ---------------------------------------------------------------------------
+# Source: routing-decision.yaml
+# ---------------------------------------------------------------------------
+
+
+def test_routing_decision_selected_agent_appears_as_ai_worker(tmp_root: Path) -> None:
+    """Selected agent from routing decision shows as enabled AI worker."""
+    rd = {
+        "routing_decision": {
+            "selected": {"agent_id": "qwopus-implementer", "model": "qwopus:latest"},
+            "rejected": [{"agent_id": "gemini-fast", "reason": "too expensive"}],
+            "unresolved": [{"role": "reviewer", "reason": "no matching agent"}],
+        }
+    }
+    rd_path = tmp_root / ".devflow" / "tasks" / "test-001" / "routing-decision.yaml"
+    # Write as a YAML-like text that our parser can handle.
+    rd_path.write_text(json.dumps(rd), encoding="utf-8")
+
+    result = build_worker_options(tmp_root, "test-001")
+    ai = result["ai_workers"]
+    ids = [w.worker_id for w in ai]
+    assert "qwopus-implementer" in ids
+
+    selected_w = next(w for w in ai if w.worker_id == "qwopus-implementer")
+    assert selected_w.enabled is True
+    assert selected_w.source == "routing-decision"
+    assert selected_w.supervisor_may_auto_run is False
+
+
+def test_routing_decision_rejected_agents_have_concrete_blocked_reason(tmp_root: Path) -> None:
+    """Rejected agents must show with a concrete reason in blocked_details."""
+    rd = {
+        "routing_decision": {
+            "selected": {"agent_id": "qwopus-implementer"},
+            "rejected": [
+                {"agent_id": "gemini-fast", "reason": "too expensive"},
+            ],
+        }
+    }
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "routing-decision.yaml").write_text(
+        json.dumps(rd), encoding="utf-8"
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    blocked = result["blocked_details"]
+    assert "gemini-fast" in blocked
+    entry = blocked["gemini-fast"]
+    assert entry.enabled is False
+    assert entry.blocked_reason is not None and "too expensive" in entry.blocked_reason
+    assert entry.supervisor_may_auto_run is False
+
+
+def test_routing_decision_unresolved_agents_are_blocked_with_reason(tmp_root: Path) -> None:
+    """Unresolved agents must show as blocked with reason."""
+    rd = {
+        "routing_decision": {
+            "selected": {"agent_id": "qwopus-implementer"},
+            "unresolved": [
+                {"role": "reviewer", "reason": "no matching agent in registry"}
+            ],
+        }
+    }
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "routing-decision.yaml").write_text(
+        json.dumps(rd), encoding="utf-8"
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    blocked = result["blocked_details"]
+    assert "reviewer" in blocked
+    entry = blocked["reviewer"]
+    assert entry.enabled is False
+    assert entry.blocked_reason is not None
+    assert "no matching agent" in entry.blocked_reason
+
+
+# ---------------------------------------------------------------------------
+# Source: agent-selection.json
+# ---------------------------------------------------------------------------
+
+
+def test_agent_selection_adds_local_model_worker(tmp_root: Path) -> None:
+    """Local agent-selection adds an AI worker even without routing decision."""
+    sel = {"model": "qwopus:latest", "worker_id": "qwopus-local"}
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "agent-selection.json").write_text(
+        json.dumps(sel), encoding="utf-8"
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    ai = result["ai_workers"]
+    ids = [w.worker_id for w in ai]
+    assert "qwopus-local" in ids
+
+    entry = next(w for w in ai if w.worker_id == "qwopus-local")
+    assert entry.is_local is True
+    assert entry.source == "agent-selection"
+    assert entry.supervisor_may_auto_run is False
+
+
+# ---------------------------------------------------------------------------
+# Source: local worker evidence (run.json / worker_failed.json)
+# ---------------------------------------------------------------------------
+
+
+def test_successful_local_model_run_appears_as_worker_option(tmp_root: Path) -> None:
+    """A successful local-model run adds its agent as an AI worker."""
+    run_dir = tmp_root / ".devflow" / "tasks" / "test-001" / "agents" / "qwopus-implementer"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.json").write_text(
+        json.dumps({"agent_id": "qwopus-implementer", "model": "qwopus:latest", "status": "complete"}),
+        encoding="utf-8",
+    )
+    (run_dir / "result.md").write_text("done", encoding="utf-8")
+
+    result = build_worker_options(tmp_root, "test-001")
+    ai = result["ai_workers"]
+    ids = [w.worker_id for w in ai]
+    assert "qwopus-implementer" in ids
+
+    entry = next(w for w in ai if w.worker_id == "qwopus-implementer")
+    assert entry.source == "registry"
+    assert entry.is_local is True
+    assert entry.supervisor_may_auto_run is False
+
+
+def test_failed_local_model_run_shows_concrete_reason_not_hidden(tmp_root: Path) -> None:
+    """worker_failed.json must produce a blocked worker with concrete reason."""
+    run_dir = tmp_root / ".devflow" / "tasks" / "test-001" / "agents" / "qwopus-implementer"
+    run_dir.mkdir(parents=True)
+    (run_dir / "worker_failed.json").write_text(
+        json.dumps({"error": "GPU OOM after 5 minutes"}),
+        encoding="utf-8",
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    blocked = result["blocked_details"]
+    assert any("qwopus-implementer" in wid for wid in blocked)
+
+    # Pick the first matching entry.
+    entry_found = None
+    for wid, entry in blocked.items():
+        if "qwopus-implementer" in wid:
+            entry_found = entry
+            break
+    assert entry_found is not None
+    assert entry_found.enabled is False
+    assert entry_found.blocked_reason is not None and "GPU OOM" in entry_found.blocked_reason
+
+
+def test_local_model_runs_directory_appears_as_worker_option(tmp_root: Path) -> None:
+    """local-model-runs/<agent>/run.json is first-class worker evidence."""
+    run_dir = tmp_root / ".devflow" / "tasks" / "test-001" / "local-model-runs" / "agent-qwopus-implementer"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.json").write_text(
+        json.dumps({"agent_id": "qwopus-implementer", "model": "qwopus:latest", "status": "complete"}),
+        encoding="utf-8",
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    entry = next(w for w in result["ai_workers"] if w.worker_id == "qwopus-implementer")
+    assert entry.source == "registry"
+    assert entry.is_local is True
+    assert any("local-model-runs/agent-qwopus-implementer/run.json" in path for path in entry.evidence_paths)
+
+
+# ---------------------------------------------------------------------------
+# Projection-only contract tests
+# ---------------------------------------------------------------------------
+
+
+def test_no_ai_worker_has_supervisor_may_auto_run_true(tmp_root: Path) -> None:
+    """Projection-only contract: no worker may have auto-run."""
+    rd = {
+        "routing_decision": {
+            "selected": {"agent_id": "qwopus-implementer"},
+            "rejected": [{"agent_id": "gpt-4", "reason": "cost"}],
+        }
+    }
+    sel = {"model": "qwopus:latest", "worker_id": "local-qwopus"}
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "routing-decision.yaml").write_text(
+        json.dumps(rd), encoding="utf-8"
+    )
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "agent-selection.json").write_text(
+        json.dumps(sel), encoding="utf-8"
+    )
+
+    ai = build_worker_options(tmp_root, "test-001")["ai_workers"]
+    for w in ai:
+        assert w.supervisor_may_auto_run is False, f"{w.worker_id} violated projection-only contract"
+
+
+def test_fallback_shell_is_not_an_ai_worker(tmp_root: Path) -> None:
+    """Shell fallback must not be counted among AI workers."""
+    result = build_worker_options(tmp_root, "test-001")
+    ai_ids = [w.worker_id for w in result["ai_workers"]]
+    assert "shell" not in ai_ids
+    # But shell should exist as blocked_details key? No — shell is separate.
+    # Verify it's only in the 'fallback_shell' field.
+    fallback = result["fallback_shell"]
+    assert fallback.worker_id == "shell"
+
+
+def test_task_workbench_surfaces_worker_options(tmp_path: Path, monkeypatch) -> None:
+    """Task workbench must return the canonical worker options it builds."""
+    monkeypatch.chdir(tmp_path)
+    create = runner.invoke(app, ["task", "create", "worker choices"])
+    assert create.exit_code == 0, create.output
+    routing = {
+        "routing_decision": {
+            "selected": {"agent_id": "qwopus-implementer", "model": "qwopus:latest"},
+            "rejected": [{"agent_id": "gemini-fast", "reason": "too expensive"}],
+        }
+    }
+    routing_path = tmp_path / ".devflow" / "tasks" / "task-0001" / "routing-decision.yaml"
+    routing_path.write_text(json.dumps(routing), encoding="utf-8")
+
+    workbench = build_task_workbench(tmp_path, project_id="demo")
+    task = workbench.tasks[0]
+
+    ids = [option["worker_id"] for option in task.worker_options]
+    assert "qwopus-implementer" in ids
+    assert "gemini-fast" in ids
+    assert "shell" in ids
+    shell = next(option for option in task.worker_options if option["worker_id"] == "shell")
+    assert shell["command"] == "devflow task run task-0001 --worker shell --project demo -- <command>"
+    blocked = next(option for option in task.worker_options if option["worker_id"] == "gemini-fast")
+    assert blocked["blocked_reason"] is not None
+    assert blocked["supervisor_may_auto_run"] is False
+
+
+# ---------------------------------------------------------------------------
+# Empty / missing file robustness
+# ---------------------------------------------------------------------------
+
+
+def test_missing_task_dir_returns_defaults(tmp_path: Path) -> None:
+    """When task dir is completely absent, defaults are returned without error."""
+    root = tmp_path / ".devflow"
+    # No tasks/<task_id> created.
+    with patch("pathlib.Path.exists", return_value=False):
+        # We can't mock everything in path_to_task_dir, so just check the
+        # result structure has all required keys even when there's no task.
+        pass
+
+    # Build a minimal root and test that missing files don't crash.
+    project_root = tmp_path / "real"
+    (project_root / ".devflow" / "tasks").mkdir(parents=True)
+    result = build_worker_options(project_root, "nonexistent-task")
+    assert "ai_workers" in result
+    assert "fallback_shell" in result
+    assert "blocked_details" in result
+    # Shell must still be there.
+    assert result["fallback_shell"].worker_id == "shell"

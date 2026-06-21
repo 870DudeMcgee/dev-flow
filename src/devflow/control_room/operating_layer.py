@@ -217,6 +217,7 @@ class OperatingLayerTask(BaseModel):
     controls: list[OperatingLayerTaskControl] = Field(default_factory=list)
     review_detail: EvidenceReviewDetail | None = None
     detail: OperatingLayerTaskDetail
+    worker_options: list[dict[str, object]] = Field(default_factory=list)
 
 
 class OperatingLayerQuestion(BaseModel):
