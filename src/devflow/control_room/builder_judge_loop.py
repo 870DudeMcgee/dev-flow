@@ -41,6 +41,10 @@ from devflow.control_room.env_loader import resolve_api_key
 from devflow.control_room.openrouter_agent import OpenRouterAgentError, _redact
 from devflow.control_room.paths import devflow_dir, relative_path
 from devflow.control_room.persistence import atomic_write_text
+from devflow.control_room.stage_artifact import write_stage_artifact as _save_stage_artifact
+
+# Quality gate stages map to builder-judge loop IDs
+_QUALITY_GATE_STAGE_PREFIX = "qg-"
 
 
 BUILDER_JUDGE_SCHEMA_VERSION = 1
@@ -701,7 +705,8 @@ def run_quality_gate(
     root: Path,
     *,
     stage: str,
-    transcript_text: str,
+    session_id: str | None = None,
+    transcript_text: str = "",
     builder_profile_id: str = DEFAULT_BUILDER_PROFILE,
     judge_profile_id: str = DEFAULT_JUDGE_PROFILE,
     pass_threshold: int = DEFAULT_PASS_THRESHOLD,
@@ -714,10 +719,12 @@ def run_quality_gate(
     The builder generates a spec/plan from the brainstorm transcript, and the
     judge grades it against a stage-specific definition of done. The loop
     iterates until the output passes or max rounds is reached.
+
+    Also writes StageArtifact to record gate status in the pipeline.
     """
     if stage not in QUALITY_GATE_DODS:
         raise BuilderJudgeConfigError(
-            f"Unknown quality-gate stage: {stage}. Must be 'spec' or 'plan'."
+            f"Unknown quality-gate stage: {stage}. Must be 'spec' or 'plan'.",
         )
 
     dod = QUALITY_GATE_DODS[stage]
@@ -736,9 +743,32 @@ def run_quality_gate(
         max_rounds=max_rounds,
         escalate_on_max_rounds=True,
     )
-    return run_builder_judge_loop(
+    run = run_builder_judge_loop(
         root,
         config,
         loop_id=f"qg-{stage}-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
         write_evidence=write_evidence,
     )
+
+    # Persist StageArtifact from quality-gate result.
+    if session_id and write_evidence:
+        root = root.resolve()
+        loop_dir = builder_judge_loop_dir(root, run.loop_id)
+        final_draft_path = loop_dir / "final_draft.md"
+        if run.final_draft:
+            atomic_write_text(final_draft_path, run.final_draft.rstrip() + "\n")
+        quality_gate_path = root / run.evidence_path if run.evidence_path else None
+        stage_status = "passed" if run.status == "passed" else "escalated" if run.status == "escalated" else "draft"
+        _save_stage_artifact(
+            root=root,
+            session_id=session_id,
+            stage=stage,  # type: ignore[arg-type]
+            source="builder_judge",
+            status=stage_status,
+            artifact_path=final_draft_path if run.final_draft else quality_gate_path or loop_dir,
+            quality_gate_path=quality_gate_path,
+            score=run.final_score,
+            next_action=f"Quality gate {run.status}. Review draft and decide: accept, rerun, or escalate.",
+        )
+
+    return run

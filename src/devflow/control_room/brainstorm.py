@@ -30,6 +30,7 @@ from devflow.control_room.openrouter_agent import (
 )
 from devflow.control_room.paths import ideas_dir, relative_path
 from devflow.control_room.persistence import atomic_write_text
+from devflow.control_room.stage_artifact import write_stage_artifact as save_stage_artifact
 
 
 BRAINSTORM_PROFILE_ID = "deepseek-v4-flash-free-brainstormer"
@@ -322,6 +323,16 @@ def escalate_brainstorm_session(
             model_info=model_info,
             source_idea_id=source_idea_id,
         )
+        # Also leave a draft StageArtifact so _pipeline_stages sees quality-gate state.
+        save_stage_artifact(
+            root,
+            session,
+            normalized_stage,  # type: ignore[arg-type]
+            "manual",
+            "draft",
+            artifact_path,
+            next_action=f"Escalated to {normalized_stage}. Review and optionally run a quality gate.",
+        )
         detail = build_brainstorm_pipeline_detail(
             root,
             session_id=session,
@@ -359,6 +370,16 @@ def escalate_brainstorm_session(
         title=title,
         model_info=model_info,
         source_idea_id=source_idea_id,
+    )
+    # Also leave a draft StageArtifact so _pipeline_stages sees quality-gate state.
+    save_stage_artifact(
+        root,
+        session,
+        normalized_stage,  # type: ignore[arg-type]
+        "manual",
+        "draft",
+        artifact_path,
+        next_action=f"Escalated to {normalized_stage}. Review and optionally run a quality gate.",
     )
     detail = build_brainstorm_pipeline_detail(
         root,

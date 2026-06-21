@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import atomic_write_text
+from devflow.control_room.stage_artifact import load_stage_artifact
 
 
 class BrainstormPipelineStage(BaseModel):
@@ -330,6 +331,10 @@ def _pipeline_stages(
     current_artifact: Path | None,
 ) -> list[BrainstormPipelineStage]:
     session_path = _session_dir(root, session_id)
+    stage_artifacts = {
+        "spec": load_stage_artifact(root, session_id, "spec"),
+        "plan": load_stage_artifact(root, session_id, "plan"),
+    }
     definitions = (
         ("brainstorm", "Brainstorm", session_path / "transcript.jsonl", bool(records)),
         ("spec", "Spec", session_path / "spec.md", (session_path / "spec.md").exists()),
@@ -341,18 +346,34 @@ def _pipeline_stages(
             (session_path / "implementation.md").exists(),
         ),
     )
+
     stages: list[BrainstormPipelineStage] = []
-    for stage_id, label, path, present in definitions:
-        if current_artifact and current_artifact.resolve() == path.resolve():
+    for stage_id, label, file_path, present in definitions:
+        if current_artifact and current_artifact.resolve() == file_path.resolve():
             present = True
-        artifact_path = relative_path(root, path) if present else None
+        stage_artifact = stage_artifacts.get(stage_id)
+        evidence_paths: list[str] = []
+        if stage_artifact is not None:
+            stage_status = stage_artifact.status
+            artifact_path = stage_artifact.artifact_path
+            evidence_paths.append(stage_artifact.artifact_path)
+            if stage_artifact.quality_gate_path:
+                evidence_paths.append(stage_artifact.quality_gate_path)
+        elif present:
+            stage_status = "complete"
+            artifact_path = relative_path(root, file_path)
+            evidence_paths.append(artifact_path)
+        else:
+            stage_status = "pending"
+            artifact_path = None
+
         stages.append(
             BrainstormPipelineStage(
                 id=stage_id,
                 label=label,
-                status="complete" if present else "pending",
+                status=stage_status,
                 artifact_path=artifact_path,
-                evidence_paths=[artifact_path] if artifact_path else [],
+                evidence_paths=evidence_paths,
             )
         )
     return stages

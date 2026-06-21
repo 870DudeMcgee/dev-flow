@@ -291,3 +291,60 @@ def test_start_brainstorm_from_idea_nonexistent_idea_fails(tmp_path: Path) -> No
 
     with pytest.raises(BrainstormError, match="Idea not found: I-9999"):
         start_brainstorm_from_idea(tmp_path, "I-9999")
+
+
+def test_manual_spec_escalation_exposes_draft_status_in_pipeline_stages(tmp_path: Path) -> None:
+    """Manual spec/plan escalation still works and exposes pipeline_detail["stages"]
+    with draft status from StageArtifact, not just file-existence 'complete'."""
+    setup_temp_git_repo(tmp_path)
+    run_brainstorm_message(
+        root=tmp_path,
+        message="Draft test idea.",
+        session_id="session-draft",
+    )
+
+    spec_payload = escalate_brainstorm_session(root=tmp_path, session_id="session-draft", stage="spec")
+
+    # Existing payload contract preserved.
+    assert spec_payload["status"] == "ready"
+    assert (tmp_path / spec_payload["artifact_path"]).read_text(encoding="utf-8").startswith("# Brainstorm Spec")
+
+    pipeline = spec_payload["pipeline_detail"]
+
+    # stages now carries quality-gate-aware status, not just 'complete'/'pending'.
+    stages_map = {s["id"]: s for s in pipeline["stages"]}
+    spec_stage = stages_map["spec"]
+
+    # Manual escalation should show 'draft' (not 'complete', because no quality gate ran).
+    assert spec_stage["status"] == "draft", f"Expected 'draft' for manual spec stage, got {spec_stage['status']!r}"
+
+    # The plan stage should still be 'pending' before it's escalated.
+    plan_stage = stages_map["plan"]
+    assert plan_stage["status"] == "pending"
+
+    # Persisted pipeline.json carries the draft status.
+    persisted = json.loads(
+        (tmp_path / ".devflow" / "brainstorms" / "session-draft" / "pipeline.json").read_text(encoding="utf-8")
+    )
+    persisted_stages_map = {s["id"]: s for s in persisted.get("stages", [])}
+    assert persisted_stages_map["spec"]["status"] == "draft"
+
+
+def test_manual_plan_escalation_exposes_draft_status_in_pipeline_stages(tmp_path: Path) -> None:
+    """Same draft-status check but for plan stage."""
+    setup_temp_git_repo(tmp_path)
+    run_brainstorm_message(
+        root=tmp_path,
+        message="Plan draft idea.",
+        session_id="session-plan-draft",
+    )
+
+    spec_payload = escalate_brainstorm_session(root=tmp_path, session_id="session-plan-draft", stage="spec")
+    plan_payload = escalate_brainstorm_session(root=tmp_path, session_id="session-plan-draft", stage="plan")
+
+    pipeline = plan_payload["pipeline_detail"]
+    stages_map = {s["id"]: s for s in pipeline["stages"]}
+
+    # Manual plan escalation should show 'draft'.
+    assert stages_map["spec"]["status"] == "draft"
+    assert stages_map["plan"]["status"] == "draft", f"Expected 'draft' for manual plan stage, got {stages_map['plan']['status']!r}"

@@ -498,3 +498,106 @@ def test_quality_gate_invalid_stage(tmp_path: Path) -> None:
 
     with pytest.raises(BuilderJudgeConfigError, match="Unknown quality-gate stage"):
         run_quality_gate(tmp_path, stage="invalid", transcript_text="test")
+
+
+def test_quality_gate_passed_writes_stage_artifact_with_passed_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A passed quality gate produces a StageArtifact with status='passed',
+    quality_gate_path, and score."""
+    setup_temp_git_repo(tmp_path)
+    _setup_mock_provider(
+        monkeypatch,
+        tmp_path,
+        builder_responses=[_make_builder_response("# My Spec\n\nPassed spec.")],
+        judge_responses=[_make_judge_response(92, [], "Excellent.")],
+    )
+
+    from devflow.control_room.builder_judge_loop import run_quality_gate
+
+    run = run_quality_gate(
+        tmp_path,
+        session_id="session-qg-001",
+        stage="spec",
+        transcript_text="### User\n\nI want a cold email tool.",
+    )
+
+    assert run.status == "passed"
+    assert run.final_score == 92
+
+    # StageArtifact should exist with 'passed' status.
+    from devflow.control_room.stage_artifact import load_stage_artifact
+
+    sa = load_stage_artifact(tmp_path, "session-qg-001", "spec")
+    assert sa is not None
+    assert sa.status == "passed"
+    assert sa.source == "builder_judge"
+    assert sa.score == 92
+    assert sa.quality_gate_path is not None
+    assert (tmp_path / sa.artifact_path).exists()
+
+    from devflow.control_room.brainstorm_pipeline import build_brainstorm_pipeline_state
+
+    pipeline = build_brainstorm_pipeline_state(tmp_path, session_id="session-qg-001")
+    spec_stage = {stage.id: stage for stage in pipeline.stages}["spec"]
+    assert spec_stage.status == "passed"
+    assert spec_stage.artifact_path == sa.artifact_path
+    assert sa.quality_gate_path in spec_stage.evidence_paths
+
+
+def test_quality_gate_escalated_writes_stage_artifact_with_escalated_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An escalated quality gate produces a StageArtifact with status='escalated'.
+    Escalation should also preserve the existing question-creation assertion."""
+    setup_temp_git_repo(tmp_path)
+    captured_q = []
+
+    def capture_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        req_body = json.loads(req.data.decode("utf-8"))
+        model = req_body.get("model", "")
+        if "deepseek" in model.lower():
+            return MockResponse(_make_builder_response("Draft v1."))
+        else:
+            captured_q.append(True)
+            return MockResponse(_make_judge_response(60, ["Bad"], "Fail."))
+
+    monkeypatch.setattr(urllib.request, "urlopen", capture_urlopen)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "***")
+    import devflow.control_room.env_loader as env_loader_mod
+    monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
+
+    from devflow.control_room.builder_judge_loop import run_quality_gate
+
+    # Max rounds = 1 so it hits escalation immediately.
+    run = run_quality_gate(
+        tmp_path,
+        session_id="session-qg-002",
+        stage="plan",
+        max_rounds=1,
+        transcript_text="### User\n\nI want a plan.",
+    )
+
+    assert run.status == "escalated"
+    # A question record should have been created (existing assertion preserved).
+    questions_dir = tmp_path / ".devflow" / "questions"
+    assert questions_dir.exists()
+    question_files = list(questions_dir.glob("Q-bj-*.json"))
+    assert len(question_files) == 1
+
+    # StageArtifact should exist with 'escalated' status.
+    from devflow.control_room.stage_artifact import load_stage_artifact
+
+    sa = load_stage_artifact(tmp_path, "session-qg-002", "plan")
+    assert sa is not None
+    assert sa.status == "escalated"
+    assert sa.source == "builder_judge"
+
+    from devflow.control_room.brainstorm_pipeline import build_brainstorm_pipeline_state
+
+    pipeline = build_brainstorm_pipeline_state(tmp_path, session_id="session-qg-002")
+    plan_stage = {stage.id: stage for stage in pipeline.stages}["plan"]
+    assert plan_stage.status == "escalated"
+    assert plan_stage.artifact_path == sa.artifact_path
