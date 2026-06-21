@@ -118,6 +118,73 @@ Worker-pool runs write generalized WorkerEvidence under `.devflow/tasks/<task-id
 
 ---
 
+## Hermes Worker Runtime From Serial Packets
+
+The Hermes worker runtime is a separate execution path from the raw local model worker pool.
+
+| Surface | Purpose | Authority |
+|---|---|---|
+| Raw local model worker pool | Advisory/read-only WorkerEvidence from local model profiles. | Evidence only; no source edits, patch application, verification acceptance, promotion, commit, or push. |
+| SerialLocalRun packet | DevFlow-owned bounded handoff with phase, allowed files, verification commands, runtime metadata, and preflight state. | Packet evidence only; packet creation keeps `model_launch: false`, `worker_ran: no`, and `git_mutation: false`. |
+| Hermes worker runtime | Operator-approved launch of a Hermes profile against one existing `worker-packet.md`. | May execute the bounded worker profile, but writes only launch evidence (`hermes-run.json`, stdout, stderr) and must not claim final verification. |
+| Completion verifier / DevFlow final gate | Deterministic proof from allowlist checks, diff hygiene, and configured verification commands. | Source of truth for pass/fail. Worker self-report and a zero Hermes exit are not proof. |
+
+### Command examples
+
+1. Create a packet for a Hermes profile. This command is packet-only evidence and does not launch Hermes, a provider, or a local model:
+
+   ```bash
+   devflow agent serial-packet \
+     --phase implementer \
+     --provider ollama \
+     --model qwen3.6-32b-256k:latest \
+     --task-id task-0001 \
+     --worker-id qwen-worker \
+     --runtime hermes-profile \
+     --hermes-profile qwen-worker \
+     --toolset file \
+     --toolset terminal \
+     --allowed-file src/example.py \
+     --verify 'env PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_example.py -q'
+   ```
+
+2. Preview the exact Hermes argv without launching anything or writing launch evidence:
+
+   ```bash
+   devflow agent hermes-run <run-id> --profile qwen-worker --dry-run --json
+   ```
+
+3. Launch the bounded Hermes profile manually after reviewing the packet and preflight. In browser surfaces, non-dry-run Hermes launch remains blocked; use an explicit operator shell/terminal path:
+
+   ```bash
+   devflow agent hermes-run <run-id> \
+     --profile qwen-worker \
+     --hermes-bin hermes \
+     --json
+   ```
+
+   The launcher records only runtime evidence:
+
+   ```text
+   .devflow/local-agent-runs/<run-id>/hermes-run.json
+   .devflow/local-agent-runs/<run-id>/hermes-stdout.txt
+   .devflow/local-agent-runs/<run-id>/hermes-stderr.txt
+   ```
+
+4. Run the independent verifier after the Hermes process exits cleanly:
+
+   ```bash
+   env PYTHONPATH=src:. .venv/bin/python .devflow/local-agent-runs/<run-id>/completion-verifier.py
+   ```
+
+   The verifier writes `verification-report.json` and emits `SERIAL_PHASE_VERIFY=PASS|FAIL`. This is the acceptance gate that can move the task forward; a successful Hermes launch only moves the packet to `ready_for_verifier`.
+
+### Snapshot interpretation
+
+Operating-layer snapshots remain read-only. They may project packet and launch evidence so the operator sees whether the latest serial run is `pending`, `launched`, `failed`, or `ready_for_verifier`, but `browser_actions` must stay empty or packet-only until an explicit browser policy slice permits more. `verification-report.json` supersedes launch state because the verifier/final gate is the source of truth.
+
+---
+
 ## Serial Local-Agent Supervision Pipeline
 
 Local coding models should not be asked to act as implementer, verifier, repair loop, and final judge inside one long context. When one local run performs all of those jobs, it can spend 40-50 calls discovering failures and then hit its iteration budget before applying the obvious small repair. Dev-Flow treats that as `process complete but verification failed`, not as accepted work.
@@ -158,19 +225,21 @@ DevFlow now has a packet-only run-directory contract for one serial local-agent 
 .devflow/local-agent-runs/<run-id>/
 ```
 
-Slice 1 intentionally stops at packet generation. It does **not** launch Qwen/Ollama, run verification, edit source files, stage, commit, push, or promote. Supervisors can inspect and hand the packet to an external launcher only after the single-flight/runtime preflight gate is satisfied.
+The packet builder intentionally stops at packet generation. It does **not** launch Qwen/Ollama/Hermes, run verification, edit source files, stage, commit, push, or promote. Supervisors can inspect and hand the packet to an external launcher only after the single-flight/runtime preflight gate is satisfied.
 
 Each packet directory contains:
 
 | Artifact | Purpose |
 |---|---|
-| `run.json` | Manifest with phase, provider/model, allowed files, verification commands, baseline branch/HEAD, git dirty state, artifact names, and packet-only safety flags. |
+| `run.json` | Manifest with phase, provider/model, allowed files, verification commands, runtime metadata, baseline branch/HEAD, git dirty state, artifact names, and packet-only safety flags. |
 | `worker-packet.md` | Human/model-readable bounded packet for exactly one phase. |
 | `allowlist.txt` | Newline-delimited exact files the worker may touch. |
 | `non-goals.txt` | Explicit out-of-scope actions such as no git stage/commit/push and no model launch from packet creation. |
 | `verification-commands.json` | Ordered command list for the later deterministic verifier. |
+| `preflight.json` | Same-provider/model lock state at packet creation time. |
+| `completion-verifier.py` | Deterministic final gate script that checks the allowlist, diff hygiene, and manifest verification commands. |
 
-The contract refuses empty allowed-file or verification-command lists. Run IDs are path-safe and deterministic from the packet inputs when the caller does not provide one. Future slices layer runtime-lock preflight, generated completion verifiers, CLI access, and read-only snapshot projection on top of this evidence format.
+The contract refuses empty allowed-file or verification-command lists. Run IDs are path-safe and deterministic from the packet inputs when the caller does not provide one. Hermes launch evidence, when present, lives beside the packet as `hermes-run.json`, `hermes-stdout.txt`, and `hermes-stderr.txt`; it does not rewrite `run.json` into a proof artifact.
 
 ---
 
