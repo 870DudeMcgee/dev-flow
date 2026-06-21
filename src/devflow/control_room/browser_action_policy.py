@@ -12,6 +12,7 @@ BROWSER_ALLOWED_MUTATIONS: tuple[str, ...] = (
     "idea capture",
     "task creation",
     "shell worker execution",
+    "serial local-agent packet creation",
     "model/provider onboarding",
     "task verification",
     "task promotion",
@@ -20,6 +21,7 @@ BROWSER_ALLOWED_MUTATIONS: tuple[str, ...] = (
 BROWSER_BLOCKED_MUTATIONS: tuple[str, ...] = (
     "non-shell worker execution",
     "local/provider model execution",
+    "Hermes worker runtime launch",
     "patch application",
     "cleanup apply",
     "sync",

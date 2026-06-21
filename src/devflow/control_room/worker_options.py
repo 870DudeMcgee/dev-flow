@@ -11,6 +11,7 @@ operating-layer) decide how to present the options.
 from __future__ import annotations
 
 import json
+import shlex
 import uuid
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,10 @@ class WorkerOption(BaseModel):
     reason: str | None = None
     blocked_reason: str | None = None
     evidence_paths: list[str] = Field(default_factory=list)
+    action_kind: str | None = None
+    runtime_kind: str | None = None
+    hermes_profile: str | None = None
+    toolsets: list[str] = Field(default_factory=list)
     option_id: str = ""
 
     @field_validator("option_id", mode="before")
@@ -121,16 +126,19 @@ def _inject_routing_decision(
     if is_selected and selected:
         worker_id = str(selected.get("agent_id", selected.get("worker_id", "unknown")))
         reason_msg = _fmt_reason(selected.get("reason"))
+        provider = _optional_text(selected.get("provider"))
+        model = _optional_text(selected.get("model"))
+        is_local = _is_local_worker(provider, model, worker_id)
         ai_options.append(
-            WorkerOption(
+            _worker_option(
+                task_id=task_path.name,
                 worker_id=worker_id,
-                label=_plain_worker_name(worker_id),
-                model=str(selected.get("model")),
-                provider=str(selected.get("provider")),
+                label=_option_label(selected, worker_id),
+                model=model,
+                provider=provider,
                 source="routing-decision",
                 enabled=True,
-                is_local=_is_local_provider(selected.get("provider")),
-                supervisor_may_auto_run=False,
+                is_local=is_local,
                 reason=reason_msg or "Routing decision recommends this worker.",
             )
         )
@@ -208,23 +216,35 @@ def _inject_agent_selection(
     if isinstance(data, dict):
         selected_model = data.get("model") or data.get("selected_model")
 
-    ai_options.append(
-        WorkerOption(
-            worker_id=data.get("worker_id", data.get("agent_id", "local-model"))
-            if isinstance(data, dict)
-            else "local-model",
-            label=_plain_worker_name(str(data.get("model", "local-model")))
-            if isinstance(data, dict)
-            else "Local model",
-            model=str(selected_model),
-            provider="ollama",
-            source="agent-selection",
-            enabled=True,
-            is_local=True,
-            supervisor_may_auto_run=False,
-            reason="Local agent-selection indicates the active worker.",
+    if isinstance(data, dict):
+        worker_id = str(data.get("worker_id", data.get("agent_id", "local-model")))
+        model = _optional_text(selected_model)
+        ai_options.append(
+            _worker_option(
+                task_id=task_path.name,
+                worker_id=worker_id,
+                label=_option_label(data, str(data.get("model", "local-model"))),
+                model=model,
+                provider="ollama",
+                source="agent-selection",
+                enabled=True,
+                is_local=True,
+                reason="Local agent-selection indicates the active worker.",
+            )
         )
-    )
+    else:
+        ai_options.append(
+            WorkerOption(
+                worker_id="local-model",
+                label="Local model",
+                provider="ollama",
+                source="agent-selection",
+                enabled=True,
+                is_local=True,
+                supervisor_may_auto_run=False,
+                reason="Local agent-selection indicates the active worker.",
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +345,8 @@ def _inject_local_worker_evidence(
         ) or (agent_subdir / "proposal.patch").exists()
 
         ai_options.append(
-            WorkerOption(
+            _worker_option(
+                task_id=task_path.name,
                 worker_id=worker_id,
                 label=_plain_worker_name(worker_id),
                 model=model if model else None,
@@ -333,7 +354,6 @@ def _inject_local_worker_evidence(
                 source="registry",
                 enabled=True if has_proposal or status in ("complete", "succeeded") else False,
                 is_local=True,
-                supervisor_may_auto_run=False,
                 reason=f"Local model run (status={status}).",
                 evidence_paths=evid_paths[:5],  # cap at 5 paths
             )
@@ -410,6 +430,118 @@ def _fmt_reason(value: str | None) -> str | None:
 def _plain_worker_name(worker_id: str) -> str:
     parts = [part for part in worker_id.replace("_", " ").split() if part]
     return " ".join((part[0].upper() + part[1:] if part else "") for part in parts) or "Worker"
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _is_local_worker(provider: Any, model: Any, worker_id: Any) -> bool:
+    if _is_local_provider(provider):
+        return True
+    value = " ".join(str(part or "").lower() for part in (model, worker_id))
+    return any(token in value for token in ("ollama", "qwopus", "qwen", "local"))
+
+
+def _option_label(payload: dict[str, Any], fallback: str) -> str:
+    for key in ("label", "name", "display_name"):
+        value = _optional_text(payload.get(key))
+        if value:
+            return value
+    return _plain_worker_name(fallback)
+
+
+def _worker_option(
+    *,
+    task_id: str,
+    worker_id: str,
+    label: str,
+    model: str | None,
+    provider: str | None,
+    source: str,
+    enabled: bool,
+    is_local: bool,
+    reason: str,
+    evidence_paths: list[str] | None = None,
+) -> WorkerOption:
+    command = None
+    action_kind = None
+    runtime_kind = None
+    hermes_profile = None
+    toolsets: list[str] = []
+    if enabled and is_local:
+        runtime_kind = "hermes-profile"
+        hermes_profile = worker_id
+        toolsets = ["file", "terminal"]
+        action_kind = "serial_packet"
+        command = _serial_packet_command(
+            task_id=task_id,
+            worker_id=worker_id,
+            provider=provider or "ollama",
+            model=model or "<model>",
+            hermes_profile=hermes_profile,
+            toolsets=toolsets,
+        )
+    return WorkerOption(
+        worker_id=worker_id,
+        label=label,
+        command=command,
+        model=model,
+        provider=provider,
+        source=source,
+        enabled=enabled,
+        is_local=is_local,
+        supervisor_may_auto_run=False,
+        reason=reason,
+        evidence_paths=evidence_paths or [],
+        action_kind=action_kind,
+        runtime_kind=runtime_kind,
+        hermes_profile=hermes_profile,
+        toolsets=toolsets,
+    )
+
+
+def _serial_packet_command(
+    *,
+    task_id: str,
+    worker_id: str,
+    provider: str,
+    model: str,
+    hermes_profile: str,
+    toolsets: list[str],
+) -> str:
+    parts = [
+        "devflow",
+        "agent",
+        "serial-packet",
+        "--phase",
+        "implementer",
+        "--provider",
+        provider,
+        "--model",
+        model,
+        "--task-id",
+        task_id,
+        "--worker-id",
+        worker_id,
+        "--runtime",
+        "hermes-profile",
+        "--hermes-profile",
+        hermes_profile,
+    ]
+    for toolset in toolsets:
+        parts.extend(["--toolset", toolset])
+    parts.extend(["--allowed-file", "<allowed-file>", "--verify", "<verification-command>"])
+    return " ".join(_quote_command_part(part) for part in parts)
+
+
+def _quote_command_part(value: str) -> str:
+    if value.startswith("<") and value.endswith(">"):
+        return value
+    return shlex.quote(value)
 
 
 __all__ = ["build_worker_options", "WorkerOption"]

@@ -4987,6 +4987,13 @@ def agent_serial_packet(
     run_id: str | None = typer.Option(None, "--run-id", help="Optional stable run id."),
     task_id: str | None = typer.Option(None, "--task-id", help="Optional DevFlow task id."),
     worker_id: str | None = typer.Option(None, "--worker-id", help="Optional intended worker id."),
+    runtime: str = typer.Option("manual", "--runtime", help="Intended runtime: manual or hermes-profile."),
+    hermes_profile: str | None = typer.Option(
+        None, "--hermes-profile", help="Hermes profile id when --runtime hermes-profile."
+    ),
+    toolsets: list[str] | None = typer.Option(
+        None, "--toolset", help="Hermes toolset to record for the packet. Repeat for each toolset."
+    ),
 ) -> None:
     """Write a packet-only serial local-agent run directory without launching a worker."""
     from devflow.control_room.serial_local_agent_run import (
@@ -5007,6 +5014,9 @@ def agent_serial_packet(
             run_id=run_id,
             task_id=task_id,
             worker_id=worker_id,
+            runtime_kind=runtime,
+            hermes_profile=hermes_profile,
+            toolsets=toolsets or [],
         )
     except SerialLocalAgentRunError as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -5015,6 +5025,7 @@ def agent_serial_packet(
     run_dir = _relative(root, result.run_dir)
     artifacts = result.manifest["artifacts"]
     preflight = result.manifest["preflight"]
+    runtime_payload = result.manifest.get("runtime") or {}
     typer.echo(f"run_id: {result.run_id}")
     typer.echo(f"run_dir: {run_dir}")
     typer.echo(f"worker_packet: {run_dir}/{artifacts['worker_packet']}")
@@ -5022,15 +5033,99 @@ def agent_serial_packet(
     typer.echo(f"completion_verifier: {run_dir}/{artifacts['completion_verifier']}")
     typer.echo(f"runtime_preflight_state: {preflight['state']}")
     typer.echo(f"launch_packet_ready: {str(preflight['launch_packet_ready']).lower()}")
+    typer.echo(f"runtime: {runtime_payload.get('kind') or 'manual'}")
+    if runtime_payload.get("hermes_profile"):
+        typer.echo(f"hermes_profile: {runtime_payload['hermes_profile']}")
+    if runtime_payload.get("toolsets"):
+        typer.echo(f"toolsets: {', '.join(runtime_payload['toolsets'])}")
     typer.echo("model_launch: false")
     typer.echo("worker_ran: no")
     typer.echo("git_mutation: false")
+    if runtime_payload.get("kind") == "hermes-profile":
+        launch_target = f"Hermes profile {runtime_payload['hermes_profile']} manually outside DevFlow/browser"
+    else:
+        launch_target = "one single-flight local worker manually"
     typer.echo(
         "next_safe_manual_launch: review "
         f"{run_dir}/{artifacts['preflight']} and {run_dir}/{artifacts['worker_packet']}; "
-        "if launch_packet_ready=true, launch one single-flight local worker manually, "
+        f"if launch_packet_ready=true, launch {launch_target}, "
         "then run completion-verifier.py from the packet directory."
     )
+
+
+@agent_app.command("hermes-run")
+def agent_hermes_run(
+    run_id: str,
+    profile: str = typer.Option(..., "--profile", help="Hermes profile id to use for this packet."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the Hermes command without launching it."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Allow using a Hermes command for a non-Hermes runtime packet.",
+    ),
+    hermes_bin: str = typer.Option("hermes", "--hermes-bin", help="Hermes executable path."),
+    timeout_seconds: int = typer.Option(900, "--timeout-seconds", min=1, help="Hermes launch timeout."),
+) -> None:
+    """Validate a serial packet and run or preview a Hermes worker command."""
+    from devflow.control_room.hermes_worker_runtime import (
+        HermesWorkerRuntimeError,
+        dry_run_hermes_worker_runtime,
+        run_hermes_worker_runtime,
+    )
+
+    try:
+        if dry_run:
+            payload = dry_run_hermes_worker_runtime(
+                Path.cwd(),
+                run_id=run_id,
+                hermes_profile=profile,
+                force=force,
+                hermes_executable=hermes_bin,
+            )
+        else:
+            payload = run_hermes_worker_runtime(
+                Path.cwd(),
+                run_id=run_id,
+                hermes_profile=profile,
+                force=force,
+                hermes_executable=hermes_bin,
+                timeout_seconds=timeout_seconds,
+            )
+    except HermesWorkerRuntimeError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        _echo_hermes_run_payload(payload)
+
+    exit_code = payload.get("exit_code")
+    if not dry_run and exit_code not in (None, 0):
+        raise typer.Exit(code=int(exit_code) if isinstance(exit_code, int) else 1)
+
+
+def _echo_hermes_run_payload(payload: dict[str, object]) -> None:
+    typer.echo(f"will_launch_hermes: {str(payload['will_launch_hermes']).lower()}")
+    typer.echo(f"run_id: {payload['run_id']}")
+    typer.echo(f"packet_path: {payload['packet_path']}")
+    typer.echo(f"hermes_profile: {payload['hermes_profile']}")
+    typer.echo(f"preflight_state: {payload['preflight_state']}")
+    typer.echo(f"launch_allowed: {str(payload.get('launch_allowed')).lower()}")
+    if "launch_status" in payload:
+        typer.echo(f"launch_status: {payload['launch_status']}")
+        typer.echo(f"exit_code: {payload['exit_code']}")
+        typer.echo(f"stdout_path: {payload['stdout_path']}")
+        typer.echo(f"stderr_path: {payload['stderr_path']}")
+        typer.echo(f"hermes_run_path: {payload['hermes_run_path']}")
+        typer.echo(f"next_safe_action: {payload['next_safe_action']}")
+    typer.echo("command_preview:")
+    command_preview = payload.get("command_preview")
+    if not isinstance(command_preview, list):
+        command_preview = []
+    for index, arg in enumerate(command_preview):
+        typer.echo(f"  [{index}] {arg}")
 
 
 @agent_app.command("packet")

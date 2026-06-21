@@ -60,6 +60,20 @@ def scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchSta
 
     _run_devflow(root, devflow_home, "init")
     _run_devflow(root, devflow_home, "task", "create", "Browser active work")
+    routing_decision = {
+        "routing_decision": {
+            "selected": {
+                "agent_id": "qwen-worker",
+                "label": "Hermes Qwen Implementer",
+                "provider": "ollama",
+                "model": "qwen3.6-32b-256k:latest",
+                "reason": "Recommended worker for browser launchpad fixture.",
+            }
+        }
+    }
+    (root / ".devflow" / "tasks" / "task-0001" / "routing-decision.yaml").write_text(
+        json.dumps(routing_decision), encoding="utf-8"
+    )
     _run_devflow(root, devflow_home, "task", "create", "Browser promotion candidate")
     _run_devflow(root, devflow_home, "task", "run", "task-0002", "--worker", "shell", "--", "/bin/sh", "-c", "printf ready > approval.txt")
     _run_devflow(root, devflow_home, "task", "verify", "task-0002", "--shell", "test -f approval.txt")
@@ -290,6 +304,32 @@ def test_worker_row_selects_launchpad_and_runs_inline_shell_worker(
     assert not (scratch_state.root / "launchpad-run.txt").exists()
 
 
+def test_launchpad_renders_worker_options_above_shell_without_direct_hermes_launch(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    panel = page.locator("#next-task-shell-panel")
+    expect(panel).to_be_visible()
+    ai_card = panel.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').first
+    expect(ai_card).to_be_visible()
+    expect(ai_card).to_contain_text("Recommended worker")
+    expect(ai_card).to_contain_text("Hermes Qwen Implementer")
+    expect(ai_card).to_contain_text("Creates a bounded serial packet for qwen-worker")
+    expect(ai_card).to_contain_text("Launch remains outside browser")
+    expect(ai_card).to_contain_text("verifier is final proof")
+
+    packet_command = ai_card.get_attribute("data-worker-command") or ""
+    assert packet_command.startswith("devflow agent serial-packet ")
+    assert "--runtime hermes-profile" in packet_command
+    assert "--hermes-profile qwen-worker" in packet_command
+    assert "devflow agent hermes-run" not in packet_command
+    assert panel.locator('[data-worker-option-card="shell"]').count() == 0
+    expect(panel.locator(".nt-shell-fallback [data-task-run-shell]")).to_be_visible()
+    assert panel.locator("[data-task-run-shell]").bounding_box()["y"] > ai_card.bounding_box()["y"]
+
+
 def test_review_queue_selects_promotion_candidate_and_runs_preview(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
 
@@ -325,6 +365,7 @@ def test_brainstorm_definition_of_done_persists_per_session(browser_page: tuple[
 def test_action_api_blocks_unsafe_commands(
     browser_page: tuple[Page, list[str]],
     operating_layer_url: str,
+    scratch_state: ScratchState,
 ) -> None:
     page, _console_errors = browser_page
 
@@ -353,11 +394,33 @@ def test_action_api_blocks_unsafe_commands(
         "devflow sync-main",
         "devflow push-main",
         "devflow project connect-github demo --remote-url https://github.com/example/demo",
+        "devflow agent hermes-run browser-policy-packet --profile qwen-worker --json",
     ]
     for command in unsafe_commands:
         payload = _post_browser_action(page, operating_layer_url, command)
         assert payload["status"] == 409, command
         assert payload["payload"]["executed"] is False
+
+    packet_command = (
+        "devflow agent serial-packet --phase implementer --provider ollama "
+        "--model qwen3.6-32b-256k:latest --task-id task-0001 --worker-id qwen-worker "
+        "--runtime hermes-profile --hermes-profile qwen-worker --toolset file --toolset terminal "
+        "--run-id browser-policy-packet --allowed-file src/example.py "
+        "--verify 'python -m pytest tests/example.py -q'"
+    )
+    packet_payload = _post_browser_action(page, operating_layer_url, packet_command)
+    assert packet_payload["status"] == 200, packet_payload
+    assert packet_payload["payload"]["executed"] is True
+    assert packet_payload["payload"]["exit_code"] == 0
+    packet_dir = scratch_state.root / ".devflow" / "local-agent-runs" / "browser-policy-packet"
+    assert (packet_dir / "run.json").exists()
+    assert (packet_dir / "worker-packet.md").exists()
+    manifest = json.loads((packet_dir / "run.json").read_text(encoding="utf-8"))
+    assert manifest["runtime"]["kind"] == "hermes-profile"
+    assert manifest["runtime"]["hermes_profile"] == "qwen-worker"
+    assert manifest["safety"]["model_launch"] is False
+    assert manifest["safety"]["git_mutation"] is False
+    assert not (packet_dir / "hermes-run.json").exists()
 
     invalid = page.evaluate(
         """async (url) => {

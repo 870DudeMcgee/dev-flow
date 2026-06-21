@@ -584,6 +584,73 @@ def test_operating_layer_snapshot_includes_latest_serial_local_agent_run_status(
     assert not (result.run_dir / "verification-report.json").exists(), "snapshot surface must not run verification"
 
 
+def test_operating_layer_snapshot_projects_hermes_launch_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = create_serial_local_agent_run(
+        tmp_path,
+        run_id="snapshot-hermes-launch",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/example.py"],
+        verification_commands=["pytest tests/test_example.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="qwen-worker",
+        toolsets=["file", "terminal"],
+    )
+    (result.run_dir / "hermes-stdout.txt").write_text("done\n", encoding="utf-8")
+    (result.run_dir / "hermes-stderr.txt").write_text("", encoding="utf-8")
+    (result.run_dir / "hermes-run.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "will_launch_hermes": True,
+                "dry_run": False,
+                "run_id": "snapshot-hermes-launch",
+                "hermes_profile": "qwen-worker",
+                "runtime_kind": "hermes-profile",
+                "launch_status": "completed",
+                "exit_code": 0,
+                "stdout_path": ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-stdout.txt",
+                "stderr_path": ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-stderr.txt",
+                "hermes_run_path": ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-run.json",
+                "verification_ran": False,
+                "next_safe_action": "Run completion-verifier.py from the packet directory.",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    serial = payload["serial_local_agent_run"]
+    assert serial["status"] == "ready_for_verifier"
+    assert serial["run_state"] == "ready_for_verifier"
+    assert serial["status_source"] == "hermes_run"
+    assert serial["runtime_kind"] == "hermes-profile"
+    assert serial["hermes_profile"] == "qwen-worker"
+    assert serial["launch_status"] == "completed"
+    assert serial["exit_code"] == 0
+    assert serial["browser_actions"] == []
+    assert serial["next_safe_action"] == "Run completion-verifier.py from the packet directory."
+    latest = serial["latest_run"]
+    assert latest["runtime_kind"] == "hermes-profile"
+    assert latest["hermes_profile"] == "qwen-worker"
+    assert latest["launch_status"] == "completed"
+    assert latest["exit_code"] == 0
+    assert ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-run.json" in latest["evidence_paths"]
+    assert ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-stdout.txt" in latest["evidence_paths"]
+    assert ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-stderr.txt" in latest["evidence_paths"]
+    assert not (result.run_dir / "verification-report.json").exists(), "snapshot surface must not run verification"
+
+
 def test_operating_layer_snapshot_keeps_serial_preflight_and_runtime_lock_visible(
     tmp_path: Path,
     monkeypatch,

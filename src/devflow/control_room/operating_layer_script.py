@@ -1566,6 +1566,36 @@ function renderPromotionControls(task) {
 }
 
 function renderWorkerOptions(task) {
+  const options = Array.isArray(task?.worker_options) ? task.worker_options : [];
+  const aiOptions = options.filter(option => option?.worker_id && option.worker_id !== 'shell');
+  if (aiOptions.length) {
+    return aiOptions.map(option => {
+      const enabled = option.enabled !== false && !option.blocked_reason;
+      const actionKind = option.action_kind || (option.command ? 'serial_packet' : 'inspect');
+      const runtime = option.runtime_kind || '';
+      const command = option.command || '';
+      const profile = option.hermes_profile || option.worker_id;
+      const label = option.label || sentenceCase(option.worker_id || 'worker');
+      const modelLine = [option.provider, option.model].filter(Boolean).join(' · ');
+      const recommended = enabled ? 'Recommended worker' : 'Worker unavailable';
+      const copy = enabled && actionKind === 'serial_packet'
+        ? `Creates a bounded serial packet for ${profile}. Launch remains outside browser; verifier is final proof.`
+        : (option.blocked_reason || option.reason || 'Worker option is visible for operator review.');
+      const commandHtml = command
+        ? `<code class="nt-worker-command">${esc(shortCommand(command, 140))}</code>`
+        : '';
+      const disabledClass = enabled ? '' : ' is-disabled';
+      return `<article class="nt-worker-card${disabledClass}" data-worker-option-card="ai" data-worker-id="${esc(option.worker_id)}" data-worker-action-kind="${esc(actionKind)}" data-worker-runtime="${esc(runtime)}" data-worker-command="${esc(command)}">
+        <div class="nt-worker-card-head">
+          <span class="nt-worker-badge">${esc(recommended)}</span>
+          <strong>${esc(label)}</strong>
+        </div>
+        ${modelLine ? `<p class="nt-worker-model">${esc(modelLine)}</p>` : ''}
+        <p class="nt-worker-copy">${esc(copy)}</p>
+        ${commandHtml}
+      </article>`;
+    }).join('');
+  }
   const capability = taskCapabilityAny(task, ['start_shell', 'retry']);
   if (!capability) return '';
   return `<div class="nt-no-workers">

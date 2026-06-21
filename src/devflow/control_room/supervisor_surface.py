@@ -118,6 +118,7 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow task orchestrate --plan-only",
     "devflow task escalation-packet",
     "devflow task capsule --export-md",
+    "devflow agent serial-packet",
     "devflow worker validate-outcome",
     "devflow scheduler retry",
     "devflow question answer",
@@ -169,6 +170,7 @@ APPROVAL_REQUIRED_WORKER_RUNTIME_COMMANDS = [
     "devflow agent run",
     "devflow agent advise",
     "devflow agent propose-patch",
+    "devflow agent hermes-run",
     "devflow task verify",
     "devflow dogfood run",
 ]
@@ -293,10 +295,18 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "closed evidence pruning apply",
                 "worker execution",
                 "verification runs",
+                "serial local-agent packet creation",
                 "broad mutation",
             ],
             "browser_allowed_mutations": get_browser_allowed_mutations(),
             "browser_blocked_mutations": get_browser_blocked_mutations(),
+            "hermes_runtime_boundary": {
+                "browser_allowed_after_approval": "packet creation through devflow agent serial-packet writes bounded evidence only",
+                "packet_creation_proof": "serial-packet output must retain model_launch: false, worker_ran: no, git_mutation: false, and did not launch Hermes",
+                "browser_blocked_runtime_launch": "non-dry-run devflow agent hermes-run is a worker runtime launch and is not executable from the browser in this milestone",
+                "dry_run_preview": "devflow agent hermes-run --dry-run is read-only because it only returns an argv-list command preview",
+                "final_proof": "completion-verifier.py, focused tests, and allowlist checks are final proof; Hermes worker self-report is not proof",
+            },
         },
         "telegram_routing": {
             "provider": "local",
@@ -394,6 +404,10 @@ def _classify_supervisor_command(command: str) -> str:
     if command_group == "agent":
         if subcommand in {"list", "show", "policy", "packet", "catalog"}:
             return PURE_READ_ONLY
+        if subcommand == "serial-packet":
+            return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        if subcommand == "hermes-run":
+            return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
         if subcommand == "run":
             return PURE_READ_ONLY if "--dry-run" in tokens else APPROVAL_REQUIRED_WORKER_RUNTIME
         if subcommand == "advise":

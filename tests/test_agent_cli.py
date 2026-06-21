@@ -128,6 +128,214 @@ def test_agent_serial_packet_writes_packet_only_run_dir(tmp_path: Path, monkeypa
     ]
     assert manifest["safety"]["model_launch"] is False
     assert manifest["safety"]["git_mutation"] is False
+    assert manifest["runtime"] == {
+        "kind": "manual",
+        "hermes_profile": None,
+        "toolsets": [],
+        "packet_only": True,
+    }
+
+
+def test_agent_serial_packet_writes_hermes_profile_runtime_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    with patch("urllib.request.urlopen", side_effect=AssertionError("serial-packet must not call providers")):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "serial-packet",
+                "--phase",
+                "implementer",
+                "--provider",
+                "ollama",
+                "--model",
+                "qwen3.6-32b-256k:latest",
+                "--allowed-file",
+                "src/devflow/control_room/serial_local_agent_run.py",
+                "--verify",
+                "pytest tests/test_serial_local_agent_run.py -q",
+                "--run-id",
+                "cli-hermes-runtime",
+                "--runtime",
+                "hermes-profile",
+                "--hermes-profile",
+                "qwen-worker",
+                "--toolset",
+                "file",
+                "--toolset",
+                "terminal",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "runtime: hermes-profile" in result.output
+    assert "hermes_profile: qwen-worker" in result.output
+    assert "toolsets: file, terminal" in result.output
+    assert "model_launch: false" in result.output
+    assert "worker_ran: no" in result.output
+    assert "git_mutation: false" in result.output
+
+    run_dir = tmp_path / ".devflow/local-agent-runs/cli-hermes-runtime"
+    manifest = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert manifest["runtime"] == {
+        "kind": "hermes-profile",
+        "hermes_profile": "qwen-worker",
+        "toolsets": ["file", "terminal"],
+        "packet_only": True,
+    }
+    packet = (run_dir / "worker-packet.md").read_text(encoding="utf-8")
+    assert "This packet is intended for Hermes profile `qwen-worker`, but packet creation did not launch it." in packet
+
+
+def test_agent_serial_packet_requires_hermes_profile_for_hermes_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "serial-packet",
+            "--phase",
+            "implementer",
+            "--provider",
+            "ollama",
+            "--model",
+            "qwen3.6-32b-256k:latest",
+            "--allowed-file",
+            "src/example.py",
+            "--verify",
+            "pytest tests/test_example.py -q",
+            "--runtime",
+            "hermes-profile",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "hermes_profile is required when runtime_kind is hermes-profile" in result.output
+    assert not (tmp_path / ".devflow/local-agent-runs").exists()
+
+
+def _write_cli_hermes_runtime_packet(run_id: str = "cli-hermes-run") -> None:
+    create_result = runner.invoke(
+        app,
+        [
+            "agent",
+            "serial-packet",
+            "--phase",
+            "implementer",
+            "--provider",
+            "ollama",
+            "--model",
+            "qwen3.6-32b-256k:latest",
+            "--allowed-file",
+            "src/devflow/control_room/hermes_worker_runtime.py",
+            "--verify",
+            "pytest tests/test_hermes_worker_runtime.py -q",
+            "--run-id",
+            run_id,
+            "--runtime",
+            "hermes-profile",
+            "--hermes-profile",
+            "qwen-worker",
+            "--toolset",
+            "file",
+        ],
+    )
+    assert create_result.exit_code == 0, create_result.output
+
+
+def test_agent_hermes_run_dry_run_json_previews_without_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _write_cli_hermes_runtime_packet()
+
+    with patch("subprocess.run", side_effect=AssertionError("dry-run must not call subprocess.run")), patch(
+        "subprocess.Popen", side_effect=AssertionError("dry-run must not call subprocess.Popen")
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "agent",
+                "hermes-run",
+                "cli-hermes-run",
+                "--profile",
+                "qwen-worker",
+                "--dry-run",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["will_launch_hermes"] is False
+    assert payload["launch_allowed"] is True
+    assert payload["run_id"] == "cli-hermes-run"
+    assert payload["hermes_profile"] == "qwen-worker"
+    assert payload["preflight_state"] == "free"
+    assert payload["packet_path"] == ".devflow/local-agent-runs/cli-hermes-run/worker-packet.md"
+    assert payload["command_preview"][:5] == ["hermes", "-p", "qwen-worker", "chat", "-q"]
+    assert not (tmp_path / ".devflow/local-agent-runs/cli-hermes-run/hermes-run.json").exists()
+
+
+def test_agent_hermes_run_real_launch_uses_fake_bin_and_writes_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _write_cli_hermes_runtime_packet("cli-hermes-launch")
+    fake = tmp_path / "fake-hermes"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "Path('cli-fake-argv.json').write_text(json.dumps({'argv': sys.argv}) + '\\n', encoding='utf-8')\n"
+        "print('cli fake stdout')\n"
+        "print('cli fake stderr', file=sys.stderr)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(fake.stat().st_mode | 0o111)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "hermes-run",
+            "cli-hermes-launch",
+            "--profile",
+            "qwen-worker",
+            "--hermes-bin",
+            fake.as_posix(),
+            "--timeout-seconds",
+            "10",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["will_launch_hermes"] is True
+    assert payload["launch_status"] == "completed"
+    assert payload["exit_code"] == 0
+    assert payload["stdout_path"] == ".devflow/local-agent-runs/cli-hermes-launch/hermes-stdout.txt"
+    assert payload["stderr_path"] == ".devflow/local-agent-runs/cli-hermes-launch/hermes-stderr.txt"
+    assert payload["next_safe_action"] == "Run completion-verifier.py from the packet directory."
+    run_dir = tmp_path / ".devflow/local-agent-runs/cli-hermes-launch"
+    assert (run_dir / "hermes-run.json").exists()
+    assert (run_dir / "hermes-stdout.txt").read_text(encoding="utf-8") == "cli fake stdout\n"
+    assert (run_dir / "hermes-stderr.txt").read_text(encoding="utf-8") == "cli fake stderr\n"
+    fake_payload = json.loads((tmp_path / "cli-fake-argv.json").read_text(encoding="utf-8"))
+    assert fake_payload["argv"][1:5] == ["-p", "qwen-worker", "chat", "-q"]
+    assert not (run_dir / "verification-report.json").exists()
 
 
 def test_agent_serial_packet_requires_allowlist_and_verification_commands(

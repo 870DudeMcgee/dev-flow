@@ -131,6 +131,7 @@ def test_evidence_writing_commands_are_not_pure_read_only() -> None:
         "devflow task review-patch task-0001",
         "devflow task patch-dry-run task-0001",
         "devflow task packet task-0001 --save",
+        "devflow agent serial-packet --phase implementer --provider ollama --model qwen3.6:latest --task-id task-0001 --worker-id qwen-worker --runtime hermes-profile --hermes-profile qwen-worker --allowed-file src/foo.py --verify 'pytest tests/foo.py -q'",
         "devflow knowledge capture --from-task task-0001",
         "devflow idea capture rough idea",
         "devflow idea classify I-0001 --maturity goal_ready",
@@ -183,12 +184,23 @@ def test_worker_runtime_commands_are_approval_required() -> None:
         "devflow task local task-0001 --agent qwen-planner",
         "devflow task local-review task-0001",
         "devflow task verify task-0001 --shell pytest",
+        "devflow agent hermes-run serial-123 --profile qwen-worker --json",
         "devflow supervise --once",
     ):
         classification = classify_supervisor_command(command)
         assert classification["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
         assert classification["requires_human_approval"] is True
         assert classification["supervisor_may_auto_run"] is False
+
+
+def test_hermes_runtime_dry_run_is_read_only() -> None:
+    classification = classify_supervisor_command(
+        "devflow agent hermes-run serial-123 --profile qwen-worker --dry-run --json"
+    )
+
+    assert classification["safety_class"] == PURE_READ_ONLY
+    assert classification["requires_human_approval"] is False
+    assert classification["supervisor_may_auto_run"] is True
 
 
 def test_task_state_commands_are_approval_required() -> None:
@@ -319,7 +331,9 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "devflow project connect-github" in payload["commands_requiring_human_approval"]
     assert "devflow task review-patch" in payload["approval_required_evidence_writing"]
     assert "devflow task patch-dry-run" in payload["approval_required_evidence_writing"]
+    assert "devflow agent serial-packet" in payload["approval_required_evidence_writing"]
     assert "devflow idea park" in payload["approval_required_evidence_writing"]
+    assert "devflow agent hermes-run" in payload["approval_required_worker_runtime"]
     assert "devflow task verify" in payload["approval_required_worker_runtime"]
     assert "devflow task create" in payload["approval_required_task_state"]
     assert "devflow project create" in payload["approval_required_task_state"]
@@ -338,8 +352,15 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "spawn unbounded parallel workers" in payload["operator_layer"]["must_not"]
     assert "promotion" in payload["operator_layer"]["human_approval_required_for"]
     assert payload["operator_layer"]["browser_allowed_mutations"] == get_browser_allowed_mutations()
+    assert "serial local-agent packet creation" in payload["operator_layer"]["browser_allowed_mutations"]
     assert "non-shell worker execution" in payload["operator_layer"]["browser_blocked_mutations"]
     assert "local/provider model execution" in payload["operator_layer"]["browser_blocked_mutations"]
+    assert "Hermes worker runtime launch" in payload["operator_layer"]["browser_blocked_mutations"]
+    boundary = payload["operator_layer"]["hermes_runtime_boundary"]
+    assert "packet creation" in boundary["browser_allowed_after_approval"]
+    assert "did not launch Hermes" in boundary["packet_creation_proof"]
+    assert "agent hermes-run" in boundary["browser_blocked_runtime_launch"]
+    assert "completion-verifier.py" in boundary["final_proof"]
     assert payload["telegram_routing"]["provider"] == "local"
     assert payload["telegram_routing"]["default_model"] == "gemma4:latest"
     assert payload["telegram_routing"]["footer_required"] is True

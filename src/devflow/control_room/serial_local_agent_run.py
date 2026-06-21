@@ -24,6 +24,7 @@ SerialLocalRunPhase = Literal[
     "tiny_repair",
     "supervisor_final_gate",
 ]
+SerialLocalRunRuntimeKind = Literal["manual", "hermes-profile"]
 
 SERIAL_LOCAL_RUN_PHASES: tuple[str, ...] = (
     "implementer",
@@ -31,6 +32,12 @@ SERIAL_LOCAL_RUN_PHASES: tuple[str, ...] = (
     "tiny_repair",
     "supervisor_final_gate",
 )
+SERIAL_LOCAL_RUN_RUNTIME_KINDS: tuple[str, ...] = ("manual", "hermes-profile")
+_RUNTIME_KIND_ALIASES: dict[str, str] = {
+    "manual": "manual",
+    "hermes-profile": "hermes-profile",
+    "hermes_profile": "hermes-profile",
+}
 
 DEFAULT_NON_GOALS: tuple[str, ...] = (
     "no git stage/commit/push",
@@ -325,6 +332,9 @@ def create_serial_local_agent_run(
     non_goals: Sequence[str] | None = None,
     task_id: str | None = None,
     worker_id: str | None = None,
+    runtime_kind: SerialLocalRunRuntimeKind | str = "manual",
+    hermes_profile: str | None = None,
+    toolsets: Sequence[str] | None = None,
 ) -> SerialLocalAgentRunResult:
     """Write packet-only evidence for one serial local-agent phase.
 
@@ -341,6 +351,11 @@ def create_serial_local_agent_run(
     commands = _normalize_required_list(verification_commands, "verification_commands", "command")
     goals = _normalize_non_goals(non_goals)
     mission_value = (mission or _default_mission(phase_value)).strip()
+    runtime_payload = _runtime_payload(
+        runtime_kind=runtime_kind,
+        hermes_profile=hermes_profile,
+        toolsets=toolsets,
+    )
 
     run_id_value = _slug_run_id(run_id) if run_id else derive_serial_local_run_id(
         phase=phase_value,
@@ -348,6 +363,9 @@ def create_serial_local_agent_run(
         model=model_value,
         allowed_files=allowed,
         verification_commands=commands,
+        runtime_kind=runtime_payload["kind"],
+        hermes_profile=runtime_payload["hermes_profile"],
+        toolsets=runtime_payload["toolsets"],
     )
     run_dir = serial_local_run_dir(repo_root, run_id_value)
     git_state = inspect_git_state(repo_root)
@@ -376,6 +394,7 @@ def create_serial_local_agent_run(
         verification_payload=verification_payload,
         preflight_payload=preflight_payload,
         git_state=git_state,
+        runtime_payload=runtime_payload,
     )
 
     atomic_write_text(run_dir / "run.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -422,18 +441,29 @@ def serial_local_agent_run_snapshot(root: Path) -> dict[str, Any]:
     latest = runs[0]
     run_state = latest["state"]
     verification_status = latest["verification_status"]
+    status_source = (
+        "verification_report"
+        if verification_status != "not_run"
+        else "hermes_run"
+        if latest.get("hermes_run")
+        else "run_manifest"
+    )
     return {
         "schema_version": SERIAL_LOCAL_AGENT_RUN_SCHEMA_VERSION,
         "status": verification_status if verification_status != "not_run" else run_state,
         "run_state": run_state,
         "verification_status": verification_status,
-        "status_source": "verification_report" if verification_status != "not_run" else "run_manifest",
+        "status_source": status_source,
+        "runtime_kind": latest.get("runtime_kind"),
+        "hermes_profile": latest.get("hermes_profile"),
+        "launch_status": latest.get("launch_status"),
+        "exit_code": latest.get("exit_code"),
         "read_only": True,
         "latest_run": latest,
         "run_count": len(runs),
         "runs": runs[:5],
         "browser_actions": [],
-        "next_safe_action": "Review worker-packet.md, launch manually outside the browser, then run completion-verifier.py.",
+        "next_safe_action": _serial_local_run_next_safe_action(latest),
     }
 
 
@@ -444,6 +474,10 @@ def _empty_serial_local_run_snapshot() -> dict[str, Any]:
         "run_state": "none",
         "verification_status": "not_run",
         "status_source": "none",
+        "runtime_kind": None,
+        "hermes_profile": None,
+        "launch_status": "not_started",
+        "exit_code": None,
         "read_only": True,
         "latest_run": None,
         "run_count": 0,
@@ -464,6 +498,13 @@ def _serial_local_run_summary(root: Path, run_dir: Path, manifest: dict[str, Any
         failure_class = report.get("failure_class")
 
     artifacts = manifest.get("artifacts") or {}
+    raw_runtime = manifest.get("runtime")
+    runtime: dict[str, Any] = raw_runtime if isinstance(raw_runtime, dict) else _manual_runtime_payload()
+    launch = _serial_local_run_launch_summary(root, run_dir)
+    run_state = _serial_local_run_state(
+        str(manifest.get("state") or "unknown"),
+        launch,
+    )
     evidence_names = [
         artifacts.get("run_manifest") or "run.json",
         artifacts.get("worker_packet") or "worker-packet.md",
@@ -471,28 +512,114 @@ def _serial_local_run_summary(root: Path, run_dir: Path, manifest: dict[str, Any
         artifacts.get("completion_verifier") or "completion-verifier.py",
     ]
     evidence_paths = [relative_path(root, run_dir / name) for name in evidence_names if name]
+    if launch["hermes_run"]:
+        evidence_paths.append(str(launch["hermes_run"]))
+    for key in ("stdout_path", "stderr_path"):
+        value = launch.get(key)
+        if value:
+            evidence_paths.append(str(value))
     if report_path.exists():
         evidence_paths.append(relative_path(root, report_path))
 
+    raw_toolsets = runtime.get("toolsets")
+    toolsets = [str(item) for item in raw_toolsets] if isinstance(raw_toolsets, list) else []
     return {
         "run_id": manifest.get("run_id") or run_dir.name,
         "created_at": manifest.get("created_at"),
         "phase": manifest.get("phase"),
-        "state": manifest.get("state") or "unknown",
+        "state": run_state,
+        "manifest_state": manifest.get("state") or "unknown",
         "provider": manifest.get("provider"),
         "model": manifest.get("model"),
         "mission": manifest.get("mission") or "",
         "run_dir": relative_path(root, run_dir),
+        "runtime_kind": runtime.get("kind") or "manual",
+        "hermes_profile": runtime.get("hermes_profile"),
+        "toolsets": toolsets,
         "allowed_file_count": len(manifest.get("allowed_files") or []),
         "verification_command_count": len(manifest.get("verification_commands") or []),
         "verification_status": verification_status,
         "failure_class": failure_class,
         "verification_report": relative_path(root, report_path) if report_path.exists() else None,
+        "launch_status": launch["launch_status"],
+        "exit_code": launch["exit_code"],
+        "hermes_run": launch["hermes_run"],
+        "stdout_path": launch["stdout_path"],
+        "stderr_path": launch["stderr_path"],
+        "verification_ran": launch["verification_ran"],
         "preflight": manifest.get("preflight") or {},
         "safety": manifest.get("safety") or {},
         "evidence_paths": evidence_paths,
         "read_only": True,
     }
+
+
+def _serial_local_run_launch_summary(root: Path, run_dir: Path) -> dict[str, Any]:
+    evidence_path = run_dir / "hermes-run.json"
+    payload = _read_json_file(evidence_path) if evidence_path.exists() else {}
+    if not evidence_path.exists():
+        return {
+            "launch_status": "not_started",
+            "exit_code": None,
+            "hermes_run": None,
+            "stdout_path": None,
+            "stderr_path": None,
+            "verification_ran": False,
+        }
+
+    launch_status = str(payload.get("launch_status") or "launched").strip().lower() or "launched"
+    return {
+        "launch_status": launch_status,
+        "exit_code": _optional_int(payload.get("exit_code")),
+        "hermes_run": _launch_evidence_path(root, run_dir, evidence_path, payload.get("hermes_run_path")),
+        "stdout_path": _launch_evidence_path(root, run_dir, run_dir / "hermes-stdout.txt", payload.get("stdout_path")),
+        "stderr_path": _launch_evidence_path(root, run_dir, run_dir / "hermes-stderr.txt", payload.get("stderr_path")),
+        "verification_ran": bool(payload.get("verification_ran")),
+    }
+
+
+def _serial_local_run_state(manifest_state: str, launch: dict[str, Any]) -> str:
+    launch_status = str(launch.get("launch_status") or "not_started")
+    if launch_status == "not_started":
+        return manifest_state
+    exit_code = launch.get("exit_code")
+    if launch_status == "completed" and exit_code == 0:
+        return "ready_for_verifier"
+    if launch_status in {"failed", "timeout"} or (exit_code is not None and exit_code != 0):
+        return "failed"
+    return "launched"
+
+
+def _serial_local_run_next_safe_action(latest: dict[str, Any]) -> str:
+    verification_status = latest.get("verification_status")
+    if verification_status == "pass":
+        return "Review verification-report.json and continue to the next DevFlow gate."
+    if verification_status in {"fail", "unknown"}:
+        return "Inspect verification-report.json, repair within the allowlist, then rerun completion-verifier.py."
+    run_state = latest.get("state")
+    if run_state == "ready_for_verifier":
+        return "Run completion-verifier.py from the packet directory."
+    if run_state == "failed":
+        return "Inspect Hermes launch stdout/stderr, repair the packet or runtime, then rerun Hermes manually."
+    if run_state == "launched":
+        return "Inspect hermes-run.json and launch stdout/stderr before running completion-verifier.py."
+    return "Review worker-packet.md, launch manually outside the browser, then run completion-verifier.py."
+
+
+def _launch_evidence_path(root: Path, run_dir: Path, fallback_path: Path, value: object) -> str:
+    text = str(value or "").strip()
+    if text:
+        return text
+    return relative_path(root, fallback_path)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _read_json_file(path: Path) -> dict[str, Any]:
@@ -560,12 +687,20 @@ def derive_serial_local_run_id(
     model: str,
     allowed_files: Sequence[str],
     verification_commands: Sequence[str],
+    runtime_kind: SerialLocalRunRuntimeKind | str = "manual",
+    hermes_profile: str | None = None,
+    toolsets: Sequence[str] | None = None,
 ) -> str:
     phase_value = _validate_phase(phase)
     provider_value = _required_text(provider, "provider")
     model_value = _required_text(model, "model")
     allowed = _normalize_required_list(allowed_files, "allowed_files", "path")
     commands = _normalize_required_list(verification_commands, "verification_commands", "command")
+    runtime_payload = _runtime_payload(
+        runtime_kind=runtime_kind,
+        hermes_profile=hermes_profile,
+        toolsets=toolsets,
+    )
     fingerprint_payload = {
         "phase": phase_value,
         "provider": provider_value,
@@ -573,6 +708,8 @@ def derive_serial_local_run_id(
         "allowed_files": allowed,
         "verification_commands": commands,
     }
+    if runtime_payload != _manual_runtime_payload():
+        fingerprint_payload["runtime"] = runtime_payload
     digest = hashlib.sha256(
         json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:12]
@@ -606,6 +743,7 @@ def _run_manifest(
     verification_payload: dict[str, Any],
     preflight_payload: dict[str, Any],
     git_state: GitState,
+    runtime_payload: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "schema_version": SERIAL_LOCAL_AGENT_RUN_SCHEMA_VERSION,
@@ -621,6 +759,7 @@ def _run_manifest(
         "allowed_files": allowed_files,
         "non_goals": non_goals,
         "verification_commands": verification_payload["commands"],
+        "runtime": runtime_payload,
         "preflight": preflight_payload,
         "git": _git_payload(git_state),
         "artifacts": {
@@ -681,14 +820,31 @@ def _render_worker_packet(manifest: dict[str, Any]) -> str:
     allowed = "\n".join(f"- {path}" for path in manifest["allowed_files"])
     non_goals = "\n".join(f"- {item}" for item in manifest["non_goals"])
     commands = "\n".join(command["command"] for command in manifest["verification_commands"])
+    runtime = manifest.get("runtime") or _manual_runtime_payload()
+    runtime_kind = str(runtime.get("kind") or "manual")
+    hermes_profile = runtime.get("hermes_profile")
+    toolsets = runtime.get("toolsets") or []
+    toolsets_text = "`, `".join(str(item) for item in toolsets) if toolsets else "none"
     git = manifest["git"]
     baseline = git["baseline"]
     dirty = git["dirty_state"]
+    if runtime_kind == "hermes-profile":
+        runtime_note = (
+            f"This packet is intended for Hermes profile `{hermes_profile}`, "
+            "but packet creation did not launch it.\n"
+        )
+    else:
+        runtime_note = "Packet creation did not launch Hermes, a local model, or a worker.\n"
     return (
         f"# Serial Local-Agent Packet: {manifest['phase']}\n\n"
         f"Run ID: `{manifest['run_id']}`\n"
         f"State: `{manifest['state']}`\n"
         f"Provider/model: `{manifest['provider']}/{manifest['model']}`\n\n"
+        "## Runtime Target\n"
+        f"- runtime kind: `{runtime_kind}`\n"
+        f"- hermes profile: `{hermes_profile or 'none'}`\n"
+        f"- toolsets: `{toolsets_text}`\n"
+        f"{runtime_note}\n"
         "## Mission\n"
         f"{manifest['mission']}\n\n"
         "## Baseline\n"
@@ -717,9 +873,73 @@ def _render_worker_packet(manifest: dict[str, Any]) -> str:
         "- risks and blockers\n"
         "- whether any off-allowlist file was touched\n\n"
         "## Safety Boundary\n"
-        "Packet creation is evidence-only. Do not launch a model, stage, commit, push, promote, "
-        "or edit outside the allowed files from this packet.\n"
+        "Packet creation is evidence-only. Do not launch Hermes, a local model, a worker, "
+        "stage, commit, push, promote, or edit outside the allowed files from this packet.\n"
     )
+
+
+def _manual_runtime_payload() -> dict[str, Any]:
+    return {
+        "kind": "manual",
+        "hermes_profile": None,
+        "toolsets": [],
+        "packet_only": True,
+    }
+
+
+def _runtime_payload(
+    *,
+    runtime_kind: SerialLocalRunRuntimeKind | str,
+    hermes_profile: str | None,
+    toolsets: Sequence[str] | None,
+) -> dict[str, Any]:
+    kind = _validate_runtime_kind(runtime_kind)
+    profile = _optional_text(hermes_profile)
+    toolset_values = _normalize_optional_list(toolsets, "toolsets", "toolset")
+    if kind == "hermes-profile":
+        if not profile:
+            raise SerialLocalAgentRunError(
+                "hermes_profile is required when runtime_kind is hermes-profile"
+            )
+    else:
+        if profile:
+            raise SerialLocalAgentRunError(
+                "hermes_profile requires runtime_kind hermes-profile"
+            )
+        if toolset_values:
+            raise SerialLocalAgentRunError(
+                "toolsets require runtime_kind hermes-profile"
+            )
+    return {
+        "kind": kind,
+        "hermes_profile": profile if kind == "hermes-profile" else None,
+        "toolsets": toolset_values,
+        "packet_only": True,
+    }
+
+
+def _validate_runtime_kind(runtime_kind: SerialLocalRunRuntimeKind | str) -> str:
+    value = str(runtime_kind or "").strip()
+    normalized = _RUNTIME_KIND_ALIASES.get(value)
+    if normalized is None:
+        raise SerialLocalAgentRunError(
+            f"runtime_kind must be one of: {', '.join(SERIAL_LOCAL_RUN_RUNTIME_KINDS)}"
+        )
+    return normalized
+
+
+def _normalize_optional_list(
+    values: Sequence[str] | None, field_name: str, item_name: str
+) -> list[str]:
+    if not values:
+        return []
+    normalized: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            raise SerialLocalAgentRunError(f"{field_name} entries must be non-empty {item_name}s")
+        normalized.append(text)
+    return normalized
 
 
 def _validate_phase(phase: SerialLocalRunPhase | str) -> str:
@@ -789,6 +1009,7 @@ __all__ = [
     "SERIAL_LOCAL_RUN_PHASES",
     "SerialLocalAgentRunError",
     "SerialLocalAgentRunResult",
+    "SerialLocalRunRuntimeKind",
     "build_serial_local_run_preflight",
     "create_serial_local_agent_run",
     "derive_serial_local_run_id",

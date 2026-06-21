@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlsplit
 
 from devflow.control_room.brainstorm import (
@@ -178,6 +178,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         approved_agent_add_provider = False
         approved_agent_add_model = False
         approved_agent_propose_patch = False
+        approved_agent_serial_packet = False
         if classification["safety_class"] != PURE_READ_ONLY:
             try:
                 approved_idea_capture = _is_approved_idea_capture(payload, command, classification)
@@ -192,6 +193,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 approved_agent_add_provider = _is_approved_agent_add_provider(payload, command, classification)
                 approved_agent_add_model = _is_approved_agent_add_model(payload, command, classification)
                 approved_agent_propose_patch = _is_approved_agent_propose_patch(payload, command, classification)
+                approved_agent_serial_packet = _is_approved_agent_serial_packet(payload, command, classification)
             except ValueError as exc:
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
                 return
@@ -208,6 +210,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             or approved_agent_add_provider
             or approved_agent_add_model
             or approved_agent_propose_patch
+            or approved_agent_serial_packet
         ):
             self._send_json(
                 {
@@ -244,6 +247,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 args = _approved_agent_add_model_command_args(command)
             elif approved_agent_propose_patch:
                 args = _approved_agent_propose_patch_command_args(command)
+            elif approved_agent_serial_packet:
+                args = _approved_agent_serial_packet_command_args(command)
             elif approved_shell_worker_run:
                 args = _approved_shell_worker_run_command_args(command)
             elif approved_verification:
@@ -1185,6 +1190,84 @@ def _approved_agent_propose_patch_command_args(command: str) -> list[str]:
     return _devflow_command_args_from_tokens(tokens)
 
 
+def _approved_agent_serial_packet_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    if len(normalized) < 3 or normalized[1:3] != ["agent", "serial-packet"]:
+        raise ValueError("only approved serial local-agent packet creation may run from the operating layer")
+    values = _parse_repeated_serial_packet_options(normalized[3:])
+    required_values = {
+        "--phase": "phase",
+        "--provider": "provider",
+        "--model": "model",
+        "--task-id": "task-id",
+        "--worker-id": "worker-id",
+        "--runtime": "runtime",
+        "--hermes-profile": "profile",
+    }
+    for option, field in required_values.items():
+        value = values["single"].get(option, "")
+        if _is_placeholder_text(value, field=field) or _has_template_placeholder(value):
+            raise ValueError(f"approved serial packet creation requires a concrete {field}")
+    if values["single"]["--runtime"] != "hermes-profile":
+        raise ValueError("browser serial packet creation is limited to --runtime hermes-profile")
+    if not values["repeated"].get("--allowed-file"):
+        raise ValueError("approved serial packet creation requires at least one --allowed-file")
+    if not values["repeated"].get("--verify"):
+        raise ValueError("approved serial packet creation requires at least one --verify command")
+    for option, field in (("--allowed-file", "allowed file"), ("--verify", "verification command")):
+        for value in values["repeated"].get(option, []):
+            if _has_template_placeholder(value) or not value.strip():
+                raise ValueError(f"approved serial packet creation requires a concrete {field}")
+    for toolset in values["repeated"].get("--toolset", []):
+        if _has_template_placeholder(toolset) or not toolset.strip() or toolset.startswith("-"):
+            raise ValueError("approved serial packet creation requires concrete toolset names")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _parse_repeated_serial_packet_options(tokens: list[str]) -> dict[str, Any]:
+    single_value_options = {
+        "--phase",
+        "--provider",
+        "--model",
+        "--mission",
+        "--run-id",
+        "--task-id",
+        "--worker-id",
+        "--runtime",
+        "--hermes-profile",
+    }
+    repeated_value_options = {"--allowed-file", "--verify", "--toolset"}
+    flags: set[str] = set()
+    single: dict[str, str] = {}
+    repeated: dict[str, list[str]] = {option: [] for option in repeated_value_options}
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in flags:
+            index += 1
+            continue
+        if token in single_value_options or token in repeated_value_options:
+            if index + 1 >= len(tokens) or tokens[index + 1].startswith("-"):
+                raise ValueError(f"approved serial packet creation requires a value after {token}")
+            value = tokens[index + 1]
+            if token in single_value_options:
+                single[token] = value
+            else:
+                repeated.setdefault(token, []).append(value)
+            index += 2
+            continue
+        if token.startswith("-"):
+            allowed = ", ".join(sorted(single_value_options | repeated_value_options | flags))
+            raise ValueError(f"approved serial packet creation allows only {allowed}")
+        raise ValueError(f"approved serial packet creation does not allow positional value '{token}'")
+    return {"single": single, "repeated": repeated}
+
+
+def _has_template_placeholder(value: str) -> bool:
+    return bool(re.search(r"<[^>]+>", value))
+
+
 def _parse_exact_options(
     tokens: list[str],
     *,
@@ -1362,6 +1445,16 @@ def _is_approved_agent_propose_patch(payload: dict[str, object], command: str, c
         return False
     try:
         _approved_agent_propose_patch_command_args(command)
+    except ValueError:
+        return False
+    return _approval_payload_matches(payload, command)
+
+
+def _is_approved_agent_serial_packet(payload: dict[str, object], command: str, classification: dict[str, object]) -> bool:
+    if classification["safety_class"] != APPROVAL_REQUIRED_EVIDENCE_WRITING:
+        return False
+    try:
+        _approved_agent_serial_packet_command_args(command)
     except ValueError:
         return False
     return _approval_payload_matches(payload, command)

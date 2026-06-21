@@ -216,6 +216,49 @@ class TestClassifyAgentCommands:
         assert payload["requires_human_approval"] is True
         assert payload["supervisor_may_auto_run"] is False
 
+    def test_serial_packet_is_evidence_writing_and_hermes_run_boundary_is_explicit(self):
+        serial_packet = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent serial-packet --phase implementer --provider ollama --model qwen3.6:latest --task-id task-0001 --worker-id qwen-worker --runtime hermes-profile --hermes-profile qwen-worker --allowed-file src/foo.py --verify 'pytest tests/foo.py -q'",
+                "--json",
+            ],
+        )
+        packet_payload = _json_output(serial_packet)
+        assert packet_payload["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING
+        assert packet_payload["requires_human_approval"] is True
+        assert packet_payload["supervisor_may_auto_run"] is False
+
+        dry_run = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent hermes-run serial-123 --profile qwen-worker --dry-run --json",
+                "--json",
+            ],
+        )
+        dry_payload = _json_output(dry_run)
+        assert dry_payload["safety_class"] == PURE_READ_ONLY
+        assert dry_payload["requires_human_approval"] is False
+        assert dry_payload["supervisor_may_auto_run"] is True
+
+        live_launch = runner.invoke(
+            app,
+            [
+                "supervisor",
+                "classify",
+                "devflow agent hermes-run serial-123 --profile qwen-worker --json",
+                "--json",
+            ],
+        )
+        launch_payload = _json_output(live_launch)
+        assert launch_payload["safety_class"] == APPROVAL_REQUIRED_WORKER_RUNTIME
+        assert launch_payload["requires_human_approval"] is True
+        assert launch_payload["supervisor_may_auto_run"] is False
+
     def test_agent_catalog_and_onboarding_commands_have_bounded_policy(self):
         catalog = runner.invoke(
             app,

@@ -166,6 +166,44 @@ def test_agent_selection_adds_local_model_worker(tmp_root: Path) -> None:
     assert entry.supervisor_may_auto_run is False
 
 
+def test_local_hermes_worker_option_builds_serial_packet_action(tmp_root: Path) -> None:
+    """Enabled local/Hermes workers expose packet creation, not browser launch."""
+    routing = {
+        "routing_decision": {
+            "selected": {
+                "agent_id": "qwen-worker",
+                "label": "Hermes Qwen Implementer",
+                "provider": "ollama",
+                "model": "qwen3.6-32b-256k:latest",
+                "reason": "Best local implementer for this slice.",
+            }
+        }
+    }
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "routing-decision.yaml").write_text(
+        json.dumps(routing), encoding="utf-8"
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    entry = next(w for w in result["ai_workers"] if w.worker_id == "qwen-worker")
+
+    assert entry.label == "Hermes Qwen Implementer"
+    assert entry.is_local is True
+    assert entry.runtime_kind == "hermes-profile"
+    assert entry.hermes_profile == "qwen-worker"
+    assert entry.action_kind == "serial_packet"
+    assert entry.command is not None
+    assert entry.command.startswith("devflow agent serial-packet ")
+    assert " --task-id test-001" in entry.command
+    assert " --worker-id qwen-worker" in entry.command
+    assert " --runtime hermes-profile" in entry.command
+    assert " --hermes-profile qwen-worker" in entry.command
+    assert " --toolset file" in entry.command
+    assert " --toolset terminal" in entry.command
+    assert "devflow agent hermes-run" not in entry.command
+    assert "devflow task run" not in entry.command
+    assert result["fallback_shell"].command == "devflow task run test-001 --worker shell -- <command>"
+
+
 # ---------------------------------------------------------------------------
 # Source: local worker evidence (run.json / worker_failed.json)
 # ---------------------------------------------------------------------------
@@ -290,6 +328,11 @@ def test_task_workbench_surfaces_worker_options(tmp_path: Path, monkeypatch) -> 
     assert "qwopus-implementer" in ids
     assert "gemini-fast" in ids
     assert "shell" in ids
+    assert ids.index("qwopus-implementer") < ids.index("shell")
+    ai_option = next(option for option in task.worker_options if option["worker_id"] == "qwopus-implementer")
+    assert ai_option["action_kind"] == "serial_packet"
+    assert str(ai_option["command"]).startswith("devflow agent serial-packet ")
+    assert " --runtime hermes-profile" in str(ai_option["command"])
     shell = next(option for option in task.worker_options if option["worker_id"] == "shell")
     assert shell["command"] == "devflow task run task-0001 --worker shell --project demo -- <command>"
     blocked = next(option for option in task.worker_options if option["worker_id"] == "gemini-fast")

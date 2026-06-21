@@ -16,6 +16,7 @@ from devflow.control_room.serial_local_agent_run import (
     SerialLocalAgentRunError,
     create_serial_local_agent_run,
     derive_serial_local_run_id,
+    serial_local_agent_run_snapshot,
     serial_local_run_dir,
 )
 from tests.helpers import init_test_git_repo, setup_temp_git_repo
@@ -134,6 +135,198 @@ def test_serial_local_run_writes_packet_contract(tmp_path: Path) -> None:
         check=True,
     ).stdout
     assert not any(line.startswith(("A ", "M ", "D ")) for line in status.splitlines())
+
+
+def test_serial_local_run_defaults_to_manual_runtime_metadata(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+
+    result = create_serial_local_agent_run(
+        tmp_path,
+        run_id="manual-runtime",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/example.py"],
+        verification_commands=["pytest tests/test_example.py -q"],
+    )
+
+    runtime = result.manifest["runtime"]
+    assert runtime == {
+        "kind": "manual",
+        "hermes_profile": None,
+        "toolsets": [],
+        "packet_only": True,
+    }
+    assert result.manifest["safety"]["model_launch"] is False
+    assert result.manifest["safety"]["git_mutation"] is False
+    packet = (result.run_dir / "worker-packet.md").read_text(encoding="utf-8")
+    assert "- runtime kind: `manual`" in packet
+    assert "Packet creation did not launch Hermes, a local model, or a worker." in packet
+
+
+def test_serial_local_run_records_hermes_profile_runtime_metadata(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+
+    result = create_serial_local_agent_run(
+        tmp_path,
+        run_id="hermes-runtime",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/devflow/control_room/serial_local_agent_run.py"],
+        verification_commands=["pytest tests/test_serial_local_agent_run.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="qwen-worker",
+        toolsets=["file", "terminal", "search"],
+    )
+
+    runtime = result.manifest["runtime"]
+    assert runtime == {
+        "kind": "hermes-profile",
+        "hermes_profile": "qwen-worker",
+        "toolsets": ["file", "terminal", "search"],
+        "packet_only": True,
+    }
+    assert result.manifest["safety"]["packet_only"] is True
+    assert result.manifest["safety"]["model_launch"] is False
+    assert result.manifest["safety"]["git_mutation"] is False
+    packet = (result.run_dir / "worker-packet.md").read_text(encoding="utf-8")
+    assert "This packet is intended for Hermes profile `qwen-worker`, but packet creation did not launch it." in packet
+    assert "- toolsets: `file`, `terminal`, `search`" in packet
+
+
+def test_serial_local_run_requires_profile_for_hermes_runtime(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+
+    with pytest.raises(SerialLocalAgentRunError, match="hermes_profile is required when runtime_kind is hermes-profile"):
+        create_serial_local_agent_run(
+            tmp_path,
+            phase="implementer",
+            provider="ollama",
+            model="qwen3.6-32b-256k:latest",
+            allowed_files=["src/example.py"],
+            verification_commands=["pytest tests/test_example.py -q"],
+            runtime_kind="hermes-profile",
+        )
+
+
+def test_serial_local_run_snapshot_projects_successful_hermes_launch(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    result = create_serial_local_agent_run(
+        tmp_path,
+        run_id="launched-hermes",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/example.py"],
+        verification_commands=["pytest tests/test_example.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="qwen-worker",
+        toolsets=["file", "terminal"],
+    )
+    (result.run_dir / "hermes-stdout.txt").write_text("worker output\n", encoding="utf-8")
+    (result.run_dir / "hermes-stderr.txt").write_text("", encoding="utf-8")
+    (result.run_dir / "hermes-run.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "will_launch_hermes": True,
+                "dry_run": False,
+                "run_id": "launched-hermes",
+                "run_dir": ".devflow/local-agent-runs/launched-hermes",
+                "packet_path": ".devflow/local-agent-runs/launched-hermes/worker-packet.md",
+                "hermes_profile": "qwen-worker",
+                "runtime_kind": "hermes-profile",
+                "launch_status": "completed",
+                "exit_code": 0,
+                "stdout_path": ".devflow/local-agent-runs/launched-hermes/hermes-stdout.txt",
+                "stderr_path": ".devflow/local-agent-runs/launched-hermes/hermes-stderr.txt",
+                "hermes_run_path": ".devflow/local-agent-runs/launched-hermes/hermes-run.json",
+                "verification_ran": False,
+                "next_safe_action": "Run completion-verifier.py from the packet directory.",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = serial_local_agent_run_snapshot(tmp_path)
+
+    assert snapshot["status"] == "ready_for_verifier"
+    assert snapshot["run_state"] == "ready_for_verifier"
+    assert snapshot["status_source"] == "hermes_run"
+    assert snapshot["runtime_kind"] == "hermes-profile"
+    assert snapshot["hermes_profile"] == "qwen-worker"
+    assert snapshot["launch_status"] == "completed"
+    assert snapshot["exit_code"] == 0
+    assert snapshot["browser_actions"] == []
+    assert snapshot["next_safe_action"] == "Run completion-verifier.py from the packet directory."
+    latest = snapshot["latest_run"]
+    assert latest["runtime_kind"] == "hermes-profile"
+    assert latest["hermes_profile"] == "qwen-worker"
+    assert latest["toolsets"] == ["file", "terminal"]
+    assert latest["launch_status"] == "completed"
+    assert latest["exit_code"] == 0
+    assert latest["hermes_run"] == ".devflow/local-agent-runs/launched-hermes/hermes-run.json"
+    assert latest["stdout_path"] == ".devflow/local-agent-runs/launched-hermes/hermes-stdout.txt"
+    assert latest["stderr_path"] == ".devflow/local-agent-runs/launched-hermes/hermes-stderr.txt"
+    assert latest["verification_status"] == "not_run"
+    assert ".devflow/local-agent-runs/launched-hermes/hermes-run.json" in latest["evidence_paths"]
+    assert ".devflow/local-agent-runs/launched-hermes/hermes-stdout.txt" in latest["evidence_paths"]
+    assert ".devflow/local-agent-runs/launched-hermes/hermes-stderr.txt" in latest["evidence_paths"]
+    assert not (result.run_dir / "verification-report.json").exists()
+
+
+def test_serial_local_run_snapshot_projects_failed_hermes_launch(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    result = create_serial_local_agent_run(
+        tmp_path,
+        run_id="failed-hermes",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/example.py"],
+        verification_commands=["pytest tests/test_example.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="qwen-worker",
+    )
+    (result.run_dir / "hermes-stdout.txt").write_text("partial output\n", encoding="utf-8")
+    (result.run_dir / "hermes-stderr.txt").write_text("launch failed\n", encoding="utf-8")
+    (result.run_dir / "hermes-run.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "will_launch_hermes": True,
+                "dry_run": False,
+                "run_id": "failed-hermes",
+                "hermes_profile": "qwen-worker",
+                "runtime_kind": "hermes-profile",
+                "launch_status": "failed",
+                "exit_code": 7,
+                "stdout_path": ".devflow/local-agent-runs/failed-hermes/hermes-stdout.txt",
+                "stderr_path": ".devflow/local-agent-runs/failed-hermes/hermes-stderr.txt",
+                "hermes_run_path": ".devflow/local-agent-runs/failed-hermes/hermes-run.json",
+                "verification_ran": False,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    snapshot = serial_local_agent_run_snapshot(tmp_path)
+
+    assert snapshot["status"] == "failed"
+    assert snapshot["run_state"] == "failed"
+    assert snapshot["status_source"] == "hermes_run"
+    assert snapshot["launch_status"] == "failed"
+    assert snapshot["exit_code"] == 7
+    assert snapshot["next_safe_action"] == (
+        "Inspect Hermes launch stdout/stderr, repair the packet or runtime, then rerun Hermes manually."
+    )
 
 
 def test_serial_local_run_preflight_records_free_runtime(tmp_path: Path) -> None:
