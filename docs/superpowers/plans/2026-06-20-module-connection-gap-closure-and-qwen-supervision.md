@@ -1,11 +1,47 @@
 # Module Connection Gap Closure and Qwen Supervision Plan
 
 Date: 2026-06-20
-Status: ready for implementation handoff
-Scope: documentation and implementation plan only; no code changes in this document.
+Status: completed and pushed through Slice 6
+Scope: implementation plan plus completion record; code changes landed in separate commits.
 Primary checkout: `<repo-root>`
 
 > **For Hermes:** Use `devflow-analysis`, `subagent-driven-development`, and the Qwen single-flight references before supervising implementation. Qwen is a bounded worker, not the final verifier. The supervisor owns evidence, diff review, and verification.
+
+## Completion Summary — 2026-06-21
+
+All six implementation slices in this plan have been completed, verified, committed, and pushed to `origin/main`.
+
+| Slice | Commit | Result |
+|---|---|---|
+| Slice 1 — Canonical TaskNextGate | `fca8fa7` | Task gate projection unified. |
+| Slice 2 — Atomic BrainstormTaskBridge | `b3c76df` | Brainstorm task creation became an atomic backend bridge. |
+| Slice 3 — WorkerOptionsProjection | `2d4f8b0` | Worker launch options are projected separately from shell fallback. |
+| Slice 4 — BrowserActionPolicy Centralization | `247fb3f` | Browser mutation policy is centralized. |
+| Slice 5 — StageArtifact / Builder-Judge Pipeline Integration | `cb031a8` | Quality-gated spec/plan status is visible as `draft` / `passed` / `escalated`. |
+| Slice 6 — Local Model Runtime Lock Projection | `90096ab` | Provider/model-scoped local model runtime locks are covered and projected. |
+
+Closure verification run after Slice 6:
+
+```bash
+env PYTHONPATH=src:. .venv/bin/python -m pytest \
+  tests/test_task_next_gate.py \
+  tests/test_brainstorm_task_bridge.py \
+  tests/test_worker_options_projection.py \
+  tests/test_operating_layer.py \
+  tests/test_supervisor_operating_surface.py \
+  tests/test_brainstorm_workbench.py \
+  tests/test_builder_judge_loop.py \
+  tests/test_local_model_runtime_lock.py \
+  -q
+```
+
+Result:
+
+```text
+166 passed in 48.35s
+```
+
+The original `## Next Safe Action` at the bottom of this plan has been replaced because the old Slice 1 launch instruction is complete. The next work is the follow-on plan: `docs/superpowers/plans/2026-06-21-serial-local-agent-execution-queue-and-watchdogs.md`.
 
 ## Goal
 
@@ -858,4 +894,6 @@ Expected:
 
 ## Next Safe Action
 
-After this doc is reviewed, launch **Slice 1 — Canonical TaskNextGate** with a Qwen worker packet and supervise it with single-flight locking and independent verification.
+This plan is complete. Do not relaunch Slice 1 from this document.
+
+Next safe action: use `docs/superpowers/plans/2026-06-21-serial-local-agent-execution-queue-and-watchdogs.md` to implement the durable serial local-agent packet/run-directory/watchdog workflow that emerged during these slices.
