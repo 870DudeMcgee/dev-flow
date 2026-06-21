@@ -623,24 +623,17 @@ def _review_loop_summary(
     if not command:
         command = next_action.command or promotion_command or ready_command or verification_command or "devflow dashboard"
 
+    from devflow.control_room.browser_action_policy import (
+        get_browser_allowed_mutations,
+        get_browser_blocked_mutations,
+    )
+
     return TaskWorkbenchReviewLoop(
         status=status,
         headline=headline,
         next_safe_action=command,
-        browser_allowed_mutations=[
-            "idea capture",
-            "task creation",
-            "shell worker execution",
-            "task verification",
-            "task promotion",
-        ],
-        browser_blocked_mutations=[
-            "non-shell worker execution",
-            "patch application",
-            "git publication",
-            "provider-backed model calls",
-            "autonomous routing execution",
-        ],
+        browser_allowed_mutations=get_browser_allowed_mutations(),
+        browser_blocked_mutations=get_browser_blocked_mutations(),
         needs_verification_count=len(needs_verification),
         ready_to_promote_count=len(ready_to_promote),
         blocked_decision_count=len(blocked_decisions),

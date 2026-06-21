@@ -219,6 +219,11 @@ SAFETY_CLASS_REASONS = {
 
 
 def build_supervisor_policy() -> dict[str, Any]:
+    from devflow.control_room.browser_action_policy import (
+        get_browser_allowed_mutations,
+        get_browser_blocked_mutations,
+    )
+
     commands_requiring_human_approval = (
         APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS
         + APPROVAL_REQUIRED_TASK_STATE_COMMANDS
@@ -290,25 +295,8 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "verification runs",
                 "broad mutation",
             ],
-            "browser_allowed_mutations": [
-                "idea capture",
-                "task creation",
-                "shell worker execution",
-                "model/provider onboarding",
-                "task verification",
-                "task promotion",
-            ],
-            "browser_blocked_mutations": [
-                "non-shell worker execution",
-                "local/provider model execution",
-                "patch application",
-                "cleanup apply",
-                "sync",
-                "push",
-                "project publication",
-                "autonomous routing",
-                "broad mutation",
-            ],
+            "browser_allowed_mutations": get_browser_allowed_mutations(),
+            "browser_blocked_mutations": get_browser_blocked_mutations(),
         },
         "telegram_routing": {
             "provider": "local",

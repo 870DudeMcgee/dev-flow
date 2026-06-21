@@ -7,6 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.browser_action_policy import get_browser_allowed_mutations
 from devflow.control_room.persistence import get_task, save_task
 from devflow.control_room.service import create_task
 from devflow.control_room.supervisor_surface import (
@@ -336,14 +337,7 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "directly edit .devflow" in payload["operator_layer"]["must_not"]
     assert "spawn unbounded parallel workers" in payload["operator_layer"]["must_not"]
     assert "promotion" in payload["operator_layer"]["human_approval_required_for"]
-    assert payload["operator_layer"]["browser_allowed_mutations"] == [
-        "idea capture",
-        "task creation",
-        "shell worker execution",
-        "model/provider onboarding",
-        "task verification",
-        "task promotion",
-    ]
+    assert payload["operator_layer"]["browser_allowed_mutations"] == get_browser_allowed_mutations()
     assert "non-shell worker execution" in payload["operator_layer"]["browser_blocked_mutations"]
     assert "local/provider model execution" in payload["operator_layer"]["browser_blocked_mutations"]
     assert payload["telegram_routing"]["provider"] == "local"

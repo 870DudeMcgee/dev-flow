@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room.browser_action_policy import get_browser_allowed_mutations
 from devflow.control_room.idea_foundry import capture_idea, classify_idea, park_idea
 from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
@@ -503,13 +504,7 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     assert review_loop["status"] == "needs_verification"
     assert review_loop["headline"] == "1 task needs verification"
     assert review_loop["next_safe_action"] == 'devflow task verify task-0001 --shell "<command>"'
-    assert review_loop["browser_allowed_mutations"] == [
-        "idea capture",
-        "task creation",
-        "shell worker execution",
-        "task verification",
-        "task promotion",
-    ]
+    assert review_loop["browser_allowed_mutations"] == get_browser_allowed_mutations()
     assert "non-shell worker execution" in review_loop["browser_blocked_mutations"]
     assert review_loop["needs_verification_count"] == 1
     assert review_loop["ready_to_promote_count"] == 0
