@@ -53,6 +53,7 @@ def test_plan_only_creates_orchestration_plan_for_active_task(tmp_path: Path) ->
     assert "provider_calls: none" in result.output
     assert "workers_executed: none" in result.output
     assert "main_changed: no" in result.output
+    assert "serial_local_agent_pipeline: implementer -> verifier -> tiny_repair -> supervisor_final_gate" in result.output
 
     plan_path = tmp_path / ".devflow" / "tasks" / task.id / "orchestration-plan.yaml"
     plan = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
@@ -66,6 +67,21 @@ def test_plan_only_creates_orchestration_plan_for_active_task(tmp_path: Path) ->
     assert plan["promotion"]["requires_verification_passed"] is True
     assert plan["promotion"]["allowed_by_workers"] is False
     assert all(role["can_promote"] is False for role in plan["roles"])
+    serial = plan["serial_local_agent_pipeline"]
+    assert serial["strategy"] == "serial_specialists"
+    assert serial["single_flight_required"] is True
+    assert serial["acceptance_owner"] == "supervisor_final_gate"
+    assert [phase["phase"] for phase in serial["phases"]] == [
+        "implementer",
+        "verifier",
+        "tiny_repair",
+        "supervisor_final_gate",
+    ]
+    assert serial["phases"][0]["may_edit"] is True
+    assert serial["phases"][1]["may_edit"] is False
+    assert serial["phases"][2]["context_policy"] == "fresh_tiny_repair_packet"
+    assert serial["phases"][3]["agent_kind"] == "supervisor"
+    assert all(phase["can_promote"] is False for phase in serial["phases"])
 
 
 def test_closed_task_is_refused(tmp_path: Path) -> None:
@@ -99,6 +115,16 @@ def test_validator_rejects_read_only_source_write_and_planned_execution(tmp_path
     plan["roles"][6]["execution_mode"] = "workspace_write"
     errors = validate_orchestration_plan(plan)
     assert any("planned_not_executable role cannot be scheduled" in error for error in errors)
+
+    plan = build_orchestration_plan(tmp_path, task)
+    plan["serial_local_agent_pipeline"]["phases"][1]["may_edit"] = True
+    errors = validate_orchestration_plan(plan)
+    assert any("verification/final gate must not edit" in error for error in errors)
+
+    plan = build_orchestration_plan(tmp_path, task)
+    plan["serial_local_agent_pipeline"]["phases"] = list(reversed(plan["serial_local_agent_pipeline"]["phases"]))
+    errors = validate_orchestration_plan(plan)
+    assert any("implementer -> verifier -> tiny_repair -> supervisor_final_gate" in error for error in errors)
 
 
 def test_parallelism_false_when_git_state_is_dirty_or_task_is_ambiguous(tmp_path: Path) -> None:

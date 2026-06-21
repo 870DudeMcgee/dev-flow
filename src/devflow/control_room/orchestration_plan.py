@@ -14,6 +14,7 @@ from devflow.control_room.persistence import atomic_write_text, get_task, utc_no
 
 
 ORCHESTRATION_POLICY_VERSION = "parallel-worker-spawn-policy-v1"
+SERIAL_LOCAL_AGENT_PIPELINE_VERSION = "serial-local-agent-pipeline-v1"
 
 ALLOWED_ROLES = {
     "planner",
@@ -81,6 +82,7 @@ def build_orchestration_plan(root: Path, task: TaskRecord) -> dict[str, Any]:
     devmode = detect_devmode(root)
     task_path = task_dir(root, task.id)
     git_baseline = _git_baseline(git_state)
+    implementation_mode = "worktree_write" if is_git_worktree_task(task) else "workspace_write"
     stop_conditions = _stop_conditions(root, task, task_path, git_state, devmode.detected)
     active_conditions = [item for item in stop_conditions if item["active"]]
     risk_level = _risk_level(task, active_conditions)
@@ -110,6 +112,7 @@ def build_orchestration_plan(root: Path, task: TaskRecord) -> dict[str, Any]:
         "reason": reason,
         "risk_level": risk_level,
         "recommended_execution": recommended_execution,
+        "serial_local_agent_pipeline": _serial_local_agent_pipeline(task, implementation_mode),
         "roles": _roles_for_task(root, task),
         "stop_conditions": stop_conditions,
         "promotion": {
@@ -144,6 +147,7 @@ def validate_orchestration_plan(plan: dict[str, Any]) -> list[str]:
         "reason",
         "risk_level",
         "recommended_execution",
+        "serial_local_agent_pipeline",
         "roles",
         "stop_conditions",
         "promotion",
@@ -161,6 +165,12 @@ def validate_orchestration_plan(plan: dict[str, Any]) -> list[str]:
         errors.append("devmode_required must be true")
     if plan.get("recommended_execution") not in {"sequential", "parallel", "human_review_first"}:
         errors.append("recommended_execution is invalid")
+
+    serial_pipeline = plan.get("serial_local_agent_pipeline")
+    if not isinstance(serial_pipeline, dict):
+        errors.append("serial_local_agent_pipeline must be an object")
+    else:
+        errors.extend(_validate_serial_local_agent_pipeline(serial_pipeline))
 
     roles = plan.get("roles")
     if not isinstance(roles, list) or not roles:
@@ -324,6 +334,125 @@ def _condition(condition: str, active: bool, reason: str, requires_human_review:
         "reason": reason,
         "requires_human_review": requires_human_review,
     }
+
+
+def _serial_local_agent_pipeline(task: TaskRecord, implementation_mode: str) -> dict[str, Any]:
+    """Return the serial local-agent supervision contract for a task.
+
+    This is plan-only evidence: it assigns responsibilities to fresh serial
+    specialists but does not launch workers. The supervisor still owns final
+    verification and acceptance.
+    """
+    task_token = "<task>"
+    workspace_token = "<worktree>" if is_git_worktree_task(task) else "<workspace>"
+    return {
+        "policy_version": SERIAL_LOCAL_AGENT_PIPELINE_VERSION,
+        "strategy": "serial_specialists",
+        "single_flight_required": True,
+        "acceptance_owner": "supervisor_final_gate",
+        "why": (
+            "Split implementation, verification, and repair into fresh bounded contexts so one "
+            "local model run does not burn its budget debugging its own work."
+        ),
+        "phases": [
+            {
+                "order": 1,
+                "phase": "implementer",
+                "role": "implementation_worker",
+                "execution_mode": implementation_mode,
+                "agent_kind": "local_patch_runtime",
+                "context_policy": "fresh_l1_packet",
+                "may_edit": True,
+                "can_promote": False,
+                "entry_condition": "bounded packet with exact allowed files and non-goals",
+                "exit_gate": "source changes plus focused self-check evidence only; no final acceptance",
+                "allowed_write_scope": [f"{workspace_token}/**"],
+                "required_evidence": [f"{task_token}/local-model-runs/<run-id>/result.md"],
+            },
+            {
+                "order": 2,
+                "phase": "verifier",
+                "role": "verifier",
+                "execution_mode": "deterministic_verifier",
+                "agent_kind": "script_or_read_only_local",
+                "context_policy": "fresh_verification_packet",
+                "may_edit": False,
+                "can_promote": False,
+                "entry_condition": "implementer process exited and changed-file allowlist is known",
+                "exit_gate": "exact verification commands with exit codes and failure classification",
+                "allowed_write_scope": [],
+                "required_evidence": [f"{task_token}/logs/verify.log"],
+            },
+            {
+                "order": 3,
+                "phase": "tiny_repair",
+                "role": "implementation_worker",
+                "execution_mode": implementation_mode,
+                "agent_kind": "local_patch_runtime",
+                "context_policy": "fresh_tiny_repair_packet",
+                "may_edit": True,
+                "can_promote": False,
+                "entry_condition": "verifier found deterministic in-scope failures not trivial for supervisor",
+                "exit_gate": "only the named failures repaired; no broad relaunch",
+                "allowed_write_scope": [f"{workspace_token}/**"],
+                "required_evidence": [f"{task_token}/local-model-runs/<repair-run-id>/result.md"],
+            },
+            {
+                "order": 4,
+                "phase": "supervisor_final_gate",
+                "role": "manual_human",
+                "execution_mode": "human_manual",
+                "agent_kind": "supervisor",
+                "context_policy": "tool_output_only",
+                "may_edit": False,
+                "can_promote": False,
+                "entry_condition": "worker/verifier/repair phases have quiesced",
+                "exit_gate": "supervisor reruns allowlist, tests, and diff hygiene before acceptance",
+                "allowed_write_scope": [],
+                "required_evidence": [f"{task_token}/orchestration/final-gate.md"],
+            },
+        ],
+    }
+
+
+def _validate_serial_local_agent_pipeline(pipeline: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if pipeline.get("policy_version") != SERIAL_LOCAL_AGENT_PIPELINE_VERSION:
+        errors.append("serial_local_agent_pipeline.policy_version is invalid")
+    if pipeline.get("strategy") != "serial_specialists":
+        errors.append("serial_local_agent_pipeline.strategy must be serial_specialists")
+    if pipeline.get("single_flight_required") is not True:
+        errors.append("serial_local_agent_pipeline.single_flight_required must be true")
+    if pipeline.get("acceptance_owner") != "supervisor_final_gate":
+        errors.append("serial_local_agent_pipeline.acceptance_owner must be supervisor_final_gate")
+    phases = pipeline.get("phases")
+    expected = ["implementer", "verifier", "tiny_repair", "supervisor_final_gate"]
+    if not isinstance(phases, list):
+        return [*errors, "serial_local_agent_pipeline.phases must be a list"]
+    actual = [str(phase.get("phase") or "") for phase in phases if isinstance(phase, dict)]
+    if actual != expected:
+        errors.append("serial_local_agent_pipeline.phases must be implementer -> verifier -> tiny_repair -> supervisor_final_gate")
+    for index, phase in enumerate(phases):
+        if not isinstance(phase, dict):
+            errors.append(f"serial_local_agent_pipeline.phases[{index}] must be an object")
+            continue
+        if phase.get("order") != index + 1:
+            errors.append(f"serial_local_agent_pipeline.phases[{index}].order must be {index + 1}")
+        if phase.get("role") not in ALLOWED_ROLES:
+            errors.append(f"serial_local_agent_pipeline.phases[{index}].role is invalid")
+        if phase.get("execution_mode") not in ALLOWED_EXECUTION_MODES:
+            errors.append(f"serial_local_agent_pipeline.phases[{index}].execution_mode is invalid")
+        if phase.get("can_promote") is not False:
+            errors.append(f"serial_local_agent_pipeline.phases[{index}].can_promote must be false")
+        if phase.get("phase") in {"verifier", "supervisor_final_gate"} and phase.get("may_edit") is not False:
+            errors.append(f"serial_local_agent_pipeline.phases[{index}] verification/final gate must not edit")
+        if phase.get("phase") in {"implementer", "tiny_repair"} and phase.get("may_edit") is not True:
+            errors.append(f"serial_local_agent_pipeline.phases[{index}] write phase must be explicit")
+        for value in phase.get("allowed_write_scope") or []:
+            err = _path_policy_error(str(value), for_write=True)
+            if err:
+                errors.append(f"serial_local_agent_pipeline.phases[{index}].allowed_write_scope: {err}")
+    return errors
 
 
 def _roles_for_task(root: Path, task: TaskRecord) -> list[dict[str, Any]]:
@@ -562,6 +691,7 @@ def render_orchestration_plan_summary(root: Path, plan: dict[str, Any]) -> str:
         f"policy_version: {plan['policy_version']}",
         f"parallelism_allowed: {'yes' if plan['parallelism_allowed'] else 'no'}",
         f"recommended_execution: {plan['recommended_execution']}",
+        "serial_local_agent_pipeline: implementer -> verifier -> tiny_repair -> supervisor_final_gate",
         f"risk_level: {plan['risk_level']}",
         f"reason: {plan['reason']}",
         f"plan_path: {relative_path(root, output_path)}",

@@ -118,6 +118,37 @@ Worker-pool runs write generalized WorkerEvidence under `.devflow/tasks/<task-id
 
 ---
 
+## Serial Local-Agent Supervision Pipeline
+
+Local coding models should not be asked to act as implementer, verifier, repair loop, and final judge inside one long context. When one local run performs all of those jobs, it can spend 40-50 calls discovering failures and then hit its iteration budget before applying the obvious small repair. Dev-Flow treats that as `process complete but verification failed`, not as accepted work.
+
+The orchestration plan now exposes a serial specialist contract under `serial_local_agent_pipeline`:
+
+```text
+implementer -> verifier -> tiny_repair -> supervisor_final_gate
+```
+
+The contract is **plan-only evidence**. It does not launch workers, apply patches, verify, promote, stage, commit, or push. It assigns responsibilities so the operator or a supervisor can dispatch bounded jobs one at a time while preserving the local-model single-flight rule.
+
+| Phase | Responsibility | Edit rights | Acceptance authority |
+|---|---|---:|---:|
+| `implementer` | Fresh bounded implementation packet with exact allowed files and non-goals. | yes | no |
+| `verifier` | Exact verification commands, exit codes, and failure classification. Prefer deterministic scripts or read-only local review. | no | no |
+| `tiny_repair` | Optional focused repair for deterministic in-scope failures that are not trivial for the supervisor. | yes | no |
+| `supervisor_final_gate` | Rerun allowlist, tests, and diff hygiene from real tool output. | no by default | yes |
+
+Rules:
+
+- Each phase gets a fresh, smaller context packet.
+- The verifier must not edit files.
+- The repair phase must receive only the named verifier failures; do not relaunch the broad original packet.
+- All local model phases are single-flight for a given heavy local model/provider.
+- Worker self-report never satisfies the final gate. The supervisor must rerun commands and inspect the changed-file allowlist.
+
+`devflow task orchestrate <task-id> --plan-only` writes the pipeline into `.devflow/tasks/<task-id>/orchestration-plan.yaml` and prints the phase order in the CLI summary. This makes the serial local-agent handoff visible without executing any local model or mutating task state beyond the plan artifact.
+
+---
+
 ## Future Design & Extension Roadmap
 
 The following architectural concepts are designed for future milestones and should not be implemented in the core runtime yet:
