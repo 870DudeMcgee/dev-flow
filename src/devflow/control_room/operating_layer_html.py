@@ -198,6 +198,7 @@ INDEX_HTML = """<!doctype html>
               <h2 class="panel-title">Next Task</h2>
               <output id="orchestrator-sync" class="status-badge online" aria-live="polite" aria-atomic="true">Launchpad</output>
             </div>
+            <div id="operator-next-steps" class="operator-next-steps" aria-label="What can I do next"></div>
             <div class="orchestrator-content next-task-content">
               <div class="orchestrator-directive next-task-summary">
                 <span class="label">Selected Task</span>
@@ -214,6 +215,7 @@ INDEX_HTML = """<!doctype html>
                 <code id="orchestrator-command">Loading...</code>
               </div>
               <div id="next-task-action-slot" class="next-task-action-slot"></div>
+              <div id="serial-runtime-panel" class="serial-runtime-panel task-tone-gray" aria-live="polite"></div>
               <div id="next-task-latest-evidence" class="next-task-evidence"></div>
               <div class="orchestrator-agents next-task-switcher-wrap">
                 <div class="label">Task switcher</div>

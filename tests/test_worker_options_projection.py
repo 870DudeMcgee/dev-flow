@@ -201,7 +201,43 @@ def test_local_hermes_worker_option_builds_serial_packet_action(tmp_root: Path) 
     assert " --toolset terminal" in entry.command
     assert "devflow agent hermes-run" not in entry.command
     assert "devflow task run" not in entry.command
+    assert entry.recommended_allowed_files == []
+    assert entry.recommended_verification_commands == []
+    assert entry.needs_operator_inputs == ["allowed_files", "verification_commands"]
+    assert "<allowed-file>" not in " ".join(entry.recommended_allowed_files)
     assert result["fallback_shell"].command == "devflow task run test-001 --worker shell -- <command>"
+
+
+def test_local_hermes_worker_option_prefills_known_packet_evidence_paths(tmp_root: Path) -> None:
+    """Known task evidence paths should prefill packet allowed-file inputs without fake source paths."""
+    workspace = tmp_root / ".devflow" / "workspaces" / "test-001"
+    workspace.mkdir(parents=True)
+    (workspace / "implementation-context.md").write_text("Implement from plan.\n", encoding="utf-8")
+    (workspace / "notes.md").write_text("Operator notes.\n", encoding="utf-8")
+    routing = {
+        "routing_decision": {
+            "selected": {
+                "agent_id": "qwen-worker",
+                "label": "Hermes Qwen Implementer",
+                "provider": "ollama",
+                "model": "qwen3.6-32b-256k:latest",
+            }
+        }
+    }
+    (tmp_root / ".devflow" / "tasks" / "test-001" / "routing-decision.yaml").write_text(
+        json.dumps(routing), encoding="utf-8"
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    entry = next(w for w in result["ai_workers"] if w.worker_id == "qwen-worker")
+
+    assert entry.recommended_allowed_files == [
+        ".devflow/workspaces/test-001/implementation-context.md",
+        ".devflow/workspaces/test-001/notes.md",
+    ]
+    assert entry.recommended_verification_commands == []
+    assert entry.needs_operator_inputs == ["verification_commands"]
+    assert not any("<" in value or ">" in value for value in entry.recommended_allowed_files)
 
 
 # ---------------------------------------------------------------------------

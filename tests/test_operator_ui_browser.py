@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import pytest
 from devflow.control_room.persistence import get_task, save_task, utc_now
 from devflow.control_room.project_models import ProjectRecord
 from devflow.control_room.project_registry import register_project
+from devflow.control_room.serial_local_agent_run import create_serial_local_agent_run
 from devflow.control_room.worker_evidence import write_worker_evidence
 from tests.helpers import init_test_git_repo
 
@@ -68,7 +70,14 @@ def scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchSta
                 "provider": "ollama",
                 "model": "qwen3.6-32b-256k:latest",
                 "reason": "Recommended worker for browser launchpad fixture.",
-            }
+            },
+            "rejected": [
+                {
+                    "agent_id": "blocked-local-worker",
+                    "provider": "ollama",
+                    "reason": "Runtime lock is busy.",
+                }
+            ],
         }
     }
     (root / ".devflow" / "tasks" / "task-0001" / "routing-decision.yaml").write_text(
@@ -211,6 +220,11 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     expect(page.get_by_role("heading", name="Worker lanes")).to_be_visible()
     expect(page.get_by_role("heading", name="Review queue")).to_be_visible()
     expect(page.get_by_role("heading", name="Evidence stream")).to_be_visible()
+    runtime_panel = page.locator("#serial-runtime-panel")
+    expect(runtime_panel).to_be_visible()
+    expect(runtime_panel).to_contain_text("Worker Runtime")
+    expect(runtime_panel).to_contain_text("No packet yet")
+    expect(runtime_panel).to_contain_text("next safe action")
     expect(page.locator("#brainstorm-definition-of-done")).to_be_visible()
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
     expect(page.locator("#guided-review-queue")).to_contain_text("Browser promotion candidate")
@@ -304,6 +318,142 @@ def test_worker_row_selects_launchpad_and_runs_inline_shell_worker(
     assert not (scratch_state.root / "launchpad-run.txt").exists()
 
 
+def test_first_viewport_action_map_prioritizes_next_operator_levers(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    action_map = page.locator("#operator-next-steps")
+    expect(action_map).to_be_visible()
+    expect(action_map).to_contain_text("What can I do next")
+    expect(action_map.locator('[data-next-step-card="active_task"]')).to_contain_text("Browser active work")
+    expect(action_map.locator('[data-next-step-card="recommended_worker"]')).to_contain_text("Hermes Qwen Implementer")
+    expect(action_map.locator('[data-next-step-card="serial_runtime"]')).to_contain_text("No packet yet")
+    expect(action_map.locator('[data-next-step-card="latest_evidence"]')).to_contain_text("Latest evidence")
+    expect(action_map.locator('[data-next-step-card="review_action"]')).to_contain_text("Browser promotion candidate")
+    expect(action_map.locator('[data-open-next-worker-card="qwen-worker"]')).to_be_visible()
+
+    metrics = page.evaluate(
+        """() => {
+          const selectors = [
+            '#operator-next-steps [data-next-step-card="active_task"]',
+            '#operator-next-steps [data-next-step-card="recommended_worker"]',
+            '#operator-next-steps [data-next-step-card="serial_runtime"]',
+            '#operator-next-steps [data-next-step-card="latest_evidence"]',
+            '#operator-next-steps [data-next-step-card="review_action"]',
+          ];
+          return Object.fromEntries(selectors.map(selector => {
+            const element = document.querySelector(selector);
+            const rect = element?.getBoundingClientRect();
+            return [selector, Boolean(rect && rect.top >= 0 && rect.top < window.innerHeight)];
+          }));
+        }"""
+    )
+    assert all(metrics.values()), metrics
+
+    action_map.locator('[data-open-next-worker-card="qwen-worker"]').click()
+    expect(page.locator("#next-task-packet-panel")).to_be_visible()
+
+
+def test_worker_cards_are_keyboard_accessible_and_copyable(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    panel = page.locator("#next-task-shell-panel")
+    ai_card = panel.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').first
+    blocked_card = panel.locator('[data-worker-option-card][data-worker-id="blocked-local-worker"]').first
+
+    expect(ai_card).to_have_attribute("role", "button")
+    expect(ai_card).to_have_attribute("tabindex", "0")
+    expect(ai_card).to_have_attribute("aria-disabled", "false")
+    expect(ai_card).to_have_attribute("aria-label", re.compile("Hermes Qwen Implementer.*Enter.*Space"))
+    expect(blocked_card).to_have_attribute("aria-disabled", "true")
+    expect(blocked_card).to_have_attribute("aria-label", re.compile("Runtime lock is busy"))
+    expect(blocked_card).to_contain_text("Unavailable")
+    expect(blocked_card).to_contain_text("Runtime lock is busy")
+
+    ai_card.focus()
+    page.keyboard.press("Enter")
+    packet_panel = page.locator("#next-task-packet-panel")
+    expect(packet_panel).to_be_visible()
+    packet_form = packet_panel.locator('[role="form"]')
+    expect(packet_form).to_have_attribute("aria-label", re.compile("Create serial packet.*Hermes Qwen Implementer"))
+    expect(packet_panel.locator('[data-packet-allowed-files]')).to_have_attribute(
+        "aria-label", "Allowed files for serial packet"
+    )
+    expect(packet_panel.locator('[data-packet-verify-command]')).to_have_attribute(
+        "aria-label", "Verification command for serial packet"
+    )
+
+    packet_panel.locator('[data-packet-allowed-files]').fill("src/devflow/control_room/operating_layer_script.py")
+    packet_panel.locator('[data-packet-verify-command]').fill("env PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operator_ui_browser.py -q")
+    _install_clipboard_spy(page)
+    copy_button = packet_panel.locator('[data-copy-command][data-copy-kind="packet_preview"]')
+    expect(copy_button).to_have_attribute("aria-label", "Copy packet command preview")
+    copy_button.click()
+    expect(copy_button).to_contain_text("Copied")
+    copied = page.evaluate("window.__copiedText")
+    assert "devflow agent serial-packet" in copied
+    assert "<allowed-file>" not in copied
+    assert "<verification-command>" not in copied
+
+    page.evaluate(
+        """() => {
+          const panel = document.querySelector('#next-task-packet-panel');
+          panel.hidden = true;
+          panel.innerHTML = '';
+        }"""
+    )
+    ai_card.focus()
+    page.keyboard.press("Space")
+    expect(packet_panel).to_be_visible()
+
+
+def test_action_buttons_use_semantic_affordance_classes_and_copy_helpers(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    panel = page.locator("#next-task-shell-panel")
+    shell_button = panel.locator('[data-task-run-shell]')
+    expect(shell_button).to_have_attribute("data-action-intent", "safe")
+    expect(shell_button).to_have_attribute("class", re.compile("btn-primary"))
+    expect(shell_button).to_have_attribute("aria-label", re.compile("Run shell command"))
+
+    terminal_copy = panel.locator('.nt-shell-fallback [data-copy-command][data-copy-kind="terminal_command"]')
+    expect(terminal_copy).to_be_visible()
+    expect(terminal_copy).to_have_attribute("class", re.compile("btn-readonly"))
+    expect(terminal_copy).to_have_attribute("aria-label", re.compile("Copy terminal command"))
+    _install_clipboard_spy(page)
+    terminal_copy.click()
+    copied = page.evaluate("window.__copiedText")
+    assert copied.startswith("devflow task run task-0001")
+
+    created = _run_devflow(scratch_state.root, scratch_state.devflow_home, "task", "create", "Browser verify polish")
+    task_id = next(part.rstrip(":") for part in created.stdout.split() if part.startswith("task-"))
+    _run_devflow(scratch_state.root, scratch_state.devflow_home, "task", "run", task_id, "--worker", "shell", "--", "/bin/sh", "-c", "printf verify > verify-polish.txt")
+    page.reload(wait_until="domcontentloaded")
+    _wait_for_hydration(page)
+    page.locator("#active-work-groups .worker-card", has_text="Browser verify polish").locator("[data-select-task]").first.click()
+    verify_button = page.locator("#next-task-verify-panel [data-task-verify]")
+    expect(verify_button).to_have_attribute("data-action-intent", "verify")
+    expect(verify_button).to_have_attribute("class", re.compile("btn-caution"))
+    expect(verify_button).to_have_attribute("aria-label", f"Run verification for {task_id}")
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser promotion candidate").locator("[data-select-task]").first.click()
+    review_button = page.locator('[data-command^="devflow task promote-preview"]').first
+    expect(review_button).to_have_attribute("data-action-intent", "readonly")
+    expect(review_button).to_have_attribute("class", re.compile("btn-readonly"))
+    promote_button = page.locator('[data-command^="devflow task promote "]').first
+    expect(promote_button).to_have_attribute("data-action-intent", "safe")
+    expect(promote_button).to_have_attribute("class", re.compile("btn-primary"))
+
+
 def test_launchpad_renders_worker_options_above_shell_without_direct_hermes_launch(
     browser_page: tuple[Page, list[str]],
 ) -> None:
@@ -328,6 +478,248 @@ def test_launchpad_renders_worker_options_above_shell_without_direct_hermes_laun
     assert panel.locator('[data-worker-option-card="shell"]').count() == 0
     expect(panel.locator(".nt-shell-fallback [data-task-run-shell]")).to_be_visible()
     assert panel.locator("[data-task-run-shell]").bounding_box()["y"] > ai_card.bounding_box()["y"]
+
+
+def test_clicking_ai_worker_card_opens_packet_form_without_creating_packet(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    panel = page.locator("#next-task-shell-panel")
+    expect(panel).to_be_visible()
+    packet_panel = page.locator("#next-task-packet-panel")
+    expect(packet_panel).to_be_hidden()
+
+    blocked_card = panel.locator('[data-worker-option-card][data-worker-id="blocked-local-worker"]').first
+    expect(blocked_card).to_be_visible()
+    expect(blocked_card).to_contain_text("Runtime lock is busy")
+    blocked_card.click(force=True)
+    expect(packet_panel).to_be_hidden()
+    expect(page.locator("#next-task-command-output")).to_contain_text("Runtime lock is busy")
+
+    ai_card = panel.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').first
+    ai_card.click()
+    expect(packet_panel).to_be_visible()
+    expect(packet_panel).to_contain_text("Create serial packet")
+    expect(packet_panel).to_contain_text("Hermes Qwen Implementer")
+    expect(packet_panel.locator('[data-packet-allowed-files]')).to_be_visible()
+    expect(packet_panel.locator('[data-packet-verify-command]')).to_be_visible()
+    expect(packet_panel.locator('[data-packet-command-preview]')).to_contain_text("devflow agent serial-packet")
+    expect(packet_panel.locator('[data-create-serial-packet]')).to_be_disabled()
+    assert not (scratch_state.root / ".devflow" / "local-agent-runs").exists()
+
+
+def test_ai_worker_packet_form_creates_serial_packet(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    page.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').first.click()
+    packet_panel = page.locator("#next-task-packet-panel")
+    expect(packet_panel).to_be_visible()
+
+    packet_panel.locator('[data-packet-allowed-files]').fill("src/example.py, src/second.py")
+    packet_panel.locator('[data-packet-verify-command]').fill("python -m pytest tests/example.py -q")
+    expect(packet_panel.locator('[data-create-serial-packet]')).to_be_enabled()
+    expect(packet_panel.locator('[data-packet-command-preview]')).to_contain_text("--allowed-file 'src/example.py'")
+    expect(packet_panel.locator('[data-packet-command-preview]')).to_contain_text("--allowed-file 'src/second.py'")
+    expect(packet_panel.locator('[data-packet-command-preview]')).not_to_contain_text("<allowed-file>")
+    expect(packet_panel.locator('[data-packet-command-preview]')).not_to_contain_text("<verification-command>")
+
+    packet_panel.locator('[data-create-serial-packet]').click()
+    expect(page.locator("#next-task-command-output")).to_contain_text("Exit 0", timeout=15_000)
+    runtime_panel = page.locator("#serial-runtime-panel")
+    expect(runtime_panel).to_contain_text("Worker Runtime", timeout=15_000)
+    expect(runtime_panel).to_contain_text("qwen-worker", timeout=15_000)
+    expect(runtime_panel).to_contain_text("not_started", timeout=15_000)
+    expect(runtime_panel).to_contain_text("not_run", timeout=15_000)
+    expect(runtime_panel).to_contain_text("completion-verifier.py", timeout=15_000)
+    expect(runtime_panel).to_contain_text("next safe action", timeout=15_000)
+    packet_dirs = list((scratch_state.root / ".devflow" / "local-agent-runs").glob("*"))
+    assert packet_dirs
+    expect(runtime_panel).to_contain_text(packet_dirs[0].name, timeout=15_000)
+    manifest = json.loads((packet_dirs[0] / "run.json").read_text(encoding="utf-8"))
+    assert manifest["runtime"]["kind"] == "hermes-profile"
+    assert manifest["runtime"]["hermes_profile"] == "qwen-worker"
+    assert manifest["allowed_files"] == ["src/example.py", "src/second.py"]
+    assert manifest["verification_commands"] == [
+        {"order": 1, "command": "python -m pytest tests/example.py -q"}
+    ]
+    assert manifest["safety"]["model_launch"] is False
+    assert manifest["safety"]["git_mutation"] is False
+    assert not (packet_dirs[0] / "hermes-run.json").exists()
+
+
+def test_runtime_panel_shows_ready_and_failed_hermes_run_evidence(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+
+    ready = create_serial_local_agent_run(
+        scratch_state.root,
+        run_id="ui-ready-for-verifier",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/example.py"],
+        verification_commands=["python -m pytest tests/example.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="qwen-worker",
+        toolsets=["file", "terminal"],
+    )
+    _write_hermes_launch_evidence(ready.run_dir, "ui-ready-for-verifier", launch_status="completed", exit_code=0)
+    page.reload(wait_until="domcontentloaded")
+    _wait_for_hydration(page)
+
+    runtime_panel = page.locator("#serial-runtime-panel")
+    expect(runtime_panel).to_contain_text("ui-ready-for-verifier")
+    expect(runtime_panel).to_contain_text("ready_for_verifier")
+    expect(runtime_panel).to_contain_text("completed")
+    expect(runtime_panel).to_contain_text("Run completion-verifier.py")
+    expect(runtime_panel).to_contain_text("hermes-run.json")
+    expect(runtime_panel.locator("[data-copy-serial-command]")).to_be_visible()
+
+    time.sleep(0.02)
+    failed = create_serial_local_agent_run(
+        scratch_state.root,
+        run_id="ui-failed-hermes-run",
+        phase="implementer",
+        provider="ollama",
+        model="qwen3.6-32b-256k:latest",
+        allowed_files=["src/example.py"],
+        verification_commands=["python -m pytest tests/example.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="qwen-worker",
+        toolsets=["file", "terminal"],
+    )
+    _write_hermes_launch_evidence(failed.run_dir, "ui-failed-hermes-run", launch_status="failed", exit_code=7)
+    page.reload(wait_until="domcontentloaded")
+    _wait_for_hydration(page)
+
+    expect(runtime_panel).to_contain_text("ui-failed-hermes-run")
+    expect(runtime_panel).to_contain_text("failed")
+    expect(runtime_panel).to_contain_text("Inspect Hermes launch stdout/stderr")
+    expect(runtime_panel).to_contain_text("hermes-stderr.txt")
+
+
+def test_no_ai_worker_option_keeps_shell_fallback_click_flow(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+
+    created = _run_devflow(scratch_state.root, scratch_state.devflow_home, "task", "create", "Browser shell only contract")
+    task_id = next(part.rstrip(":") for part in created.stdout.split() if part.startswith("task-"))
+    page.reload(wait_until="domcontentloaded")
+    _wait_for_hydration(page)
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser shell only contract").locator("[data-select-task]").first.click()
+    panel = page.locator("#next-task-shell-panel")
+    expect(panel).to_be_visible()
+    assert panel.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').count() == 0
+    expect(panel.locator(".nt-shell-fallback [data-task-run-shell]")).to_be_visible()
+    panel.locator('[data-shell-command]').fill("printf shell-only > shell-only.txt")
+    panel.locator('[data-task-run-shell]').click()
+    expect(page.locator("#next-task-command-output")).to_contain_text("Succeeded", timeout=15_000)
+    assert (scratch_state.root / ".devflow" / "workspaces" / task_id / "shell-only.txt").exists()
+
+
+def test_policy_blocked_hermes_run_never_executes_from_browser(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+
+    page.evaluate("""async () => { await runApprovedCommand('devflow agent hermes-run ui-policy-packet --profile qwen-worker --json', {}); }""")
+    output = page.locator("#next-task-command-output")
+    expect(output).to_contain_text("Blocked by policy", timeout=15_000)
+    expect(output).to_contain_text("approval_required_worker_runtime", timeout=15_000)
+    expect(output).to_contain_text("command runs workers", timeout=15_000)
+    assert not (scratch_state.root / ".devflow" / "local-agent-runs" / "ui-policy-packet" / "hermes-run.json").exists()
+
+
+def test_focus_overlay_shows_ai_worker_packet_controls(browser_page: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-inspect-task]").first.click()
+    focus = page.locator("#focus-content")
+    expect(focus).to_contain_text("Browser active work")
+    packet_panel = focus.locator("#focus-task-packet-panel")
+    expect(packet_panel).to_be_hidden()
+
+    blocked_card = focus.locator('[data-worker-option-card][data-worker-id="blocked-local-worker"]').first
+    expect(blocked_card).to_be_visible()
+    expect(blocked_card).to_contain_text("Runtime lock is busy")
+    blocked_card.click(force=True)
+    expect(packet_panel).to_be_hidden()
+    expect(focus.locator("#focus-command-output")).to_contain_text("Runtime lock is busy")
+
+    ai_card = focus.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').first
+    expect(ai_card).to_be_visible()
+    ai_card.click()
+    expect(packet_panel).to_be_visible()
+    expect(packet_panel).to_contain_text("Create serial packet")
+    expect(packet_panel).to_contain_text("Hermes Qwen Implementer")
+    expect(packet_panel.locator('[data-packet-allowed-files]')).to_be_visible()
+    expect(packet_panel.locator('[data-packet-verify-command]')).to_be_visible()
+    expect(packet_panel.locator('[data-packet-command-preview]')).to_contain_text("devflow agent serial-packet")
+    expect(page.locator("#next-task-packet-panel")).to_be_hidden()
+
+
+def test_action_errors_share_launchpad_surface_without_unwanted_posts(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    page.evaluate(
+        """() => {
+          window.__actionPostCount = 0;
+          const originalFetch = window.fetch.bind(window);
+          window.fetch = (...args) => {
+            const url = String(args[0] || '');
+            const init = args[1] || {};
+            if (url.includes('/api/actions/run') && String(init.method || 'GET').toUpperCase() === 'POST') {
+              window.__actionPostCount += 1;
+            }
+            return originalFetch(...args);
+          };
+        }"""
+    )
+
+    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    page.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').first.click()
+    packet_panel = page.locator("#next-task-packet-panel")
+    packet_panel.locator('[data-packet-allowed-files]').fill("")
+    packet_panel.locator('[data-packet-verify-command]').fill("python -m pytest tests/example.py -q")
+    page.evaluate(
+        """async () => {
+          const button = document.querySelector('[data-create-serial-packet]');
+          button.disabled = false;
+          button.click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }"""
+    )
+    output = page.locator("#next-task-command-output")
+    expect(output).to_contain_text("Validation error")
+    expect(output).to_contain_text("Enter at least one allowed file path")
+    assert page.evaluate("() => window.__actionPostCount") == 0
+
+    page.locator("#next-task-shell-panel [data-shell-command]").fill("<command>")
+    page.locator("#next-task-shell-panel [data-task-run-shell]").click()
+    expect(output).to_contain_text("Validation error")
+    expect(output).to_contain_text("concrete command inputs")
+    assert page.evaluate("() => window.__actionPostCount") == 0
+
+    page.evaluate("""async () => { await runApprovedCommand('devflow task cleanup task-0001 --apply', {}); }""")
+    expect(output).to_contain_text("Blocked by policy", timeout=15_000)
+    expect(output).to_contain_text("approval_required_task_state", timeout=15_000)
+    expect(output).to_contain_text("command creates, closes, finalizes", timeout=15_000)
+    assert page.evaluate("() => window.__actionPostCount") == 1
 
 
 def test_review_queue_selects_promotion_candidate_and_runs_preview(browser_page: tuple[Page, list[str]]) -> None:
@@ -559,6 +951,22 @@ def _no_horizontal_overflow(page: Page) -> bool:
     )
 
 
+def _install_clipboard_spy(page: Page) -> None:
+    page.evaluate(
+        """() => {
+          window.__copiedText = '';
+          Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {
+              writeText: async (text) => {
+                window.__copiedText = text;
+              }
+            }
+          });
+        }"""
+    )
+
+
 def _home_layout_metrics(page: Page) -> dict[str, int]:
     return page.evaluate(
         """() => {
@@ -598,6 +1006,42 @@ def _write_question(root: Path, task_id: str) -> None:
                 "blocking_reason": "Two operator flows overlap.",
                 "required_decision": "Choose the browser-first path.",
             },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_hermes_launch_evidence(
+    run_dir: Path,
+    run_id: str,
+    *,
+    launch_status: str,
+    exit_code: int,
+) -> None:
+    stdout_path = run_dir / "hermes-stdout.txt"
+    stderr_path = run_dir / "hermes-stderr.txt"
+    stdout_path.write_text("fake hermes stdout\n", encoding="utf-8")
+    stderr_path.write_text("fake hermes stderr\n" if exit_code else "", encoding="utf-8")
+    run_dir.joinpath("hermes-run.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "will_launch_hermes": True,
+                "dry_run": False,
+                "run_id": run_id,
+                "hermes_profile": "qwen-worker",
+                "runtime_kind": "hermes-profile",
+                "launch_status": launch_status,
+                "exit_code": exit_code,
+                "stdout_path": f".devflow/local-agent-runs/{run_id}/hermes-stdout.txt",
+                "stderr_path": f".devflow/local-agent-runs/{run_id}/hermes-stderr.txt",
+                "hermes_run_path": f".devflow/local-agent-runs/{run_id}/hermes-run.json",
+                "verification_ran": False,
+                "next_safe_action": "Run completion-verifier.py from the packet directory.",
+            },
+            indent=2,
             sort_keys=True,
         )
         + "\n",

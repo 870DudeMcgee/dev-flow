@@ -1480,7 +1480,7 @@ function selectTaskInLaunchpad(taskId, opts) {
     card.classList.toggle('selected', card.dataset.taskId === taskId);
   });
   const section = $('orchestrator-section');
-  if (section && !opts?.silent) section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (section && !opts?.silent) section.scrollIntoView({ block: 'start', behavior: 'auto' });
   setTimeout(() => {
     if (opts?.focusShell) {
       const input = $('orchestrator-section')?.querySelector('[data-shell-command]');
@@ -1557,10 +1557,10 @@ function renderPromotionControls(task) {
   if (!previewAction && !promoteAction && task.lane !== 'ready_to_promote' && task.lane !== 'needs_review') return '';
   return `<div class="task-command-box launchpad-command-box">
     <label>Review and promotion</label>
-    <textarea data-promotion-note placeholder="Promotion context for the human approval record"></textarea>
+    <textarea data-promotion-note aria-label="Promotion context note" placeholder="Promotion context for the human approval record"></textarea>
     <div class="task-action-row">
-      ${previewAction ? `<button class="btn btn-sm btn-secondary" type="button" data-command="${esc(previewAction.command)}">Review preview</button>` : ''}
-      ${promoteAction ? `<button class="btn btn-sm btn-primary" type="button" data-command="${esc(promoteAction.command)}">Promote</button>` : ''}
+      ${previewAction ? `<button class="btn btn-sm btn-readonly" type="button" data-command="${esc(previewAction.command)}" data-action-intent="readonly" aria-label="Open promotion review preview">Review preview</button>` : ''}
+      ${promoteAction ? `<button class="btn btn-sm btn-primary" type="button" data-command="${esc(promoteAction.command)}" data-action-intent="safe" aria-label="Promote task after review">Promote</button>` : ''}
     </div>
   </div>`;
 }
@@ -1570,28 +1570,42 @@ function renderWorkerOptions(task) {
   const aiOptions = options.filter(option => option?.worker_id && option.worker_id !== 'shell');
   if (aiOptions.length) {
     return aiOptions.map(option => {
-      const enabled = option.enabled !== false && !option.blocked_reason;
+      const blockedReason = option.blocked_reason || '';
+      const enabled = option.enabled !== false && !blockedReason;
       const actionKind = option.action_kind || (option.command ? 'serial_packet' : 'inspect');
       const runtime = option.runtime_kind || '';
       const command = option.command || '';
       const profile = option.hermes_profile || option.worker_id;
       const label = option.label || sentenceCase(option.worker_id || 'worker');
       const modelLine = [option.provider, option.model].filter(Boolean).join(' · ');
+      const safeWorkerId = String(option.worker_id || 'worker').replace(/[^a-z0-9_-]+/gi, '-');
+      const blockedHelpId = `nt-worker-blocked-${task?.id || 'task'}-${safeWorkerId}`;
+      const ariaLabel = enabled
+        ? `${label} worker action. Press Enter or Space to open packet form.`
+        : `${label} unavailable: ${blockedReason || option.reason || 'worker option is disabled'}`;
+      const describedBy = !enabled && blockedReason ? ` aria-describedby="${esc(blockedHelpId)}"` : '';
       const recommended = enabled ? 'Recommended worker' : 'Worker unavailable';
       const copy = enabled && actionKind === 'serial_packet'
         ? `Creates a bounded serial packet for ${profile}. Launch remains outside browser; verifier is final proof.`
-        : (option.blocked_reason || option.reason || 'Worker option is visible for operator review.');
+        : (option.reason || 'Worker option is visible for operator review.');
       const commandHtml = command
-        ? `<code class="nt-worker-command">${esc(shortCommand(command, 140))}</code>`
+        ? `<div class="nt-copy-command-row nt-worker-command-row">
+            <code class="nt-worker-command">${esc(shortCommand(command, 140))}</code>
+            <button class="btn btn-sm btn-readonly" type="button" data-copy-command="${esc(command)}" data-copy-kind="terminal_command" aria-label="Copy terminal command for ${esc(label)}">Copy</button>
+          </div>`
         : '';
       const disabledClass = enabled ? '' : ' is-disabled';
-      return `<article class="nt-worker-card${disabledClass}" data-worker-option-card="ai" data-worker-id="${esc(option.worker_id)}" data-worker-action-kind="${esc(actionKind)}" data-worker-runtime="${esc(runtime)}" data-worker-command="${esc(command)}">
+      const disabledHelp = !enabled && blockedReason
+        ? `<p class="nt-worker-blocked" id="${esc(blockedHelpId)}"><strong>Unavailable:</strong> ${esc(blockedReason)}</p>`
+        : '';
+      return `<article class="nt-worker-card${disabledClass}" role="button" tabindex="0" aria-disabled="${enabled ? 'false' : 'true'}" aria-label="${esc(ariaLabel)}"${describedBy} data-worker-option-card="ai" data-worker-id="${esc(option.worker_id)}" data-worker-label="${esc(label)}" data-worker-provider="${esc(option.provider || '')}" data-worker-model="${esc(option.model || '')}" data-worker-enabled="${enabled ? 'true' : 'false'}" data-worker-action-kind="${esc(actionKind)}" data-worker-runtime="${esc(runtime)}" data-worker-command="${esc(command)}" data-worker-blocked-reason="${esc(blockedReason)}">
         <div class="nt-worker-card-head">
           <span class="nt-worker-badge">${esc(recommended)}</span>
           <strong>${esc(label)}</strong>
         </div>
         ${modelLine ? `<p class="nt-worker-model">${esc(modelLine)}</p>` : ''}
         <p class="nt-worker-copy">${esc(copy)}</p>
+        ${disabledHelp}
         ${commandHtml}
       </article>`;
     }).join('');
@@ -1602,6 +1616,238 @@ function renderWorkerOptions(task) {
     <p>${esc(capability.label || 'Shell worker')}</p>
     <code>${esc(shortCommand(capability.command, 120))}</code>
   </div>`;
+}
+
+function selectedLaunchpadTask() {
+  return snapshot?.tasks?.find(t => t.id === selectedTaskId) || null;
+}
+
+function findWorkerOptionForCard(card, task) {
+  const workerId = card?.dataset?.workerId || '';
+  const options = Array.isArray(task?.worker_options) ? task.worker_options : [];
+  return options.find(option => String(option?.worker_id || '') === workerId) || null;
+}
+
+function serialPacketPanelForCard(card) {
+  const scopedPanel = card?.closest('.task-command-box')?.querySelector('[data-serial-packet-panel]');
+  return scopedPanel || $('next-task-packet-panel') || $('focus-task-packet-panel');
+}
+
+function hideSerialPacketPanel(panel) {
+  const target = panel || $('next-task-packet-panel') || $('focus-task-packet-panel');
+  if (!target) return;
+  target.hidden = true;
+  target.innerHTML = '';
+}
+
+function workerCardBlockedReason(card, option) {
+  return option?.blocked_reason || card?.dataset?.workerBlockedReason || option?.reason || 'Worker is currently unavailable.';
+}
+
+function splitAllowedFileInput(value) {
+  const newline = String.fromCharCode(10);
+  return String(value || '')
+    .replace(/,/g, newline)
+    .split(newline)
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function stripSerialPacketPlaceholderArgs(command) {
+  return String(command || '')
+    .replace(/\\s+--allowed-file\\s+<allowed-file>/g, '')
+    .replace(/\\s+--verify\\s+<verification-command>/g, '')
+    .trim();
+}
+
+function materializeSerialPacketCommand(command, values) {
+  const base = stripSerialPacketPlaceholderArgs(command);
+  const allowedFiles = splitAllowedFileInput(values?.allowedFiles);
+  const verifyCommand = String(values?.verifyCommand || '').trim();
+  if (!base) throw new Error('Serial packet base command is missing.');
+  if (!allowedFiles.length) throw new Error('Enter at least one allowed file path.');
+  if (!verifyCommand) throw new Error('Enter a verification command.');
+  let concrete = base;
+  for (const filePath of allowedFiles) {
+    concrete += ` --allowed-file ${shellQuote(filePath)}`;
+  }
+  concrete += ` --verify ${shellQuote(verifyCommand)}`;
+  if (/<[^>]+>/.test(concrete)) {
+    throw new Error('Serial packet command still contains placeholder values.');
+  }
+  return concrete;
+}
+
+function serialPacketFormValues(panel) {
+  return {
+    allowedFiles: panel?.querySelector('[data-packet-allowed-files]')?.value || '',
+    verifyCommand: panel?.querySelector('[data-packet-verify-command]')?.value || '',
+  };
+}
+
+function updateSerialPacketPanelState(panel) {
+  if (!panel) return null;
+  const preview = panel.querySelector('[data-packet-command-preview]');
+  const submit = panel.querySelector('[data-create-serial-packet]');
+  const copyButton = panel.querySelector('[data-copy-command][data-copy-kind="packet_preview"]');
+  const baseCommand = panel.dataset.packetBaseCommand || '';
+  let concrete = '';
+  try {
+    concrete = materializeSerialPacketCommand(baseCommand, serialPacketFormValues(panel));
+    panel.dataset.packetCommand = concrete;
+    if (preview) preview.textContent = concrete;
+    if (copyButton) copyButton.dataset.copyCommand = concrete;
+    if (submit) submit.disabled = false;
+  } catch(err) {
+    delete panel.dataset.packetCommand;
+    if (preview) preview.textContent = baseCommand;
+    if (copyButton) copyButton.dataset.copyCommand = baseCommand;
+    if (submit) submit.disabled = true;
+  }
+  return concrete || null;
+}
+
+function openSerialPacketPanel(card) {
+  const panel = serialPacketPanelForCard(card);
+  const task = selectedLaunchpadTask();
+  const option = findWorkerOptionForCard(card, task);
+  const enabled = card?.dataset?.workerEnabled === 'true' && option?.enabled !== false && !option?.blocked_reason;
+  const actionKind = option?.action_kind || card?.dataset?.workerActionKind || '';
+  const command = option?.command || card?.dataset?.workerCommand || '';
+
+  if (!panel) return;
+  if (!enabled) {
+    hideSerialPacketPanel(panel);
+    const reason = workerCardBlockedReason(card, option);
+    renderActionResult({ executed: false, exit_code: null, error: reason }, command || option?.worker_id || card?.dataset?.workerId || 'worker option');
+    return;
+  }
+  if (actionKind !== 'serial_packet') {
+    hideSerialPacketPanel(panel);
+    renderActionResult({ executed: false, exit_code: null, error: 'This worker option does not expose serial-packet creation yet.' }, command || option?.worker_id || 'worker option');
+    return;
+  }
+
+  const workerId = option?.worker_id || card?.dataset?.workerId || 'worker';
+  const label = option?.label || card?.dataset?.workerLabel || sentenceCase(workerId);
+  const provider = option?.provider || card?.dataset?.workerProvider || 'provider';
+  const model = option?.model || card?.dataset?.workerModel || 'model';
+  const runtime = option?.runtime_kind || card?.dataset?.workerRuntime || 'hermes-profile';
+  const profile = option?.hermes_profile || workerId;
+  const recommendedAllowedFiles = Array.isArray(option?.recommended_allowed_files)
+    ? option.recommended_allowed_files.join(String.fromCharCode(10))
+    : '';
+  const recommendedVerificationCommand = Array.isArray(option?.recommended_verification_commands)
+    ? (option.recommended_verification_commands[0] || '')
+    : '';
+  const baseCommand = command || `devflow agent serial-packet --phase implementer --provider ${shellQuote(provider)} --model ${shellQuote(model)} --task-id ${shellQuote(task?.id || '<task-id>')} --worker-id ${shellQuote(workerId)} --runtime ${shellQuote(runtime)} --hermes-profile ${shellQuote(profile)} --allowed-file <allowed-file> --verify <verification-command>`;
+  panel.innerHTML = `<div class="nt-packet-panel-inner" role="form" aria-label="Create serial packet for ${esc(label)}">
+    <div class="nt-packet-heading">
+      <span class="nt-worker-badge">Packet setup</span>
+      <strong>Create serial packet</strong>
+      <em>${esc(label)}</em>
+    </div>
+    <p class="nt-worker-copy">Create packet writes bounded serial-run evidence only. It does not launch Hermes, run a model, verify work, stage, commit, or push.</p>
+    <div class="nt-packet-grid">
+      <label>Allowed files<textarea data-packet-allowed-files aria-label="Allowed files for serial packet" placeholder="src/path/to/file.py, src/second_file.py"></textarea></label>
+      <label>Verification command<input type="text" data-packet-verify-command aria-label="Verification command for serial packet" placeholder="env PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_target.py -q"></label>
+    </div>
+    <div class="nt-packet-meta">
+      <span>Task <strong>${esc(task?.id || 'unknown')}</strong></span>
+      <span>Runtime <strong>${esc(runtime)}</strong></span>
+      <span>Profile <strong>${esc(profile)}</strong></span>
+      <span>Model <strong>${esc([provider, model].filter(Boolean).join(' · '))}</strong></span>
+    </div>
+    <div class="nt-command-preview">
+      <span>Command preview</span>
+      <code data-packet-command-preview>${esc(baseCommand)}</code>
+      <button class="btn btn-sm btn-readonly" type="button" data-copy-command="${esc(baseCommand)}" data-copy-kind="packet_preview" aria-label="Copy packet command preview">Copy</button>
+    </div>
+    <button class="btn btn-primary btn-sm" type="button" data-create-serial-packet data-packet-create-submit data-action-intent="safe" aria-label="Create serial packet for ${esc(task?.id || 'task')}" disabled>Create serial packet</button>
+  </div>`;
+  panel.dataset.packetBaseCommand = baseCommand;
+  delete panel.dataset.packetCommand;
+  const allowedInput = panel.querySelector('[data-packet-allowed-files]');
+  const verifyInput = panel.querySelector('[data-packet-verify-command]');
+  if (allowedInput) allowedInput.value = recommendedAllowedFiles;
+  if (verifyInput) verifyInput.value = recommendedVerificationCommand;
+  panel.hidden = false;
+  updateSerialPacketPanelState(panel);
+  panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (allowedInput) allowedInput.focus();
+}
+
+function serialRuntimeManualCommand(serial) {
+  const latest = serial?.latest_run || null;
+  if (!latest?.run_id) return '';
+  const profile = serial?.hermes_profile || latest.hermes_profile || '';
+  if ((serial?.runtime_kind || latest.runtime_kind) === 'hermes-profile' && profile) {
+    return `devflow agent hermes-run ${shellQuote(latest.run_id)} --profile ${shellQuote(profile)} --dry-run`;
+  }
+  const runDir = latest.run_dir || `.devflow/local-agent-runs/${latest.run_id}`;
+  return `cd ${shellQuote(runDir)} && ./completion-verifier.py`;
+}
+
+function serialRuntimeStatusInfo(serial) {
+  const latest = serial?.latest_run || null;
+  const status = serial?.verification_status && serial.verification_status !== 'not_run'
+    ? serial.verification_status
+    : (serial?.run_state || latest?.state || serial?.status || 'none');
+  return taskStatusInfo(status);
+}
+
+function renderSerialRuntimePanel(serial) {
+  const panel = $('serial-runtime-panel');
+  if (!panel) return;
+  const data = serial || {};
+  const latest = data.latest_run || null;
+  const info = serialRuntimeStatusInfo(data);
+  panel.className = `serial-runtime-panel ${info.toneClass} ${info.railClass}`;
+
+  if (!latest) {
+    panel.innerHTML = `<div class="serial-runtime-head">
+      <div class="serial-runtime-title"><strong>Worker Runtime</strong></div>
+      <span class="${taskStatusInfo('none').badgeClass}">No packet yet</span>
+    </div>
+    <p class="serial-runtime-empty">No packet yet — create one from a worker card.</p>
+    <div class="serial-runtime-next"><span>next safe action</span>${esc(data.next_safe_action || 'Create a packet from a worker card before launching local workers.')}</div>`;
+    return;
+  }
+
+  const runId = latest.run_id || 'unknown-run';
+  const runtimeKind = data.runtime_kind || latest.runtime_kind || 'manual';
+  const hermesProfile = data.hermes_profile || latest.hermes_profile || '—';
+  const launchStatus = data.launch_status || latest.launch_status || 'not_started';
+  const verificationStatus = data.verification_status || latest.verification_status || 'not_run';
+  const runState = data.run_state || latest.state || data.status || 'unknown';
+  const evidencePaths = Array.isArray(latest.evidence_paths) ? latest.evidence_paths : [];
+  const manualCommand = serialRuntimeManualCommand(data);
+  const evidenceHtml = evidencePaths.length
+    ? evidencePaths.slice(0, 8).map(path => `<code>${esc(path)}</code>`).join('')
+    : '<em class="nt-hint">No evidence paths recorded yet.</em>';
+  const commandHtml = manualCommand
+    ? `<div class="serial-runtime-command">
+        <span>dry-run/manual command</span>
+        <code>${esc(manualCommand)}</code>
+        <button class="btn btn-sm btn-readonly" type="button" data-copy-serial-command="${esc(manualCommand)}" data-action-intent="readonly" aria-label="Copy dry-run or manual runtime command">Copy</button>
+      </div>`
+    : '';
+
+  panel.innerHTML = `<div class="serial-runtime-head">
+    <div class="serial-runtime-title"><strong>Worker Runtime</strong><code>${esc(runId)}</code></div>
+    <span class="${info.badgeClass}">${esc(info.label)}</span>
+  </div>
+  <div class="serial-runtime-grid">
+    <div class="serial-runtime-field"><span>current run id</span><code>${esc(runId)}</code></div>
+    <div class="serial-runtime-field"><span>runtime kind</span><code>${esc(runtimeKind)}</code></div>
+    <div class="serial-runtime-field"><span>Hermes profile</span><code>${esc(hermesProfile)}</code></div>
+    <div class="serial-runtime-field"><span>run state</span><code>${esc(runState)}</code></div>
+    <div class="serial-runtime-field"><span>launch status</span><code>${esc(launchStatus)}</code></div>
+    <div class="serial-runtime-field"><span>verification status</span><code>${esc(verificationStatus)}</code></div>
+  </div>
+  <div class="serial-runtime-evidence"><span>evidence links/paths</span><div class="serial-runtime-evidence-list">${evidenceHtml}</div></div>
+  <div class="serial-runtime-next"><span>next safe action</span>${esc(data.next_safe_action || 'Review packet evidence before any manual launch.')}</div>
+  ${commandHtml}`;
 }
 
 function renderReconcileAction(task) {
@@ -1623,7 +1869,7 @@ function renderReconcileAction(task) {
       <span class="nt-reconcile-note">Retry through the shell control, or close it to clean up.</span>
       ${retryCapability ? `<code class="nt-reconcile-command">${esc(shortCommand(retryCapability.command, 120))}</code>` : '<span class="nt-hint">No retry control available.</span>'}
     </div>
-    <button class="btn btn-sm btn-danger" type="button" data-command="${esc(closeCmd)}">
+    <button class="btn btn-sm btn-danger" type="button" data-command="${esc(closeCmd)}" data-action-intent="destructive" aria-label="Close failed task as abandoned">
       Close as abandoned
     </button>
   </div>`;
@@ -1636,6 +1882,7 @@ function renderLaunchpadActions(task) {
   const startCapability = taskCapabilityAny(task, ['start_shell', 'retry']);
   const verifyCapability = taskCapability(task, 'verify');
   const cleanupCapability = taskCapability(task, 'cleanup_preview');
+  const shellCommandTemplate = startCapability?.command || command || `devflow task run ${task.id} --worker shell -- <command>`;
   const detail = task.detail || {};
   const evidencePaths = detail.evidence_paths || [];
   const hasImplContext = evidencePaths.some(p => p.includes('implementation-context.md'));
@@ -1656,14 +1903,18 @@ function renderLaunchpadActions(task) {
         <div class="nt-worker-options">
           ${renderWorkerOptions(task)}
         </div>
+        <div class="task-command-box nt-packet-panel" id="next-task-packet-panel" data-serial-packet-panel hidden aria-live="polite"></div>
         <div class="nt-shell-fallback">
           <details open>
             <summary>Or run a raw shell command</summary>
             <div class="inline-command-row">
-              <input type="text" data-shell-command placeholder="pytest tests/test_target.py -q">
-              <button class="btn btn-secondary btn-sm" type="button" data-task-run-shell="${esc(task.id)}">▶ Run shell</button>
+              <input type="text" data-shell-command aria-label="Shell command for ${esc(task.id)}" placeholder="pytest tests/test_target.py -q">
+              <button class="btn btn-primary btn-sm" type="button" data-task-run-shell="${esc(task.id)}" data-action-intent="safe" aria-label="Run shell command for ${esc(task.id)}">▶ Run shell</button>
             </div>
-            <code>${esc(startCapability?.command || command || `devflow task run ${task.id} --worker shell -- <command>`)}</code>
+            <div class="nt-copy-command-row">
+              <code>${esc(shellCommandTemplate)}</code>
+              <button class="btn btn-readonly btn-sm" type="button" data-copy-command="${esc(shellCommandTemplate)}" data-copy-kind="terminal_command" data-action-intent="readonly" aria-label="Copy terminal command for ${esc(task.id)}">Copy</button>
+            </div>
           </details>
         </div>
       </div>`
@@ -1673,8 +1924,8 @@ function renderLaunchpadActions(task) {
     ? `<div class="task-command-box nt-primary-action nt-verify-action" id="next-task-verify-panel">
         <label>Verify task</label>
         <div class="inline-command-row">
-          <input type="text" data-verify-command placeholder="git diff --check && pytest -q">
-          <button class="btn btn-primary btn-sm" type="button" data-task-verify="${esc(task.id)}">✓ Verify</button>
+          <input type="text" data-verify-command aria-label="Verification command for ${esc(task.id)}" placeholder="git diff --check && pytest -q">
+          <button class="btn btn-caution btn-sm" type="button" data-task-verify="${esc(task.id)}" data-action-intent="verify" aria-label="Run verification for ${esc(task.id)}">✓ Verify</button>
         </div>
       </div>`
     : '';
@@ -1689,21 +1940,115 @@ function renderLaunchpadActions(task) {
             <option value="rejected">rejected</option>
             <option value="evidence-only">evidence-only</option>
           </select>
-          <input type="text" data-close-reason placeholder="Reason required">
-          <button class="btn btn-sm btn-danger" type="button" data-task-close="${esc(task.id)}">Close</button>
+          <input type="text" data-close-reason aria-label="Close reason for ${esc(task.id)}" placeholder="Reason required">
+          <button class="btn btn-sm btn-danger" type="button" data-task-close="${esc(task.id)}" data-action-intent="destructive" aria-label="Close ${esc(task.id)}">Close</button>
         </div>
       </details>`
-    : `<div class="task-action-row"><button class="btn btn-sm btn-secondary" type="button" data-command="${esc(cleanupCapability?.command || `devflow task cleanup ${task.id} --preview`)}">Cleanup preview</button></div>`;
+    : `<div class="task-action-row"><button class="btn btn-sm btn-readonly" type="button" data-command="${esc(cleanupCapability?.command || `devflow task cleanup ${task.id} --preview`)}" data-action-intent="readonly" aria-label="Preview cleanup for ${esc(task.id)}">Cleanup preview</button></div>`;
   const utilityButtons = `<details class="nt-more-actions">
     <summary><span>More actions</span></summary>
     <div class="nt-utility-row">
-      <button class="btn btn-sm btn-secondary" type="button" data-inspect-task="${esc(task.id)}">Inspect</button>
+      <button class="btn btn-sm btn-readonly" type="button" data-inspect-task="${esc(task.id)}" data-action-intent="readonly" aria-label="Inspect ${esc(task.id)}">Inspect</button>
       ${taskCommandButtons(task)}
     </div>
   </details>`;
   return workerPanel || verifyPanel || promotionPanel || implContextPanel || reconcilePanel
     ? `${implContextPanel}${workerPanel}${reconcilePanel}${verifyPanel}${promotionPanel}${utilityButtons}${closePanel}`
     : `${utilityButtons}${closePanel}`;
+}
+
+function reviewActionForNextSteps(firstViewport, selected) {
+  const queue = Array.isArray(firstViewport?.review_queue) ? firstViewport.review_queue : [];
+  if (!queue.length) return null;
+  return queue.find(item => ['ready_to_promote', 'needs_review', 'needs_verification'].includes(item?.lane || ''))
+    || queue.find(item => item?.task_id !== selected?.id)
+    || queue[0];
+}
+
+function recommendedWorkerForNextSteps(task) {
+  const options = Array.isArray(task?.worker_options) ? task.worker_options : [];
+  return options.find(option => option?.action_kind === 'serial_packet' && option.enabled !== false && !option.blocked_reason)
+    || options.find(option => option?.worker_id && option.worker_id !== 'shell' && option.enabled !== false && !option.blocked_reason)
+    || null;
+}
+
+function latestEvidenceForNextSteps(task, firstViewport) {
+  const paths = task?.detail?.evidence_paths || task?.evidence_paths || [];
+  if (paths.length) {
+    return { task_id: task.id, label: 'Latest evidence', text: paths[0], path: paths[0] };
+  }
+  const stream = Array.isArray(firstViewport?.evidence_stream) ? firstViewport.evidence_stream : [];
+  return stream.find(item => item?.task_id === task?.id) || stream[0] || null;
+}
+
+function serialRuntimeLabelForNextSteps(serial) {
+  const latest = serial?.latest_run || null;
+  if (!latest) return 'No packet yet';
+  const status = serial?.verification_status || latest.verification_status || serial?.run_state || latest.state || 'packet ready';
+  return `${latest.run_id || 'packet'} · ${status}`;
+}
+
+function renderOperatorNextSteps(firstViewport, selected, snap) {
+  const host = $('operator-next-steps');
+  if (!host) return;
+  if (!selected) {
+    host.innerHTML = `<div class="operator-next-steps-head">
+      <strong>What can I do next?</strong>
+      <span>Create or select an active task to unlock launchpad actions.</span>
+    </div>`;
+    return;
+  }
+
+  const worker = recommendedWorkerForNextSteps(selected);
+  const serial = snap?.serial_local_agent_run || {};
+  const evidence = latestEvidenceForNextSteps(selected, firstViewport);
+  const review = reviewActionForNextSteps(firstViewport, selected);
+  const selectedInfo = taskStatusInfo(selected.display_status || selected.lane || 'new');
+  const workerText = worker
+    ? `${worker.label || sentenceCase(worker.worker_id)}${worker.provider || worker.model ? ` · ${[worker.provider, worker.model].filter(Boolean).join(' / ')}` : ''}`
+    : 'No AI worker action available for this task.';
+  const workerButton = worker?.action_kind === 'serial_packet'
+    ? `<button class="btn btn-sm btn-primary" type="button" data-open-next-worker-card="${esc(worker.worker_id)}" data-action-intent="safe" aria-label="Open packet form for ${esc(worker.label || worker.worker_id)}">Open packet form</button>`
+    : '';
+  const evidenceText = evidence?.path || evidence?.text || 'No evidence yet';
+  const reviewTaskId = review?.task_id || review?.id || '';
+  const reviewText = review
+    ? `${reviewTaskId} · ${review.title || 'Review item'}${review.action_label ? ` · ${review.action_label}` : ''}`
+    : 'No review or verification action queued.';
+  const reviewButton = reviewTaskId
+    ? `<button class="btn btn-sm btn-caution" type="button" data-select-task="${esc(reviewTaskId)}" data-action-intent="verify" aria-label="Open review action for ${esc(reviewTaskId)}">Open review action</button>`
+    : '';
+
+  host.innerHTML = `<div class="operator-next-steps-head">
+    <strong>What can I do next?</strong>
+    <span>Use the launchpad first; open detail only when you need depth.</span>
+  </div>
+  <div class="operator-next-steps-grid">
+    <article class="operator-next-step task-card ${selectedInfo.toneClass} ${selectedInfo.railClass}" data-next-step-card="active_task" aria-label="Active task ${esc(selected.id)}">
+      <span>Active task selector</span>
+      <strong>${esc(selected.id)} · ${esc(selected.title || 'Untitled task')}</strong>
+      <button class="btn btn-sm btn-readonly" type="button" data-select-task="${esc(selected.id)}" data-action-intent="readonly" aria-label="Keep ${esc(selected.id)} selected">Keep selected</button>
+    </article>
+    <article class="operator-next-step task-card ${worker ? 'task-tone-green task-rail-green' : 'task-tone-gray task-rail-gray'}" data-next-step-card="recommended_worker" aria-label="Recommended worker action">
+      <span>Recommended worker action</span>
+      <strong>${esc(workerText)}</strong>
+      ${workerButton || '<em>No worker lever for this task.</em>'}
+    </article>
+    <article class="operator-next-step task-card task-tone-blue task-rail-blue" data-next-step-card="serial_runtime" aria-label="Serial runtime status">
+      <span>Serial runtime status</span>
+      <strong>${esc(serialRuntimeLabelForNextSteps(serial))}</strong>
+    </article>
+    <article class="operator-next-step task-card task-tone-gray task-rail-gray" data-next-step-card="latest_evidence" aria-label="Latest evidence">
+      <span>Latest evidence</span>
+      <strong>${esc(shortCommand(evidenceText, 90))}</strong>
+      <button class="btn btn-sm btn-readonly" type="button" data-select-task="${esc(selected.id)}" data-action-intent="readonly" aria-label="Review evidence for ${esc(selected.id)}">Review task evidence</button>
+    </article>
+    <article class="operator-next-step task-card ${review ? 'task-tone-orange task-rail-orange' : 'task-tone-gray task-rail-gray'}" data-next-step-card="review_action" aria-label="Review or verification action">
+      <span>Review / verify action</span>
+      <strong>${esc(shortCommand(reviewText, 90))}</strong>
+      ${reviewButton || '<em>Nothing waiting for review.</em>'}
+    </article>
+  </div>`;
 }
 
 function renderOrchestrator(snap, presentation) {
@@ -1777,6 +2122,9 @@ function renderOrchestrator(snap, presentation) {
     }
   }
 
+  renderOperatorNextSteps(firstViewport, selected, snap);
+  renderSerialRuntimePanel(snap.serial_local_agent_run || {});
+
   document.querySelectorAll('.worker-card').forEach(card => {
     card.classList.toggle('selected', card.dataset.taskId === selectedTaskId);
   });
@@ -1834,11 +2182,13 @@ function taskCommandButtons(task) {
     if ((action.required_inputs || []).length > 0 || action.command.includes('<reason>')) continue;
     if (seen.has(action.command)) continue;
     seen.add(action.command);
-    commands.push(`<button class="btn btn-sm ${action.requires_human_approval ? 'btn-primary' : 'btn-secondary'}" type="button" data-command="${esc(action.command)}">${esc(action.label || 'Run command')}</button>`);
+    const intent = action.requires_human_approval ? 'safe' : 'readonly';
+    const klass = intent === 'safe' ? 'btn-primary' : 'btn-readonly';
+    commands.push(`<button class="btn btn-sm ${klass}" type="button" data-command="${esc(action.command)}" data-action-intent="${intent}" aria-label="${esc(action.label || 'Run command')}">${esc(action.label || 'Run command')}</button>`);
   }
   if (task.lane === 'closed' && !commands.some(command => command.includes('cleanup'))) {
     const cleanupCommand = taskCapability(task, 'cleanup_preview')?.command || `devflow task cleanup ${task.id} --preview`;
-    commands.push(`<button class="btn btn-sm btn-secondary" type="button" data-command="${esc(cleanupCommand)}">Cleanup preview</button>`);
+    commands.push(`<button class="btn btn-sm btn-readonly" type="button" data-command="${esc(cleanupCommand)}" data-action-intent="readonly" aria-label="Cleanup preview">Cleanup preview</button>`);
   }
   return commands.join(' ');
 }
@@ -2125,6 +2475,15 @@ function openFocus(type, id, opts) {
     const local = task.local_worker_lane || {};
     const events = detail.recent_events || [];
     const evidencePaths = detail.evidence_paths || [];
+    const focusWorkerPanel = (lane !== 'closed' && Array.isArray(task.worker_options) && task.worker_options.length)
+      ? `<div class="task-command-box nt-primary-action" id="focus-worker-panel">
+          <label>AI worker controls</label>
+          <div class="nt-worker-options">
+            ${renderWorkerOptions(task)}
+          </div>
+          <div class="task-command-box nt-packet-panel" id="focus-task-packet-panel" data-serial-packet-panel hidden aria-live="polite"></div>
+        </div>`
+      : '';
     const shellPanel = commandNeedsShellInput(command, startCapability || primaryCapability) && lane !== 'closed'
       ? `<div class="task-command-box" id="focus-shell-panel">
           <label>Shell command to run in ${esc(task.id)} workspace</label>
@@ -2185,7 +2544,7 @@ function openFocus(type, id, opts) {
         <code>${esc(command || 'No action pending')}</code>
         ${task.next_action?.reason ? `<p>${esc(task.next_action.reason)}</p>` : ''}
       </div>
-      ${shellPanel}${verifyPanel}${promotePanel}
+      ${focusWorkerPanel}${shellPanel}${verifyPanel}${promotePanel}
       <div class="task-action-row">${taskCommandButtons(task)}</div>
       ${closePanel}
       ${(task.review_blockers || []).length || (task.promotion_blockers || []).length ? `<div class="focus-section"><h3>Blockers</h3>
@@ -2222,47 +2581,98 @@ function closeFocus() {
 }
 
 // === ACTION EXECUTION ===
-function actionResultHtml(result, command) {
-  const exitText = result?.timed_out ? 'Timed out' : `Exit ${result?.exit_code ?? 'n/a'}`;
-  const statusClass = result?.executed && result?.exit_code === 0 ? 'good' : 'bad';
-  const stdout = result?.stdout ? `<pre>${esc(result.stdout)}</pre>` : '';
-  const stderr = result?.stderr ? `<pre class="stderr">${esc(result.stderr)}</pre>` : '';
-  const message = result?.message || result?.error || '';
-  return `<div class="command-result ${statusClass}">
+function actionResultTargets() {
+  const ids = ['guided-action-result', 'next-task-command-output', 'focus-command-output'];
+  const seen = new Set();
+  return ids
+    .map(id => $(id))
+    .filter(el => {
+      if (!el || seen.has(el)) return false;
+      seen.add(el);
+      return true;
+    });
+}
+
+function truncateActionOutput(value, limit) {
+  const text = String(value || '');
+  const max = limit || 2400;
+  if (text.length <= max) return text;
+  return text.slice(0, max) + `\n… output truncated (${text.length - max} more chars)`;
+}
+
+function actionResultState(result) {
+  if (result?.timed_out) return 'timeout';
+  if (result?.validation) return 'validation_error';
+  if (result?.classification && !result?.executed) return 'blocked';
+  if (!result?.executed) return 'error';
+  return result?.exit_code === 0 ? 'succeeded' : 'failed';
+}
+
+function actionStateMeta(state, result) {
+  if (state === 'pending') return { label: 'Pending', className: 'pending' };
+  if (state === 'succeeded') return { label: `Succeeded · Exit ${result?.exit_code ?? 0}`, className: 'good' };
+  if (state === 'failed') return { label: `Command failed · Exit ${result?.exit_code ?? 'n/a'}`, className: 'bad' };
+  if (state === 'timeout') return { label: 'Timed out', className: 'bad' };
+  if (state === 'blocked') return { label: 'Blocked by policy', className: 'blocked' };
+  if (state === 'validation_error') return { label: 'Validation error', className: 'validation' };
+  return { label: 'Action error', className: 'bad' };
+}
+
+function actionResultHtml(result, command, forcedState) {
+  const state = forcedState || actionResultState(result || {});
+  const meta = actionStateMeta(state, result || {});
+  const classification = result?.classification || null;
+  const safetyClass = classification?.safety_class || '';
+  const classificationReason = classification?.why_not_auto_runnable || '';
+  const message = result?.message || result?.error || classificationReason || '';
+  const commandText = shortCommand(command || classification?.command || 'action', 180);
+  const field = result?.field ? `<span class="command-result-field">${esc(result.field)}</span>` : '';
+  const safety = safetyClass ? `<span class="command-result-classification">${esc(safetyClass)}</span>` : '';
+  const stdout = result?.stdout ? `<pre>${esc(truncateActionOutput(result.stdout))}</pre>` : '';
+  const stderr = result?.stderr ? `<pre class="stderr">${esc(truncateActionOutput(result.stderr))}</pre>` : '';
+  const truncated = result?.output_truncated ? '<p class="command-result-truncated">Output was truncated by the action API.</p>' : '';
+  return `<div class="command-result ${meta.className}" data-action-state="${esc(state)}">
     <div class="command-result-head">
-      <strong>${esc(exitText)}</strong>
-      <code>${esc(shortCommand(command, 140))}</code>
+      <strong>${esc(meta.label)}</strong>
+      ${safety}${field}
+      <code>${esc(commandText)}</code>
     </div>
     ${message ? `<p>${esc(message)}</p>` : ''}
-    ${stdout}${stderr}
+    ${classificationReason && classificationReason !== message ? `<p>${esc(classificationReason)}</p>` : ''}
+    ${stdout}${stderr}${truncated}
   </div>`;
+}
+
+function renderActionSurface(result, command, forcedState) {
+  const html = actionResultHtml(result || {}, command, forcedState);
+  for (const target of actionResultTargets()) {
+    target.innerHTML = html;
+  }
+  return html;
 }
 
 function renderActionPending(command) {
-  const html = `<div class="command-result pending">
-    <div class="command-result-head"><strong>Running</strong><code>${esc(shortCommand(command, 140))}</code></div>
-  </div>`;
-  const container = $('guided-action-result');
-  if (container) container.innerHTML = html;
-  const launchpadOutput = $('next-task-command-output');
-  if (launchpadOutput) launchpadOutput.innerHTML = html;
-  const focusOutput = $('focus-command-output');
-  if (focusOutput) focusOutput.innerHTML = html;
+  return renderActionSurface({ executed: false, message: 'Waiting for the approved command result.' }, command, 'pending');
+}
+
+function renderActionError({ message, field, command } = {}) {
+  return renderActionSurface(
+    { executed: false, validation: true, error: message || 'Action validation failed.', field: field || null },
+    command || 'action',
+    'validation_error',
+  );
 }
 
 function renderActionResult(result, command) {
-  const html = actionResultHtml(result, command);
-  const container = $('guided-action-result');
-  if (container) container.innerHTML = html;
-  const launchpadOutput = $('next-task-command-output');
-  if (launchpadOutput) launchpadOutput.innerHTML = html;
-  const focusOutput = $('focus-command-output');
-  if (focusOutput) focusOutput.innerHTML = html;
+  return renderActionSurface(result || { executed: false, error: 'Action failed.' }, command);
 }
 
 async function runApprovedCommand(command, opts) {
-  if (!command || command.includes('<command>')) {
-    throw new Error('This action needs a concrete shell command first.');
+  if (!command || /<[^>]+>/.test(command)) {
+    const error = new Error('This action needs concrete command inputs first.');
+    error.actionRendered = true;
+    renderActionError({ message: error.message, field: 'command', command: command || 'action' });
+    throw error;
   }
   renderActionPending(command);
   const body = {
@@ -2273,15 +2683,22 @@ async function runApprovedCommand(command, opts) {
   };
   if (selectedProjectId) body.project = selectedProjectId;
   if (opts?.contextNote) body.context_note = opts.contextNote;
-  const resp = await fetch('/api/actions/run', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const payload = await resp.json();
-  renderActionResult(payload, command);
-  setTimeout(() => loadSnapshot(selectedProjectId), 500);
-  return payload;
+  try {
+    const resp = await fetch('/api/actions/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const payload = await resp.json();
+    renderActionResult(payload, command);
+    setTimeout(() => loadSnapshot(selectedProjectId), 500);
+    return payload;
+  } catch(err) {
+    if (!err?.actionRendered) {
+      renderActionError({ message: err.message || 'Action request failed.', command });
+    }
+    throw err;
+  }
 }
 
 async function executeAction(taskId, action) {
@@ -2293,18 +2710,18 @@ async function executeAction(taskId, action) {
   try {
     await runApprovedCommand(command, {});
   } catch(e) {
-    renderActionResult({ executed: false, exit_code: null, error: e.message || 'Action failed' }, command);
+    if (!e?.actionRendered) renderActionError({ message: e.message || 'Action failed', command });
   }
 }
 
 // === ACTION RESULT UTILITIES ===
 function rememberApprovedActionResult(result) {
-  const container = $('guided-action-result');
-  if (!container) return;
-  container.innerHTML = `<div style="background:var(--accent-soft);border:1px solid rgba(63,185,80,0.2);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--accent);margin-top:8px;">
-    Action done: ${esc(result?.action || 'executed')} on ${esc(result?.task_id || 'task')}
-  </div>`;
-  setTimeout(() => { container.innerHTML = ''; }, 5000);
+  const message = `Action done: ${result?.action || 'executed'} on ${result?.task_id || 'task'}`;
+  renderActionSurface({ executed: true, exit_code: 0, message }, result?.command || result?.action || 'approved action', 'succeeded');
+  setTimeout(() => {
+    const container = $('guided-action-result');
+    if (container) container.innerHTML = '';
+  }, 5000);
 }
 
 function refreshSnapshotAfterApprovedAction(action) {
@@ -2334,11 +2751,54 @@ function setupFilter() {
   });
 }
 
+async function copyCommandFromButton(button, command) {
+  const text = command || button?.dataset?.copyCommand || button?.dataset?.copySerialCommand || '';
+  if (text && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text).catch(() => {});
+  }
+  const original = button?.textContent || 'Copy';
+  if (button) {
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = original; }, 1200);
+  }
+}
+
 function setupTaskSurfaceActions() {
   const closeButton = $('focus-close');
   if (closeButton) closeButton.addEventListener('click', closeFocus);
 
   document.addEventListener('click', async (e) => {
+    const genericCopyButton = e.target.closest('[data-copy-command]');
+    if (genericCopyButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      await copyCommandFromButton(genericCopyButton, genericCopyButton.dataset.copyCommand || '');
+      return;
+    }
+
+    const copySerialButton = e.target.closest('[data-copy-serial-command]');
+    if (copySerialButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      await copyCommandFromButton(copySerialButton, copySerialButton.dataset.copySerialCommand || '');
+      return;
+    }
+
+    const openNextWorkerButton = e.target.closest('[data-open-next-worker-card]');
+    if (openNextWorkerButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      const workerId = openNextWorkerButton.dataset.openNextWorkerCard || '';
+      const cards = Array.from(document.querySelectorAll('#next-task-action-slot [data-worker-option-card]'));
+      const card = cards.find(item => item?.dataset?.workerId === workerId) || null;
+      if (card) {
+        openSerialPacketPanel(card);
+      } else {
+        renderActionError({ message: 'Recommended worker card is not available in the launchpad.', field: 'worker_action', command: workerId || 'worker option' });
+      }
+      return;
+    }
+
     const selectButton = e.target.closest('[data-select-task]');
     if (selectButton) {
       e.preventDefault();
@@ -2366,6 +2826,28 @@ function setupTaskSurfaceActions() {
       return;
     }
 
+    const createPacketButton = e.target.closest('[data-create-serial-packet]');
+    if (createPacketButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      const panel = createPacketButton.closest('[data-serial-packet-panel]');
+      try {
+        const command = materializeSerialPacketCommand(panel?.dataset?.packetBaseCommand || '', serialPacketFormValues(panel));
+        await runApprovedCommand(command, {});
+      } catch(err) {
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Serial packet creation failed', field: 'serial_packet', command: panel?.dataset?.packetBaseCommand || 'devflow agent serial-packet' });
+      }
+      return;
+    }
+
+    const workerOptionCard = e.target.closest('[data-worker-option-card]');
+    if (workerOptionCard) {
+      e.preventDefault();
+      e.stopPropagation();
+      openSerialPacketPanel(workerOptionCard);
+      return;
+    }
+
     const shellButton = e.target.closest('[data-task-run-shell]');
     if (shellButton) {
       e.preventDefault();
@@ -2375,14 +2857,14 @@ function setupTaskSurfaceActions() {
         || document.querySelector('[data-shell-command]');
       const shellCommand = (input?.value || '').trim();
       if (!shellCommand) {
-        renderActionResult({ executed: false, exit_code: null, error: 'Enter the shell command to run in the task workspace.' }, `devflow task run ${taskId}`);
+        renderActionError({ message: 'Enter the shell command to run in the task workspace.', field: 'shell_command', command: `devflow task run ${taskId}` });
         input?.focus();
         return;
       }
       try {
         await runApprovedCommand(buildShellRunCommand(taskId, shellCommand, task), {});
       } catch(err) {
-        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Shell run failed' }, `devflow task run ${taskId}`);
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Shell run failed', command: `devflow task run ${taskId}` });
       }
       return;
     }
@@ -2396,14 +2878,14 @@ function setupTaskSurfaceActions() {
         || document.querySelector('[data-verify-command]');
       const verifyCommand = (input?.value || '').trim();
       if (!verifyCommand) {
-        renderActionResult({ executed: false, exit_code: null, error: 'Enter the verification shell command.' }, `devflow task verify ${taskId}`);
+        renderActionError({ message: 'Enter the verification shell command.', field: 'verification_command', command: `devflow task verify ${taskId}` });
         input?.focus();
         return;
       }
       try {
         await runApprovedCommand(buildVerifyCommand(taskId, verifyCommand, task), {});
       } catch(err) {
-        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Verification failed' }, `devflow task verify ${taskId}`);
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Verification failed', command: `devflow task verify ${taskId}` });
       }
       return;
     }
@@ -2418,14 +2900,14 @@ function setupTaskSurfaceActions() {
       const reasonInput = box?.querySelector('[data-close-reason]') || document.querySelector('[data-close-reason]');
       const reason = (reasonInput?.value || '').trim();
       if (reason.length < 3) {
-        renderActionResult({ executed: false, exit_code: null, error: 'Enter a concrete close reason.' }, `devflow task close ${taskId}`);
+        renderActionError({ message: 'Enter a concrete close reason.', field: 'close_reason', command: `devflow task close ${taskId}` });
         reasonInput?.focus();
         return;
       }
       try {
         await runApprovedCommand(buildCloseCommand(taskId, outcome, reason, task), {});
       } catch(err) {
-        renderActionResult({ executed: false, exit_code: null, error: err.message || 'Close failed' }, `devflow task close ${taskId}`);
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Close failed', command: `devflow task close ${taskId}` });
       }
       return;
     }
@@ -2533,7 +3015,19 @@ function setupTaskSurfaceActions() {
     }
   });
 
+  document.addEventListener('input', (e) => {
+    const packetInput = e.target.closest?.('[data-packet-allowed-files], [data-packet-verify-command]');
+    if (!packetInput) return;
+    updateSerialPacketPanelState(packetInput.closest('[data-serial-packet-panel]'));
+  });
+
   document.addEventListener('keydown', (e) => {
+    const workerOptionCard = e.target.closest?.('[data-worker-option-card]');
+    if (workerOptionCard && ['Enter', ' ', 'Spacebar'].includes(e.key) && !e.target.closest?.('button,a,input,textarea,select')) {
+      e.preventDefault();
+      openSerialPacketPanel(workerOptionCard);
+      return;
+    }
     const ideaCard = e.target.closest?.('[data-inspect-idea]');
     if (!ideaCard || !['Enter', ' '].includes(e.key)) return;
     e.preventDefault();

@@ -115,6 +115,9 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "renderWorkerLanes" in APP_JS
     assert "buildFirstViewportPresentation" in APP_JS
     assert "renderFirstViewport" in APP_JS
+    assert "renderSerialRuntimePanel" in APP_JS
+    assert "serial-runtime-panel" in INDEX_HTML
+    assert "serial-runtime-panel" in APP_CSS
     assert "first_viewport" in APP_JS
     assert "rememberApprovedActionResult" in APP_JS
     assert "refreshSnapshotAfterApprovedAction" in APP_JS
@@ -350,6 +353,38 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
 
     assert not (tmp_path / ".devflow" / "freshness" / "latest.json").exists()
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
+
+
+def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "browser packet defaults"]).exit_code == 0
+    routing = {
+        "routing_decision": {
+            "selected": {
+                "agent_id": "qwen-worker",
+                "label": "Hermes Qwen Implementer",
+                "provider": "ollama",
+                "model": "qwen3.6-32b-256k:latest",
+            }
+        }
+    }
+    _write_json(tmp_path / ".devflow" / "tasks" / "task-0001" / "routing-decision.yaml", routing)
+    workspace = tmp_path / ".devflow" / "workspaces" / "task-0001"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / "implementation-context.md").write_text("Plan context.\n", encoding="utf-8")
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    options = payload["tasks"][0]["worker_options"]
+    worker = next(option for option in options if option["worker_id"] == "qwen-worker")
+
+    assert worker["action_kind"] == "serial_packet"
+    assert worker["recommended_allowed_files"] == [".devflow/workspaces/task-0001/implementation-context.md"]
+    assert worker["recommended_verification_commands"] == []
+    assert worker["needs_operator_inputs"] == ["verification_commands"]
+    assert "<allowed-file>" not in " ".join(worker["recommended_allowed_files"])
 
 
 def test_task_definition_of_done_persists_loads_old_tasks_shows_and_snapshots(

@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from devflow.control_room.paths import task_dir
+from devflow.control_room.paths import relative_path, task_dir, workspace_path
 
 
 class WorkerOption(BaseModel):
@@ -40,6 +40,9 @@ class WorkerOption(BaseModel):
     runtime_kind: str | None = None
     hermes_profile: str | None = None
     toolsets: list[str] = Field(default_factory=list)
+    recommended_allowed_files: list[str] = Field(default_factory=list)
+    recommended_verification_commands: list[str] = Field(default_factory=list)
+    needs_operator_inputs: list[str] = Field(default_factory=list)
     option_id: str = ""
 
     @field_validator("option_id", mode="before")
@@ -67,13 +70,14 @@ def build_worker_options(
     """
     root = root.resolve()
     task_path = task_dir(root, task_id)
+    packet_contract = _packet_input_contract(root, task_id)
 
     ai_options: list[WorkerOption] = []
     blocked: dict[str, WorkerOption] = {}
 
-    _inject_routing_decision(task_path, ai_options, blocked)
-    _inject_agent_selection(task_path, ai_options, blocked)
-    _inject_local_worker_evidence(root, task_id, task_path, ai_options, blocked)
+    _inject_routing_decision(task_path, ai_options, blocked, packet_contract=packet_contract)
+    _inject_agent_selection(task_path, ai_options, blocked, packet_contract=packet_contract)
+    _inject_local_worker_evidence(root, task_id, task_path, ai_options, blocked, packet_contract=packet_contract)
 
     # Always present fallback shell (right below AI workers in render order).
     shell_cmd = f"devflow task run {task_id} --worker shell -- <command>"
@@ -110,6 +114,8 @@ def _inject_routing_decision(
     task_path: Path,
     ai_options: list[WorkerOption],
     blocked: dict[str, WorkerOption],
+    *,
+    packet_contract: dict[str, list[str]],
 ) -> None:
     rd_file = task_path / "routing-decision.yaml"
     if not rd_file.exists():
@@ -140,6 +146,7 @@ def _inject_routing_decision(
                 enabled=True,
                 is_local=is_local,
                 reason=reason_msg or "Routing decision recommends this worker.",
+                packet_contract=packet_contract,
             )
         )
 
@@ -203,6 +210,8 @@ def _inject_agent_selection(
     task_path: Path,
     ai_options: list[WorkerOption],
     blocked: dict[str, WorkerOption],
+    *,
+    packet_contract: dict[str, list[str]],
 ) -> None:
     sel_file = task_path / "agent-selection.json"
     if not sel_file.exists():
@@ -230,6 +239,7 @@ def _inject_agent_selection(
                 enabled=True,
                 is_local=True,
                 reason="Local agent-selection indicates the active worker.",
+                packet_contract=packet_contract,
             )
         )
     else:
@@ -258,6 +268,8 @@ def _inject_local_worker_evidence(
     task_path: Path,
     ai_options: list[WorkerOption],
     blocked: dict[str, WorkerOption],
+    *,
+    packet_contract: dict[str, list[str]],
 ) -> None:
     """Walk .devflow/tasks/<task>/agents/ for local-model evidence.
 
@@ -356,8 +368,60 @@ def _inject_local_worker_evidence(
                 is_local=True,
                 reason=f"Local model run (status={status}).",
                 evidence_paths=evid_paths[:5],  # cap at 5 paths
+                packet_contract=packet_contract,
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# Packet input contract helpers
+# ---------------------------------------------------------------------------
+
+
+def _empty_packet_input_contract() -> dict[str, list[str]]:
+    return {
+        "recommended_allowed_files": [],
+        "recommended_verification_commands": [],
+        "needs_operator_inputs": ["allowed_files", "verification_commands"],
+    }
+
+
+def _packet_input_contract(root: Path, task_id: str) -> dict[str, list[str]]:
+    allowed_files = _recommended_allowed_files(root, task_id)
+    verification_commands: list[str] = []
+    needs: list[str] = []
+    if not allowed_files:
+        needs.append("allowed_files")
+    if not verification_commands:
+        needs.append("verification_commands")
+    return {
+        "recommended_allowed_files": allowed_files,
+        "recommended_verification_commands": verification_commands,
+        "needs_operator_inputs": needs,
+    }
+
+
+def _recommended_allowed_files(root: Path, task_id: str) -> list[str]:
+    workspace = workspace_path(root, task_id)
+    if not workspace.exists() or not workspace.is_dir():
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+
+    def add_file(path: Path) -> None:
+        if not path.exists() or not path.is_file():
+            return
+        rel = relative_path(root, path)
+        if rel not in seen:
+            seen.add(rel)
+            paths.append(rel)
+
+    add_file(workspace / "implementation-context.md")
+    for path in sorted(workspace.rglob("*")):
+        if path.name.startswith(".") or path.name == "implementation-context.md":
+            continue
+        add_file(path)
+    return paths[:20]
 
 
 # ---------------------------------------------------------------------------
@@ -466,12 +530,16 @@ def _worker_option(
     is_local: bool,
     reason: str,
     evidence_paths: list[str] | None = None,
+    packet_contract: dict[str, list[str]] | None = None,
 ) -> WorkerOption:
     command = None
     action_kind = None
     runtime_kind = None
     hermes_profile = None
     toolsets: list[str] = []
+    recommended_allowed_files: list[str] = []
+    recommended_verification_commands: list[str] = []
+    needs_operator_inputs: list[str] = []
     if enabled and is_local:
         runtime_kind = "hermes-profile"
         hermes_profile = worker_id
@@ -485,6 +553,10 @@ def _worker_option(
             hermes_profile=hermes_profile,
             toolsets=toolsets,
         )
+        contract = packet_contract or _empty_packet_input_contract()
+        recommended_allowed_files = list(contract.get("recommended_allowed_files", []))
+        recommended_verification_commands = list(contract.get("recommended_verification_commands", []))
+        needs_operator_inputs = list(contract.get("needs_operator_inputs", []))
     return WorkerOption(
         worker_id=worker_id,
         label=label,
@@ -501,6 +573,9 @@ def _worker_option(
         runtime_kind=runtime_kind,
         hermes_profile=hermes_profile,
         toolsets=toolsets,
+        recommended_allowed_files=recommended_allowed_files,
+        recommended_verification_commands=recommended_verification_commands,
+        needs_operator_inputs=needs_operator_inputs,
     )
 
 
