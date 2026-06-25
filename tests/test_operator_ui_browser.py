@@ -245,6 +245,10 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert desktop["pipeline_top"] < desktop["next_task_top"]
     assert desktop["pipeline_top"] < desktop["viewport_height"]
     assert desktop["next_task_top"] < desktop["viewport_height"]
+    assert desktop["active_top"] < desktop["viewport_height"]
+    assert desktop["worker_lanes_top"] < desktop["viewport_height"]
+    assert desktop["review_queue_top"] < desktop["viewport_height"]
+    assert desktop["evidence_stream_top"] < desktop["viewport_height"]
     assert desktop["active_height"] <= desktop["viewport_height"] * 1.35
     assert desktop["closed_guided_cards"] == 0
 
@@ -262,34 +266,45 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert _no_horizontal_overflow(page)
 
 
-def test_home_reads_top_to_bottom_as_idea_to_product_pipeline(browser_page: tuple[Page, list[str]]) -> None:
+def test_home_exposes_idea_to_task_flow_and_review_dock(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
     metrics = page.evaluate(
         """() => {
-          const order = [
+          const flow = [
             ['idea', '#idea-greenhouse-section'],
             ['brainstorm', '#brainstorm-section'],
             ['pipeline', '#pipeline-spine'],
             ['task', '#orchestrator-section'],
-            ['product', '#product-review-section'],
           ];
-          return order.map(([name, selector]) => {
-            const element = document.querySelector(selector);
-            const rect = element?.getBoundingClientRect();
-            return [name, Boolean(element), rect ? Math.round(rect.top) : null];
+          const product = document.querySelector('#product-review-section')?.getBoundingClientRect();
+          const lanes = ['#active-work-groups', '#guided-review-queue', '#guided-evidence-stream'].map((selector) => {
+            const rect = document.querySelector(selector)?.getBoundingClientRect();
+            return { selector, top: rect ? Math.round(rect.top) : null };
           });
+          return {
+            flow: flow.map(([name, selector]) => {
+              const element = document.querySelector(selector);
+              const rect = element?.getBoundingClientRect();
+              return [name, Boolean(element), rect ? Math.round(rect.top) : null];
+            }),
+            product: { exists: Boolean(product), top: product ? Math.round(product.top) : null },
+            lanes,
+            viewport_height: Math.round(window.innerHeight),
+          };
         }"""
     )
-    assert [name for name, exists, _top in metrics if exists] == [
+    assert [name for name, exists, _top in metrics["flow"] if exists] == [
         "idea",
         "brainstorm",
         "pipeline",
         "task",
-        "product",
     ]
-    tops = [top for _name, exists, top in metrics if exists]
+    tops = [top for _name, exists, top in metrics["flow"] if exists]
     assert tops == sorted(tops)
     assert tops[0] < 160
+    assert metrics["product"]["exists"] is True
+    assert metrics["product"]["top"] < metrics["viewport_height"]
+    assert all(item["top"] is not None and item["top"] < metrics["viewport_height"] for item in metrics["lanes"])
 
 
 def test_product_stage_contains_task_launchpad_review_and_evidence(browser_page) -> None:
@@ -358,6 +373,7 @@ def test_worker_row_selects_launchpad_and_runs_inline_shell_worker(
     expect(page.locator("#next-task-shell-panel")).to_be_visible()
     expect(page.locator("#active-work-groups .worker-card.selected")).to_contain_text("Browser active work")
 
+    _open_shell_fallback(page)
     page.locator("#next-task-shell-panel [data-shell-command]").fill("printf launchpad-run > launchpad-run.txt")
     page.locator("#next-task-shell-panel [data-task-run-shell]").click()
     expect(page.locator("#next-task-command-output")).to_contain_text("Exit 0", timeout=15_000)
@@ -467,6 +483,7 @@ def test_action_buttons_use_semantic_affordance_classes_and_copy_helpers(
 
     page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
     panel = page.locator("#next-task-shell-panel")
+    _open_shell_fallback(page)
     shell_button = panel.locator('[data-task-run-shell]')
     expect(shell_button).to_have_attribute("data-action-intent", "safe")
     expect(shell_button).to_have_attribute("class", re.compile("btn-primary"))
@@ -523,6 +540,7 @@ def test_launchpad_renders_worker_options_above_shell_without_direct_hermes_laun
     assert "--hermes-profile qwen-worker" in packet_command
     assert "devflow agent hermes-run" not in packet_command
     assert panel.locator('[data-worker-option-card="shell"]').count() == 0
+    _open_shell_fallback(page)
     expect(panel.locator(".nt-shell-fallback [data-task-run-shell]")).to_be_visible()
     assert panel.locator("[data-task-run-shell]").bounding_box()["y"] > ai_card.bounding_box()["y"]
 
@@ -669,6 +687,7 @@ def test_no_ai_worker_option_keeps_shell_fallback_click_flow(
     panel = page.locator("#next-task-shell-panel")
     expect(panel).to_be_visible()
     assert panel.locator('[data-worker-option-card][data-worker-action-kind="serial_packet"]').count() == 0
+    _open_shell_fallback(page)
     expect(panel.locator(".nt-shell-fallback [data-task-run-shell]")).to_be_visible()
     panel.locator('[data-shell-command]').fill("printf shell-only > shell-only.txt")
     panel.locator('[data-task-run-shell]').click()
@@ -756,6 +775,7 @@ def test_action_errors_share_launchpad_surface_without_unwanted_posts(
     expect(output).to_contain_text("Enter at least one allowed file path")
     assert page.evaluate("() => window.__actionPostCount") == 0
 
+    _open_shell_fallback(page)
     page.locator("#next-task-shell-panel [data-shell-command]").fill("<command>")
     page.locator("#next-task-shell-panel [data-task-run-shell]").click()
     expect(output).to_contain_text("Validation error")
@@ -1014,6 +1034,14 @@ def _install_clipboard_spy(page: Page) -> None:
     )
 
 
+def _open_shell_fallback(page: Page) -> None:
+    details = page.locator("#next-task-shell-panel .nt-shell-fallback details")
+    expect(details).to_be_visible()
+    if not details.evaluate("element => element.open"):
+        details.locator("summary").click()
+    expect(details.locator("[data-task-run-shell]")).to_be_visible()
+
+
 def _home_layout_metrics(page: Page) -> dict[str, int]:
     return page.evaluate(
         """() => {
@@ -1028,6 +1056,9 @@ def _home_layout_metrics(page: Page) -> dict[str, int]:
           const pipeline = rect("#pipeline-spine");
           const nextTask = rect("#orchestrator-section");
           const active = rect("#product-review-section");
+          const workerLanes = rect("#active-work-groups");
+          const reviewQueue = rect("#guided-review-queue");
+          const evidenceStream = rect("#guided-evidence-stream");
           return {
             scroll_y: Math.round(window.scrollY),
             viewport_height: Math.round(window.innerHeight),
@@ -1035,7 +1066,11 @@ def _home_layout_metrics(page: Page) -> dict[str, int]:
             brainstorm_top: brainstorm.top,
             pipeline_top: pipeline.top,
             next_task_top: nextTask.top,
+            active_top: active.top,
             active_height: active.height,
+            worker_lanes_top: workerLanes.top,
+            review_queue_top: reviewQueue.top,
+            evidence_stream_top: evidenceStream.top,
             closed_guided_cards: document.querySelectorAll("#active-work-groups .guided-task-card.closed").length,
           };
         }"""

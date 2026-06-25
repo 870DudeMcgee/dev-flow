@@ -2128,7 +2128,7 @@ function renderLaunchpadActions(task) {
         </div>
         <div class="task-command-box nt-packet-panel" id="next-task-packet-panel" data-serial-packet-panel hidden aria-live="polite"></div>
         <div class="nt-shell-fallback">
-          <details open>
+          <details>
             <summary>Or run a raw shell command</summary>
             <div class="inline-command-row">
               <input type="text" data-shell-command aria-label="Shell command for ${esc(task.id)}" placeholder="pytest tests/test_target.py -q">

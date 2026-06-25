@@ -126,6 +126,10 @@ Benefits:
 - Leverage: the same renderable slices can support Overview and detail panels.
 - Tests can move away from brittle string-presence checks.
 
+Checkpoint 2026-06-25:
+
+Served browser validation now backs the first-viewport presentation slice. The desktop workbench keeps Brainstorm, Pipeline, Next Task, Worker lanes, Review queue, and Evidence stream visible without horizontal overflow. Presentation polish compacted the Idea/Pipeline stack, pinned the Product / Review dock on desktop, removed fake dock links, demoted the selected task title out of structural heading navigation, and collapsed the raw shell fallback until the operator opens it. Browser tests now assert the visible dock lanes and the deliberate shell-fallback interaction.
+
 Existing test anchors:
 
 - `tests/test_operator_ui_browser.py::test_app_loads_assets_snapshot_health_without_console_errors_or_overflow`

@@ -554,6 +554,7 @@ body {
   width: 100%;
 }
 .idea-capture-form textarea {
+  height: 48px;
   line-height: 1.45;
   max-height: 150px;
   min-height: 44px;
@@ -594,10 +595,10 @@ body {
   display: flex;
   flex-direction: column;
   font-size: 12px;
-  gap: 6px;
-  margin: 0 14px 10px;
+  gap: 5px;
+  margin: 0 14px 8px;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 7px 10px;
 }
 .idea-primary-action strong {
   color: var(--text);
@@ -617,13 +618,13 @@ body {
 }
 .idea-greenhouse-lanes {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  max-height: 56px;
+  max-height: 48px;
   max-width: 100%;
   min-width: 0;
   overflow-y: auto;
-  padding: 10px 14px 14px;
+  padding: 8px 14px 10px;
 }
 .idea-lane {
   --idea-accent: var(--border);
@@ -1015,8 +1016,8 @@ summary:focus-visible {
   .operator-next-steps-head span { text-align: left; }
   .operator-next-steps-grid { grid-template-columns: 1fr; }
 }
-.orchestrator-directive h3 { margin: 4px 0 2px; font-size: 15px; font-weight: 600; color: var(--text); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.next-task-summary h3 { overflow-wrap: anywhere; }
+.orchestrator-directive .next-task-title { margin: 4px 0 2px; font-size: 15px; font-weight: 600; color: var(--text); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.next-task-summary .next-task-title { overflow-wrap: anywhere; }
 .nt-task-id { font-size: 12px; font-weight: 700; color: var(--blue); background: var(--blue-soft); padding: 1px 8px; border-radius: 4px; flex-shrink: 0; }
 .nt-task-title { font-size: 15px; font-weight: 600; color: var(--text); }
 .orchestrator-directive p { margin: 0 0 8px; font-size: 13px; color: var(--text-soft); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1696,15 +1697,17 @@ summary:focus-visible {
 .pipeline-stages { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 0; }
 #pipeline-spine .pipeline-stages {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 6px;
+  padding: 8px 12px;
 }
 .pipeline-step { display: flex; gap: 12px; position: relative; }
 #pipeline-spine .pipeline-step {
   background: var(--bg-2);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
-  padding: 8px;
+  gap: 7px;
+  padding: 6px;
 }
 .pipeline-step:not(:last-child) { padding-bottom: 8px; }
 #pipeline-spine .pipeline-step:not(:last-child) { padding-bottom: 8px; }
@@ -1751,6 +1754,7 @@ summary:focus-visible {
   margin-top: 6px;
 }
 #pipeline-spine .step-action { justify-content: flex-start; gap: 6px; }
+#pipeline-spine .step-action .btn { font-size: 10px; min-height: 24px; padding: 3px 8px; }
 .step-time { font-size: 10px; color: var(--text-muted); }
 .definition-editor {
   border-top: 1px solid var(--border-light);
@@ -1779,7 +1783,7 @@ summary:focus-visible {
   outline: none;
   padding: 8px 10px;
 }
-#pipeline-spine .definition-editor textarea { min-height: 24px; }
+#pipeline-spine .definition-editor textarea { height: 32px; min-height: 32px; max-height: 96px; }
 .definition-editor textarea:focus { border-color: var(--accent); }
 
 /* ===== SYSTEM HEALTH ===== */
@@ -1840,14 +1844,15 @@ summary:focus-visible {
 }
 .dock-panel-header h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--text); flex-shrink: 0; }
 .dock-count { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
-.dock-view-all {
+.dock-status-note {
   margin-left: auto;
-  font-size: 11px;
-  color: var(--blue);
-  text-decoration: none;
+  color: var(--text-muted);
   flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
 }
-.dock-view-all:hover { text-decoration: underline; }
 
 /* Worker lanes */
 .worker-lanes-list { max-height: 240px; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
@@ -2318,6 +2323,40 @@ summary:focus-visible {
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1400px) {
   .right-column { width: 280px; }
+}
+@media (min-width: 1201px) {
+  #main-panel { padding-bottom: 250px; }
+  .product-review-section {
+    background: linear-gradient(180deg, rgba(13,17,23,0), var(--bg) 12px);
+    bottom: 0;
+    box-shadow: 0 -18px 38px rgba(0,0,0,0.32);
+    left: var(--sidebar-w);
+    padding: 12px 16px 8px;
+    position: fixed;
+    right: 0;
+    z-index: 9;
+  }
+  .product-review-header {
+    align-items: center;
+    display: flex;
+    min-height: 0;
+    padding: 8px 12px;
+  }
+  .product-review-header .panel-subtitle { display: none; }
+  .bottom-dock {
+    gap: 8px;
+    padding: 8px;
+  }
+  .dock-panel-header {
+    min-height: 32px;
+    padding: 6px 10px;
+  }
+  .worker-lanes-list,
+  .review-queue-list,
+  .evidence-stream-list {
+    max-height: 128px;
+    padding: 5px 7px;
+  }
 }
 @media (max-width: 1200px) {
   .bottom-dock { grid-template-columns: 1fr 1fr; }

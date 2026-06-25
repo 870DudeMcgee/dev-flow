@@ -215,7 +215,7 @@ INDEX_HTML = """<!doctype html>
             <div class="orchestrator-content next-task-content">
               <div class="orchestrator-directive next-task-summary">
                 <span class="label">Selected Task</span>
-                <h3 id="orchestrator-goal-title">Loading task...</h3>
+                <div id="orchestrator-goal-title" class="next-task-title" aria-live="polite">Loading task...</div>
                 <p id="orchestrator-directive">Reading operating layer snapshot.</p>
               </div>
               <div id="next-task-meta" class="next-task-meta" aria-label="Selected task metadata"></div>
@@ -365,7 +365,7 @@ INDEX_HTML = """<!doctype html>
           <div class="dock-panel-header">
             <h3 id="worker-lanes-heading">Worker lanes</h3>
             <output id="active-work-count" class="dock-count" aria-live="polite" aria-atomic="true">0 tasks</output>
-            <a href="#" class="dock-view-all">View all →</a>
+            <span class="dock-status-note">Live</span>
           </div>
           <div id="active-work-groups" class="worker-lanes-list" role="list" aria-label="Task cards"></div>
         </section>
@@ -375,7 +375,7 @@ INDEX_HTML = """<!doctype html>
           <div class="dock-panel-header">
             <h3 id="review-queue-heading">Review queue</h3>
             <output id="review-queue-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
-            <a href="#" class="dock-view-all">View all →</a>
+            <span class="dock-status-note">Live</span>
           </div>
           <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Review items"></div>
         </section>
@@ -385,7 +385,7 @@ INDEX_HTML = """<!doctype html>
           <div class="dock-panel-header">
             <h3 id="evidence-stream-heading">Evidence stream</h3>
             <output id="evidence-stream-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
-            <a href="#" class="dock-view-all">View all →</a>
+            <span class="dock-status-note">Live</span>
           </div>
           <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
         </section>
