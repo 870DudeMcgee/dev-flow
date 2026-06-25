@@ -11,5 +11,8 @@ build/
 dist/
 *.egg-info/
 
+# Generated architecture evidence
+/graphify-out/
+
 # macOS
 .DS_Store
