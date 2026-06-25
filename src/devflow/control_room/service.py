@@ -50,9 +50,7 @@ from devflow.control_room.readiness import format_promotion_refusal, promotion_r
 from devflow.control_room.seed import initialize_seed, validate_seed_contract
 from devflow.control_room.task_lifecycle import (
     append_task_event,
-    apply_lifecycle_metadata,
     record_task_update,
-    write_task_state,
 )
 from devflow.control_room.task_artifacts import (
     ensure_task_baseline_artifacts,
@@ -60,15 +58,10 @@ from devflow.control_room.task_artifacts import (
 )
 from devflow.control_room.task_patch_application import apply_task_patch_command
 from devflow.control_room.task_verification import verify_task_command
+from devflow.control_room.task_local_worker_run import run_task_local_worker
 from devflow.control_room.task_worker_run import run_task_worker
-from devflow.control_room.task_workspace import validated_task_workspace
 from devflow.control_room.workspace import create_workspace
-from devflow.control_room.local_ollama_worker import (
-    LocalOllamaRunResult,
-    get_local_worker_definition,
-    run_local_ollama_worker,
-)
-from devflow.control_room.log_sanitizer import DEFAULT_LATEST_LOG_LINE_MAX_CHARS, latest_visible_log_line
+from devflow.control_room.local_ollama_worker import LocalOllamaRunResult
 
 # Dynamic compatibility shims and mappings
 _load_task = load_task
@@ -266,78 +259,13 @@ def run_local_model_task(
     input_worker: str | None = None,
     timeout_seconds: int | None = None,
 ) -> LocalOllamaRunResult:
-    definition = get_local_worker_definition(worker_name)
-    timeout = timeout_seconds or definition.default_timeout_seconds
-    if timeout <= 0:
-        raise ValueError("Local worker timeout must be greater than zero.")
-
-    # Resolve workspace and read configuration lock-free
-    task = get_task(root, task_id)
-    task_path = task_dir(root, task_id)
-    workspace = validated_task_workspace(root, task)
-    task_yaml_text = (task_path / "task.yaml").read_text(encoding="utf-8")
-
-    # Run the Ollama subprocess lock-free so multiple local workers can run in parallel
-    result = run_local_ollama_worker(
+    return run_task_local_worker(
         root,
         task_id,
-        workspace,
         worker_name,
         input_worker=input_worker,
-        timeout_seconds=timeout,
-        task_yaml_text=task_yaml_text,
+        timeout_seconds=timeout_seconds,
     )
-
-    # Acquire the task lock briefly post-run to synchronize canonical task updates and event appends
-    with task_mutation_lock(root, task_id, "local-worker"):
-        task = get_task(root, task_id)
-        task.last_exit_code = result.exit_code
-        task.latest_log_line = _local_worker_latest_line(result)
-        task.log_path = _relative(root, result.stderr_path)
-        task.result_path = _relative(root, result.response_path)
-        task.finished_at = result.finished_at
-        if is_git_worktree_task(task):
-            state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
-            task.workspace_dirty = bool(state["dirty"])
-        apply_lifecycle_metadata(
-            task,
-            event_type="local_worker_finished",
-            status=result.task_status,
-            updated_at=task.finished_at,
-        )
-
-        # Chronologically append start and finish events to task history under synchronized lock
-        append_task_event(
-            root,
-            task_id,
-            "local_worker_started",
-            {
-                "worker_name": worker_name,
-                "model": definition.model,
-                "artifact_dir": _relative(root, result.artifact_dir),
-                "input_worker": input_worker or definition.default_input_worker,
-                "run_id": result.run_id,
-            },
-        )
-        append_task_event(
-            root,
-            task_id,
-            "local_worker_finished",
-            {
-                "worker_name": worker_name,
-                "model": definition.model,
-                "status": result.status,
-                "exit_code": result.exit_code,
-                "run_id": result.run_id,
-                "run_json_path": _relative(root, result.run_json_path),
-                "response_path": _relative(root, result.response_path),
-                "stderr_path": _relative(root, result.stderr_path),
-            },
-        )
-
-        write_task_state(root, task)
-
-    return result
 
 
 def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 120) -> TaskRecord:
@@ -666,15 +594,6 @@ def _read_task_events(path: Path) -> list[dict[str, Any]]:
 
 def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) -> None:
     ensure_task_baseline_artifacts(task_path, task_id=task_id, workspace_rel=workspace_rel)
-
-
-def _local_worker_latest_line(result: LocalOllamaRunResult) -> str | None:
-    if result.error_message:
-        return result.error_message
-    if not result.stderr_path.exists():
-        return None
-    latest = latest_visible_log_line(result.stderr_path, max_chars=DEFAULT_LATEST_LOG_LINE_MAX_CHARS)
-    return latest or None
 
 
 def _next_task_id(root: Path) -> str:
