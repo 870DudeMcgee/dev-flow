@@ -18,20 +18,16 @@ from devflow.control_room.dashboard import (
     collect_dashboard_state,
     collect_multi_project_dashboard_state,
 )
-from devflow.control_room.agent_evidence import compact_agent_evidence_summary
 from devflow.control_room.agent_onboarding import build_agent_catalog
 from devflow.control_room.evidence_review_detail import EvidenceReviewDetail
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
-from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.idea_foundry import IdeaFoundryError, greenhouse_lane_for_idea, list_ideas
 from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
-from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
-from devflow.control_room.paths import absolute_path, goals_dir, relative_path, task_dir
+from devflow.control_room.paths import goals_dir, relative_path, task_dir
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.question_resume import QuestionSnapshot, build_question_snapshot
-from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
 from devflow.control_room.serial_local_agent_run import serial_local_agent_run_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
@@ -1393,86 +1389,16 @@ def _project_id(root: Path, warnings: list[str]) -> str | None:
         return None
 
 
-def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str | None) -> OperatingLayerTask:
-    task = projection.task
-    next_action = DashboardNextAction(**projection.dashboard_next_action.model_dump())
-    if next_action.command:
-        next_action.command = _scope_task_command(next_action.command, project_id)
-    worker_lane = git_worker_lane_summary(root, task)
-    local_worker_lane = local_worker_lane_summary(root, task)
-    review_readiness = build_review_readiness_projection(
-        root,
-        task.id,
-        task=task,
-        status_projection=projection,
-        project_id=project_id,
-    )
-    if task.status == "verified" and not projection.ready_to_promote and review_readiness.next_command:
-        next_action = DashboardNextAction(
-            label="Resolve review blocker",
-            task_id=task.id,
-            command=review_readiness.next_command,
-            reason="Verification passed but review readiness has blockers.",
-        )
-    return OperatingLayerTask(
-        id=task.id,
-        title=task.title,
-        definition_of_done=task.definition_of_done,
-        status=task.status,
-        display_status=projection.display_status,
-        lane=_lane_for(projection, review_state=review_readiness.review_state),
-        worker=task.worker,
-        workspace=task.workspace,
-        verification_status=projection.verification_status,
-        verification_exit_code=projection.verification_exit_code,
-        merge_ready=projection.merge_ready,
-        promotion_ready=projection.promotion_ready,
-        promotion_blockers=projection.promotion_blockers,
-        latest=_scrub_quarantined_checkout(projection.latest),
-        log_path=task.log_path,
-        result_path=task.result_path,
-        verification_log_path=projection.verification_log_path,
-        next_action=next_action,
-        review_state=review_readiness.review_state,
-        review_score=review_readiness.score,
-        review_blockers=review_readiness.blockers,
-        review_next_command=review_readiness.next_command,
-        review_evidence=review_readiness.evidence,
-        agent_evidence_summary=compact_agent_evidence_summary(root, task.id),
-        worker_lane=OperatingLayerWorkerLane(**worker_lane) if worker_lane else None,
-        local_worker_lane=OperatingLayerLocalWorkerLane(**local_worker_lane) if local_worker_lane else None,
-        actions=_task_actions(task.id, next_action.command, project_id=project_id, ready_to_promote=projection.ready_to_promote),
-        detail=_task_detail(root, projection),
-    )
-
-
-def _lane_for(projection: TaskStatusProjection, *, review_state: str | None = None) -> str:
-    task = projection.task
-    if not projection.is_active:
-        return "closed"
-    if projection.is_blocked:
-        return "blocked"
-    if projection.failed_verification or projection.is_worker_failed or projection.is_timeout:
-        return "failed"
-    if task.status == "running":
-        return "running"
-    if projection.ready_to_promote:
-        return "ready_to_promote"
-    if review_state in {"review_patch", "patch_dry_run", "apply_patch"}:
-        return "needs_review"
-    if review_state == "needs_promotion_preview" and projection.is_verified:
-        return "needs_review"
-    if review_state == "needs_verification":
-        return "needs_verification"
-    if projection.needs_verification:
-        return "needs_verification"
-    if task.status == "created":
-        return "new"
-    return "idle"
-
-
 def _scrub_quarantined_checkout(value: str) -> str:
     return value.replace("/Users/jewelbait/Desktop/DevFlow", "<quarantined-devflow>")
+
+
+def _scrub_project_root(root: Path, value: str) -> str:
+    scrubbed = _scrub_quarantined_checkout(value)
+    candidates = {root.as_posix(), root.resolve().as_posix()}
+    for candidate in sorted(candidates, key=len, reverse=True):
+        scrubbed = scrubbed.replace(candidate, "<repo-root>")
+    return scrubbed
 
 
 def _questions(
@@ -1616,276 +1542,6 @@ def _promotion_candidates(
         )
         for projection in projections
     ]
-
-
-def _evidence(projections: list[TaskStatusProjection]) -> list[OperatingLayerEvidencePointer]:
-    evidence: list[OperatingLayerEvidencePointer] = []
-    for projection in projections:
-        task = projection.task
-        if not any([task.log_path, task.result_path, projection.verification_log_path, projection.verification_command]):
-            continue
-        evidence.append(
-            OperatingLayerEvidencePointer(
-                task_id=task.id,
-                log_path=task.log_path,
-                result_path=task.result_path,
-                verification_log_path=projection.verification_log_path,
-                verification_command=projection.verification_command,
-            )
-        )
-    return evidence
-
-
-def _task_detail(root: Path, projection: TaskStatusProjection) -> OperatingLayerTaskDetail:
-    task = projection.task
-    base = task_dir(root, task.id)
-    notes: list[str] = []
-    evidence_paths = [
-        path
-        for path in [
-            _display_artifact_path(root, task.log_path),
-            _display_artifact_path(root, task.result_path),
-            _display_artifact_path(root, projection.verification_log_path),
-            relative_path(root, base / "events.jsonl"),
-        ]
-        if path
-    ]
-    if (base / "verification.json").exists():
-        evidence_paths.append(relative_path(root, base / "verification.json"))
-    worker_lane = git_worker_lane_summary(root, task)
-    if worker_lane:
-        evidence_paths.extend(str(path) for path in worker_lane.get("evidence_paths") or [])
-    local_worker_lane = local_worker_lane_summary(root, task)
-    if local_worker_lane:
-        evidence_paths.extend(str(path) for path in local_worker_lane.get("evidence_paths") or [])
-    return OperatingLayerTaskDetail(
-        events_path=relative_path(root, base / "events.jsonl"),
-        verification_path=relative_path(root, base / "verification.json"),
-        recent_events=_recent_events(root, base / "events.jsonl", notes),
-        verification=_verification_detail(base / "verification.json", notes),
-        evidence_paths=sorted(dict.fromkeys(evidence_paths)),
-        review_summary=_task_review_summary(root, projection, notes),
-        latest_worker_line=_artifact_preview(root, task.log_path, notes),
-        latest_verification_line=_artifact_preview(root, projection.verification_log_path, notes),
-        result_preview=_artifact_preview(root, task.result_path, notes),
-        notes=notes,
-    )
-
-
-def _task_review_summary(
-    root: Path,
-    projection: TaskStatusProjection,
-    notes: list[str],
-) -> list[OperatingLayerReviewItem]:
-    task = projection.task
-    worker_lane = git_worker_lane_summary(root, task)
-    local_worker_lane = local_worker_lane_summary(root, task)
-    changed_files = _changed_workspace_files(root, task.workspace, notes)
-    task_contents = _changed_file_contents(root, task.workspace, changed_files, notes)
-    items = [
-        OperatingLayerReviewItem(label="Task", value=f"{task.id} - {task.title}"),
-        OperatingLayerReviewItem(label="Status", value=task.status),
-        OperatingLayerReviewItem(label="Verification", value=projection.verification_status or "not_run"),
-        OperatingLayerReviewItem(
-            label="Changed files",
-            value="\n".join(changed_files) if changed_files else "No file changes detected",
-        ),
-        OperatingLayerReviewItem(label="Task contents", value=task_contents or "No changed file preview available"),
-        OperatingLayerReviewItem(
-            label="Next action",
-            value=projection.dashboard_next_action.command or f"devflow task show {task.id}",
-        ),
-    ]
-    if worker_lane:
-        items.insert(3, OperatingLayerReviewItem(label="Worker lane", value=str(worker_lane["workspace_mode"])))
-        items.insert(4, OperatingLayerReviewItem(label="Lane readiness", value=str(worker_lane["readiness_status"])))
-    if local_worker_lane:
-        items.insert(3, OperatingLayerReviewItem(label="Local worker", value=str(local_worker_lane["worker_id"])))
-        items.insert(
-            4,
-            OperatingLayerReviewItem(
-                label="Local worker readiness",
-                value=str(local_worker_lane["readiness_status"]),
-            ),
-        )
-    return items
-
-
-def _changed_workspace_files(root: Path, workspace_value: str, notes: list[str], *, limit: int = 20) -> list[str]:
-    workspace = absolute_path(root, workspace_value).resolve()
-    if not workspace.is_dir():
-        notes.append(f"workspace unavailable for review summary: {workspace_value}")
-        return []
-
-    changed: list[str] = []
-    for path in sorted(workspace.rglob("*")):
-        if not path.is_file():
-            continue
-        try:
-            name = path.relative_to(workspace).as_posix()
-        except ValueError:
-            continue
-        if _is_ignored_review_name(name):
-            continue
-        target = root / name
-        try:
-            if not target.exists() or (target.is_file() and path.read_bytes() != target.read_bytes()):
-                changed.append(name)
-        except OSError:
-            changed.append(name)
-        if len(changed) >= limit:
-            break
-    return changed
-
-
-def _changed_file_contents(
-    root: Path,
-    workspace_value: str,
-    changed_files: list[str],
-    notes: list[str],
-    *,
-    limit: int = 5,
-) -> str:
-    workspace = absolute_path(root, workspace_value).resolve()
-    previews: list[str] = []
-    for name in changed_files[:limit]:
-        path = workspace / name
-        try:
-            raw = path.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            notes.append(f"{name} preview unavailable: {exc}")
-            continue
-        lines = []
-        for line in raw.splitlines():
-            preview = sanitize_log_line(line, max_chars=180)
-            if preview:
-                lines.append(preview)
-        if lines:
-            previews.append(f"{name}: " + "\n".join(lines[:4]))
-    return "\n".join(previews)
-
-
-def _is_ignored_review_name(name: str) -> bool:
-    ignored = {".git", ".devflow", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv"}
-    return any(part in ignored for part in Path(name).parts)
-
-
-def _recent_events(root: Path, path: Path, notes: list[str], *, limit: int = 5) -> list[OperatingLayerTaskEvent]:
-    if not path.exists():
-        notes.append("events.jsonl is missing")
-        return []
-    events: list[OperatingLayerTaskEvent] = []
-    malformed = 0
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        notes.append(f"events.jsonl unreadable: {exc}")
-        return []
-    for raw_line in lines:
-        if not raw_line.strip():
-            continue
-        try:
-            event = json.loads(raw_line)
-        except json.JSONDecodeError:
-            malformed += 1
-            continue
-        if not isinstance(event, dict):
-            malformed += 1
-            continue
-        events.append(
-            OperatingLayerTaskEvent(
-                timestamp=str(event.get("timestamp")) if event.get("timestamp") else None,
-                event=str(event.get("event") or "unknown"),
-                summary=_event_summary(root, event),
-            )
-        )
-    if malformed:
-        notes.append(f"{malformed} malformed event line(s) omitted")
-    return events[-limit:]
-
-
-def _event_summary(root: Path, event: dict[str, Any]) -> str:
-    safe_keys = ("status", "task_status", "exit_code", "log_path", "result_path", "cwd", "outcome", "reason")
-    parts: list[str] = []
-    for key in safe_keys:
-        value = event.get(key)
-        if value is None:
-            continue
-        parts.append(f"{key}={_safe_summary_value(root, value)}")
-    return ", ".join(parts)
-
-
-def _verification_detail(path: Path, notes: list[str]) -> OperatingLayerTaskVerification | None:
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        notes.append(f"verification.json unreadable: {exc}")
-        return None
-    if not isinstance(payload, dict):
-        notes.append("verification.json is not an object")
-        return None
-    return OperatingLayerTaskVerification(
-        status=str(payload.get("status") or "unknown"),
-        task_status=str(payload.get("task_status")) if payload.get("task_status") is not None else None,
-        exit_code=payload.get("exit_code") if isinstance(payload.get("exit_code"), int) else None,
-        log_path=str(payload.get("log_path")) if payload.get("log_path") is not None else None,
-    )
-
-
-def _artifact_preview(root: Path, relative_or_absolute_path: str | None, notes: list[str]) -> str | None:
-    path = _artifact_path(root, relative_or_absolute_path)
-    if path is None:
-        return None
-    if not path.exists():
-        notes.append(f"{relative_or_absolute_path} is missing")
-        return None
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as exc:
-        notes.append(f"{relative_or_absolute_path} unreadable: {exc}")
-        return None
-    for line in reversed(lines):
-        preview = sanitize_log_line(line, max_chars=220)
-        if preview.startswith("$ "):
-            continue
-        if preview:
-            return _scrub_project_root(root, preview)
-    return None
-
-
-def _artifact_path(root: Path, relative_or_absolute_path: str | None) -> Path | None:
-    if not relative_or_absolute_path:
-        return None
-    path = Path(relative_or_absolute_path)
-    candidate = path if path.is_absolute() else root / path
-    try:
-        candidate.resolve().relative_to(root.resolve())
-    except ValueError:
-        return None
-    return candidate
-
-
-def _display_artifact_path(root: Path, relative_or_absolute_path: str | None) -> str | None:
-    path = _artifact_path(root, relative_or_absolute_path)
-    if path is None:
-        return relative_or_absolute_path
-    return relative_path(root, path)
-
-
-def _safe_summary_value(root: Path, value: Any) -> str:
-    if isinstance(value, (dict, list)):
-        return "<structured>"
-    return _scrub_project_root(root, sanitize_log_line(str(value), max_chars=120))
-
-
-def _scrub_project_root(root: Path, value: str) -> str:
-    scrubbed = _scrub_quarantined_checkout(value)
-    candidates = {root.as_posix(), root.resolve().as_posix()}
-    for candidate in sorted(candidates, key=len, reverse=True):
-        scrubbed = scrubbed.replace(candidate, "<repo-root>")
-    return scrubbed
 
 
 def _freshness_card(freshness: FreshnessReport | None) -> OperatingLayerFreshness | None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +14,7 @@ from devflow.control_room.dashboard import DashboardNextAction
 from devflow.control_room.evidence_review_detail import EvidenceReviewDetail, build_evidence_review_detail
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
-from devflow.control_room.log_sanitizer import sanitize_log_line
-from devflow.control_room.paths import absolute_path, relative_path, task_dir
+from devflow.control_room.paths import task_dir
 from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.status_projection import TaskStatusProjection, list_task_status_projections
 from devflow.control_room.worker_options import build_worker_options
@@ -466,35 +464,26 @@ def _review_queue(tasks: list[TaskWorkbenchTask]) -> list[TaskWorkbenchReviewQue
     for task in tasks:
         if task.lane not in review_lanes:
             continue
+        detail = task.review_detail
         rows.append(
             TaskWorkbenchReviewQueueItem(
                 task_id=task.id,
                 title=task.title,
                 lane=task.lane,
-                priority=task.review_detail.review_priority,
-                reason=task.review_detail.review_reason or _review_queue_reason(task),
-                command=task.review_detail.review_command or task.next_action.command or task.review_next_command,
-                evidence_paths=task.evidence_paths,
-                review_state=task.review_detail.review_state,
-                review_score=task.review_detail.review_score,
-                operator_summary=task.review_detail.operator_summary,
-                blockers=task.review_detail.blockers,
-                changed_files=task.review_detail.changed_files,
-                evidence_count=len(task.review_detail.evidence_paths),
+                priority=detail.review_priority,
+                reason=detail.review_reason,
+                command=detail.review_command,
+                evidence_paths=detail.evidence_paths,
+                review_state=detail.review_state,
+                review_score=detail.review_score,
+                operator_summary=detail.operator_summary,
+                blockers=detail.blockers,
+                changed_files=detail.changed_files,
+                evidence_count=len(detail.evidence_paths),
             )
         )
     rank = {"blocked": 0, "failed": 1, "ready_to_promote": 2, "needs_review": 3, "needs_verification": 4}
     return sorted(rows, key=lambda row: (rank.get(row.lane, 9), row.task_id))
-
-
-def _review_queue_reason(task: TaskWorkbenchTask) -> str:
-    if task.review_blockers:
-        return "; ".join(task.review_blockers)
-    if task.promotion_blockers:
-        return "; ".join(task.promotion_blockers)
-    if task.next_action.reason:
-        return task.next_action.reason
-    return task.display_status
 
 
 def _workbench_next_action(tasks: list[TaskWorkbenchTask], focus_task_id: str | None) -> DashboardNextAction:
@@ -527,7 +516,7 @@ def _evidence(tasks: list[TaskWorkbenchTask]) -> list[TaskWorkbenchEvidencePoint
     for task in tasks:
         detail = task.review_detail
         artifact = detail.artifacts[0] if detail.artifacts else None
-        if not any([task.log_path, task.result_path, task.verification_log_path, detail.verification_command, artifact]):
+        if not artifact:
             continue
         evidence.append(
             TaskWorkbenchEvidencePointer(
@@ -536,26 +525,14 @@ def _evidence(tasks: list[TaskWorkbenchTask]) -> list[TaskWorkbenchEvidencePoint
                 result_path=task.result_path,
                 verification_log_path=task.verification_log_path,
                 verification_command=detail.verification_command,
-                kind=artifact.kind if artifact else _legacy_evidence_kind(task),
-                text=artifact.text if artifact else detail.verification_command or task.result_path or task.log_path or "",
-                path=artifact.path if artifact else task.verification_log_path or task.result_path or task.log_path,
-                command=artifact.command if artifact else detail.verification_command,
-                timestamp=artifact.timestamp if artifact else (
-                    detail.recent_events[-1].timestamp if detail.recent_events else None
-                ),
+                kind=artifact.kind,
+                text=artifact.text,
+                path=artifact.path,
+                command=artifact.command,
+                timestamp=artifact.timestamp,
             )
         )
     return evidence
-
-
-def _legacy_evidence_kind(task: TaskWorkbenchTask) -> str:
-    if task.verification_log_path:
-        return "verification"
-    if task.result_path:
-        return "result"
-    if task.log_path:
-        return "worker log"
-    return "evidence"
 
 
 def _gate_receipts(
@@ -678,222 +655,6 @@ def _task_detail(review_detail: EvidenceReviewDetail) -> TaskWorkbenchTaskDetail
         result_preview=review_detail.result_preview,
         notes=review_detail.notes,
     )
-
-
-def _task_review_summary(
-    root: Path,
-    projection: TaskStatusProjection,
-    notes: list[str],
-) -> list[TaskWorkbenchReviewItem]:
-    task = projection.task
-    worker_lane = git_worker_lane_summary(root, task)
-    local_worker_lane = local_worker_lane_summary(root, task)
-    changed_files = _changed_workspace_files(root, task.workspace, notes)
-    task_contents = _changed_file_contents(root, task.workspace, changed_files, notes)
-    items = [
-        TaskWorkbenchReviewItem(label="Task", value=f"{task.id} - {task.title}"),
-        TaskWorkbenchReviewItem(label="Status", value=task.status),
-        TaskWorkbenchReviewItem(label="Verification", value=projection.verification_status or "not_run"),
-        TaskWorkbenchReviewItem(
-            label="Changed files",
-            value="\n".join(changed_files) if changed_files else "No file changes detected",
-        ),
-        TaskWorkbenchReviewItem(label="Task contents", value=task_contents or "No changed file preview available"),
-        TaskWorkbenchReviewItem(
-            label="Next action",
-            value=projection.dashboard_next_action.command or f"devflow task show {task.id}",
-        ),
-    ]
-    if worker_lane:
-        items.insert(3, TaskWorkbenchReviewItem(label="Worker lane", value=str(worker_lane["workspace_mode"])))
-        items.insert(4, TaskWorkbenchReviewItem(label="Lane readiness", value=str(worker_lane["readiness_status"])))
-    if local_worker_lane:
-        items.insert(3, TaskWorkbenchReviewItem(label="Local worker", value=str(local_worker_lane["worker_id"])))
-        items.insert(
-            4,
-            TaskWorkbenchReviewItem(
-                label="Local worker readiness",
-                value=str(local_worker_lane["readiness_status"]),
-            ),
-        )
-    return items
-
-
-def _changed_workspace_files(root: Path, workspace_value: str, notes: list[str], *, limit: int = 20) -> list[str]:
-    workspace = absolute_path(root, workspace_value).resolve()
-    if not workspace.is_dir():
-        notes.append(f"workspace unavailable for review summary: {workspace_value}")
-        return []
-
-    changed: list[str] = []
-    for path in sorted(workspace.rglob("*")):
-        if not path.is_file():
-            continue
-        try:
-            name = path.relative_to(workspace).as_posix()
-        except ValueError:
-            continue
-        if _is_ignored_review_name(name):
-            continue
-        target = root / name
-        try:
-            if not target.exists() or (target.is_file() and path.read_bytes() != target.read_bytes()):
-                changed.append(name)
-        except OSError:
-            changed.append(name)
-        if len(changed) >= limit:
-            break
-    return changed
-
-
-def _changed_file_contents(
-    root: Path,
-    workspace_value: str,
-    changed_files: list[str],
-    notes: list[str],
-    *,
-    limit: int = 5,
-) -> str:
-    workspace = absolute_path(root, workspace_value).resolve()
-    previews: list[str] = []
-    for name in changed_files[:limit]:
-        path = workspace / name
-        try:
-            raw = path.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            notes.append(f"{name} preview unavailable: {exc}")
-            continue
-        lines = []
-        for line in raw.splitlines():
-            preview = sanitize_log_line(line, max_chars=180)
-            if preview:
-                lines.append(preview)
-        if lines:
-            previews.append(f"{name}: " + "\n".join(lines[:4]))
-    return "\n".join(previews)
-
-
-def _is_ignored_review_name(name: str) -> bool:
-    ignored = {".git", ".devflow", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".venv"}
-    return any(part in ignored for part in Path(name).parts)
-
-
-def _recent_events(root: Path, path: Path, notes: list[str], *, limit: int = 5) -> list[TaskWorkbenchTaskEvent]:
-    if not path.exists():
-        notes.append("events.jsonl is missing")
-        return []
-    events: list[TaskWorkbenchTaskEvent] = []
-    malformed = 0
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        notes.append(f"events.jsonl unreadable: {exc}")
-        return []
-    for raw_line in lines:
-        if not raw_line.strip():
-            continue
-        try:
-            event = json.loads(raw_line)
-        except json.JSONDecodeError:
-            malformed += 1
-            continue
-        if not isinstance(event, dict):
-            malformed += 1
-            continue
-        events.append(
-            TaskWorkbenchTaskEvent(
-                timestamp=str(event.get("timestamp")) if event.get("timestamp") else None,
-                event=str(event.get("event") or "unknown"),
-                summary=_event_summary(root, event),
-            )
-        )
-    if malformed:
-        notes.append(f"{malformed} malformed event line(s) omitted")
-    return events[-limit:]
-
-
-def _event_summary(root: Path, event: dict[str, Any]) -> str:
-    safe_keys = ("status", "task_status", "exit_code", "log_path", "result_path", "cwd", "outcome", "reason")
-    parts: list[str] = []
-    for key in safe_keys:
-        value = event.get(key)
-        if value is None:
-            continue
-        parts.append(f"{key}={_safe_summary_value(root, value)}")
-    return ", ".join(parts)
-
-
-def _verification_detail(path: Path, notes: list[str]) -> TaskWorkbenchTaskVerification | None:
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        notes.append(f"verification.json unreadable: {exc}")
-        return None
-    if not isinstance(payload, dict):
-        notes.append("verification.json is not an object")
-        return None
-    return TaskWorkbenchTaskVerification(
-        status=str(payload.get("status") or "unknown"),
-        task_status=str(payload.get("task_status")) if payload.get("task_status") is not None else None,
-        exit_code=payload.get("exit_code") if isinstance(payload.get("exit_code"), int) else None,
-        log_path=str(payload.get("log_path")) if payload.get("log_path") is not None else None,
-    )
-
-
-def _artifact_preview(root: Path, relative_or_absolute_path: str | None, notes: list[str]) -> str | None:
-    path = _artifact_path(root, relative_or_absolute_path)
-    if path is None:
-        return None
-    if not path.exists():
-        notes.append(f"{relative_or_absolute_path} is missing")
-        return None
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError as exc:
-        notes.append(f"{relative_or_absolute_path} unreadable: {exc}")
-        return None
-    for line in reversed(lines):
-        preview = sanitize_log_line(line, max_chars=220)
-        if preview.startswith("$ "):
-            continue
-        if preview:
-            return _scrub_project_root(root, preview)
-    return None
-
-
-def _artifact_path(root: Path, relative_or_absolute_path: str | None) -> Path | None:
-    if not relative_or_absolute_path:
-        return None
-    path = Path(relative_or_absolute_path)
-    candidate = path if path.is_absolute() else root / path
-    try:
-        candidate.resolve().relative_to(root.resolve())
-    except ValueError:
-        return None
-    return candidate
-
-
-def _display_artifact_path(root: Path, relative_or_absolute_path: str | None) -> str | None:
-    path = _artifact_path(root, relative_or_absolute_path)
-    if path is None:
-        return relative_or_absolute_path
-    return relative_path(root, path)
-
-
-def _safe_summary_value(root: Path, value: Any) -> str:
-    if isinstance(value, (dict, list)):
-        return "<structured>"
-    return _scrub_project_root(root, sanitize_log_line(str(value), max_chars=120))
-
-
-def _scrub_project_root(root: Path, value: str) -> str:
-    scrubbed = _scrub_quarantined_checkout(value)
-    candidates = {root.as_posix(), root.resolve().as_posix()}
-    for candidate in sorted(candidates, key=len, reverse=True):
-        scrubbed = scrubbed.replace(candidate, "<repo-root>")
-    return scrubbed
 
 
 def _scrub_quarantined_checkout(value: str) -> str:
