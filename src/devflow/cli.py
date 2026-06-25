@@ -101,6 +101,12 @@ from devflow.control_room.task_routing_command import (
     render_task_routing_json,
     render_task_routing_lines,
 )
+from devflow.control_room.task_scorecard_command import (
+    TaskScorecardCommandError,
+    build_task_scorecard_result,
+    render_task_scorecard_json,
+    render_task_scorecard_lines,
+)
 from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import write_qwopus_escalation_packet
@@ -2042,71 +2048,17 @@ def task_scorecard_command(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        from devflow.control_room.scorecard import generate_scorecard, save_scorecard
-        scorecard_data = generate_scorecard(root, task_id)
-        saved_path = save_scorecard(root, task_id, scorecard_data)
-
-        # Update runtime profile from scorecard result
-        try:
-            from devflow.control_room.model_runtime_profiles import update_from_scorecard
-            from devflow.control_room.estimator import estimate_task_fit
-            sc = scorecard_data.get("scorecard", {})
-            rd = scorecard_data.get("routing_decision", {})
-            selected = rd.get("selected", {})
-            worker_id = selected.get("worker") if isinstance(selected, dict) else None
-            rs = scorecard_data.get("repo_scan", {})
-            context_estimate = int(rs.get("total_context_estimate") or 0) if isinstance(rs, dict) else 0
-            if worker_id:
-                update_from_scorecard(
-                    root=root,
-                    scorecard=scorecard_data,
-                    model_id=worker_id,
-                    context_estimate=context_estimate,
-                    latency_seconds=sc.get("latency_seconds", 0),
-                )
-        except Exception:
-            pass  # non-critical — scorecard succeeded even if profile update fails
-    except Exception as exc:
+        result = build_task_scorecard_result(root, task_id, project_id=scope.project_id)
+    except TaskScorecardCommandError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    artifact_path = _relative(root, saved_path)
-    sc = scorecard_data["scorecard"]
     if json_output:
-        typer.echo(json.dumps(
-            {
-                "task_id": task_id,
-                "artifact_path": artifact_path,
-                "scorecard": sc,
-            },
-            indent=2,
-            sort_keys=True,
-        ))
+        typer.echo(render_task_scorecard_json(result))
         return
 
-    # Render beautiful scorecard breakdown
-    typer.echo(f"Compiled routing-quality scorecard for task: {_task_ref(task_id, scope.project_id)}")
-    typer.echo("-" * 50)
-
-    typer.echo(f"Decision Mode:              {sc.get('decision_mode', 'unknown')}")
-    typer.echo(f"Verification Passed:        {_format_scorecard_flag(sc.get('verification_passed'))}")
-    typer.echo(f"Promotion Ready:            {_format_scorecard_flag(sc.get('promotion_ready'))}")
-    typer.echo(f"Selected Roles:             {_format_scorecard_list(sc.get('selected_roles'))}")
-    typer.echo(f"Unresolved Roles:           {_format_scorecard_list(sc.get('unresolved_roles'))}")
-    typer.echo(f"State Mutation:             {sc.get('state_mutation', 'unknown')}")
-    typer.echo(f"Overall Quality Rating:     {_format_scorecard_rating(sc.get('overall_quality_rating'))}")
-    typer.echo(f"First-Run Verification Pass: {_format_scorecard_flag(sc.get('first_run_pass'))}")
-    typer.echo(f"Boundary Violations:        {_format_scorecard_flag(sc.get('boundary_violations'))}")
-    typer.echo(f"Frontier Escalation Needed: {_format_scorecard_flag(sc.get('frontier_escalation_needed'))}")
-    if "frontier_escalation_avoided" in sc:
-        typer.echo(f"Frontier Escalation Avoided: {_format_scorecard_flag(sc.get('frontier_escalation_avoided'))}")
-    typer.echo(f"Context Ceiling Exceeded:   {_format_scorecard_flag(sc.get('context_limit_exceeded'))}")
-    typer.echo(f"Review Mistakes Found:      {_format_scorecard_flag(sc.get('review_mistakes_found'))}")
-    typer.echo(f"Latency:                    {sc.get('latency_seconds', 'unknown')} seconds")
-    typer.echo(f"Cost Avoided:               {_format_scorecard_cost(sc.get('cost_avoided_usd'))}")
-
-    typer.echo("-" * 50)
-    typer.echo(f"Wrote routing-quality-scorecard.yaml under .devflow/tasks/{task_id}/")
+    for line in render_task_scorecard_lines(result):
+        typer.echo(line)
 
 
 @task_app.command("packet")
@@ -2998,34 +2950,6 @@ def _echo_review_capsule(
         typer.echo(render_review_capsule(root, task_id, promotion_preview=promotion_preview), nl=False)
     except Exception as exc:
         typer.echo(f"review_capsule: unavailable ({exc})", err=True)
-
-
-def _format_scorecard_flag(value: object) -> str:
-    if value is True:
-        return "yes"
-    if value is False:
-        return "no"
-    return "unknown" if value is None or value == "unknown" else str(value)
-
-
-def _format_scorecard_rating(value: object) -> str:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return f"{value * 100}%"
-    return "unknown" if value is None or value == "unknown" else str(value)
-
-
-def _format_scorecard_cost(value: object) -> str:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return f"${value:.2f} USD"
-    return "unknown" if value is None or value == "unknown" else str(value)
-
-
-def _format_scorecard_list(value: object) -> str:
-    if value is None or value == "unknown":
-        return "unknown"
-    if isinstance(value, list):
-        return ", ".join(str(item) for item in value) if value else "none"
-    return str(value)
 
 
 def _echo_reconciliation_report(report: dict[str, Any]) -> None:
