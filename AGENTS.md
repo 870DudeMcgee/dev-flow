@@ -89,10 +89,13 @@ Only expand into broader docs when the task actually needs them:
 
 - Product direction: [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md)
 - Current control-room contract: [docs/control-room-mvp.md](docs/control-room-mvp.md)
+- Architecture cleanup baseline: [docs/architecture/graphify-architecture-baseline.md](docs/architecture/graphify-architecture-baseline.md)
 - Verification reuse: [docs/verification-ledger.md](docs/verification-ledger.md)
 - DevMode discipline reference: [docs/devmode-contract.md](docs/devmode-contract.md)
 
 Historical handoffs, milestone plans, archived specs, and old workflow notes are reference material. Do not treat them as process authority unless the user explicitly asks for that history.
+
+For major architecture cleanup, use Graphify as generated evidence. Start from `graphify-out/GRAPH_REPORT.md` and `graphify-out/dev-flow-callflow.html`, record metrics in a lightweight doc or handoff, and rerun Graphify after the cleanup milestone. Do not treat generated Graphify output as product authority or blindly commit the full `graphify-out/` directory.
 
 ## Git And Worktree Safety
 

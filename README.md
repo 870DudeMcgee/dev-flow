@@ -14,6 +14,8 @@ The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The
 
 The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and gated promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts. Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/park/promote/create-goal/create-task/archive`, and Idea Greenhouse V1 projects those local records into the operating layer.
 
+Architecture cleanup uses [docs/architecture/graphify-architecture-baseline.md](docs/architecture/graphify-architecture-baseline.md) as generated evidence, not runtime authority. The current baseline records `8,356` nodes, `19,765` edges, and `507` communities from commit `4e2d627e`, with the generated call-flow map at `graphify-out/dev-flow-callflow.html`. Keep the full `graphify-out/` output local by default; commit lightweight metrics, commands, and findings instead.
+
 ### Stable Commands
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`, `devflow freshness loop`, `devflow loop init/show/list/run`
 - **Dashboard**: `devflow dashboard`

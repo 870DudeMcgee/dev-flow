@@ -43,6 +43,8 @@ Architecture documents are valuable, but they are not automatically active runti
 
 Hyperplane is currently quarantined as experimental evidence infrastructure. It is not an active first-pass model validation path and must not be used as a fail-fast smoke test. Its stock pipeline can expand a small-looking run into many generator, target, and judge calls; use direct bounded target/judge smoke evidence instead until a later task explicitly reopens Hyperplane.
 
+Graphify is the current generated architecture baseline for cleanup decisions. Use [docs/architecture/graphify-architecture-baseline.md](architecture/graphify-architecture-baseline.md), `graphify-out/GRAPH_REPORT.md`, and `graphify-out/dev-flow-callflow.html` to compare whether the control-room harness is becoming easier to explain. Graphify output is evidence, not product authority; commit lightweight metrics and notes, not the full generated output by default.
+
 
 ## Product Direction
 
@@ -83,6 +85,8 @@ The current product should make automation usable without making it mysterious:
 - Review queue should explain why each item is or is not ready.
 - Evidence stream should link concrete events/logs/artifacts to tasks.
 - System health counts should be explorable; if it says `7 active`, the operator should be able to see the seven tasks.
+
+Major cleanup should preserve this contract while making the architecture easier to navigate. Use Graphify checkpoints especially around `src/devflow/cli.py`, `src/devflow/control_room/service.py`, `src/devflow/control_room/loop_engine.py`, `src/devflow/control_room/task_next_gate.py`, operating-layer modules, and legacy/shim surfaces.
 
 Detailed command coverage follows as reference. Do not load or validate every command for a focused UI change.
 

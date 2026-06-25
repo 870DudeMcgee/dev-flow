@@ -11,9 +11,11 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 - `src/devflow/_legacy/` - quarantined legacy software-factory code. Do not add features here.
 - `tests/` - pytest coverage for control-room commands, projections, dogfood, release gates, and safety behavior.
 - `docs/` - active contracts, architecture notes, roadmap, and handoffs.
+- `docs/architecture/graphify-architecture-baseline.md` - lightweight Graphify cleanup baseline that records generated map metrics and update commands.
 - `docs/superpowers/specs/` - approved design specs for larger slices.
 - `docs/superpowers/plans/` - implementation plans for agent handoff.
 - `.devflow/` - local runtime state and evidence. Do not edit manually unless a specific Dev-Flow command or handoff asks for it.
+- `graphify-out/` - generated local architecture evidence. Use it for cleanup review, but do not treat it as canonical source or blindly commit the full directory.
 
 ## Entry points
 
@@ -33,8 +35,9 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 2. `docs/devmode-contract.md` - DevMode discipline and handoff format.
 3. `PRODUCT_NORTH_STAR.md` - product identity and periodic self-check.
 4. `docs/control-room-mvp.md` - current MVP authority and stable command contract.
-5. `docs/roadmap.md` - current sequencing and deferred work.
-6. `docs/agent-handoff.md` - active handoff and architecture boundary notes.
+5. `docs/architecture/graphify-architecture-baseline.md` - current generated architecture baseline for cleanup milestones.
+6. `docs/roadmap.md` - current sequencing and deferred work.
+7. `docs/agent-handoff.md` - active handoff and architecture boundary notes.
 
 ## What to skip
 

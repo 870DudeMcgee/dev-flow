@@ -28,4 +28,6 @@ The paths below are legacy or compatibility material. They may be useful for his
 
 Manual quarantine is safe when active imports, tests, and docs no longer depend on the legacy path being moved.
 
+Use [architecture/graphify-architecture-baseline.md](architecture/graphify-architecture-baseline.md) and `graphify-out/graph.json` before pruning legacy or shim surfaces. Graphify should confirm that active control-room paths no longer depend on the target, but it is supporting evidence only; tests and focused source inspection remain required.
+
 Do not restore quarantined material into the active repo unless it is intentionally rewritten as current, non-archived authority.
