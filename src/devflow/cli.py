@@ -95,6 +95,12 @@ from devflow.control_room.task_promotion_command import (
     build_task_promotion_run_view,
     execute_task_promotion_run,
 )
+from devflow.control_room.task_routing_command import (
+    TaskRoutingCommandError,
+    build_task_routing_result,
+    render_task_routing_json,
+    render_task_routing_lines,
+)
 from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import write_qwopus_escalation_packet
@@ -2013,89 +2019,17 @@ def task_route_command(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        from devflow.control_room.router import route_task, save_routing_decision
-        decision_data = route_task(root, task_id, project_id=scope.project_id)
-        save_routing_decision(root, task_id, decision_data)
-    except Exception as exc:
+        result = build_task_routing_result(root, task_id, project_id=scope.project_id)
+    except TaskRoutingCommandError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    artifact_path = f".devflow/tasks/{task_id}/routing-decision.yaml"
     if json_output:
-        payload = {
-            "artifact_path": artifact_path,
-            "routing_decision": decision_data["routing_decision"],
-            "task_id": task_id,
-        }
-        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        typer.echo(render_task_routing_json(result))
         return
 
-    # Render beautiful breakdown
-    typer.echo(f"Executed routing mapping for task: {_task_ref(task_id, scope.project_id)}")
-    typer.echo("-" * 50)
-
-    rd = decision_data["routing_decision"]
-    typer.echo(f"Policy Version:              {rd.get('policy_version')}")
-
-    typer.echo("")
-    typer.echo("Selected Agent Assignments:")
-    selected = rd.get("selected", {})
-    for key in sorted(selected.keys()):
-        typer.echo(f"  {key:<12}: {selected[key]}")
-    if not selected:
-        typer.echo("  - none")
-
-    typer.echo("")
-    typer.echo("Recorded Reasons:")
-    for reason in rd.get("reason", []):
-        typer.echo(f"  - {reason}")
-
-    typer.echo("")
-    typer.echo("Rejected Agents:")
-    rejected = rd.get("rejected", [])
-    if not rejected:
-        typer.echo("  - none")
-    else:
-        for rej in rejected:
-            typer.echo(f"  - agent:  {rej.get('agent', 'unknown')}")
-            typer.echo(f"    reason: {rej.get('reason', 'unspecified')}")
-
-    typer.echo("")
-    typer.echo("Blocked Candidates:")
-    blocked = rd.get("blocked", [])
-    if not blocked:
-        typer.echo("  - none")
-    else:
-        for item in blocked:
-            typer.echo(f"  - role:   {item.get('role', 'unknown')}")
-            typer.echo(f"    agent:  {item.get('agent', 'unknown')}")
-            typer.echo(f"    status: {item.get('status', 'unknown')}")
-            typer.echo(f"    reason: {item.get('reason', 'unspecified')}")
-
-    typer.echo("")
-    typer.echo("Unresolved Decisions:")
-    unresolved = rd.get("unresolved", [])
-    if not unresolved:
-        typer.echo("  - none")
-    else:
-        for item in unresolved:
-            typer.echo(f"  - role:   {item.get('role', 'unknown')}")
-            typer.echo(f"    status: {item.get('status', 'unknown')}")
-            typer.echo(f"    reason: {item.get('reason', 'unspecified')}")
-            if item.get("next_command"):
-                typer.echo(f"    next:   {item['next_command']}")
-
-    typer.echo("")
-    typer.echo("Recommended Next Commands:")
-    recommended_next_commands = rd.get("recommended_next_commands", {})
-    if not recommended_next_commands:
-        typer.echo("  - none")
-    else:
-        for role in sorted(recommended_next_commands.keys()):
-            typer.echo(f"  {role:<12}: {recommended_next_commands[role]}")
-
-    typer.echo("-" * 50)
-    typer.echo(f"Wrote routing-decision.yaml under .devflow/tasks/{task_id}/")
+    for line in render_task_routing_lines(result):
+        typer.echo(line)
 
 
 @task_app.command("scorecard")
