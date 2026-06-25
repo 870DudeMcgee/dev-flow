@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import shlex
 import json
 import hashlib
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord, WorkerInput, WorkerResult
+from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.locks import TASK_LOCK_STALE_AFTER_SECONDS, task_mutation_lock
 from devflow.control_room.paths import (
     absolute_path,
@@ -64,8 +64,10 @@ from devflow.control_room.task_artifacts import (
     ensure_task_baseline_artifacts,
     missing_task_baseline_artifacts,
 )
+from devflow.control_room.task_command_safety import looks_destructive_command
+from devflow.control_room.task_worker_run import run_task_worker
+from devflow.control_room.task_workspace import validated_task_workspace
 from devflow.control_room.verification import VerificationResult, run_verification_command
-from devflow.control_room.worker_adapter import get_worker_adapter
 from devflow.control_room.workspace import create_workspace
 from devflow.control_room.local_ollama_worker import (
     LocalOllamaRunResult,
@@ -262,130 +264,14 @@ def run_shell_task(
     worker_adapter: str = "shell",
     env: dict[str, str] | None = None,
 ) -> TaskRecord:
-    from devflow.control_room.agent_registry import (
-        load_agent_registry,
-        load_provider_registry,
+    return run_task_worker(
+        root,
+        task_id,
+        command,
+        timeout_seconds=timeout_seconds,
+        worker_adapter=worker_adapter,
+        env=env,
     )
-    from devflow.control_room.agent_runtime import resolve_agent_runtime_definition
-    registry = load_agent_registry(root)
-    providers = load_provider_registry(root)
-
-    agent = None
-    provider = None
-    resolved_adapter_name = worker_adapter
-
-    if worker_adapter in registry.agents:
-        agent = registry.require_agent(worker_adapter)
-        if not agent.enabled:
-            raise ValueError(f"Agent '{worker_adapter}' is disabled.")
-        resolved_adapter_name = agent.adapter
-        provider = providers.providers.get(agent.provider)
-        runtime = resolve_agent_runtime_definition(agent, provider)
-        if not runtime.task_run_allowed:
-            raise ValueError(runtime.refusal_reason or f"Agent '{agent.id}' cannot execute through task run.")
-
-    adapter = get_worker_adapter(resolved_adapter_name, agent=agent, provider=provider)
-    if not command and resolved_adapter_name not in {"manual", "ollama_chat"}:
-        raise ValueError("Shell worker requires a command after '--'.")
-    if not command and resolved_adapter_name == "manual":
-        command = ["manual-handoff", worker_adapter]
-
-    if _looks_destructive(command):
-        with task_mutation_lock(root, task_id, "run"):
-            task = get_task(root, task_id)
-            record_task_update(
-                root,
-                task,
-                event_type="command_refused",
-                event_payload={"command": command},
-                status="blocked",
-                updated_at=utc_now(),
-                write_readiness=False,
-            )
-        raise ValueError("Refusing obviously destructive command for MVP shell worker.")
-
-    with task_mutation_lock(root, task_id, "run"):
-        task = get_task(root, task_id)
-        task_path = task_dir(root, task_id)
-        workspace = _resolve_task_workspace(root, task)
-
-        log_file = task_path / "logs" / "worker.log"
-        result_file = task_path / "result.md"
-
-        if agent is not None:
-            agent_dir = task_path / "agents" / agent.id
-            agent_dir.mkdir(parents=True, exist_ok=True)
-            (agent_dir / "logs").mkdir(parents=True, exist_ok=True)
-            log_file = agent_dir / "logs" / "worker.log"
-            result_file = agent_dir / "result.md"
-
-        worker_input = WorkerInput(
-            task_id=task_id,
-            repo_root=root,
-            workspace_path=workspace,
-            task_file=task_path / "task.yaml",
-            context_file=task_path / "events.jsonl",
-            status_file=task_path / "task.yaml",
-            questions_file=task_path / "questions.jsonl",
-            result_file=result_file,
-            log_file=log_file,
-            command=command,
-            env={**(env or {}), **({"DEVFLOW_AGENT_ID": agent.id} if agent is not None else {})},
-            timeout_seconds=timeout_seconds,
-        )
-
-        task.worker = worker_adapter
-        task.timeout_seconds = timeout_seconds
-        task.worker_command = shlex.join(command)
-        task.started_at = utc_now()
-        record_task_update(
-            root,
-            task,
-            event_type="worker_started",
-            event_payload={"command": command, "cwd": task.workspace},
-            status="running",
-            updated_at=task.started_at,
-            write_readiness=False,
-        )
-
-        if agent is not None:
-            from devflow.control_room.task_packet import build_agent_packet
-            agent_packet = build_agent_packet(task_id, agent, root=root)
-            agent_packet_json = json.dumps(agent_packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
-            (task_path / "agents" / agent.id / "packet.json").write_text(agent_packet_json, encoding="utf-8")
-            (task_path / "packet.json").write_text(agent_packet_json, encoding="utf-8")
-        else:
-            from devflow.control_room.task_packet import build_task_packet
-            packet = build_task_packet(task_id, root=root)
-            packet_json = json.dumps(packet.model_dump(mode="json"), sort_keys=True, indent=2) + "\n"
-            (task_path / "packet.json").write_text(packet_json, encoding="utf-8")
-
-        result = adapter.run(worker_input)
-        if resolved_adapter_name not in {"manual", "ollama_chat"}:
-            _write_result(task_path if agent is None else (task_path / "agents" / agent.id), task_id, command, result)
-        if agent is not None:
-            compat_log = task_path / "logs" / "worker.log"
-            compat_log.write_text(log_file.read_text(encoding="utf-8"), encoding="utf-8")
-            if resolved_adapter_name not in {"manual", "ollama_chat"}:
-                _write_result(task_path, task_id, command, result)
-
-        task.last_exit_code = result.exit_code
-        task.latest_log_line = result.latest_log_line
-        task.log_path = _relative(root, log_file)
-        task.result_path = _relative(root, result_file) if result_file.exists() else None
-        task.finished_at = utc_now()
-        if is_git_worktree_task(task):
-            state = refresh_git_worker_evidence(root, task, worker_id=worker_id_for_task(task))
-            task.workspace_dirty = bool(state["dirty"])
-        record_task_update(
-            root,
-            task,
-            event_type="worker_finished",
-            event_payload={"status": result.status, "exit_code": result.exit_code, "log_path": task.log_path},
-            status=result.status,
-            updated_at=task.finished_at,
-        )
-        return task
 
 
 def run_local_model_task(
@@ -404,7 +290,7 @@ def run_local_model_task(
     # Resolve workspace and read configuration lock-free
     task = get_task(root, task_id)
     task_path = task_dir(root, task_id)
-    workspace = _resolve_task_workspace(root, task)
+    workspace = validated_task_workspace(root, task)
     task_yaml_text = (task_path / "task.yaml").read_text(encoding="utf-8")
 
     # Run the Ollama subprocess lock-free so multiple local workers can run in parallel
@@ -473,7 +359,7 @@ def run_local_model_task(
 def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: int = 120) -> TaskRecord:
     if not command:
         raise ValueError("Verification requires a command after '--'.")
-    if _looks_destructive(command):
+    if looks_destructive_command(command):
         with task_mutation_lock(root, task_id, "verify"):
             append_task_event(root, task_id, "verification_refused", {"command": command})
         raise ValueError("Refusing obviously destructive verification command.")
@@ -481,7 +367,7 @@ def verify_task(root: Path, task_id: str, command: list[str], timeout_seconds: i
     with task_mutation_lock(root, task_id, "verify"):
         task = get_task(root, task_id)
         task_path = task_dir(root, task_id)
-        workspace = _resolve_task_workspace(root, task)
+        workspace = validated_task_workspace(root, task)
         verify_log = task_path / "logs" / "verify.log"
 
         append_task_event(root, task_id, "verification_started", {"command": command, "cwd": task.workspace})
@@ -836,19 +722,6 @@ def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) 
     ensure_task_baseline_artifacts(task_path, task_id=task_id, workspace_rel=workspace_rel)
 
 
-def _write_result(task_path: Path, task_id: str, command: list[str], result: WorkerResult) -> None:
-    command_text = " ".join(command)
-    body = (
-        f"# Result: {task_id}\n\n"
-        f"## Summary\n\n{result.summary}\n\n"
-        f"## Status\n\n{result.status}\n\n"
-        f"## Command\n\n```bash\n{command_text}\n```\n\n"
-        f"## Exit Code\n\n{result.exit_code if result.exit_code is not None else 'none'}\n\n"
-        f"## Log\n\n{result.log_file}\n"
-    )
-    atomic_write_text(result.result_file, body)
-
-
 def _local_worker_latest_line(result: LocalOllamaRunResult) -> str | None:
     if result.error_message:
         return result.error_message
@@ -927,38 +800,6 @@ def _next_task_id(root: Path) -> str:
 
 
 
-def _resolve_task_workspace(root: Path, task: TaskRecord) -> Path:
-    workspace = _absolute(root, task.workspace).resolve()
-    if is_git_worktree_task(task):
-        expected = worktree_path(root, task.id, worker_id_for_task(task)).resolve()
-    else:
-        expected = (workspaces_dir(root) / task.id).resolve()
-    if workspace != expected:
-        _refuse_workspace(root, task, workspace, expected)
-    if not workspace.is_dir():
-        _refuse_workspace(root, task, workspace, expected)
-    return workspace
-
-
-def _refuse_workspace(root: Path, task: TaskRecord, workspace: Path, expected: Path) -> None:
-    record_task_update(
-        root,
-        task,
-        event_type="workspace_refused",
-        event_payload={"workspace": str(workspace), "expected_workspace": str(expected)},
-        status="blocked",
-        updated_at=utc_now(),
-        write_readiness=False,
-    )
-    raise ValueError(f"Refusing unsafe task workspace: {workspace} (expected {expected})")
-
-
-def _looks_destructive(command: list[str]) -> bool:
-    text = " ".join(command).lower()
-    blocked_fragments = ("rm -rf /", "rm -fr /", "mkfs", "diskutil erase", ":(){", "dd if=")
-    return any(fragment in text for fragment in blocked_fragments)
-
-
 ACCEPTABLE_PATCH_REVIEW_STATUSES = {"low_risk_candidate", "review_required"}
 ACCEPTABLE_PATCH_DRY_RUN_STATUSES = {"would_apply_cleanly", "would_create_files", "would_modify_with_warnings"}
 
@@ -981,7 +822,7 @@ def _apply_task_patch_locked(
 ) -> TaskRecord:
     task_path = task_dir(root, task_id)
     task = get_task(root, task_id)
-    workspace = _resolve_task_workspace(root, task)
+    workspace = validated_task_workspace(root, task)
 
     agents_dir = task_path / "agents"
     local_runs_dir = task_path / "local-model-runs"
