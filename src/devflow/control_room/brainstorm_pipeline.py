@@ -18,6 +18,9 @@ class BrainstormPipelineStage(BaseModel):
     status: str
     artifact_path: str | None = None
     evidence_paths: list[str] = Field(default_factory=list)
+    worker_label: str | None = None       # e.g. "DeepSeek V4 Flash"
+    next_action: str | None = None         # e.g. "Run quality gate before escalating"
+    source: str | None = None              # e.g. "brainstorm", "builder_judge", "manual"
 
 
 class BrainstormAdvisoryModel(BaseModel):
@@ -374,6 +377,8 @@ def _pipeline_stages(
                 status=stage_status,
                 artifact_path=artifact_path,
                 evidence_paths=evidence_paths,
+                next_action=stage_artifact.next_action if stage_artifact else None,
+                source=stage_artifact.source if stage_artifact else None,
             )
         )
     return stages

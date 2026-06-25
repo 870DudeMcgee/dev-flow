@@ -679,11 +679,14 @@ async function loadBrainstormTranscript(sessionId) {
     }
     container.scrollTop = container.scrollHeight;
     // Refresh pipeline state for this session
+    const messages = data.messages || [];
     pipelineState = {
-      hasTranscript: (data.messages || []).length > 0,
-      hasSpec: data.spec != null,
-      hasPlan: data.plan != null,
-      hasImplementation: Boolean(data.implementation || data.pipeline?.has_implementation),
+      stages: [
+        { id: 'brainstorm', done: messages.length > 0 },
+        { id: 'spec', done: data.spec != null },
+        { id: 'plan', done: data.plan != null },
+        { id: 'implementation', done: Boolean(data.implementation || data.pipeline?.has_implementation) },
+      ],
     };
     renderPipeline();
   } catch(e) {
@@ -699,7 +702,7 @@ function newBrainstormSession() {
   if (container) {
     container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
   }
-  pipelineState = { hasTranscript: false, hasSpec: false, hasPlan: false, hasImplementation: false };
+  pipelineState = { stages: [] };
   renderPipeline();
   loadBrainstormSessions();
 }
@@ -972,6 +975,9 @@ function renderIdeaCard(card) {
   const secondaryHtml = secondaryActions.length
     ? `<div class="idea-card-secondary-actions">${secondaryActions.map(renderIdeaAction).join('')}</div>`
     : '';
+  const brainstormBtn = /^I-\\d{4}$/.test(String(card?.id || ''))
+    ? `<button class="btn btn-sm btn-secondary" type="button" data-idea-brainstorm="${esc(card.id)}">Continue brainstorm</button>`
+    : '';
   const updated = card?.updated_at ? ago(card.updated_at) : '';
   const meta = [card?.status || 'unknown', card?.maturity || 'unknown', updated || 'updated unknown'].filter(Boolean).join(' · ');
   return `<article class="idea-card ${esc(card?.lane || 'raw')}" data-inspect-idea="${esc(card?.id || '')}" tabindex="0" role="button" aria-label="Inspect idea ${esc(card?.id || '')}">
@@ -983,6 +989,9 @@ function renderIdeaCard(card) {
     ${tagHtml}
     <p class="idea-card-action">${esc(action?.label || 'Inspect idea')}</p>
     ${renderIdeaAction(action)}
+    <div class="idea-card-brainstorm-actions">
+      ${brainstormBtn}
+    </div>
     ${secondaryHtml}
   </article>`;
 }
@@ -1071,73 +1080,221 @@ function setupIdeaGreenhouse() {
 }
 
 // === PIPELINE ===
-let pipelineState = { hasTranscript: false, hasSpec: false, hasPlan: false, hasImplementation: false };
+let pipelineState = { stages: [] };
 
 async function refreshPipelineState() {
   try {
     const resp = await fetch(`/api/brainstorm/transcript?session_id=${encodeURIComponent(brainstormSessionId)}`);
     const data = await resp.json();
-    pipelineState = {
-      hasTranscript: (data.messages || []).length > 0,
-      hasSpec: data.spec != null,
-      hasPlan: data.plan != null,
-      hasImplementation: Boolean(data.implementation || data.pipeline?.has_implementation),
-    };
+    pipelineState.stages = data.pipeline?.stages || [];
   } catch(e) { /* ignore */ }
   renderPipeline();
 }
 
+function isPipelineStageComplete(stage) {
+  const status = String(stage?.status || '').toLowerCase();
+  return ['complete', 'accepted', 'passed'].includes(status);
+}
+
+function getPipelineFirstIncompleteIndex(state) {
+  const stages = state?.stages || [];
+  return stages.findIndex(stage => !isPipelineStageComplete(stage));
+}
+
+function getPipelinePrimaryStage(state) {
+  const stages = state?.stages || [];
+  const next = stages.find(stage => !isPipelineStageComplete(stage));
+  if (!next) return null;
+  if (next.id === 'brainstorm') return null;
+  return next.id || null;
+}
+
+function getNextStageLabel(stageId) {
+  if (stageId === 'spec') return 'Generate Spec →';
+  if (stageId === 'plan') return 'Generate Plan →';
+  if (stageId === 'implementation') return 'Create Task →';
+  if (stageId === 'task') return 'View Tasks';
+  return 'Review →';
+}
+
+function getPrimaryActionLabel(state) {
+  const stage = getPipelinePrimaryStage(state);
+  if (stage) return getNextStageLabel(stage);
+  const stages = state?.stages || [];
+  const firstIncomplete = stages.find(stage => !isPipelineStageComplete(stage));
+  if (firstIncomplete?.id === 'brainstorm') return 'Start Brainstorm';
+  const taskExists = stages.find(s => s.id === 'task')?.status !== undefined;
+  return taskExists ? 'View Tasks' : 'Review →';
+}
+
 function renderPipeline() {
-  const stages = [
-    { id: 'brainstorm', label: 'Brainstorm', nextStage: 'spec' },
-    { id: 'spec', label: 'Spec', nextStage: 'plan' },
-    { id: 'plan', label: 'Plan', nextStage: null },
-  ];
-  // Determine completed stages based on actual artifacts
-  const completed = new Set();
-  if (pipelineState.hasTranscript) completed.add('brainstorm');
-  if (pipelineState.hasSpec) completed.add('spec');
-  if (pipelineState.hasPlan) completed.add('plan');
+  const container = document.getElementById('pipeline-stages-container');
+  if (!container) return;
+  container.innerHTML = '';
 
-  // Current active stage = first not completed
-  let activeStage = 'plan';
-  for (const s of stages) {
-    if (!completed.has(s.id)) { activeStage = s.id; break; }
-  }
+  const primaryStage = getPipelinePrimaryStage(pipelineState);
+  const primaryAction = document.createElement('div');
+  primaryAction.className = 'pipeline-primary-action';
+  const primaryBtn = document.createElement('button');
+  primaryBtn.type = 'button';
+  primaryBtn.className = 'btn btn-primary btn-lg';
+  primaryBtn.dataset.pipelinePrimaryAction = 'true';
+  primaryBtn.textContent = getPrimaryActionLabel(pipelineState);
+  if (!primaryStage) { primaryBtn.disabled = true; primaryBtn.classList.add('disabled'); }
+  primaryAction.appendChild(primaryBtn);
+  container.appendChild(primaryAction);
 
-  document.querySelectorAll('.pipeline-step').forEach(el => {
-    const stage = el.dataset.stage;
-    const isCompleted = completed.has(stage);
-    const isActive = stage === activeStage;
-    const isLocked = !isActive && !isCompleted;
+  const firstIncompleteIndex = getPipelineFirstIncompleteIndex(pipelineState);
+  pipelineState.stages.forEach((stage, idx) => {
+    const isComplete = isPipelineStageComplete(stage);
+    const isActive = !isComplete && idx === firstIncompleteIndex;
+    const isLocked = !isComplete && !isActive;
+    const actionEnabled = stage.id === primaryStage;
 
-    el.classList.remove('active', 'locked');
-    if (isActive) el.classList.add('active');
-    if (isLocked) el.classList.add('locked');
+    const step = document.createElement('div');
+    step.className = 'pipeline-step';
+    if (isActive) step.classList.add('active');
+    if (isLocked) step.classList.add('locked');
+    step.dataset.stage = stage.id;
 
-    const statusEl = el.querySelector('.step-status');
-    if (statusEl) {
-      if (isCompleted && !isActive) {
-        statusEl.textContent = 'Done';
-        statusEl.className = 'step-status active';
-      } else if (isActive) {
-        statusEl.textContent = 'Active';
-        statusEl.className = 'step-status active';
-      } else {
-        statusEl.textContent = 'Pending';
-        statusEl.className = 'step-status pending';
-      }
+    // Step number circle
+    const stepNumber = document.createElement('div');
+    stepNumber.className = 'step-number';
+    const numSpan = document.createElement('span');
+    numSpan.textContent = String(idx + 1).padStart(2, '0');
+    stepNumber.appendChild(numSpan);
+
+    // Connector SVG (skip on last stage)
+    if (idx < pipelineState.stages.length - 1) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', '2');
+      svg.setAttribute('height', '24');
+      svg.setAttribute('class', 'step-connector');
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', '1');
+      line.setAttribute('y1', '0');
+      line.setAttribute('x2', '1');
+      line.setAttribute('y2', '24');
+      line.setAttribute('stroke', 'currentColor');
+      line.setAttribute('stroke-width', '2');
+      svg.appendChild(line);
+      stepNumber.appendChild(svg);
     }
 
-    // Enable the button only on the active stage
-    const btn = el.querySelector('.btn[data-brainstorm-stage]');
-    if (btn) {
-      btn.disabled = !isActive;
-      btn.classList.toggle('disabled', !isActive);
-      btn.classList.toggle('btn-primary', isActive);
-      btn.classList.toggle('btn-secondary', !isActive);
+    step.appendChild(stepNumber);
+
+    // Step content
+    const content = document.createElement('div');
+    content.className = 'step-content';
+
+    const row = document.createElement('div');
+    row.className = 'step-row';
+
+    const strong = document.createElement('strong');
+    strong.textContent = stage.label;
+    row.appendChild(strong);
+
+    const statusEl = document.createElement('span');
+    statusEl.className = 'step-status';
+    if (isComplete) {
+      statusEl.textContent = 'Done';
+      statusEl.classList.add('active');
+    } else if (isActive) {
+      statusEl.textContent = 'Next';
+      statusEl.classList.add('active');
+    } else {
+      statusEl.textContent = 'Pending';
+      statusEl.classList.add('pending');
     }
+    row.appendChild(statusEl);
+
+    content.appendChild(row);
+
+    // Step source/action info from StageArtifact
+    if (stage.next_action) {
+      const actionEl = document.createElement('p');
+      actionEl.className = 'step-desc';
+      actionEl.textContent = stage.next_action;
+      content.appendChild(actionEl);
+    }
+    if (stage.source) {
+      const sourceEl = document.createElement('p');
+      sourceEl.className = 'step-source';
+      sourceEl.textContent = 'via ' + stage.source;
+      sourceEl.style.cssText = 'font-size: 10px; color: var(--text-muted); margin: 2px 0 0;';
+      content.appendChild(sourceEl);
+    }
+
+    // Step action buttons
+    const action = document.createElement('p');
+    action.className = 'step-action';
+
+    if (stage.id === 'brainstorm') {
+      const btn1 = document.createElement('button');
+      btn1.type = 'button';
+      btn1.className = 'btn btn-sm btn-primary';
+      btn1.dataset.brainstormStage = 'spec';
+      btn1.textContent = 'Escalate to Spec →';
+      if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
+      action.appendChild(btn1);
+
+      const btn2 = document.createElement('button');
+      btn2.type = 'button';
+      btn2.className = 'btn btn-sm btn-secondary';
+      btn2.dataset.bjQualityGate = 'spec';
+      btn2.title = 'Run builder-judge quality gate before escalating';
+      btn2.textContent = 'QC Gate';
+      if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
+      action.appendChild(btn2);
+    } else if (stage.id === 'spec') {
+      const btn1 = document.createElement('button');
+      btn1.type = 'button';
+      btn1.className = 'btn btn-sm btn-secondary';
+      btn1.dataset.brainstormStage = 'spec';
+      btn1.textContent = 'Generate Spec →';
+      if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
+      action.appendChild(btn1);
+
+      const btn2 = document.createElement('button');
+      btn2.type = 'button';
+      btn2.className = 'btn btn-sm btn-secondary';
+      btn2.dataset.bjQualityGate = 'spec';
+      btn2.title = 'Run builder-judge quality gate before generating spec';
+      btn2.textContent = 'QC Gate';
+      if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
+      action.appendChild(btn2);
+    } else if (stage.id === 'plan') {
+      const btn1 = document.createElement('button');
+      btn1.type = 'button';
+      btn1.className = 'btn btn-sm btn-secondary';
+      btn1.dataset.brainstormStage = 'plan';
+      btn1.textContent = 'Generate Plan →';
+      if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
+      action.appendChild(btn1);
+
+      const btn2 = document.createElement('button');
+      btn2.type = 'button';
+      btn2.className = 'btn btn-sm btn-secondary';
+      btn2.dataset.bjQualityGate = 'plan';
+      btn2.title = 'Run builder-judge quality gate before generating plan';
+      btn2.textContent = 'QC Gate';
+      if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
+      action.appendChild(btn2);
+    } else if (stage.id === 'implementation') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm btn-secondary';
+      btn.dataset.brainstormStage = 'implementation';
+      btn.textContent = 'Create Task →';
+      if (!actionEnabled) { btn.disabled = true; btn.classList.add('disabled'); }
+      action.appendChild(btn);
+    }
+
+    content.appendChild(action);
+    step.appendChild(content);
+    container.appendChild(step);
   });
+  setupPipelineButtons(container);
 }
 
 // Write implementation context to a task workspace via the server
@@ -1176,15 +1333,52 @@ async function createTaskFromBrainstorm(sessionId, title, options = {}) {
   return payload;
 }
 
-function setupPipelineButtons() {
-  document.querySelectorAll('[data-brainstorm-stage]').forEach(btn => {
+function useModelForBrainstormStage(stage) {
+  return stage === 'spec' || stage === 'plan';
+}
+
+function setupPipelineButtons(scope) {
+  const root = scope || document;
+
+  root.querySelectorAll('[data-pipeline-primary-action]').forEach(btn => {
+    if (btn.dataset.pipelineBound === '1') return;
+    btn.dataset.pipelineBound = '1';
+    btn.addEventListener('click', async () => {
+      const stage = getPipelinePrimaryStage(pipelineState);
+      if (!stage) return;
+      const stageButton = Array.from(document.querySelectorAll('#pipeline-stages-container [data-brainstorm-stage]'))
+        .find(item => item.dataset.brainstormStage === stage && !item.disabled);
+      if (stageButton) {
+        stageButton.click();
+        return;
+      }
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = 'Escalating...';
+      try {
+        await escalateBrainstormStage(stage, useModelForBrainstormStage(stage));
+        await loadSnapshot(selectedProjectId);
+        await refreshPipelineState();
+        await loadBrainstormSessions();
+      } catch(e) {
+        appendBrainstormMsg('system', 'Escalation failed: ' + (e.message || 'unknown error'), { kind: 'provider_error' });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+  });
+
+  root.querySelectorAll('[data-brainstorm-stage]').forEach(btn => {
+    if (btn.dataset.pipelineBound === '1') return;
+    btn.dataset.pipelineBound = '1';
     btn.addEventListener('click', async () => {
       const stage = btn.dataset.brainstormStage;
       if (!stage) return;
       btn.disabled = true;
       const originalText = btn.textContent;
       btn.textContent = 'Escalating...';
-      const useModel = stage === 'spec' || stage === 'plan';
+      const useModel = useModelForBrainstormStage(stage);
       if (useModel) {
         const modelLabel = selectedProfileId ? (availableAgents.find(a => a.id === selectedProfileId)?.label || 'selected model') : 'DeepSeek V4 Flash Free';
         appendBrainstormMsg('assistant', '', { thinking: true });
@@ -1278,7 +1472,9 @@ function setupPipelineButtons() {
   });
 
   // Quality-gate buttons
-  document.querySelectorAll('[data-bj-quality-gate]').forEach(btn => {
+  root.querySelectorAll('[data-bj-quality-gate]').forEach(btn => {
+    if (btn.dataset.pipelineBound === '1') return;
+    btn.dataset.pipelineBound = '1';
     btn.addEventListener('click', async () => {
       const stage = btn.dataset.bjQualityGate;
       if (!stage) return;

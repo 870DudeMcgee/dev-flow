@@ -129,8 +129,30 @@ INDEX_HTML = """<!doctype html>
       <!-- ===== LAYOUT COLUMNS ===== -->
       <div class="layout-columns">
 
-        <!-- Center: Brainstorm + Next Task -->
+        <!-- Center: Idea-to-Product pipeline spine -->
         <div class="center-column">
+
+          <!-- Idea Greenhouse -->
+          <section id="idea-greenhouse-section" class="panel idea-greenhouse-section" aria-label="Idea Greenhouse">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Idea Greenhouse</h2>
+                <p class="panel-subtitle">Capture fast. Sort later. Keep active work constrained.</p>
+              </div>
+              <output id="idea-greenhouse-status" class="status-pill muted" aria-live="polite">Ready</output>
+            </div>
+
+            <form id="idea-capture-form" class="idea-capture-form">
+              <textarea id="idea-capture-text" rows="3" placeholder="Dump the idea here. No organization required."></textarea>
+              <div class="composer-row">
+                <input id="idea-capture-title" type="text" placeholder="Optional title">
+                <button id="idea-capture-submit" class="btn btn-primary" type="submit">Capture idea</button>
+              </div>
+            </form>
+
+            <div id="idea-greenhouse-primary-action" class="idea-primary-action"></div>
+            <div id="idea-greenhouse-lanes" class="idea-greenhouse-lanes"></div>
+          </section>
 
           <!-- Brainstorm -->
           <section id="brainstorm-section" class="panel brainstorm-section" aria-label="Brainstorm">
@@ -170,29 +192,20 @@ INDEX_HTML = """<!doctype html>
             </form>
           </section>
 
-          <!-- Idea Greenhouse -->
-          <section id="idea-greenhouse-section" class="panel idea-greenhouse-section" aria-label="Idea Greenhouse">
+          <!-- Pipeline spine -->
+          <section id="pipeline-spine" class="panel pipeline-section" aria-label="Pipeline">
             <div class="panel-header">
-              <div>
-                <h2 class="panel-title">Idea Greenhouse</h2>
-                <p class="panel-subtitle">Capture fast. Sort later. Keep active work constrained.</p>
-              </div>
-              <output id="idea-greenhouse-status" class="status-pill muted" aria-live="polite">Ready</output>
+              <h2 class="panel-title">Pipeline</h2>
+              <span class="info-icon" title="Pipeline stages for the current project">ⓘ</span>
             </div>
-
-            <form id="idea-capture-form" class="idea-capture-form">
-              <textarea id="idea-capture-text" rows="3" placeholder="Dump the idea here. No organization required."></textarea>
-              <div class="composer-row">
-                <input id="idea-capture-title" type="text" placeholder="Optional title">
-                <button id="idea-capture-submit" class="btn btn-primary" type="submit">Capture idea</button>
-              </div>
-            </form>
-
-            <div id="idea-greenhouse-primary-action" class="idea-primary-action"></div>
-            <div id="idea-greenhouse-lanes" class="idea-greenhouse-lanes"></div>
+            <div class="pipeline-stages" id="pipeline-stages-container"></div>
+            <div class="definition-editor">
+              <label for="brainstorm-definition-of-done">Definition of Done</label>
+              <textarea id="brainstorm-definition-of-done" rows="4" placeholder="What must be true before this brainstorm becomes done?"></textarea>
+            </div>
           </section>
 
-          <!-- Next Task section (below brainstorm) -->
+          <!-- Next Task section -->
           <section id="orchestrator-section" class="panel orchestrator-section next-task-section" aria-label="Next Task">
             <div class="panel-header">
               <h2 class="panel-title">Next Task</h2>
@@ -312,70 +325,8 @@ INDEX_HTML = """<!doctype html>
           </section>
         </div>
 
-        <!-- Right: Pipeline + Health -->
+        <!-- Right: Health + history -->
         <div class="right-column">
-          <section class="panel pipeline-section" aria-label="Pipeline">
-            <div class="panel-header">
-              <h2 class="panel-title">Pipeline</h2>
-              <span class="info-icon" title="Pipeline stages for the current project">ⓘ</span>
-            </div>
-            <div class="pipeline-stages">
-               <div class="pipeline-step active" data-stage="brainstorm">
-                <div class="step-number">
-                  <span>01</span>
-                  <svg class="step-connector" width="2" height="24"><line x1="1" y1="0" x2="1" y2="24" stroke="currentColor" stroke-width="2"/></svg>
-                </div>
-                <div class="step-content">
-                  <div class="step-row">
-                    <strong>Brainstorm</strong>
-                    <span class="step-status active">Active</span>
-                  </div>
-                  <p class="step-desc">Refining ideas in active discussion.</p>
-                  <p class="step-action">
-                    <button type="button" class="btn btn-sm btn-primary" data-brainstorm-stage="spec">Escalate to Spec →</button>
-                    <button type="button" class="btn btn-sm btn-secondary" data-bj-quality-gate="spec" title="Run builder-judge quality gate before escalating">QC Gate</button>
-                  </p>
-                </div>
-              </div>
-              <div class="pipeline-step locked" data-stage="spec">
-                <div class="step-number">
-                  <span>02</span>
-                  <svg class="step-connector" width="2" height="24"><line x1="1" y1="0" x2="1" y2="24" stroke="currentColor" stroke-width="2"/></svg>
-                </div>
-                <div class="step-content">
-                  <div class="step-row">
-                    <strong>Spec</strong>
-                    <span class="step-status pending">Pending</span>
-                  </div>
-                  <p class="step-desc">Freeze the intent as local spec evidence.</p>
-                  <p class="step-action">
-                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="plan">Generate Plan →</button>
-                    <button type="button" class="btn btn-sm btn-secondary" data-bj-quality-gate="plan" title="Run builder-judge quality gate before generating plan">QC Gate</button>
-                  </p>
-                </div>
-              </div>
-              <div class="pipeline-step locked" data-stage="plan">
-                <div class="step-number">
-                  <span>03</span>
-                </div>
-                <div class="step-content">
-                  <div class="step-row">
-                    <strong>Plan</strong>
-                    <span class="step-status pending">Pending</span>
-                  </div>
-                  <p class="step-desc">Convert the transcript into an implementation plan artifact.</p>
-                  <p class="step-action">
-                    <button type="button" class="btn btn-sm btn-secondary" data-brainstorm-stage="implementation">Create Task →</button>
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div class="definition-editor">
-              <label for="brainstorm-definition-of-done">Definition of Done</label>
-              <textarea id="brainstorm-definition-of-done" rows="4" placeholder="What must be true before this brainstorm becomes done?"></textarea>
-            </div>
-          </section>
-
           <!-- System Health -->
           <section class="panel health-section" aria-label="System health">
             <div class="panel-header">
@@ -400,8 +351,15 @@ INDEX_HTML = """<!doctype html>
         </div>
       </div>
 
-      <!-- ===== BOTTOM DOCK ===== -->
-      <div class="bottom-dock">
+      <!-- ===== PRODUCT / REVIEW ===== -->
+      <section id="product-review-section" class="product-review-section" aria-label="Product / Review">
+        <div class="product-review-header">
+          <div>
+            <h2 class="panel-title">Product / Review</h2>
+            <p class="panel-subtitle">Task evidence, verification, review, and promotion live here.</p>
+          </div>
+        </div>
+        <div class="bottom-dock">
         <!-- Worker lanes -->
         <section class="dock-panel" aria-labelledby="worker-lanes-heading">
           <div class="dock-panel-header">
@@ -431,7 +389,8 @@ INDEX_HTML = """<!doctype html>
           </div>
           <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
         </section>
-      </div>
+        </div>
+      </section>
 
       <!-- ===== FOOTER ===== -->
       <footer class="app-footer">

@@ -263,7 +263,7 @@ body {
   max-width: 980px;
   width: min(100%, 980px);
   margin: 0 auto;
-  padding: 16px 16px 0;
+  padding: 4px 16px 0;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -332,6 +332,7 @@ body {
   overflow: hidden;
   margin-bottom: 12px;
 }
+.center-column > .panel { margin-bottom: 8px; }
 .panel-header {
   display: flex;
   align-items: center;
@@ -412,8 +413,8 @@ body {
 
 /* ===== BRAINSTORM SECTION ===== */
 .brainstorm-transcript {
-  min-height: 150px;
-  max-height: 340px;
+  min-height: 64px;
+  max-height: 120px;
   overflow-y: auto;
   padding: 12px 14px;
   display: flex;
@@ -536,7 +537,7 @@ body {
   flex-direction: column;
   gap: 8px;
   min-width: 0;
-  padding: 10px 14px 12px;
+  padding: 8px 14px 10px;
 }
 .idea-capture-form textarea,
 .idea-capture-form input {
@@ -555,7 +556,7 @@ body {
 .idea-capture-form textarea {
   line-height: 1.45;
   max-height: 150px;
-  min-height: 62px;
+  min-height: 44px;
   resize: vertical;
 }
 .idea-capture-form input {
@@ -618,8 +619,10 @@ body {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: 56px;
   max-width: 100%;
   min-width: 0;
+  overflow-y: auto;
   padding: 10px 14px 14px;
 }
 .idea-lane {
@@ -1691,8 +1694,20 @@ summary:focus-visible {
 
 /* ===== PIPELINE SECTION (right column) ===== */
 .pipeline-stages { padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 0; }
+#pipeline-spine .pipeline-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
 .pipeline-step { display: flex; gap: 12px; position: relative; }
+#pipeline-spine .pipeline-step {
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
 .pipeline-step:not(:last-child) { padding-bottom: 8px; }
+#pipeline-spine .pipeline-step:not(:last-child) { padding-bottom: 8px; }
 .step-number {
   display: flex;
   flex-direction: column;
@@ -1713,6 +1728,7 @@ summary:focus-visible {
 .pipeline-step.active .step-number span { background: var(--accent); color: #fff; }
 .pipeline-step.locked .step-number span { background: var(--bg-3); color: var(--text-muted); border: 1px solid var(--border); }
 .step-connector { color: var(--border); flex-shrink: 0; }
+#pipeline-spine .step-connector { display: none; }
 .step-content { flex: 1; min-width: 0; }
 .step-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .step-row strong { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -1727,17 +1743,20 @@ summary:focus-visible {
 .step-status.active { background: var(--accent-soft); color: var(--accent); }
 .step-status.pending { background: var(--bg-3); color: var(--text-muted); }
 .step-desc { margin: 2px 0 0; font-size: 11px; color: var(--text-soft); }
+#pipeline-spine .step-desc { display: none; }
 .step-action {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-top: 6px;
 }
+#pipeline-spine .step-action { justify-content: flex-start; gap: 6px; }
 .step-time { font-size: 10px; color: var(--text-muted); }
 .definition-editor {
   border-top: 1px solid var(--border-light);
   padding: 10px 14px 14px;
 }
+#pipeline-spine .definition-editor { padding: 6px 14px; }
 .definition-editor label {
   display: block;
   color: var(--text-muted);
@@ -1760,6 +1779,7 @@ summary:focus-visible {
   outline: none;
   padding: 8px 10px;
 }
+#pipeline-spine .definition-editor textarea { min-height: 24px; }
 .definition-editor textarea:focus { border-color: var(--accent); }
 
 /* ===== SYSTEM HEALTH ===== */
@@ -1787,11 +1807,21 @@ summary:focus-visible {
 .health-meta output { font-size: 11px; color: var(--text); }
 
 /* ===== BOTTOM DOCK ===== */
+.product-review-section {
+  padding: 0 16px 8px;
+}
+.product-review-header {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 10px 14px;
+}
 .bottom-dock {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
-  padding: 12px 16px 8px;
+  padding: 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-2);
 }
@@ -2295,6 +2325,7 @@ summary:focus-visible {
 }
 @media (max-width: 900px) {
   .bottom-dock { grid-template-columns: 1fr; }
+  .product-review-section { padding: 0 12px 8px; }
   .sidebar { display: none; }
   .topbar { padding: 8px 12px; gap: 8px; }
   .topbar-left { flex: 1 1 100%; gap: 8px; min-width: 0; }
@@ -2313,11 +2344,11 @@ summary:focus-visible {
   .topbar-pill strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .panel { margin-bottom: 10px; }
   .panel-header { min-height: 36px; padding: 8px 12px; }
-  .brainstorm-transcript { min-height: 130px; max-height: 180px; padding: 10px 12px; }
+  .brainstorm-transcript { min-height: 64px; max-height: 120px; padding: 10px 12px; }
   .brainstorm-chat-form { padding: 8px 12px; }
   .brainstorm-chat-form textarea { min-height: 38px; padding: 8px 10px; }
   .idea-capture-form { padding: 8px 12px 10px; }
-  .idea-capture-form textarea { min-height: 52px; }
+  .idea-capture-form textarea { min-height: 44px; }
   .idea-capture-form input,
   .idea-capture-form .btn { flex: 1 1 100%; }
   .idea-primary-action:not(:empty) { margin: 0 12px 10px; }
@@ -2331,17 +2362,18 @@ summary:focus-visible {
   .step-desc { display: none; }
   .step-action { margin-top: 4px; }
   .definition-editor { padding: 8px 12px 10px; }
-  .definition-editor textarea { min-height: 48px; }
+  .definition-editor textarea { min-height: 38px; }
   .layout-columns { flex-direction: column; padding: 12px 12px 0; }
   .center-column,
   .right-column {
     display: contents;
     padding: 0;
   }
-  #brainstorm-section { order: 1; }
-  .pipeline-section { order: 2; }
-  #orchestrator-section { order: 3; }
-  #idea-greenhouse-section { order: 4; }
+  #idea-greenhouse-section { order: 1; }
+  #brainstorm-section { order: 2; }
+  #pipeline-spine { order: 3; }
+  #orchestrator-section { order: 4; }
+  #pipeline-spine .pipeline-stages { grid-template-columns: 1fr; }
   .health-section { order: 5; }
   .history-panel { order: 6; }
   #mission-feed-section { order: 7; }

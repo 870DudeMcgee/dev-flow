@@ -239,7 +239,10 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
 
     desktop = _home_layout_metrics(page)
     assert desktop["scroll_y"] == 0
-    assert desktop["brainstorm_top"] < 220
+    assert desktop["idea_top"] < 220
+    assert desktop["idea_top"] < desktop["brainstorm_top"]
+    assert desktop["brainstorm_top"] < desktop["pipeline_top"]
+    assert desktop["pipeline_top"] < desktop["next_task_top"]
     assert desktop["pipeline_top"] < desktop["viewport_height"]
     assert desktop["next_task_top"] < desktop["viewport_height"]
     assert desktop["active_height"] <= desktop["viewport_height"] * 1.35
@@ -248,12 +251,56 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     page.set_viewport_size({"width": 390, "height": 900})
     mobile = _home_layout_metrics(page)
     assert mobile["scroll_y"] == 0
-    assert mobile["brainstorm_top"] < 220
+    assert mobile["idea_top"] < 220
+    assert mobile["idea_top"] < mobile["brainstorm_top"]
+    assert mobile["brainstorm_top"] < mobile["pipeline_top"]
+    assert mobile["pipeline_top"] < mobile["next_task_top"]
     assert mobile["pipeline_top"] < mobile["viewport_height"]
-    assert mobile["next_task_top"] < mobile["viewport_height"]
+    assert mobile["next_task_top"] < mobile["viewport_height"] * 1.5
     assert mobile["active_height"] <= mobile["viewport_height"] * 1.35
     assert mobile["closed_guided_cards"] == 0
     assert _no_horizontal_overflow(page)
+
+
+def test_home_reads_top_to_bottom_as_idea_to_product_pipeline(browser_page: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page
+    metrics = page.evaluate(
+        """() => {
+          const order = [
+            ['idea', '#idea-greenhouse-section'],
+            ['brainstorm', '#brainstorm-section'],
+            ['pipeline', '#pipeline-spine'],
+            ['task', '#orchestrator-section'],
+            ['product', '#product-review-section'],
+          ];
+          return order.map(([name, selector]) => {
+            const element = document.querySelector(selector);
+            const rect = element?.getBoundingClientRect();
+            return [name, Boolean(element), rect ? Math.round(rect.top) : null];
+          });
+        }"""
+    )
+    assert [name for name, exists, _top in metrics if exists] == [
+        "idea",
+        "brainstorm",
+        "pipeline",
+        "task",
+        "product",
+    ]
+    tops = [top for _name, exists, top in metrics if exists]
+    assert tops == sorted(tops)
+    assert tops[0] < 160
+
+
+def test_product_stage_contains_task_launchpad_review_and_evidence(browser_page) -> None:
+    page, _console_errors = browser_page
+    product = page.locator("#product-review-section")
+    expect(product).to_be_visible()
+    expect(product).to_contain_text("Product / Review")
+    expect(product).to_contain_text("Worker lanes")
+    expect(product).to_contain_text("Review queue")
+    expect(product).to_contain_text("Evidence stream")
+
 
 
 def test_idea_greenhouse_lanes_wrap_at_mobile_width(browser_page: tuple[Page, list[str]]) -> None:
@@ -976,13 +1023,15 @@ def _home_layout_metrics(page: Page) -> dict[str, int]:
             const box = element.getBoundingClientRect();
             return { top: Math.round(box.top), height: Math.round(box.height) };
           };
+          const idea = rect("#idea-greenhouse-section");
           const brainstorm = rect("#brainstorm-section");
-          const pipeline = rect(".pipeline-section");
+          const pipeline = rect("#pipeline-spine");
           const nextTask = rect("#orchestrator-section");
-          const active = rect(".bottom-dock");
+          const active = rect("#product-review-section");
           return {
             scroll_y: Math.round(window.scrollY),
             viewport_height: Math.round(window.innerHeight),
+            idea_top: idea.top,
             brainstorm_top: brainstorm.top,
             pipeline_top: pipeline.top,
             next_task_top: nextTask.top,

@@ -27,8 +27,8 @@ VIEWPORTS: tuple[dict[str, int | str], ...] = (
 
 
 VISUAL_FLOW = (
-    "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Next Task launchpad, Worker lanes, "
-    "Review queue, and Evidence stream without horizontal overflow"
+    "app loads -> Idea Greenhouse -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
+    "Product / Review with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
 )
 
 
@@ -245,18 +245,24 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
         ),
         _check(
             "guided-first-viewport",
-            "#brainstorm-section",
-            "The brainstorm chat is the first main content section after the top bar.",
-            "pass" if _index_before('brainstorm-section', 'orchestrator-section') else "fail",
+            "#idea-greenhouse-section",
+            "Idea Greenhouse is the first main content section after the top bar.",
+            "pass"
+            if (
+                _index_before("idea-greenhouse-section", "brainstorm-section")
+                and _index_before("brainstorm-section", "pipeline-spine")
+                and _index_before("pipeline-spine", "orchestrator-section")
+            )
+            else "fail",
         ),
         _check(
             "idea-greenhouse-panel",
             "#idea-greenhouse-section",
-            "Idea Greenhouse appears after Brainstorm and before Next Task with capture form and lanes.",
+            "Idea Greenhouse sits at the top of the Idea-to-Product pipeline with capture form and lanes.",
             "pass"
             if (
-                _index_before("brainstorm-section", "idea-greenhouse-section")
-                and _index_before("idea-greenhouse-section", "orchestrator-section")
+                _index_before("idea-greenhouse-section", "brainstorm-section")
+                and _index_before("brainstorm-section", "orchestrator-section")
                 and all(
                     token in INDEX_HTML
                     for token in ("idea-capture-form", "idea-greenhouse-lanes")
@@ -319,7 +325,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
         },
         {
             "id": "guided-first-viewport",
-            "script": "document.querySelector('.center-column > section')?.id === 'brainstorm-section'",
+            "script": "document.querySelector('.center-column > section')?.id === 'idea-greenhouse-section'",
         },
         {
             "id": "brainstorm-chat",
@@ -329,12 +335,14 @@ def _playwright_assertions() -> list[dict[str, str]]:
             "id": "idea-greenhouse-panel",
             "script": (
                 "(() => {"
-                "const brainstorm = document.querySelector('#brainstorm-section');"
                 "const greenhouse = document.querySelector('#idea-greenhouse-section');"
+                "const brainstorm = document.querySelector('#brainstorm-section');"
+                "const pipeline = document.querySelector('#pipeline-spine');"
                 "const orchestrator = document.querySelector('#orchestrator-section');"
-                "return Boolean(brainstorm && greenhouse && orchestrator && "
-                "brainstorm.compareDocumentPosition(greenhouse) & Node.DOCUMENT_POSITION_FOLLOWING && "
-                "greenhouse.compareDocumentPosition(orchestrator) & Node.DOCUMENT_POSITION_FOLLOWING && "
+                "return Boolean(greenhouse && brainstorm && pipeline && orchestrator && "
+                "greenhouse.compareDocumentPosition(brainstorm) & Node.DOCUMENT_POSITION_FOLLOWING && "
+                "brainstorm.compareDocumentPosition(pipeline) & Node.DOCUMENT_POSITION_FOLLOWING && "
+                "pipeline.compareDocumentPosition(orchestrator) & Node.DOCUMENT_POSITION_FOLLOWING && "
                 "greenhouse.querySelector('#idea-capture-form') && "
                 "greenhouse.querySelector('#idea-greenhouse-lanes'));"
                 "})()"
@@ -451,8 +459,10 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
     return page.evaluate(
         """() => {
           const doc = document.documentElement;
-          const brainstormSection = document.querySelector('#brainstorm-section');
           const greenhouseSection = document.querySelector('#idea-greenhouse-section');
+          const brainstormSection = document.querySelector('#brainstorm-section');
+          const pipelineSection = document.querySelector('#pipeline-spine');
+          const orchestratorSection = document.querySelector('#orchestrator-section');
           const brainstormChat = document.querySelector('#brainstorm-chat-form textarea');
           const activeCards = document.querySelectorAll('#active-work-groups .worker-card');
           const reviewQueue = document.querySelector('#guided-review-queue');
@@ -464,13 +474,15 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
           const healthRect = healthSection ? healthSection.getBoundingClientRect() : null;
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
-            guided_first_viewport: document.querySelector('.center-column > section')?.id === 'brainstorm-section',
+            guided_first_viewport: document.querySelector('.center-column > section')?.id === 'idea-greenhouse-section',
             idea_greenhouse_panel: Boolean(
-              brainstormSection &&
               greenhouseSection &&
-              document.querySelector('#orchestrator-section') &&
-              brainstormSection.compareDocumentPosition(greenhouseSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
-              greenhouseSection.compareDocumentPosition(document.querySelector('#orchestrator-section')) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              brainstormSection &&
+              pipelineSection &&
+              orchestratorSection &&
+              greenhouseSection.compareDocumentPosition(brainstormSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              brainstormSection.compareDocumentPosition(pipelineSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              pipelineSection.compareDocumentPosition(orchestratorSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
               greenhouseSection.querySelector('#idea-capture-form') &&
               greenhouseSection.querySelector('#idea-greenhouse-lanes')
             ),

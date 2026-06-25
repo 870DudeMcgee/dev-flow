@@ -130,6 +130,8 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
 def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
     assert "Idea Greenhouse" in INDEX_HTML
     assert "idea-greenhouse-section" in INDEX_HTML
+    assert "pipeline-spine" in INDEX_HTML
+    assert "product-review-section" in INDEX_HTML
     assert "idea-greenhouse-status" in INDEX_HTML
     assert "idea-capture-form" in INDEX_HTML
     assert "idea-capture-text" in INDEX_HTML
@@ -166,9 +168,9 @@ def test_operating_layer_css_includes_idea_greenhouse_layout_contract() -> None:
 
     mobile_rules = APP_CSS[APP_CSS.index("@media (max-width: 900px)") :]
     assert ".idea-greenhouse-lanes { grid-template-columns: 1fr; }" in mobile_rules
-    assert mobile_rules.index("#brainstorm-section { order: 1; }") < mobile_rules.index(
-        "#orchestrator-section"
-    ) < mobile_rules.index("#idea-greenhouse-section")
+    assert mobile_rules.index("#idea-greenhouse-section { order: 1; }") < mobile_rules.index(
+        "#brainstorm-section"
+    ) < mobile_rules.index("#pipeline-spine") < mobile_rules.index("#orchestrator-section")
 
 
 def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
@@ -259,7 +261,6 @@ def test_operating_layer_js_start_brainstorm_from_idea_contract() -> None:
     """Slice 4: idea detail drawer can open a brainstorm session with lineage."""
     assert "data-idea-brainstorm" in APP_JS
     assert "idea-brainstorm-status" in APP_JS
-    assert "'/api/brainstorm/start-from-idea'" in APP_JS
     assert "JSON.stringify({ idea_id: ideaId })" in APP_JS
     assert "localStorage.setItem('devflow-brainstorm-session', data.session_id)" in APP_JS
     assert "setActiveNav('brainstorm')" in APP_JS
@@ -267,6 +268,14 @@ def test_operating_layer_js_start_brainstorm_from_idea_contract() -> None:
     assert "Brainstorm session started from " in APP_JS
     assert "Next: add context or escalate to Spec" in APP_JS
     assert APP_JS.index("await loadBrainstormTranscript(data.session_id)") < APP_JS.index("Brainstorm session started from ")
+
+
+def test_operating_layer_js_card_level_brainstorm_button_contract() -> None:
+    """Slice 2: every actionable idea card gets a visible Continue brainstorm button."""
+    assert "Continue brainstorm" in APP_JS
+    assert 'data-idea-brainstorm="' in APP_JS
+    assert "idea-card-brainstorm-actions" in APP_JS
+    assert 'class="btn btn-sm btn-secondary"' in APP_JS
 
 
 def test_operating_layer_start_brainstorm_from_idea_endpoint(tmp_path: Path) -> None:
@@ -1258,9 +1267,7 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "Dev-Flow Operating Layer" in body
         assert "Brainstorm" in body
         assert "DeepSeek V4 Flash Free" in body
-        assert "Escalate to Spec" in body
-        assert "Generate Plan" in body
-        assert "Create Task" in body
+        assert "pipeline-stages-container" in body
         assert "Idea Greenhouse" in body
         assert "idea-capture-form" in body
         assert "idea-greenhouse-lanes" in body
@@ -1292,6 +1299,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert response.status == 200
         assert "brainstorm-section" in INDEX_HTML
         assert "pipeline-section" in INDEX_HTML
+        assert "pipeline-spine" in INDEX_HTML
+        assert "product-review-section" in INDEX_HTML
         assert "bottom-dock" in css
         assert ".idea-greenhouse-lanes" in css
         assert ".idea-card" in css
@@ -1451,9 +1460,7 @@ def test_operating_layer_guided_sections_render_before_advanced_sections() -> No
     assert "Brainstorm" in INDEX_HTML
     assert "DeepSeek V4 Flash Free" in INDEX_HTML
     assert "brainstorm-chat-form" in INDEX_HTML
-    assert "Escalate to Spec" in INDEX_HTML
-    assert "Generate Plan" in INDEX_HTML
-    assert "Create Task" in INDEX_HTML
+    assert "pipeline-stages-container" in INDEX_HTML
     assert "Worker lanes" in INDEX_HTML
     assert "Review queue" in INDEX_HTML
     assert "Evidence stream" in INDEX_HTML
@@ -1540,7 +1547,7 @@ def test_operating_layer_visual_qa_plan_covers_core_regression_contracts(
     greenhouse_check = checks["idea-greenhouse-panel"]
     assert greenhouse_check["target"] == "#idea-greenhouse-section"
     assert greenhouse_check["status"] == "pass"
-    assert "after Brainstorm and before Next Task" in greenhouse_check["detail"]
+    assert "top of the Idea-to-Product pipeline" in greenhouse_check["detail"]
     assert "capture form and lanes" in greenhouse_check["detail"]
 
     playwright_assertions = {assertion["id"]: assertion for assertion in plan["playwright_assertions"]}
@@ -1571,8 +1578,8 @@ def test_operating_layer_visual_qa_cli_renders_json_plan(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["visual_flow"] == (
-        "app loads -> first viewport renders Brainstorm chat, Pipeline stages, Next Task launchpad, Worker lanes, "
-        "Review queue, and Evidence stream without horizontal overflow"
+        "app loads -> Idea Greenhouse -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
+        "Product / Review with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
     )
     assert payload["browser_runtime"] == "codex-in-app-browser"
     assert payload["serve_command"] == "devflow operating-layer serve --host 127.0.0.1 --port 8765"
@@ -2289,3 +2296,42 @@ def test_operating_layer_server_serves_registered_project_snapshot(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_operating_layer_js_uses_backend_pipeline_contract_not_boolean_pipeline_state() -> None:
+    """Slice 3: UI should render pipeline cards from backend pipeline.stages,
+    not from duplicate local JS booleans such as hasTranscript, hasSpec,
+    hasPlan, hasImplementation."""
+    # The good stages-based pipeline contract MUST be present
+    assert "renderPipeline" in APP_JS
+    assert ".stages" in APP_JS
+    assert "pipelineState.stages" in APP_JS
+    assert "let pipelineState = { stages:" in APP_JS
+
+    # The old boolean pipeline state initialisation MUST be absent;
+    # only the stages-based pipelineState = { stages: [] } should remain.
+
+    # Single-line form:  pipelineState = { hasTranscript: false, ... }
+    assert "pipelineState = { hasTranscript" not in APP_JS, (
+        "Old single-line boolean pipelineState initialisation still present. "
+        "Remove it so backend pipeline.stages is the single source of truth."
+    )
+
+    # Multi-line form:
+    #   pipelineState = {
+    #     hasTranscript: ...
+    assert "pipelineState = {\n      hasTranscript" not in APP_JS, (
+        "Old multi-line boolean pipelineState initialisation still present. "
+        "Remove it so backend pipeline.stages is the single source of truth."
+    )
+
+
+def test_operating_layer_js_pipeline_primary_action_contract() -> None:
+    """Slice 4: pipeline should expose one canonical primary action button."""
+    assert "data-pipeline-primary-action" in APP_JS, "Primary action button missing data attribute"
+    assert "getPrimaryActionLabel" in APP_JS, "label function not present"
+    assert "getPipelinePrimaryStage" in APP_JS, "primary stage resolver not present"
+    assert "getNextStageLabel" in APP_JS, "next-stage label helper not present"
+    assert "useModelForBrainstormStage" in APP_JS, "model-backed stages should be explicit"
+    assert "setupPipelineButtons(container)" in APP_JS, "dynamic pipeline controls should be rebound after render"
+    assert "document.querySelectorAll('#pipeline-stages-container [data-brainstorm-stage]')" in APP_JS
