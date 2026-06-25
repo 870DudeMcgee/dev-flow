@@ -74,7 +74,6 @@ from devflow.control_room.status_projection import list_task_status_projections
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
 from devflow.control_room.token_context import write_context_packet
-from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_worker_adapter
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
 from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.task_packet import build_agent_packet
@@ -100,6 +99,11 @@ from devflow.control_room.task_routing_command import (
     build_task_routing_result,
     render_task_routing_json,
     render_task_routing_lines,
+)
+from devflow.control_room.task_run_command import (
+    TaskRunCommandError,
+    render_task_run_lines,
+    run_task_command,
 )
 from devflow.control_room.task_scorecard_command import (
     TaskScorecardCommandError,
@@ -2454,58 +2458,32 @@ def task_run(
     """Run a task with a worker command after '--'."""
     scope = _resolve_task_project_root(project)
     root = scope.root
-    if worker == "manual":
-        typer.echo("Warning: 'manual' worker is experimental and does not execute work.")
-    elif worker == "shell":
-        typer.echo(TRUSTED_LOCAL_WARNING)
-    from devflow.control_room.agent_registry import load_agent_registry
-    from devflow.control_room.worker_adapter import list_worker_adapters, UnsupportedWorkerAdapter
-
-    registry = load_agent_registry(root)
-    valid_agents = list(registry.agents.keys())
-    valid_adapters = list_worker_adapters()
-    selected_agent = registry.agents.get(worker)
-    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
-        typer.echo("worker_mode: registry_backed_local_ollama_patch_worker")
-        typer.echo("worker_note: writes proposal.patch evidence only; Dev-Flow applies patches separately and verifies separately.")
-
-    if worker not in valid_agents:
-        from devflow.control_room.worker_adapter import get_worker_adapter
-        try:
-            get_worker_adapter(worker)
-        except UnsupportedWorkerAdapter as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
 
     try:
         command = _shell_command_or_args(shell_command, list(ctx.args), "Shell worker")
     except ValueError as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
-    try:
-        task = run_shell_task(root, task_id, command, timeout_seconds=timeout_seconds, worker_adapter=worker)
-    except (KeyError, ValueError) as exc:
-        typer.echo(str(exc))
-        raise typer.Exit(code=1) from exc
 
-    typer.echo(f"{_task_ref(task.id, scope.project_id)}: {task.status}")
-    if scope.project_id:
-        typer.echo(f"project_root: {root}")
-    typer.echo(f"log_path: {task.log_path}")
-    typer.echo(f"result_path: {task.result_path}")
-    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
-        _echo_registry_patch_worker_evidence_paths(root, task.id, worker)
-    handoff_path = root / ".devflow" / "tasks" / task.id / "agents" / worker / "handoff.md"
-    if handoff_path.exists():
-        typer.echo(f"manual_handoff_path: {_relative(root, handoff_path)}")
-    if task.latest_log_line:
-        typer.echo(f"latest_log_line: {task.latest_log_line}")
-    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat" and task.status == "complete":
-        typer.echo(f"suggested_next_action: devflow task review-patch {task.id} --agent {worker}")
-    _echo_review_capsule(root, task.id)
-    if task.status != "complete":
-        exit_code = task.last_exit_code if task.last_exit_code is not None else 1
-        raise typer.Exit(code=exit_code)
+    try:
+        result = run_task_command(
+            root,
+            task_id,
+            command,
+            worker_adapter=worker,
+            timeout_seconds=timeout_seconds,
+            project_id=scope.project_id,
+        )
+    except TaskRunCommandError as exc:
+        for line in exc.lines:
+            typer.echo(line)
+        raise typer.Exit(code=exc.exit_code) from exc
+
+    for line in render_task_run_lines(result):
+        typer.echo(line)
+    _echo_review_capsule(root, result.task.id)
+    if result.task.status != "complete":
+        raise typer.Exit(code=result.exit_code)
 
 
 @task_app.command("auto-run", hidden=experimental_command_hidden())
@@ -2618,16 +2596,6 @@ def task_auto_run(
     if task.status != "complete":
         exit_code = task.last_exit_code if task.last_exit_code is not None else 1
         raise typer.Exit(code=exit_code)
-
-
-def _echo_registry_patch_worker_evidence_paths(root: Path, task_id: str, agent_id: str) -> None:
-    agent_dir = root / ".devflow" / "tasks" / task_id / "agents" / agent_id
-    typer.echo(f"agent_packet_path: {_relative(root, agent_dir / 'packet.json')}")
-    typer.echo(f"raw_output_path: {_relative(root, agent_dir / 'raw_output.md')}")
-    typer.echo(f"proposal_patch_path: {_relative(root, agent_dir / 'proposal.patch')}")
-    typer.echo(f"run_metadata_path: {_relative(root, agent_dir / 'run.json')}")
-    typer.echo(f"agent_result_path: {_relative(root, agent_dir / 'result.md')}")
-    typer.echo(f"agent_log_path: {_relative(root, agent_dir / 'logs' / 'worker.log')}")
 
 
 @task_app.command("escalation-packet")
