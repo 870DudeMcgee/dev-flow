@@ -43,6 +43,13 @@ from devflow.control_room.task_apply_patch_command import (
     build_task_apply_patch_result,
     render_task_apply_patch_result,
 )
+from devflow.control_room.task_patch_gate_command import (
+    TaskPatchGateCommandError,
+    build_task_patch_dry_run_result,
+    build_task_patch_review_result,
+    render_task_patch_dry_run_lines,
+    render_task_patch_review_lines,
+)
 from devflow.control_room.task_closure import (
     TaskClosureError,
     cleanup_task as cleanup_closed_task,
@@ -78,8 +85,6 @@ from devflow.control_room.agent_registry import load_agent_registry, AgentRegist
 from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.task_packet import build_agent_packet
 from devflow.control_room.proposal_normalizer import normalize_proposal
-from devflow.control_room.patch_dry_run import preview_patch_dry_run
-from devflow.control_room.patch_review import normalize_agent_patch_candidate, review_patch_candidate
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
@@ -2143,44 +2148,20 @@ def task_review_patch(
 ) -> None:
     """Review normalized proposal.patch evidence without applying it."""
     scope = _resolve_task_project_root(project)
-    root = scope.root
     try:
-        if agent:
-            run_id = normalize_agent_patch_candidate(root, task_id, agent, project_id=scope.project_id)
-        review = review_patch_candidate(root, task_id, run_id=run_id, project_id=scope.project_id)
-    except (KeyError, FileNotFoundError, ValueError) as exc:
+        result = build_task_patch_review_result(
+            scope.root,
+            task_id,
+            run_id=run_id,
+            agent_id=agent,
+            project_id=scope.project_id,
+        )
+    except TaskPatchGateCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    run_dir = root / ".devflow" / "tasks" / task_id / "local-model-runs" / review.run_id
-    typer.echo(f"Patch Review for {_task_ref(task_id, scope.project_id)}")
-    if scope.project_id:
-        typer.echo(f"project_root: {root}")
-    typer.echo("")
-    typer.echo(f"Run: {review.run_id}")
-    typer.echo(f"Proposal classification: {review.proposal_classification}")
-    typer.echo(f"Patch candidate: {'yes' if review.has_patch_candidate else 'no'}")
-    typer.echo(f"Review status: {review.review_status}")
-    typer.echo(f"Risk: {review.risk}")
-    typer.echo("")
-    typer.echo("Files touched:")
-    if review.files_touched:
-        for file_path in review.files_touched:
-            typer.echo(f"- {file_path}")
-    else:
-        typer.echo("- None")
-    if review.generated_or_forbidden_paths:
-        typer.echo("")
-        typer.echo("Artifact paths:")
-        for file_path in review.generated_or_forbidden_paths:
-            typer.echo(f"- {file_path}")
-    typer.echo("")
-    typer.echo("Artifacts:")
-    typer.echo(f"patch_review: {_relative(root, run_dir / 'patch-review.md')}")
-    typer.echo(f"patch_review_json: {_relative(root, run_dir / 'patch-review.json')}")
-    typer.echo("")
-    typer.echo("Next:")
-    typer.echo(review.next_action.get("command") or "None")
+    for line in render_task_patch_review_lines(result):
+        typer.echo(line)
 
 
 @task_app.command("patch-dry-run")
@@ -2192,64 +2173,20 @@ def task_patch_dry_run(
 ) -> None:
     """Preview whether reviewed proposal.patch evidence would apply without mutating files."""
     scope = _resolve_task_project_root(project)
-    root = scope.root
     try:
-        if agent:
-            run_id = normalize_agent_patch_candidate(root, task_id, agent, project_id=scope.project_id)
-        result = preview_patch_dry_run(root, task_id, run_id=run_id, project_id=scope.project_id)
-    except (KeyError, FileNotFoundError, ValueError) as exc:
+        result = build_task_patch_dry_run_result(
+            scope.root,
+            task_id,
+            run_id=run_id,
+            agent_id=agent,
+            project_id=scope.project_id,
+        )
+    except TaskPatchGateCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    run_dir = root / ".devflow" / "tasks" / task_id / "local-model-runs" / result.run_id
-    typer.echo(f"Patch Dry-run Preview for {_task_ref(task_id, scope.project_id)}")
-    if scope.project_id:
-        typer.echo(f"project_root: {root}")
-    typer.echo("")
-    typer.echo(f"Run: {result.run_id}")
-    typer.echo(f"Patch review status: {_patch_review_status(root, task_id, result.run_id)}")
-    typer.echo(f"Dry-run status: {result.dry_run_status}")
-    typer.echo(f"Risk: {result.risk}")
-    typer.echo("")
-    typer.echo("Files checked:")
-    if result.files_checked:
-        for file_path in result.files_checked:
-            typer.echo(f"- {file_path}")
-    else:
-        typer.echo("- None")
-    typer.echo("")
-    typer.echo("Hunks:")
-    typer.echo(f"checked: {result.hunks_checked}")
-    typer.echo(f"matched: {result.hunks_matched}")
-    typer.echo(f"failed: {result.hunks_failed}")
-    if result.findings:
-        typer.echo("")
-        typer.echo("Findings:")
-        for finding in result.findings:
-            typer.echo(f"- {finding}")
-    if result.warnings:
-        typer.echo("")
-        typer.echo("Warnings:")
-        for warning in result.warnings:
-            typer.echo(f"- {warning}")
-    typer.echo("")
-    typer.echo("Artifacts:")
-    typer.echo(f"dry_run: {_relative(root, run_dir / 'patch-dry-run.md')}")
-    typer.echo(f"dry_run_json: {_relative(root, run_dir / 'patch-dry-run.json')}")
-    typer.echo("")
-    typer.echo("Next:")
-    typer.echo("Review dry-run evidence manually. Do not apply anything automatically.")
-
-
-def _patch_review_status(root: Path, task_id: str, run_id: str) -> str:
-    review_path = root / ".devflow" / "tasks" / task_id / "local-model-runs" / run_id / "patch-review.json"
-    try:
-        data = json.loads(review_path.read_text(encoding="utf-8"))
-    except Exception:
-        return "unknown"
-    if not isinstance(data, dict):
-        return "unknown"
-    return str(data.get("review_status") or "unknown")
+    for line in render_task_patch_dry_run_lines(result):
+        typer.echo(line)
 
 
 @task_app.command("log")
