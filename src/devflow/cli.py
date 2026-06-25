@@ -56,6 +56,12 @@ from devflow.control_room.task_show_summary import (
     build_task_show_summary,
     render_task_show_summary,
 )
+from devflow.control_room.task_artifact_open import (
+    TaskArtifactOpenError,
+    open_task_artifact,
+    render_task_open_candidates,
+    select_task_open_artifact,
+)
 from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
 from devflow.control_room.maintenance import reset_dogfood_state, reset_test_state, repair_state
 from devflow.control_room.patch_applier import (
@@ -2996,120 +3002,24 @@ def task_open(
     list_candidates: bool = typer.Option(False, "--list", help="Print candidate output files in priority order and exit."),
 ) -> None:
     """Open the most relevant task output artifact."""
-    import fnmatch
-    import sys
-    import subprocess
-    from devflow.control_room.service import get_task
-    from devflow.control_room.paths import workspaces_dir
-
     root = Path.cwd()
-
     try:
-        task = get_task(root, task_id)
-    except KeyError:
-        typer.echo(f"Error: Task '{task_id}' not found.", err=True)
-        raise typer.Exit(code=1)
-
-    workspace = (workspaces_dir(root) / task_id).resolve()
-    if not workspace.exists() or not workspace.is_dir():
-        typer.echo(f"Error: Task workspace not found at {workspace}", err=True)
-        raise typer.Exit(code=1)
-
-    all_candidate_files: list[Path] = []
-    for p in workspace.rglob("*"):
-        if p.is_file():
-            try:
-                p.resolve().relative_to(workspace)
-                all_candidate_files.append(p)
-            except ValueError:
-                continue
-
-    def get_sort_key(p: Path) -> tuple[int, int, str]:
-        rel_path = p.relative_to(workspace).as_posix()
-        rel_path_lower = rel_path.lower()
-        name = p.name.lower()
-        parts = rel_path_lower.split("/")
-
-        primary_rank = 3
-        if worker:
-            worker_lower = worker.lower()
-            if len(parts) >= 3 and parts[0] == "local-workers" and parts[1] == worker_lower:
-                if name == "response.raw.md":
-                    primary_rank = 0 if raw else 1
-                elif name == "response.md":
-                    primary_rank = 1 if raw else 0
-                else:
-                    primary_rank = 2
-
-        if raw:
-            patterns = [
-                "local-workers/*/response.raw.md",
-                "local-workers/*/response.md",
-                "*response.raw.md",
-                "*response*.md",
-                "*review*.md",
-                "*.log",
-                "*.md",
-                "*.txt",
-            ]
-        else:
-            patterns = [
-                "local-workers/*/response.md",
-                "local-workers/*/response.raw.md",
-                "*response.md",
-                "*review.md",
-                "*.md",
-                "*.txt",
-                "logs/*.log",
-                "*.log",
-            ]
-
-        secondary_rank = len(patterns) + 1
-        for idx, pattern in enumerate(patterns):
-            if fnmatch.fnmatch(rel_path_lower, pattern) or fnmatch.fnmatch(name, pattern):
-                secondary_rank = idx
-                break
-
-        return (primary_rank, secondary_rank, rel_path_lower)
-
-    sorted_files = sorted(all_candidate_files, key=get_sort_key)
-
-    valid_candidates = []
-    for f in sorted_files:
-        key = get_sort_key(f)
-        if key[1] < 9:
-            valid_candidates.append(f)
+        selection = select_task_open_artifact(root, task_id, worker=worker, raw=raw)
+    except TaskArtifactOpenError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     if list_candidates:
-        if not valid_candidates:
-            typer.echo("No candidate files found.")
-            return
-        typer.echo("Candidate output files in priority order:")
-        for idx, f in enumerate(valid_candidates, start=1):
-            rel = f.relative_to(workspace)
-            typer.echo(f"{idx}. {rel}")
+        for line in render_task_open_candidates(selection):
+            typer.echo(line)
         return
 
-    if not valid_candidates:
+    if selection.selected is None:
         typer.echo("Error: No candidate output files found in task workspace.", err=True)
         raise typer.Exit(code=1)
 
-    top_candidate = valid_candidates[0]
-
-    opened = False
-    try:
-        if sys.platform == "darwin":
-            subprocess.run(["open", str(top_candidate)], check=True)
-            opened = True
-        elif sys.platform.startswith("linux"):
-            subprocess.run(["xdg-open", str(top_candidate)], check=True)
-            opened = True
-        elif sys.platform == "win32":
-            if hasattr(os, "startfile"):
-                os.startfile(str(top_candidate))
-                opened = True
-    except Exception:
-        pass
+    top_candidate = selection.selected.path
+    opened = open_task_artifact(top_candidate)
 
     if opened:
         typer.echo(f"Opened: {top_candidate.relative_to(root)}")
