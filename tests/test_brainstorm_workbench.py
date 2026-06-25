@@ -166,6 +166,13 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
     assert pipeline["has_spec"] is True
     assert pipeline["has_plan"] is True
     assert pipeline["has_implementation"] is True
+    assert pipeline["definition_of_done"] == "Start button is visible and task creation is logged."
+    assert pipeline["artifacts"]["transcript"]["artifact_path"] == (
+        ".devflow/brainstorms/session-003/transcript.jsonl"
+    )
+    assert pipeline["artifacts"]["implementation"]["artifact_path"] == (
+        ".devflow/brainstorms/session-003/implementation.md"
+    )
     assert pipeline["advisory_model"]["profile_id"] == "deepseek-v4-flash-free-brainstormer"
     assert pipeline["task_action"]["command"] == implementation_with_done["action"]["command"]
     assert pipeline["task_action"]["context_required"] is True

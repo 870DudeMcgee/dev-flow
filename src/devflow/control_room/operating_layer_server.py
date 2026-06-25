@@ -21,8 +21,11 @@ from devflow.control_room.brainstorm import (
     run_brainstorm_message,
     start_brainstorm_from_idea,
 )
-from devflow.control_room.brainstorm_pipeline import load_brainstorm_pipeline_detail
-from devflow.control_room.brainstorm_task_bridge import create_task_from_brainstorm
+from devflow.control_room.brainstorm_pipeline import (
+    create_task_from_brainstorm,
+    load_brainstorm_pipeline_detail,
+    load_brainstorm_session_snapshot,
+)
 from devflow.control_room.builder_judge_loop import (
     DEFAULT_BUILDER_PROFILE,
     DEFAULT_JUDGE_PROFILE,
@@ -355,53 +358,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             if not session_id:
                 self._send_json_error("session_id query parameter is required", HTTPStatus.BAD_REQUEST)
                 return
-            transcript_path = root / ".devflow" / "brainstorms" / session_id / "transcript.jsonl"
-            if not transcript_path.exists():
-                pipeline = load_brainstorm_pipeline_detail(root, session_id=session_id, records=[])
-                self._send_json(
-                    {
-                        "session_id": session_id,
-                        "messages": [],
-                        "spec": None,
-                        "plan": None,
-                        "implementation": None,
-                        "pipeline": pipeline.model_dump(mode="json"),
-                    },
-                    HTTPStatus.OK,
-                )
-                return
-            messages: list[dict[str, object]] = []
-            for line in transcript_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(rec, dict):
-                    messages.append(rec)
-            session_dir = transcript_path.parent
-            spec_content = None
-            spec_path = session_dir / "spec.md"
-            if spec_path.exists():
-                spec_content = spec_path.read_text(encoding="utf-8")
-            plan_content = None
-            plan_path = session_dir / "plan.md"
-            if plan_path.exists():
-                plan_content = plan_path.read_text(encoding="utf-8")
-            implementation_content = None
-            implementation_path = session_dir / "implementation.md"
-            if implementation_path.exists():
-                implementation_content = implementation_path.read_text(encoding="utf-8")
-            pipeline = load_brainstorm_pipeline_detail(root, session_id=session_id, records=messages)
-            self._send_json({
-                "session_id": session_id,
-                "messages": messages,
-                "spec": spec_content,
-                "plan": plan_content,
-                "implementation": implementation_content,
-                "pipeline": pipeline.model_dump(mode="json"),
-            }, HTTPStatus.OK)
+            snapshot = load_brainstorm_session_snapshot(root, session_id=session_id)
+            payload = snapshot.model_dump(mode="json")
+            payload["pipeline"] = snapshot.pipeline.model_dump(mode="json")
+            self._send_json(payload, HTTPStatus.OK)
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 

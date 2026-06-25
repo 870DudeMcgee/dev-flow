@@ -105,6 +105,13 @@ def test_brainstorm_create_task_bridge_writes_context_and_lineage(tmp_path: Path
     # Lineage present
     assert "lineage" in result
     assert result["lineage"]["brainstorm_session_id"] == "sess-001"
+    assert result["lineage"]["created_task_id"] == result["task_id"]
+    assert result["post_create_action"]["command"] == (
+        f"devflow task run {result['task_id']} --worker shell -- <command>"
+    )
+    assert result["launchpad"]["selected_task_id"] == result["task_id"]
+    assert result["pipeline_detail"]["launchpad_selection"]["selected_task_id"] == result["task_id"]
+    assert result["context_path"] in result["evidence_paths"]
 
     # Pipeline updated with created_task_ids
     pipeline_path = session_dir / "pipeline.json"

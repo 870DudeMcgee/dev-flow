@@ -1458,11 +1458,14 @@ function setupPipelineButtons(scope) {
 
               if (createdTaskId && outLine) {
                 const contextTarget = implContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
-                const contextPath = contextTarget.replace('{task_id}', createdTaskId);
-                const nextMsg = `Task created: ${outLine}. Implementation context target: ${contextPath}. Next: use the Next Task launchpad.`;
+                const contextPath = bridgePayload?.context_path || contextTarget.replace('{task_id}', createdTaskId);
+                const launchpad = bridgePayload?.launchpad || {};
+                const postCreate = bridgePayload?.post_create_action || {};
+                const nextLabel = postCreate.label || launchpad.action_label || 'use the Next Task launchpad';
+                const nextMsg = `Task created: ${outLine}. Implementation context target: ${contextPath}. Next: ${nextLabel}.`;
                 appendBrainstormMsg('system', nextMsg, {});
                 await loadSnapshot(selectedProjectId);
-                selectTaskInLaunchpad(createdTaskId, { focusShell: true });
+                selectTaskInLaunchpad(createdTaskId, { focusShell: launchpad.focus_shell !== false });
               }
             } catch(e2) {
               appendBrainstormMsg('system', 'Task creation error: ' + (e2.message || 'unknown'), { kind: 'provider_error' });
