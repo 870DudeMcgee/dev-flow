@@ -341,6 +341,8 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert payload["action_rail"][0]["supervisor_may_auto_run"] is True
     assert payload["tasks"][0]["actions"][0]["command"] == "devflow task run task-0001 --worker shell -- <command>"
     assert payload["tasks"][0]["actions"][0]["requires_human_approval"] is True
+    assert payload["tasks"][0]["actions"][0]["intent"] == "start_shell"
+    assert payload["tasks"][0]["actions"][0]["required_inputs"] == ["shell_command"]
     controls = {control["intent"]: control for control in payload["tasks"][0]["controls"]}
     assert controls["start_shell"]["command"] == "devflow task run task-0001 --worker shell -- <command>"
     assert controls["start_shell"]["required_inputs"] == ["shell_command"]
@@ -840,6 +842,13 @@ def test_operating_layer_review_loop_flags_failed_verification_decision_pressure
         )
     )
     assert any(item["kind"] == "task_attention" for item in payload["inbox"])
+    attention = next(item for item in payload["inbox"] if item["kind"] == "task_attention")
+    assert attention["action"] is not None
+    assert attention["action"]["intent"] in {"verify", "inspect_log"}
+    if attention["action"]["intent"] == "verify":
+        assert attention["action"]["required_inputs"] == ["verification_command"]
+    else:
+        assert attention["action"]["required_inputs"] == []
 
 
 def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
@@ -1476,7 +1485,12 @@ def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None
     assert "renderWorkerLanes" in APP_JS
     assert "buildFirstViewportPresentation" in APP_JS
     assert "renderFirstViewport" in APP_JS
-    assert "BROWSER ACTION CAPABILITIES" in APP_JS
+    assert "BROWSER TASK CAPABILITIES" in APP_JS
+    assert "Legacy fallback for older snapshots" in APP_JS
+    assert "raw.intent || intentForCommand(raw.command)" in APP_JS
+    assert "raw.required_inputs" in APP_JS
+    assert "Array.isArray(raw.required_inputs) && raw.required_inputs.length" not in APP_JS
+    assert "for (const action of task?.actions || []) push(action);" in APP_JS
     assert "function taskCapabilities" in APP_JS
     assert "task?.controls" in APP_JS
     assert "required_inputs" in APP_JS

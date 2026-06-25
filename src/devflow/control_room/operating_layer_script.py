@@ -62,7 +62,8 @@ function taskWorkerLabel(task) {
   return task?.worker || 'unassigned';
 }
 
-// === BROWSER ACTION CAPABILITIES ===
+// === BROWSER TASK CAPABILITIES ===
+// Legacy fallback for older snapshots. New task controls/actions should carry intent directly.
 function intentForCommand(command) {
   const value = String(command || '');
   if (value.includes(' task run ') && value.includes('--worker shell')) return 'start_shell';
@@ -100,7 +101,7 @@ function inferredRequiredInputs(intent, command) {
 function normalizeCapability(raw) {
   if (!raw || !raw.command) return null;
   const intent = raw.intent || intentForCommand(raw.command);
-  const requiredInputs = Array.isArray(raw.required_inputs) && raw.required_inputs.length
+  const requiredInputs = Array.isArray(raw.required_inputs)
     ? raw.required_inputs
     : inferredRequiredInputs(intent, raw.command);
   return {
@@ -128,9 +129,10 @@ function taskCapabilities(task) {
     capabilities.push(cap);
   };
   for (const control of task?.controls || []) push(control);
-  for (const action of task?.actions || []) push({ ...action, intent: intentForCommand(action.command) });
+  for (const action of task?.actions || []) push(action);
   if (task?.next_action?.command) {
-    push({ ...task.next_action, intent: intentForCommand(task.next_action.command), label: task.next_action.label || labelForIntent(intentForCommand(task.next_action.command)) });
+    const fallbackIntent = task.next_action.intent || intentForCommand(task.next_action.command);
+    push({ ...task.next_action, label: task.next_action.label || labelForIntent(fallbackIntent) });
   }
   return capabilities;
 }

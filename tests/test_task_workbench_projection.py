@@ -86,6 +86,9 @@ def test_task_workbench_projects_task_lanes_focus_controls_and_evidence(
     assert tasks["task-0001"].next_safe_action == "devflow task run task-0001 --worker shell -- <command>"
     assert new_controls["start_shell"].command == "devflow task run task-0001 --worker shell -- <command>"
     assert new_controls["start_shell"].required_inputs == ["shell_command"]
+    assert new_controls["start_shell"].safety_class == "approval_required_worker_runtime"
+    assert new_controls["start_shell"].requires_human_approval is True
+    assert new_controls["start_shell"].supervisor_may_auto_run is False
     assert new_controls["inspect"].command == "devflow task show task-0001"
     assert new_controls["inspect"].required_inputs == []
 
@@ -105,6 +108,8 @@ def test_task_workbench_projects_task_lanes_focus_controls_and_evidence(
     ready_controls = _controls_by_intent(tasks["task-0004"])
     assert ready_controls["review_preview"].command == "devflow task promote-preview task-0004"
     assert ready_controls["promote"].command == "devflow task promote task-0004"
+    assert ready_controls["promote"].safety_class == "approval_required_git"
+    assert ready_controls["promote"].requires_human_approval is True
 
     closed_controls = _controls_by_intent(tasks["task-0005"])
     assert closed_controls["cleanup_preview"].command == "devflow task cleanup task-0005 --preview"

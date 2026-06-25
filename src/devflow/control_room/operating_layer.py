@@ -8,6 +8,10 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from devflow.control_room.browser_task_capabilities import (
+    build_browser_task_capability,
+    intent_for_command,
+)
 from devflow.control_room.dashboard import (
     DashboardHealth,
     DashboardNextAction,
@@ -75,6 +79,8 @@ class OperatingLayerAction(BaseModel):
     safety_class: str
     requires_human_approval: bool
     supervisor_may_auto_run: bool
+    intent: str | None = None
+    required_inputs: list[str] = Field(default_factory=list)
     reason: str | None = None
 
 
@@ -2399,15 +2405,22 @@ def _scope_task_command(command: str, project_id: str | None) -> str:
 
 
 def _action(label: str, command: str, scope: str) -> OperatingLayerAction:
-    classification = classify_supervisor_command(command)
-    return OperatingLayerAction(
-        label=label,
-        command=command,
+    capability = build_browser_task_capability(
+        intent_for_command(command),
+        label,
+        command,
         scope=scope,
-        safety_class=str(classification["safety_class"]),
-        requires_human_approval=bool(classification["requires_human_approval"]),
-        supervisor_may_auto_run=bool(classification["supervisor_may_auto_run"]),
-        reason=classification.get("why_not_auto_runnable"),
+    )
+    return OperatingLayerAction(
+        label=capability.label,
+        command=capability.command,
+        scope=capability.scope,
+        safety_class=capability.safety_class,
+        requires_human_approval=capability.requires_human_approval,
+        supervisor_may_auto_run=capability.supervisor_may_auto_run,
+        intent=capability.intent,
+        required_inputs=capability.required_inputs,
+        reason=capability.reason,
     )
 
 

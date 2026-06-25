@@ -6,6 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devflow.control_room.browser_task_capabilities import (
+    build_browser_task_capability,
+    intent_for_command,
+    label_for_command,
+)
 from devflow.control_room.dashboard import DashboardNextAction
 from devflow.control_room.evidence_review_detail import EvidenceReviewDetail, build_evidence_review_detail
 from devflow.control_room.git_worktree import git_worker_lane_summary
@@ -14,7 +19,6 @@ from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.paths import absolute_path, relative_path, task_dir
 from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.status_projection import TaskStatusProjection, list_task_status_projections
-from devflow.control_room.supervisor_surface import classify_supervisor_command
 from devflow.control_room.worker_options import build_worker_options
 
 
@@ -38,6 +42,8 @@ class TaskWorkbenchAction(BaseModel):
     safety_class: str
     requires_human_approval: bool
     supervisor_may_auto_run: bool
+    intent: str | None = None
+    required_inputs: list[str] = Field(default_factory=list)
     reason: str | None = None
 
 
@@ -1096,7 +1102,13 @@ def _task_controls(
             commands.append(("cleanup_preview", "Cleanup preview", cleanup))
     else:
         if next_action_command:
-            commands.append((_intent_for_command(next_action_command), _label_for_command(next_action_command), next_action_command))
+            commands.append(
+                (
+                    intent_for_command(next_action_command),
+                    label_for_command(next_action_command),
+                    next_action_command,
+                )
+            )
         if projection.task.status == "created":
             commands.append(
                 (
@@ -1154,69 +1166,29 @@ def _task_controls(
     return controls
 
 
-def _intent_for_command(command: str) -> str:
-    if " task run " in command and "--worker shell" in command:
-        return "start_shell"
-    if " task verify " in command:
-        return "verify"
-    if " task promote-preview " in command:
-        return "review_preview"
-    if " task promote " in command:
-        return "promote"
-    if " task cleanup " in command and "--preview" in command:
-        return "cleanup_preview"
-    if " task log " in command:
-        return "inspect_log"
-    return "next_safe_action"
-
-
-def _label_for_command(command: str) -> str:
-    labels = {
-        "start_shell": "Start shell",
-        "verify": "Verify",
-        "review_preview": "Review preview",
-        "promote": "Promote",
-        "cleanup_preview": "Cleanup preview",
-        "inspect_log": "Inspect log",
-    }
-    return labels.get(_intent_for_command(command), "Next safe action")
-
-
 def _action(label: str, command: str, scope: str) -> TaskWorkbenchAction:
-    classification = classify_supervisor_command(command)
-    return TaskWorkbenchAction(
-        label=label,
-        command=command,
+    capability = build_browser_task_capability(
+        intent_for_command(command),
+        label,
+        command,
         scope=scope,
-        safety_class=str(classification["safety_class"]),
-        requires_human_approval=bool(classification["requires_human_approval"]),
-        supervisor_may_auto_run=bool(classification["supervisor_may_auto_run"]),
-        reason=classification.get("why_not_auto_runnable"),
+    )
+    return TaskWorkbenchAction(
+        label=capability.label,
+        command=capability.command,
+        scope=capability.scope,
+        safety_class=capability.safety_class,
+        requires_human_approval=capability.requires_human_approval,
+        supervisor_may_auto_run=capability.supervisor_may_auto_run,
+        intent=capability.intent,
+        required_inputs=capability.required_inputs,
+        reason=capability.reason,
     )
 
 
 def _control(intent: str, label: str, command: str) -> TaskWorkbenchControl:
-    classification = classify_supervisor_command(command)
-    return TaskWorkbenchControl(
-        intent=intent,
-        label=label,
-        command=command,
-        safety_class=str(classification["safety_class"]),
-        requires_human_approval=bool(classification["requires_human_approval"]),
-        supervisor_may_auto_run=bool(classification["supervisor_may_auto_run"]),
-        required_inputs=_required_inputs_for_control(intent, command),
-        reason=classification.get("why_not_auto_runnable"),
-    )
-
-
-def _required_inputs_for_control(intent: str, command: str) -> list[str]:
-    if intent in {"start_shell", "retry"} or command.endswith(" -- <command>"):
-        return ["shell_command"]
-    if intent == "verify" or ' --shell "<command>"' in command:
-        return ["verification_command"]
-    if intent == "close":
-        return ["close_outcome", "close_reason"]
-    return []
+    capability = build_browser_task_capability(intent, label, command)
+    return TaskWorkbenchControl(**capability.model_dump())
 
 
 def _scope_task_command(command: str, project_id: str | None) -> str:
