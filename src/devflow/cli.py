@@ -5,14 +5,21 @@ from typing import Any
 import json
 import os
 
+import typer
+
+from devflow.control_room.task_command_policy import (
+    experimental_command_hidden,
+    experimental_refusal_lines,
+)
+
+
 def _enforce_experimental(cmd_name: str) -> None:
-    if os.getenv("DEVFLOW_EXPERIMENTAL") != "1":
-        typer.echo(f"Error: Command '{cmd_name}' is experimental and restricted to transition planning aids.", err=True)
-        typer.echo("To run this command, please set the environment variable DEVFLOW_EXPERIMENTAL=1.", err=True)
+    lines = experimental_refusal_lines(cmd_name) if experimental_command_hidden() else []
+    if lines:
+        for line in lines:
+            typer.echo(line, err=True)
         raise typer.Exit(code=1)
 
-
-import typer
 
 from devflow.control_room.dashboard import (
     run_dashboard,
@@ -1379,7 +1386,7 @@ def next_command() -> None:
 @app.command(
     "supervise",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+    hidden=experimental_command_hidden(),
 )
 def supervise_command(
     ctx: typer.Context,
@@ -1451,7 +1458,7 @@ def supervise_command(
 
 @app.command(
     "context",
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+    hidden=experimental_command_hidden(),
 )
 def context_command(
     task_description: str = typer.Argument(None, help="The task description to plan context for."),
@@ -2075,7 +2082,7 @@ def task_fit_command(
 
 @task_app.command(
     "pack",
-    hidden=os.getenv("DEVFLOW_EXPERIMENTAL") != "1",
+    hidden=experimental_command_hidden(),
 )
 def task_pack_command(task_id: str, role: str) -> None:
     """[EXPERIMENTAL-READONLY] Build and save a role-based context pack for a task."""
@@ -2784,7 +2791,7 @@ def task_run(
         raise typer.Exit(code=exit_code)
 
 
-@task_app.command("auto-run")
+@task_app.command("auto-run", hidden=experimental_command_hidden())
 def task_auto_run(
     task_id: str,
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the routing decision without executing."),
@@ -2799,6 +2806,7 @@ def task_auto_run(
 
     Use --dry-run to inspect the routing decision without running.
     """
+    _enforce_experimental("task auto-run")
     scope = _resolve_task_project_root(project)
     root = scope.root
     project_option = f" --project {project}" if project else ""
@@ -2858,7 +2866,6 @@ def task_auto_run(
 
     from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, list_worker_adapters
     from devflow.control_room.agent_registry import load_agent_registry
-    from devflow.control_room.task import run_shell_task
 
     registry = load_agent_registry(root)
     selected_agent = registry.agents.get(worker_id) if worker_id else None

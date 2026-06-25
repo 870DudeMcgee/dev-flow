@@ -41,6 +41,7 @@ def test_subprocess_standard_help_hides_experimental_commands() -> None:
     for cmd in ["fit", "scout", "route", "scorecard"]:
         assert _has_command(res_task.stdout, cmd)
     assert not _has_command(res_task.stdout, "pack")
+    assert not _has_command(res_task.stdout, "auto-run")
     assert "[EXPERIMENTAL-" not in res_task.stdout
 
 
@@ -72,6 +73,7 @@ def test_subprocess_experimental_env_exposes_commands() -> None:
     for cmd in ["fit", "scout", "route", "scorecard"]:
         assert _has_command(res_task.stdout, cmd)
     assert _has_command(res_task.stdout, "pack")
+    assert _has_command(res_task.stdout, "auto-run")
     assert "[EXPERIMENTAL-READONLY]" in res_task.stdout
 
 
@@ -88,3 +90,13 @@ def test_subprocess_experimental_execution_refused_without_env() -> None:
     assert res.returncode == 1
     assert "Error: Command 'context' is experimental and restricted to transition planning aids." in res.stderr
     assert "To run this command, please set the environment variable DEVFLOW_EXPERIMENTAL=1." in res.stderr
+
+    res_auto_run = subprocess.run(
+        [sys.executable, "-m", "devflow.cli", "task", "auto-run", "task-0001", "--dry-run"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert res_auto_run.returncode == 1
+    assert "Error: Command 'task auto-run' is experimental and restricted to transition planning aids." in res_auto_run.stderr
+    assert "To run this command, please set the environment variable DEVFLOW_EXPERIMENTAL=1." in res_auto_run.stderr
