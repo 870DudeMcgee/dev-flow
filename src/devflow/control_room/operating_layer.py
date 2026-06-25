@@ -36,7 +36,7 @@ from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_s
 from devflow.control_room.serial_local_agent_run import serial_local_agent_run_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
 from devflow.control_room.supervisor_surface import classify_supervisor_command
-from devflow.control_room.operating_layer_presentation import (
+from devflow.control_room.operating_layer_first_viewport import (
     FirstViewportPresentation,
     build_first_viewport_presentation,
 )
@@ -568,7 +568,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
             for lane in task_workbench.lanes
         ],
         tasks=tasks,
-        first_viewport=build_first_viewport_presentation(task_workbench),
+        first_viewport=build_first_viewport_presentation(task_workbench, root=root),
         questions=questions,
         inbox=inbox,
         promotion_desk=promotion_desk,

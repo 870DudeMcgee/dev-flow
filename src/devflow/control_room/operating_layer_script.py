@@ -366,6 +366,20 @@ function buildFirstViewportPresentation(snap) {
   const selectedId = serverLaunchpad.selected_task_id || fallbackTaskId;
   const selected = taskLookup.get(selectedId) || null;
   const primary = selected ? primaryTaskCapability(selected) : null;
+  const selectedTaskPresentation = selected ? {
+    task_id: selected.id,
+    title: selected.title || 'Untitled task',
+    lane: selected.lane || 'new',
+    display_status: selected.display_status || selected.lane || 'new',
+    worker_model_label: taskWorkerLabel(selected),
+    verification_status: selected.verification_status || 'not_run',
+    latest: taskFreshness(selected),
+    definition_of_done: selected.definition_of_done || null,
+    action_label: selected ? taskActionLabel(selected) : 'Inspect task',
+    command: primary?.command || selected.next_action?.command || '',
+    reason: selected.next_action?.reason || null,
+    evidence_paths: selected.evidence_paths || selected.detail?.evidence_paths || [],
+  } : null;
   const reviewTasks = tasks.filter(t => ['needs_verification', 'needs_review', 'ready_to_promote', 'failed', 'blocked'].includes(t.lane));
   const switcherIds = Array.isArray(serverLaunchpad.switcher_task_ids) && serverLaunchpad.switcher_task_ids.length
     ? serverLaunchpad.switcher_task_ids
@@ -377,6 +391,9 @@ function buildFirstViewportPresentation(snap) {
     active_tasks: activeTasks,
     active_task_count: server?.active_task_count ?? activeTasks.length,
     total_task_count: server?.total_task_count ?? tasks.length,
+    brainstorm: server?.brainstorm || source.brainstorm || null,
+    pipeline: server?.pipeline || source.pipeline || { stages: pipelineState?.stages || [] },
+    next_task: server?.next_task || selectedTaskPresentation,
     worker_lanes: Array.isArray(server?.worker_lanes) ? server.worker_lanes : sortedActiveTasks.map(taskCardFromSnapshotTask),
     review_queue: Array.isArray(server?.review_queue) ? server.review_queue : reviewTasks.map(reviewCardFromSnapshotTask),
     evidence_stream: Array.isArray(server?.evidence_stream)
@@ -680,16 +697,18 @@ async function loadBrainstormTranscript(sessionId) {
       }
     }
     container.scrollTop = container.scrollHeight;
-    // Refresh pipeline state for this session
+    // Refresh pipeline state for this session.
     const messages = data.messages || [];
-    pipelineState = {
-      stages: [
-        { id: 'brainstorm', done: messages.length > 0 },
-        { id: 'spec', done: data.spec != null },
-        { id: 'plan', done: data.plan != null },
-        { id: 'implementation', done: Boolean(data.implementation || data.pipeline?.has_implementation) },
-      ],
-    };
+    pipelineState = data.pipeline && Array.isArray(data.pipeline.stages)
+      ? data.pipeline
+      : {
+          stages: [
+            { id: 'brainstorm', label: 'Brainstorm', status: messages.length > 0 ? 'complete' : 'pending' },
+            { id: 'spec', label: 'Spec', status: data.spec != null ? 'complete' : 'pending' },
+            { id: 'plan', label: 'Plan', status: data.plan != null ? 'complete' : 'pending' },
+            { id: 'implementation', label: 'Implementation Task', status: Boolean(data.implementation || data.pipeline?.has_implementation) ? 'complete' : 'pending' },
+          ],
+        };
     renderPipeline();
   } catch(e) {
     console.error('Failed to load transcript:', e);
@@ -1094,6 +1113,7 @@ async function refreshPipelineState() {
 }
 
 function isPipelineStageComplete(stage) {
+  if (stage?.complete === true || stage?.done === true) return true;
   const status = String(stage?.status || '').toLowerCase();
   return ['complete', 'accepted', 'passed'].includes(status);
 }
@@ -1104,6 +1124,7 @@ function getPipelineFirstIncompleteIndex(state) {
 }
 
 function getPipelinePrimaryStage(state) {
+  if (state?.primary_stage_id) return state.primary_stage_id;
   const stages = state?.stages || [];
   const next = stages.find(stage => !isPipelineStageComplete(stage));
   if (!next) return null;
@@ -1120,6 +1141,7 @@ function getNextStageLabel(stageId) {
 }
 
 function getPrimaryActionLabel(state) {
+  if (state?.primary_action_label) return state.primary_action_label;
   const stage = getPipelinePrimaryStage(state);
   if (stage) return getNextStageLabel(stage);
   const stages = state?.stages || [];
@@ -1129,7 +1151,10 @@ function getPrimaryActionLabel(state) {
   return taskExists ? 'View Tasks' : 'Review →';
 }
 
-function renderPipeline() {
+function renderPipeline(input) {
+  if (input && Array.isArray(input.stages)) {
+    pipelineState = input;
+  }
   const container = document.getElementById('pipeline-stages-container');
   if (!container) return;
   container.innerHTML = '';
@@ -1193,7 +1218,7 @@ function renderPipeline() {
     row.className = 'step-row';
 
     const strong = document.createElement('strong');
-    strong.textContent = stage.label;
+    strong.textContent = stage.label || sentenceCase(stage.id || 'stage');
     row.appendChild(strong);
 
     const statusEl = document.createElement('span');
@@ -2357,8 +2382,16 @@ function renderOrchestrator(snap, presentation) {
   setText('orchestrator-goal-id', snap.focus_goal_id || (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
 }
 
+function shouldUsePresentationPipeline(pipeline) {
+  return Boolean(
+    pipeline
+    && Array.isArray(pipeline.stages)
+    && (!pipeline.session_id || pipeline.session_id === brainstormSessionId || !(pipelineState?.stages || []).length)
+  );
+}
+
 function renderFirstViewport(presentation) {
-  renderPipeline();
+  renderPipeline(shouldUsePresentationPipeline(presentation?.pipeline) ? presentation.pipeline : null);
   renderWorkerLanes(presentation);
   renderReviewQueue(presentation);
   renderEvidenceStream(presentation);

@@ -17,6 +17,7 @@ from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
 from devflow.control_room.local_model_runtime_lock import local_model_runtime_lock
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
+from devflow.control_room.operating_layer_first_viewport import build_first_viewport_presentation
 from devflow.control_room.operating_layer_html import INDEX_HTML as SPLIT_INDEX_HTML
 from devflow.control_room.operating_layer_script import APP_JS as SPLIT_APP_JS
 from devflow.control_room.operating_layer_server import (
@@ -30,6 +31,7 @@ from devflow.control_room.persistence import get_task, save_task, utc_now
 from devflow.control_room.project_models import ProjectMetadata, ProjectRecord
 from devflow.control_room.project_registry import register_project, write_project_metadata
 from devflow.control_room.serial_local_agent_run import create_serial_local_agent_run
+from devflow.control_room.task_workbench import build_task_workbench
 from devflow.control_room.worker_evidence import write_worker_evidence
 from tests.helpers import setup_temp_git_repo
 
@@ -396,6 +398,48 @@ def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
     assert worker["recommended_verification_commands"] == []
     assert worker["needs_operator_inputs"] == ["verification_commands"]
     assert "<allowed-file>" not in " ".join(worker["recommended_allowed_files"])
+
+
+def test_first_viewport_module_shapes_brainstorm_pipeline_and_launchpad(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "first viewport task"]).exit_code == 0
+    session_dir = tmp_path / ".devflow" / "brainstorms" / "browser-session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    records = [
+        {
+            "role": "user",
+            "kind": "message",
+            "content": "Turn this idea into a verified operating-layer task.",
+            "created_at": "2026-06-25T12:00:00Z",
+        }
+    ]
+    session_dir.joinpath("transcript.jsonl").write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    session_dir.joinpath("spec.md").write_text("# Spec\n\nVisible state first.\n", encoding="utf-8")
+
+    presentation = build_first_viewport_presentation(
+        build_task_workbench(tmp_path),
+        root=tmp_path,
+    )
+    payload = presentation.model_dump(mode="json")
+
+    assert payload["brainstorm"]["session_id"] == "browser-session"
+    assert payload["brainstorm"]["message_count"] == 1
+    assert payload["brainstorm"]["latest_message"] == "Turn this idea into a verified operating-layer task."
+    assert payload["pipeline"]["session_id"] == "browser-session"
+    assert payload["pipeline"]["first_incomplete_stage_id"] == "plan"
+    assert payload["pipeline"]["primary_stage_id"] == "plan"
+    assert payload["pipeline"]["primary_action_label"] == "Generate Plan ->"
+    assert payload["next_task"]["task_id"] == "task-0001"
+    assert payload["next_task"]["action_label"] == "Start shell"
+    assert payload["worker_lanes"][0]["task_id"] == "task-0001"
+    assert payload["launchpad"]["selected_task_id"] == "task-0001"
 
 
 def test_task_definition_of_done_persists_loads_old_tasks_shows_and_snapshots(
