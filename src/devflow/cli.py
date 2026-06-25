@@ -37,7 +37,11 @@ from devflow.control_room.service import (
     run_local_model_task,
     run_shell_task,
     verify_task,
-    apply_task_patch,
+)
+from devflow.control_room.task_apply_patch_command import (
+    TaskApplyPatchCommandError,
+    build_task_apply_patch_result,
+    render_task_apply_patch_result,
 )
 from devflow.control_room.task_closure import (
     TaskClosureError,
@@ -64,12 +68,6 @@ from devflow.control_room.task_artifact_open import (
 )
 from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
 from devflow.control_room.maintenance import reset_dogfood_state, reset_test_state, repair_state
-from devflow.control_room.patch_applier import (
-    PatchError,
-    PatchSelectionError,
-    PatchParseError,
-    PatchApplicationError,
-)
 from devflow.control_room.reconciliation import build_reconciliation_report
 
 from devflow.control_room.status_projection import list_task_status_projections
@@ -2856,67 +2854,18 @@ def task_apply_patch(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        task = apply_task_patch(root, task_id, agent_id=agent, run_id=run_id)
-
-        # Retrieve the latest patch_applied event to print details
-        task_path = root / ".devflow" / "tasks" / task.id
-        events_file = task_path / "events.jsonl"
-        patch_hash = "unknown"
-        patch_evidence_path = None
-        patch_review_path = None
-        patch_dry_run_path = None
-        agent_id = agent or "default"
-        applied_run_id = run_id
-        changed_files = []
-        if events_file.exists():
-            for line in events_file.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    evt = json.loads(line)
-                    if evt.get("event") == "patch_applied":
-                        patch_hash = evt.get("patch_hash", "unknown")
-                        patch_evidence_path = evt.get("patch_evidence_path")
-                        patch_review_path = evt.get("patch_review_path")
-                        patch_dry_run_path = evt.get("patch_dry_run_path")
-                        agent_id = evt.get("agent_id") or agent_id
-                        applied_run_id = evt.get("run_id", applied_run_id)
-                        changed_files = evt.get("changed_files", [])
-                except Exception:
-                    pass
-
-        typer.echo(
-            f"Successfully applied patch from agent '{agent_id}' "
-            f"to task workspace '{_task_ref(task.id, scope.project_id)}'."
+        result = build_task_apply_patch_result(
+            root,
+            task_id,
+            agent_id=agent,
+            run_id=run_id,
+            project_id=scope.project_id,
         )
-        if scope.project_id:
-            typer.echo(f"project_root: {root}")
-        typer.echo(f"Workspace: .devflow/workspaces/{task.id}")
-        if applied_run_id:
-            typer.echo(f"Run ID: {applied_run_id}")
-        typer.echo(f"Patch Hash: {patch_hash}")
-        if patch_review_path:
-            typer.echo(f"Patch Review: {patch_review_path}")
-        if patch_dry_run_path:
-            typer.echo(f"Patch Dry-run: {patch_dry_run_path}")
-        if patch_evidence_path:
-            typer.echo(f"Patch Evidence: {patch_evidence_path}")
-        typer.echo("")
-        typer.echo("Modified files:")
-        for cf in changed_files:
-            typer.echo(f"  - {cf['path']} ({cf['operation']})")
-        typer.echo("")
-        typer.echo("Next:")
-        if scope.project_id:
-            typer.echo(
-                f"  devflow task verify {task.id} --project {scope.project_id} --shell \"<command>\""
-            )
-        else:
-            typer.echo(f"  devflow task verify {task.id} --shell \"<command>\"")
-
-    except (PatchError, ValueError) as exc:
+    except TaskApplyPatchCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+    for line in render_task_apply_patch_result(result):
+        typer.echo(line)
 
 
 @task_app.command("promote-preview")
