@@ -34,7 +34,6 @@ from devflow.control_room.service import (
     doctor,
     get_task,
     init_control_room,
-    promotion_readiness_errors,
     run_local_model_task,
     run_shell_task,
     verify_task,
@@ -82,11 +81,15 @@ from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
     cleanup_task_git_resources,
-    current_head,
-    git_worker_lane_summary,
     list_devflow_branches,
     list_devflow_worktrees,
     prune_orphan_worktrees,
+)
+from devflow.control_room.task_promotion_command import (
+    TaskPromotionCommandError,
+    build_task_promotion_preview_view,
+    build_task_promotion_run_view,
+    execute_task_promotion_run,
 )
 from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
@@ -2919,128 +2922,14 @@ def task_promote_preview(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        from devflow.control_room.service import preview_task_promotion
-        res = preview_task_promotion(root, task_id)
-    except KeyError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-    except ValueError as exc:
+        view = build_task_promotion_preview_view(root, task_id, project_id=scope.project_id)
+    except TaskPromotionCommandError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    added = res["added"]
-    modified = res["modified"]
-    deleted = res["deleted"]
-    renamed = res.get("renamed", [])
-    untracked = res.get("untracked", [])
-    binary = res.get("binary", [])
-    diffs = res["diffs"]
-    baseline = res["baseline"]
-    git_preview = res.get("git")
-    lane_summary = None
-    if git_preview:
-        lane_summary = git_worker_lane_summary(root, get_task(root, task_id))
-    human_approval = res.get("human_approval") or {}
-    human_approval_required = bool(human_approval.get("required"))
-    if scope.project_id:
-        next_action = (
-            f"Review this preview, then run 'devflow task promote {task_id}' "
-            f"from the project_root above."
-        )
-    elif human_approval_required:
-        next_action = (
-            f"Human approval required; review this preview, then run "
-            f"'devflow task promote {task_id}'."
-        )
-    else:
-        next_action = f"devflow task promote {task_id}"
-    if lane_summary and lane_summary.get("readiness_status") != "ready":
-        next_action = str(lane_summary.get("next_safe_action") or next_action)
-
-    typer.echo("preview_only: yes")
-    typer.echo("main_changed: no")
-    typer.echo(f"task: {_task_ref(task_id, scope.project_id)}")
-    if scope.project_id:
-        typer.echo(f"project_root: {root}")
-    typer.echo(f"next_action: {next_action}")
-    typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
-    typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
-    if "origin_main_head" in baseline:
-        typer.echo(f"origin_main_head: {baseline['origin_main_head'] or 'unavailable'}")
-    typer.echo(f"baseline_status: {baseline['baseline_status']}")
-    if "origin_baseline_status" in baseline:
-        typer.echo(f"origin_baseline_status: {baseline['origin_baseline_status']}")
-    if human_approval_required:
-        typer.echo("human_approval_required: yes")
-        if human_approval.get("reason"):
-            typer.echo(f"human_approval_reason: {human_approval['reason']}")
-        if human_approval.get("prompt"):
-            typer.echo(f"human_approval_prompt: {human_approval['prompt']}")
-    if git_preview:
-        typer.echo(f"task_id: {git_preview['task_id']}")
-        typer.echo(f"worker_id: {git_preview['worker_id']}")
-        typer.echo(f"base_commit: {git_preview['base_commit'] or 'unavailable'}")
-        typer.echo(f"main_current_head: {git_preview['main_current_head'] or 'unavailable'}")
-        typer.echo(f"origin_main_head: {git_preview['origin_main_head'] or 'unavailable'}")
-        typer.echo(f"worker_branch: {git_preview['worker_branch']}")
-        typer.echo(f"worker_branch_head: {git_preview['worker_branch_head'] or 'unavailable'}")
-        typer.echo(f"merge_base: {git_preview['merge_base'] or 'unavailable'}")
-        typer.echo(f"baseline_stale: {'yes' if git_preview['baseline_stale'] else 'no'}")
-        typer.echo(f"origin_baseline_stale: {'yes' if git_preview['origin_baseline_stale'] else 'no'}")
-        typer.echo(f"conflict_prediction: {git_preview['conflict_prediction']}")
-        typer.echo(f"verification_status: {git_preview['verification_status']}")
-        typer.echo(f"promotion_readiness: {git_preview['promotion_readiness']}")
-        if lane_summary:
-            typer.echo(f"lane_readiness: {lane_summary['readiness_status']}")
-            typer.echo(f"next_safe_action: {lane_summary['next_safe_action']}")
-
-    if not added and not modified and not deleted and not renamed and not untracked and not binary:
-        typer.echo("No changes to promote")
-        _echo_review_capsule(root, task_id, promotion_preview=res)
-        return
-
-    if added:
-        typer.echo("Added files:")
-        for name in added:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if modified:
-        typer.echo("Modified files:")
-        for name in modified:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if deleted:
-        typer.echo("Deleted files:")
-        for name in deleted:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if renamed:
-        typer.echo("Renamed files:")
-        for item in renamed:
-            typer.echo(f"  - {item['from']} -> {item['to']}")
-        typer.echo()
-
-    if untracked:
-        typer.echo("Untracked files:")
-        for name in untracked:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if binary:
-        typer.echo("Binary files:")
-        for name in binary:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    typer.echo("--- Diffs ---")
-    for name in sorted(diffs.keys()):
-        diff_text = diffs[name]
-        if diff_text:
-            typer.echo(diff_text, nl=False)
-    _echo_review_capsule(root, task_id, promotion_preview=res)
+    for line in view.lines:
+        typer.echo(line)
+    _echo_review_capsule(root, task_id, promotion_preview=view.promotion_preview)
 
 
 @task_app.command("promote")
@@ -3059,153 +2948,44 @@ def task_promote(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        from devflow.control_room.git_state import inspect_git_state
-        from devflow.control_room.service import (
-            format_promotion_refusal,
-            format_stale_baseline_refusal,
-            get_task,
-            main_checkout_has_uncommitted_changes,
-            preview_task_promotion,
-            promote_task,
-            promotion_baseline,
-            promotion_readiness_errors,
+        view = build_task_promotion_run_view(
+            root,
+            task_id,
+            force=force,
+            force_stale_baseline=force_stale_baseline,
+            apply_deletions=apply_deletions,
+            project_id=scope.project_id,
         )
-        # 1. Safety check for dirty main checkout
-        git_state = inspect_git_state(root)
-        if git_state.is_repo:
-            dirty = main_checkout_has_uncommitted_changes(root)
-            if dirty:
-                if not force:
-                    typer.echo(
-                        "Error: Main checkout has uncommitted changes. Please commit or stash them first, or use --force to bypass.",
-                        err=True,
-                    )
-                    raise typer.Exit(code=1)
-                else:
-                    typer.echo("Warning: Bypassing safety check for uncommitted changes in main checkout.")
-
-        task = get_task(root, task_id)
-        task_path = root / ".devflow" / "tasks" / task.id
-        readiness_errors = promotion_readiness_errors(
-            task,
-            task_path,
-            allow_stale_baseline=force_stale_baseline,
-        )
-        if readiness_errors:
-            typer.echo(
-                format_promotion_refusal(task, task_path, allow_stale_baseline=force_stale_baseline),
-                err=True,
-            )
-            raise typer.Exit(code=1)
-
-        baseline = promotion_baseline(root, task)
-        if git_state.is_repo:
-            if baseline["baseline_status"] == "unavailable":
-                typer.echo(format_stale_baseline_refusal(root, task), err=True)
-                raise typer.Exit(code=1)
-            if baseline["baseline_status"] == "changed":
-                if not force_stale_baseline:
-                    typer.echo(format_stale_baseline_refusal(root, task), err=True)
-                    raise typer.Exit(code=1)
-                typer.echo("Warning: Forcing promotion with stale task baseline.")
-                typer.echo(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
-                typer.echo(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
-
-        res = preview_task_promotion(root, task_id)
-    except KeyError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-    except ValueError as exc:
+    except TaskPromotionCommandError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    added = res["added"]
-    modified = res["modified"]
-    deleted = res["deleted"]
-    renamed = res.get("renamed", [])
-    untracked = res.get("untracked", [])
-    binary = res.get("binary", [])
-    diffs = res["diffs"]
+    for line in view.lines:
+        typer.echo(line)
 
-    typer.echo(f"task: {_task_ref(task_id, scope.project_id)}")
-    if scope.project_id:
-        typer.echo(f"project_root: {root}")
-
-    if not added and not modified and not deleted and not renamed and not untracked and not binary:
-        typer.echo("No changes to promote")
+    if view.no_changes:
         return
 
-    if added:
-        typer.echo("Added files:")
-        for name in added:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if modified:
-        typer.echo("Modified files:")
-        for name in modified:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if deleted:
-        typer.echo("Deleted files:")
-        for name in deleted:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if renamed:
-        typer.echo("Renamed files:")
-        for item in renamed:
-            typer.echo(f"  - {item['from']} -> {item['to']}")
-        typer.echo()
-
-    if untracked:
-        typer.echo("Untracked files:")
-        for name in untracked:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    if binary:
-        typer.echo("Binary files:")
-        for name in binary:
-            typer.echo(f"  - {name}")
-        typer.echo()
-
-    typer.echo("--- Diffs ---")
-    for name in sorted(diffs.keys()):
-        diff_text = diffs[name]
-        if diff_text:
-            typer.echo(diff_text, nl=False)
-
-    if apply_deletions or res.get("git"):
+    if view.requires_confirmation:
         confirmed = typer.confirm("Promote these changes to the main checkout?", default=False)
         if not confirmed:
             typer.echo("Promotion aborted.")
             return
 
     try:
-        before_main_head = current_head(root)
-        promote_task(
+        result = execute_task_promotion_run(
             root,
             task_id,
             force=force,
-            apply_deletions=apply_deletions,
             force_stale_baseline=force_stale_baseline,
+            apply_deletions=apply_deletions,
         )
-        after_main_head = current_head(root)
-    except Exception as exc:
-        typer.echo(f"Error executing promotion: {exc}", err=True)
+    except TaskPromotionCommandError as exc:
+        typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo("Promotion complete.")
-    if res.get("git"):
-        typer.echo(f"main_changed: {'yes' if before_main_head and after_main_head and before_main_head != after_main_head else 'no'}")
-        typer.echo("staged_changes_left: no")
-    if deleted:
-        if apply_deletions:
-            typer.echo(f"Applied deletions: {len(deleted)} file(s) removed.")
-        else:
-            typer.echo("Warning: Deletions are preview-only and were not applied (deletions are deferred). Use --apply-deletions to apply them.")
+    for line in result.lines:
+        typer.echo(line)
 
 
 @task_app.command("open")
