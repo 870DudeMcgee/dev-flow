@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,12 +22,10 @@ from devflow.control_room.paths import (
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     build_git_promotion_preview,
-    create_git_worktree,
     git_branch_sharing_checks,
     git_doctor_checks,
     git_worktree_readiness_errors,
     is_git_worktree_task,
-    refresh_git_worker_evidence,
     worker_id_for_task,
 )
 from devflow.control_room.persistence import (
@@ -45,9 +42,12 @@ from devflow.control_room.promotion import (
     main_checkout_has_uncommitted_changes,
     promotion_baseline,
 )
-from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.readiness import format_promotion_refusal, promotion_readiness_errors
-from devflow.control_room.seed import initialize_seed, validate_seed_contract
+from devflow.control_room.seed import validate_seed_contract
+from devflow.control_room.task_creation import (
+    create_control_room_task,
+    initialize_control_room,
+)
 from devflow.control_room.task_lifecycle import (
     append_task_event,
     record_task_update,
@@ -60,7 +60,6 @@ from devflow.control_room.task_patch_application import apply_task_patch_command
 from devflow.control_room.task_verification import verify_task_command
 from devflow.control_room.task_local_worker_run import run_task_local_worker
 from devflow.control_room.task_worker_run import run_task_worker
-from devflow.control_room.workspace import create_workspace
 from devflow.control_room.local_ollama_worker import LocalOllamaRunResult
 
 # Dynamic compatibility shims and mappings
@@ -101,23 +100,7 @@ def promote_task(
 
 
 def init_control_room(root: Path, project_seed: Any | None = None) -> None:
-    devflow_dir(root).mkdir(parents=True, exist_ok=True)
-    initialize_seed(root, project_seed=project_seed)
-    system_dir(root).mkdir(parents=True, exist_ok=True)
-    tasks_dir(root).mkdir(parents=True, exist_ok=True)
-    workspaces_dir(root).mkdir(parents=True, exist_ok=True)
-    system_events_path(root).touch(exist_ok=True)
-    if not config_path(root).exists():
-        config_path(root).write_text(
-            "version: 1\n"
-            "source_of_truth: filesystem\n"
-            "tasks: .devflow/tasks\n"
-            "workspaces: .devflow/workspaces\n"
-            "workers:\n"
-            "  shell:\n"
-            "    type: shell\n",
-            encoding="utf-8",
-        )
+    initialize_control_room(root, project_seed=project_seed)
 
 
 def create_task(
@@ -127,108 +110,12 @@ def create_task(
     worker_id: str = "shell",
     definition_of_done: str | None = None,
 ) -> TaskRecord:
-    init_control_room(root)
-    _require_managed_project_git_baseline(root)
-    done_text = str(definition_of_done).strip() if definition_of_done is not None else None
-
-    # Concurrency Lock: Retryatomic directory creation to prevent task creation races
-    lock_dir = devflow_dir(root) / ".lock"
-    import time
-    for _ in range(200):
-        try:
-            lock_dir.mkdir(parents=True, exist_ok=False)
-            break
-        except FileExistsError:
-            time.sleep(0.01)
-
-    try:
-        task_id = _next_task_id(root)
-        task_path = task_dir(root, task_id)
-        
-        # Atomically create the task directory, fail if already exists
-        task_path.mkdir(parents=True, exist_ok=False)
-        (task_path / "logs").mkdir(parents=True, exist_ok=True)
-    finally:
-        # Release the lock directory
-        try:
-            lock_dir.rmdir()
-        except Exception:
-            pass
-
-    workspace = create_git_worktree(root, task_id, worker_id=worker_id) if git_worktree else create_workspace(root, task_id)
-
-    now = utc_now()
-    record = TaskRecord(
-        id=task_id,
-        title=title,
-        definition_of_done=done_text or None,
-        status="created",
-        created_at=now,
-        updated_at=now,
-        workspace=_relative(root, workspace.path),
-        workspace_path=_relative(root, workspace.path),
-        workspace_kind=workspace.kind,
-        worker="shell",
-        last_event="task_created",
-        verification_status="not_run",
-        branch_name=workspace.branch_name,
-        workspace_commit=workspace.commit_sha,
-        workspace_dirty=workspace.dirty,
-        git={
-            "base_ref": workspace.base_ref,
-            "base_commit": workspace.commit_sha,
-            "branch": workspace.branch_name,
-            "workspace": _relative(root, workspace.path),
-        },
-    )
-    _write_initial_artifacts(task_path, task_id, record.workspace)
-    if git_worktree:
-        refresh_git_worker_evidence(root, record, worker_id=worker_id)
-    event_payload: dict[str, Any] = {
-        "title": title,
-        "definition_of_done": record.definition_of_done,
-        "workspace": record.workspace,
-        "branch_name": workspace.branch_name,
-        "workspace_commit": workspace.commit_sha,
-        "workspace_dirty": workspace.dirty,
-        "workspace_kind": workspace.kind,
-        "git": record.git,
-    }
-    if workspace.skipped_symlinks:
-        event_payload["skipped_symlinks"] = list(workspace.skipped_symlinks)
-    record_task_update(
+    return create_control_room_task(
         root,
-        record,
-        event_type="task_created",
-        event_payload=event_payload,
-        event_position="before_save",
-    )
-    return record
-
-
-def _require_managed_project_git_baseline(root: Path) -> None:
-    try:
-        metadata = load_project_metadata(root)
-    except ProjectRegistryError:
-        return
-    if not metadata.source_control.local_repo:
-        return
-
-    head = subprocess.run(
-        ["git", "rev-parse", "--verify", "HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        timeout=5,
-        check=False,
-    )
-    if head.returncode == 0:
-        return
-
-    raise ValueError(
-        "Project local Git baseline is missing. "
-        f"Run `devflow git checkpoint --message \"chore: initialize project baseline\" --yes` from {root} "
-        "before creating tasks."
+        title,
+        git_worktree=git_worktree,
+        worker_id=worker_id,
+        definition_of_done=definition_of_done,
     )
 
 
@@ -590,22 +477,6 @@ def _read_task_events(path: Path) -> list[dict[str, Any]]:
         if isinstance(event, dict):
             events.append(event)
     return events
-
-
-def _write_initial_artifacts(task_path: Path, task_id: str, workspace_rel: str) -> None:
-    ensure_task_baseline_artifacts(task_path, task_id=task_id, workspace_rel=workspace_rel)
-
-
-def _next_task_id(root: Path) -> str:
-    existing = []
-    if tasks_dir(root).exists():
-        for path in tasks_dir(root).iterdir():
-            if path.is_dir() and path.name.startswith("task-"):
-                try:
-                    existing.append(int(path.name.removeprefix("task-")))
-                except ValueError:
-                    continue
-    return f"task-{(max(existing) if existing else 0) + 1:04d}"
 
 def apply_task_patch(
     root: Path,
