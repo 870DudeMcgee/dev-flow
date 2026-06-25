@@ -52,6 +52,11 @@ from devflow.control_room.task_evidence_summary import (
     build_task_evidence_summary,
     render_task_evidence_summary,
 )
+from devflow.control_room.task_show_summary import (
+    TaskShowSummaryError,
+    build_task_show_summary,
+    render_task_show_summary,
+)
 from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
 from devflow.control_room.maintenance import reset_dogfood_state, reset_test_state, repair_state
 from devflow.control_room.patch_applier import (
@@ -62,7 +67,7 @@ from devflow.control_room.patch_applier import (
 )
 from devflow.control_room.reconciliation import build_reconciliation_report
 
-from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
+from devflow.control_room.status_projection import list_task_status_projections
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
 from devflow.control_room.token_context import write_context_packet
@@ -70,14 +75,12 @@ from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, get_wo
 from devflow.control_room.agent_registry import load_agent_registry, AgentRegistryError
 from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.task_packet import build_agent_packet
-from devflow.control_room.proposal_normalizer import latest_normalized_proposal, normalize_proposal
-from devflow.control_room.patch_dry_run import latest_patch_dry_run, preview_patch_dry_run
-from devflow.control_room.patch_review import latest_patch_review, normalize_agent_patch_candidate, review_patch_candidate
-from devflow.control_room.qwopus_evidence import qwopus_result_summary
+from devflow.control_room.proposal_normalizer import normalize_proposal
+from devflow.control_room.patch_dry_run import preview_patch_dry_run
+from devflow.control_room.patch_review import normalize_agent_patch_candidate, review_patch_candidate
 from devflow.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
-    branch_head,
     cleanup_task_git_resources,
     current_head,
     git_worker_lane_summary,
@@ -87,7 +90,7 @@ from devflow.control_room.git_worktree import (
 )
 from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
-from devflow.control_room.qwopus_evidence import build_qwopus_summary, write_qwopus_escalation_packet
+from devflow.control_room.qwopus_evidence import write_qwopus_escalation_packet
 from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
 from devflow.control_room.review_readiness import (
     build_review_readiness_projection,
@@ -1722,198 +1725,14 @@ def task_show(
 ) -> None:
     """Show one task's status, logs, and artifacts."""
     scope = _resolve_task_project_root(project)
-    root = scope.root
     try:
-        task = get_task(root, task_id)
-    except KeyError as exc:
+        summary = build_task_show_summary(scope.root, task_id, project_id=scope.project_id)
+    except TaskShowSummaryError as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    projection = build_task_status_projection(root, task_id, task=task)
-    task_path = projection.task_path
-    typer.echo(f"task: {_task_ref(task.id, scope.project_id)}")
-    if scope.project_id:
-        typer.echo(f"project_root: {root}")
-    typer.echo(f"title: {task.title}")
-    if task.definition_of_done:
-        typer.echo(f"definition_of_done: {task.definition_of_done}")
-    typer.echo(f"status: {task.status}")
-    typer.echo(f"worker: {task.worker}")
-    typer.echo(f"workspace: {task.workspace}")
-    worker_lane = git_worker_lane_summary(root, task)
-    if worker_lane:
-        typer.echo(f"worker_lane: {worker_lane['workspace_mode']}")
-        typer.echo(f"worker_branch: {worker_lane['worker_branch']}")
-        typer.echo(f"worktree_path: {worker_lane['worktree_path']}")
-        typer.echo(f"lane_readiness: {worker_lane['readiness_status']}")
-        typer.echo(f"lane_next_action: {worker_lane['next_safe_action']}")
-    from devflow.control_room.local_worker_lane import local_worker_lane_summary
-
-    local_lane = local_worker_lane_summary(root, task)
-    if local_lane:
-        typer.echo(f"local_worker_lane: {local_lane['lane_type']}")
-        typer.echo(f"local_worker: {local_lane['worker_id']}")
-        typer.echo(f"local_worker_readiness: {local_lane['readiness_status']}")
-        typer.echo(f"local_worker_next_action: {local_lane['next_safe_action']}")
-    if task.branch_name:
-        typer.echo(f"branch_name: {task.branch_name}")
-    if task.workspace_commit:
-        typer.echo(f"workspace_commit: {task.workspace_commit}")
-    if task.workspace_dirty is not None:
-        typer.echo(f"workspace_dirty: {str(task.workspace_dirty).lower()}")
-    typer.echo(f"created_at: {task.created_at.isoformat()}")
-    typer.echo(f"updated_at: {task.updated_at.isoformat()}")
-    typer.echo(f"last_event: {task.last_event or ''}")
-    typer.echo(f"latest_log_line: {task.latest_log_line or ''}")
-    typer.echo(f"log_path: {task.log_path or ''}")
-    typer.echo(f"result_path: {task.result_path or ''}")
-    typer.echo(f"worker_command: {task.worker_command or ''}")
-    closure = read_closure(root, task.id)
-    if closure:
-        closed_next_action = closure_next_action(root, task)
-        typer.echo("closed: yes")
-        typer.echo(f"outcome: {closure.get('outcome') or ''}")
-        typer.echo(f"reason: {closure.get('reason') or ''}")
-        typer.echo(f"closed_at: {closure.get('closed_at') or ''}")
-        typer.echo(f"next_action: {closed_next_action}")
-
-    # Check for Goal Link metadata
-    goal_link_yaml = Path(task_path) / "goal-link.yaml"
-    if goal_link_yaml.exists():
-        import yaml
-        try:
-            link_data = yaml.safe_load(goal_link_yaml.read_text(encoding="utf-8")) or {}
-            typer.echo("Goal Link:")
-            typer.echo(f"  Goal: {link_data.get('goal_id')}")
-            typer.echo(f"  Slice: {link_data.get('slice_id')}")
-            typer.echo(f"  Execution mode: {link_data.get('execution_mode')}")
-            chk_req = str(link_data.get('human_checkpoint_required')).lower()
-            typer.echo(f"  Human checkpoint required: {chk_req}")
-            promo_allowed = str(link_data.get('promotion_allowed')).lower()
-            typer.echo(f"  Promotion allowed: {promo_allowed}")
-            typer.echo(f"  Source: {link_data.get('slice_source_path')}")
-        except Exception:
-            pass
-
-    typer.echo(f"verification_status: {projection.verification_status}")
-    typer.echo(f"verification_command: {projection.verification_command or ''}")
-    if projection.verification_exit_code is not None:
-        typer.echo(f"verification_exit_code: {projection.verification_exit_code}")
-    typer.echo(f"verification_log_path: {projection.verification_log_path or ''}")
-    typer.echo(f"exit_code: {task.last_exit_code if task.last_exit_code is not None else ''}")
-    finalization = _read_json_mapping(task_path / "finalization.json")
-    promoted_event = _get_latest_promoted_event(task_path)
-    suggested_next_action = projection.suggested_next_action
-    if closure:
-        suggested_next_action = closed_next_action
-    finalized_commit = finalization.get("commit_hash")
-    if isinstance(finalized_commit, str) and finalized_commit and not promoted_event and not closure:
-        typer.echo(f"finalized_commit: {finalized_commit}")
-        if task.branch_name:
-            typer.echo(f"worker_branch_commit: {branch_head(root, task.branch_name) or 'unavailable'}")
-        typer.echo("promotion_status: main not promoted yet")
-        suggested_next_action = f"devflow task promote-preview {task.id}"
-    typer.echo(f"suggested_next_action: {suggested_next_action}")
-    if projection.manual_agent_state:
-        typer.echo(f"manual_agent_state: {projection.manual_agent_state}")
-        if projection.manual_agent_handoff_path:
-            typer.echo(f"manual_agent_handoff: {projection.manual_agent_handoff_path}")
-        if projection.manual_agent_result_path:
-            typer.echo(f"manual_agent_result: {projection.manual_agent_result_path}")
-            typer.echo("manual_agent_note: Dev-Flow verification required before promotion.")
-        if projection.manual_agent_question:
-            typer.echo(f"manual_agent_question: {projection.manual_agent_question}")
-        if projection.manual_agent_failure:
-            typer.echo(f"manual_agent_failure: {projection.manual_agent_failure}")
-    if promoted_event:
-        typer.echo("promoted_changes:")
-        added = promoted_event.get("added", [])
-        modified = promoted_event.get("modified", [])
-        deleted_applied = promoted_event.get("deleted_applied", [])
-        if added:
-            typer.echo(f"  added: {', '.join(added)}")
-        if modified:
-            typer.echo(f"  modified: {', '.join(modified)}")
-        if deleted_applied:
-            typer.echo(f"  deleted_applied: {', '.join(deleted_applied)}")
-    packet_json = task_path / "packet.json"
-    if packet_json.exists():
-        rel_path = _relative(root, packet_json)
-        typer.echo("packet_artifact: exists")
-        typer.echo(f"packet_path: {rel_path}")
-        typer.echo(f"packet_hint: run 'devflow task packet {task.id}' for the latest generated preview")
-    else:
-        typer.echo("packet_artifact: missing")
-        if goal_link_yaml.exists():
-            typer.echo(f"packet_hint: run 'devflow task packet {task.id}' to preview bounded worker context")
-
-    local_runs_dir = Path(task_path) / "local-model-runs"
-    if local_runs_dir.exists() and local_runs_dir.is_dir():
-        runs = []
-        for run_folder in local_runs_dir.iterdir():
-            if run_folder.is_dir():
-                response_md = run_folder / "response.md"
-                if response_md.exists():
-                    runs.append((run_folder.name, response_md))
-        if runs:
-            runs.sort()
-            latest_run_name, latest_response_md = runs[-1]
-            rel_response_md = _relative(root, latest_response_md)
-            typer.echo("Local Model Runs:")
-            typer.echo(f"  latest: {rel_response_md}")
-            typer.echo("  hint: review this evidence, then decide whether to run/apply/verify explicitly")
-
-    normalized = latest_normalized_proposal(root, task.id)
-    if normalized:
-        proposal_path = normalized.get("proposal_path") or ""
-        validation_label = "not_performed"
-        validation_path = normalized.get("validation_path")
-        if validation_path:
-            validation_file = root / str(validation_path)
-            try:
-                validation_data = json.loads(validation_file.read_text(encoding="utf-8"))
-                validation_label = "valid" if validation_data.get("valid") else "invalid"
-            except Exception:
-                validation_label = "unknown"
-        typer.echo("Normalized Proposals:")
-        typer.echo(f"  latest: {proposal_path}")
-        typer.echo(f"  classification: {normalized.get('classification')}")
-        typer.echo(f"  patch_candidate: {'yes' if normalized.get('has_patch_candidate') else 'no'}")
-        typer.echo(f"  validation: {validation_label}")
-        typer.echo("  hint: review proposal evidence before applying or verifying anything")
-
-    patch_review = latest_patch_review(root, task.id)
-    if patch_review:
-        typer.echo("Patch Reviews:")
-        typer.echo(f"  latest: {patch_review.get('_review_path')}")
-        typer.echo(f"  status: {patch_review.get('review_status')}")
-        typer.echo(f"  risk: {patch_review.get('risk')}")
-        typer.echo(f"  files_touched: {len(patch_review.get('files_touched') or [])}")
-        typer.echo("  hint: review patch candidate before applying anything")
-
-    patch_dry_run = latest_patch_dry_run(root, task.id)
-    if patch_dry_run:
-        typer.echo("Patch Dry-runs:")
-        typer.echo(f"  latest: {patch_dry_run.get('_dry_run_path')}")
-        typer.echo(f"  status: {patch_dry_run.get('dry_run_status')}")
-        typer.echo(f"  risk: {patch_dry_run.get('risk')}")
-        typer.echo(
-            f"  hunks: {patch_dry_run.get('hunks_matched', 0)} matched / "
-            f"{patch_dry_run.get('hunks_failed', 0)} failed"
-        )
-        typer.echo("  hint: dry-run only; review before applying anything")
-
-    _echo_agent_patch_evidence_summary(root, task_path)
-    if projection.merge_ready is not None:
-        ready_str = "yes" if projection.merge_ready else "no"
-        typer.echo(f"merge_ready: {ready_str}")
-        if projection.readiness_reasons:
-            typer.echo("readiness_reasons:")
-            for reason in projection.readiness_reasons:
-                typer.echo(f"  - {reason}")
-    _echo_jsonl_tail("latest_events", task_path / "events.jsonl")
-    _echo_jsonl_tail("open_questions", task_path / "questions.jsonl")
-    _echo_result_summary(task_path / "result.md", summary=qwopus_result_summary(root, task.id))
+    for line in render_task_show_summary(summary):
+        typer.echo(line)
 
 
 @task_app.command("next-action")
@@ -3547,21 +3366,6 @@ def main() -> None:
     app()
 
 
-def _echo_jsonl_tail(label: str, path: Path, limit: int = 5) -> None:
-    typer.echo(f"{label}:")
-    if not path.exists() or not path.read_text(encoding="utf-8").strip():
-        typer.echo("  none")
-        return
-    lines = path.read_text(encoding="utf-8").splitlines()[-limit:]
-    for line in lines:
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            typer.echo(f"  {line}")
-            continue
-        typer.echo(f"  {event.get('timestamp', '')} {event.get('event', '')}")
-
-
 def _shell_command_or_args(shell_command: str | None, args: list[str], label: str) -> list[str]:
     if args and args[0] == "--":
         args = args[1:]
@@ -3649,79 +3453,6 @@ def _format_scorecard_list(value: object) -> str:
     if isinstance(value, list):
         return ", ".join(str(item) for item in value) if value else "none"
     return str(value)
-
-
-def _echo_result_summary(path: Path, summary: str | None = None) -> None:
-    typer.echo("result_summary:")
-    if summary:
-        typer.echo(f"  {summary}")
-        return
-    if not path.exists():
-        typer.echo("  none")
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and stripped not in {"## Summary", "## Status"}:
-            typer.echo(f"  {stripped}")
-            return
-    typer.echo("  none")
-
-
-def _echo_agent_patch_evidence_summary(root: Path, task_path: Path) -> None:
-    agents_dir = task_path / "agents"
-    if not agents_dir.exists() or not agents_dir.is_dir():
-        return
-
-    tracked_artifacts = (
-        ("packet_path", "packet.json"),
-        ("raw_output_path", "raw_output.md"),
-        ("proposal_patch_path", "proposal.patch"),
-        ("run_metadata_path", "run.json"),
-        ("agent_result_path", "result.md"),
-        ("agent_log_path", "logs/worker.log"),
-        ("worker_failed_path", "worker_failed.json"),
-        ("questions_path", "questions.jsonl"),
-    )
-
-    entries: list[tuple[str, list[tuple[str, Path]]]] = []
-    for agent_dir in sorted(path for path in agents_dir.iterdir() if path.is_dir()):
-        existing = [
-            (label, agent_dir / artifact)
-            for label, artifact in tracked_artifacts
-            if (agent_dir / artifact).exists()
-        ]
-        if existing:
-            entries.append((agent_dir.name, existing))
-
-    if not entries:
-        return
-
-    typer.echo("agent_evidence:")
-    for agent_id, paths in entries:
-        typer.echo(f"  {agent_id}:")
-        for label, artifact_path in paths:
-            typer.echo(f"    {label}: {_relative(root, artifact_path)}")
-        if agent_id == "qwopus-implementer":
-            _echo_qwopus_latest_summary(root, task_path, agent_id)
-
-
-def _echo_qwopus_latest_summary(root: Path, task_path: Path, agent_id: str) -> None:
-    summary = build_qwopus_summary(root, task_path, agent_id)
-    if not summary:
-        return
-    typer.echo(f"    latest_run_status: {summary['status']}")
-    typer.echo(f"    proposal_patch_bytes: {summary.get('proposal_patch_byte_length', 0)}")
-    proposed_paths = summary.get("proposed_file_paths") or []
-    typer.echo(f"    proposed_file_count: {summary.get('proposed_file_count', 0)}")
-    if proposed_paths:
-        typer.echo(f"    proposed_files: {', '.join(str(p) for p in proposed_paths)}")
-    if summary.get("failure_reason"):
-        typer.echo(f"    failure_reason: {summary.get('failure_reason')}")
-    if summary.get("patch_application_path"):
-        typer.echo(f"    patch_application_path: {summary.get('patch_application_path')}")
-    if summary.get("latest_verification_status"):
-        typer.echo(f"    latest_verification_status: {summary.get('latest_verification_status')}")
-    typer.echo(f"    next_suggested_command: {summary.get('next_suggested_command')}")
 
 
 def _echo_reconciliation_report(report: dict[str, Any]) -> None:
@@ -3842,27 +3573,6 @@ def _echo_runtime_contract(contract: dict[str, Any]) -> None:
     _echo_list("  evidence_required_outputs", list(evidence.get("required_outputs") or []))
     _echo_list("  evidence_optional_outputs", list(evidence.get("optional_outputs") or []))
     _echo_list("  evidence_forbidden_outputs", list(evidence.get("forbidden_outputs") or []))
-
-
-def _get_latest_promoted_event(task_path: Path) -> dict[str, Any] | None:
-    events_file = task_path / "events.jsonl"
-    if not events_file.exists():
-        return None
-    latest_event = None
-    try:
-        with events_file.open("r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                try:
-                    event = json.loads(line)
-                    if event.get("event") == "task_promoted":
-                        latest_event = event
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return latest_event
 
 
 @worker_app.command("validate-outcome")
