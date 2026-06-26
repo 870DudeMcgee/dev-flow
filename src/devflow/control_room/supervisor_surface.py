@@ -5,10 +5,15 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from devflow.control_room.browser_action_policy import (
+    get_browser_allowed_mutations,
+    get_browser_blocked_mutations,
+)
 from devflow.control_room.evidence_review_detail import EvidenceReviewDetail, build_evidence_review_detail
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
+from devflow.control_room.machine_capability import local_model_concurrency_policy
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.patch_dry_run import latest_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review
@@ -19,6 +24,12 @@ from devflow.control_room.question_resume import build_question_snapshot
 from devflow.control_room.scheduler_projection import build_scheduler_snapshot
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.task_closure import read_closure
+from devflow.control_room.telegram_routing import (
+    DEFAULT_TELEGRAM_MODEL,
+    DEFAULT_TELEGRAM_PROVIDER_ID,
+    DEEP_REVIEW_MODEL,
+    PLANNING_MODEL,
+)
 
 
 SUPERVISOR_SCHEMA_VERSION = 1
@@ -221,11 +232,6 @@ SAFETY_CLASS_REASONS = {
 
 
 def build_supervisor_policy() -> dict[str, Any]:
-    from devflow.control_room.browser_action_policy import (
-        get_browser_allowed_mutations,
-        get_browser_blocked_mutations,
-    )
-
     commands_requiring_human_approval = (
         APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS
         + APPROVAL_REQUIRED_TASK_STATE_COMMANDS
@@ -306,18 +312,20 @@ def build_supervisor_policy() -> dict[str, Any]:
                 "browser_blocked_runtime_launch": "non-dry-run devflow agent hermes-run is a worker runtime launch and is not executable from the browser in this milestone",
                 "dry_run_preview": "devflow agent hermes-run --dry-run is read-only because it only returns an argv-list command preview",
                 "final_proof": "completion-verifier.py, focused tests, and allowlist checks are final proof; Hermes worker self-report is not proof",
+                "local_model_concurrency": local_model_concurrency_policy(),
             },
         },
         "telegram_routing": {
             "provider": "local",
-            "default_model": "gemma4:latest",
+            "provider_id": DEFAULT_TELEGRAM_PROVIDER_ID,
+            "default_model": DEFAULT_TELEGRAM_MODEL,
             "route_message_command": 'devflow supervisor route-message "<raw Telegram text>" --json',
             "footer_required": True,
             "routes": {
-                "simple_chat": {"model": "gemma4:latest", "action": "answer"},
-                "devflow_read": {"model": "gemma4:latest", "action": "run_safe_command"},
-                "plan": {"model": "qwen3.6:latest", "action": "answer"},
-                "deep_review": {"model": "qwopus:latest", "action": "answer"},
+                "simple_chat": {"model": DEFAULT_TELEGRAM_MODEL, "action": "answer"},
+                "devflow_read": {"model": DEFAULT_TELEGRAM_MODEL, "action": "run_safe_command"},
+                "plan": {"model": PLANNING_MODEL, "action": "answer"},
+                "deep_review": {"model": DEEP_REVIEW_MODEL, "action": "answer"},
                 "implementation": {"model": None, "action": "create_task_or_create_codex_goal"},
             },
         },

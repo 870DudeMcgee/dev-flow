@@ -46,7 +46,7 @@ def _fake_hermes_executable(tmp_path: Path, *, exit_code: int = 0) -> Path:
         "import sys\n"
         "from pathlib import Path\n"
         "root = Path.cwd()\n"
-        "lock_owner = root / '.devflow/runtime/locks/local-model/ollama/qwen3.6-32b-256k-latest.lock/owner.json'\n"
+        "lock_owner = root / '.devflow/runtime/locks/local-model/global.lock/owner.json'\n"
         "payload = {\n"
         "    'argv': sys.argv,\n"
         "    'cwd': os.getcwd(),\n"

@@ -48,13 +48,17 @@ Hermes defaults to read-only. It may inspect, summarize, recommend next safe act
 
 The Mac mini local-model setup and Telegram rollout sequence lives in [hermes-telegram-mac-mini-rollout.md](hermes-telegram-mac-mini-rollout.md). Use that document as the active setup goal before enabling Telegram-triggered read-only auto-runs.
 
-Telegram is a lightweight command surface, not a second brain. Hermes may receive Telegram text and ask Dev-Flow to classify it with `devflow supervisor route-message`. Dev-Flow owns the routing policy and exposes the Telegram default as local `gemma4:latest` through `devflow supervisor policy --json`. Dev-Flow returns the route, selected local model when applicable, action, reason, safety metadata, and a tiny footer. Hermes should append or preserve that footer in responses so real use can tune the policy:
+Telegram is a lightweight command surface, not a second brain. Hermes may receive Telegram text and ask Dev-Flow to classify it with `devflow supervisor route-message`. Dev-Flow owns the routing policy and exposes the Telegram default as local Hermes provider `custom:qwen35-mtp` with model `qwen35-9b-mtp` through `devflow supervisor policy --json`. Dev-Flow returns the route, selected local model when applicable, action, reason, safety metadata, and a tiny footer. Hermes should append or preserve that footer in responses so real use can tune the policy:
 
 ```text
 route: devflow_read
-model: gemma4:latest
+model: qwen35-9b-mtp
 action: run_safe_command
 ```
+
+Dev-Flow discovers the active Hermes config and local OpenAI-compatible model endpoints at runtime. Operators should inspect `devflow agent catalog --json` instead of copying machine-specific model maps between Macs. The catalog exposes machine RAM/classification, the default local model, configured/discovered Hermes providers, model fit, and the local concurrency rule. On current Mac mini setup, `qwen35-9b-mtp` is the preferred local default. Gemma is not the default local model.
+
+Only one local model may run at a time on a machine. Dev-Flow's local-model runtime lock is global across local providers/models, so a second local model run must wait or fail clearly instead of competing for RAM/Metal resources.
 
 Hermes should follow `operator_plan.next_step`:
 
@@ -171,23 +175,28 @@ Use `<repo-root>` for portable command examples. This checkout is referred to as
 
 ## Model Routing Configuration
 
-The Hermes `~/.hermes/config.yaml` has a `model_routing` section that routes tasks to the best model based on keyword patterns. The current setup has six tiers with fallback chains:
+The Hermes `~/.hermes/config.yaml` may have a `model_routing` section that routes tasks to the best model based on keyword patterns. Dev-Flow must not treat another Mac's model map as authority. Current model availability comes from:
 
-| Tier | Primary Model | Fallbacks | Triggers |
+- `~/.hermes/config.yaml`
+- `~/.hermes/profiles/*/config.yaml`
+- local `/v1/models` responses from Hermes/custom OpenAI-compatible endpoints
+- `devflow agent catalog --json`
+- `devflow supervisor policy --json`
+
+The Mac mini default local route is:
+
+| Role | Provider | Model | Notes |
 |---|---|---|---|
-| 1 Heavy | DeepSeek V4 Pro (paid) | V4 Flash paid → V4 Flash free → Qwopus local | refactor, debug, architect, security audit |
-| 2 Code | DeepSeek V4 Flash:free | V4 Flash paid → Qwopus devflow local | code, write, implement, function, class |
-| 3 Vision | Qwopus 32B local → Gemma 4 31B local | (local only — DeepSeek has no vision) | screenshot, ui, visual, image, mockup |
-| 4 Simple | Qwen Coder 7B local | V4 Flash:free | typo, rename, docstring, trivial |
-| 5 Planning | Qwen 3.6 128k local | V4 Flash free → V4 Flash paid | plan, synthesize, architecture, roadmap |
-| 6 Review | Gemma 4 31B review local | V4 Flash free → V4 Flash paid | review, audit, code review, PR |
+| Local default / Telegram / read-only planning | `custom:qwen35-mtp` | `qwen35-9b-mtp` | Prompt-cache-enabled llama.cpp service. Preferred on the 16 GB Mac mini when the endpoint is ready. |
+| Heavy local reasoning | machine-specific | discovered model | Must be allowed by RAM/model-fit classification. Do not run on the Mac mini by copying Mac Studio config. |
 
 ### Fallback behavior
 
-Each tier's `fallback_models` chain activates when:
-- The primary model is rate-limited (free tier exhausted)
-- The primary provider is unreachable
-- The model lacks required capabilities (e.g., DeepSeek has no vision)
+Fallback chains activate only when Dev-Flow or Hermes has explicit evidence that the fallback exists on the current machine and fits the current RAM class:
+
+- the primary model is rate-limited or unreachable
+- the model lacks required capabilities
+- `devflow agent catalog --json` marks the fallback as allowed for the machine
 
 ### Mid-session model switching
 
@@ -195,10 +204,10 @@ Use Hermes slash commands to switch models without restarting:
 
 ```
 /model               # Interactive model picker
+/model qwen35-9b-mtp                       # Switch to local Qwen 3.5 MTP default
 /model deepseek/deepseek-v4-flash         # Switch to paid Flash
 /model deepseek/deepseek-v4-flash:free    # Switch to free Flash
 /model qwopus-32b:latest                  # Switch to local Qwopus
-/model gemma4-31b:latest                  # Switch to local Gemma 31B
 ```
 
 For vision tasks that fail because the chat model lacks vision:

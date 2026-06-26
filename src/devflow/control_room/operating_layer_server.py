@@ -430,11 +430,19 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
     def _handle_agents_list(self) -> None:
         try:
             root = self.server.repo_root
+            from devflow.control_room.agent_onboarding import build_agent_catalog
             from devflow.control_room.agent_registry import (
+                is_local_openai_compatible_provider,
                 is_remote_advisory_agent,
                 load_agent_registry,
                 load_provider_registry,
             )
+            catalog = build_agent_catalog(root)
+            availability_by_profile = {
+                profile["id"]: profile.get("availability", {})
+                for profile in catalog.get("profiles", [])
+                if isinstance(profile, dict) and profile.get("id")
+            }
             registry = load_agent_registry(root)
             providers = load_provider_registry(root)
             agents = []
@@ -444,7 +452,12 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     continue
                 is_remote = is_remote_advisory_agent(agent, provider=provider)
                 is_ollama = provider.provider == "ollama" or agent.adapter == "ollama_chat"
-                if not is_remote and not is_ollama:
+                is_local_endpoint = is_local_openai_compatible_provider(provider)
+                is_local = is_ollama or is_local_endpoint
+                if not is_remote and not is_local:
+                    continue
+                availability = availability_by_profile.get(agent.id, {})
+                if is_local and availability.get("status") in {"missing", "unavailable"}:
                     continue
                 agents.append({
                     "id": agent.id,
@@ -454,7 +467,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     "tier": agent.tier,
                     "secondary_roles": agent.secondary_roles,
                     "provider": agent.provider,
-                    "is_local": is_ollama,
+                    "is_local": is_local,
+                    "availability": availability,
                 })
             self._send_json({"agents": agents}, HTTPStatus.OK)
         except Exception as exc:

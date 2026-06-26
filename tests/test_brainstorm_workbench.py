@@ -18,6 +18,7 @@ from devflow.control_room.brainstorm_pipeline import (
     build_brainstorm_escalation_result,
     build_brainstorm_pipeline_detail,
 )
+from devflow.control_room.openrouter_agent import run_advice
 from tests.helpers import setup_temp_git_repo
 
 
@@ -33,6 +34,75 @@ class MockResponse:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         return None
+
+
+def _write_local_qwen_profile(root: Path, *, base_url: str) -> None:
+    providers_dir = root / ".devflow" / "providers"
+    agents_dir = root / ".devflow" / "agents"
+    providers_dir.mkdir(parents=True, exist_ok=True)
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    (providers_dir / "qwen35-mtp.yaml").write_text(
+        "\n".join(
+            [
+                "provider: qwen35-mtp",
+                "adapter: openai_compatible",
+                f"base_url: {base_url}",
+                "default_timeout_seconds: 30",
+                "enabled: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (agents_dir / "registry.yaml").write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "default_agent: local-qwen35-mtp",
+                "agents:",
+                "  local-qwen35-mtp:",
+                "    provider: qwen35-mtp",
+                "    model: qwen35-9b-mtp",
+                "    adapter: openai_compatible",
+                "    role: frontier_planner_architect_reviewer",
+                "    tier: local",
+                "    default_mode: read_only",
+                "    execution_mode: automated",
+                "    workspace: isolated_task_workspace",
+                "    can_see:",
+                "      - task_packet",
+                "      - recent_events",
+                "    can_touch:",
+                "      - <task>/local-model-runs/**",
+                "    cannot_touch:",
+                "      - <main_checkout>/**",
+                "      - <workspace>/**",
+                "      - .git/**",
+                "    allowed_reads:",
+                "      - <task>/packet.json",
+                "      - <task>/events.jsonl",
+                "      - <workspace>/**",
+                "    allowed_writes:",
+                "      - <task>/local-model-runs/**",
+                "    forbidden_writes:",
+                "      - <main_checkout>/**",
+                "      - <workspace>/**",
+                "      - <task>/agents/**/proposal.patch",
+                "      - .git/**",
+                "    required_outputs:",
+                "      - Write bounded local model evidence only.",
+                "    completion_rules:",
+                "      - Advisory evidence only.",
+                "    can_run_shell: false",
+                "    can_use_network: false",
+                "    can_promote: false",
+                "    hermes_delegable: true",
+                "    enabled: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_deepseek_flash_free_brainstorm_profile_is_registry_visible(tmp_path: Path) -> None:
@@ -129,6 +199,78 @@ def test_brainstorm_message_calls_deepseek_free_and_appends_transcript(
     records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines()]
     assert [record["role"] for record in records] == ["user", "assistant"]
     assert "sk-or-...cret" not in (tmp_path / payload["run_path"]).read_text(encoding="utf-8")
+
+
+def test_local_qwen_openai_compatible_profile_runs_without_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _write_local_qwen_profile(tmp_path, base_url="http://127.0.0.1:9191/v1")
+    monkeypatch.delenv("QWEN35_MTP_API_KEY", raising=False)
+    captured_requests: list[dict[str, Any]] = []
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        headers = {key.lower(): value for key, value in req.header_items()}
+        captured_requests.append(
+            {
+                "url": req.full_url,
+                "timeout": timeout,
+                "headers": headers,
+                "payload": json.loads(req.data.decode("utf-8")),
+            }
+        )
+        return MockResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "message": "Local Qwen is wired for Brainstorm.",
+                                    "stage_hint": "brainstorm",
+                                    "summary": "Local Qwen advisory works.",
+                                    "recommendations": [
+                                        {
+                                            "title": "Use local Qwen",
+                                            "rationale": "Hermes endpoint is local.",
+                                            "next_safe_action": "continue",
+                                        }
+                                    ],
+                                }
+                            )
+                        }
+                    }
+                ],
+                "usage": {"total_tokens": 18},
+            }
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    brainstorm_payload = run_brainstorm_message(
+        root=tmp_path,
+        message="Use the local Qwen Hermes model for brainstorm.",
+        session_id="session-local-qwen",
+        profile_id="local-qwen35-mtp",
+    )
+    advice_payload = run_advice(
+        root=tmp_path,
+        profile_id="local-qwen35-mtp",
+        job="status",
+        max_prompt_chars=8_000,
+    )
+
+    assert brainstorm_payload["status"] == "success"
+    assert brainstorm_payload["provider"] == "qwen35-mtp"
+    assert brainstorm_payload["model"] == "qwen35-9b-mtp"
+    assert advice_payload["status"] == "success"
+    assert [request["url"] for request in captured_requests] == [
+        "http://127.0.0.1:9191/v1/chat/completions",
+        "http://127.0.0.1:9191/v1/chat/completions",
+    ]
+    assert all("authorization" not in request["headers"] for request in captured_requests)
+    assert all(request["payload"]["model"] == "qwen35-9b-mtp" for request in captured_requests)
 
 
 def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path: Path) -> None:

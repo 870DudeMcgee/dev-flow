@@ -346,7 +346,7 @@ def test_serial_local_run_preflight_records_free_runtime(tmp_path: Path) -> None
     assert preflight["state"] == "free"
     assert preflight["launch_packet_ready"] is True
     assert preflight["owner"] is None
-    assert preflight["lock_path"].startswith(".devflow/runtime/locks/local-model/ollama/")
+    assert preflight["lock_path"] == ".devflow/runtime/locks/local-model/global.lock"
     assert json.loads((result.run_dir / "preflight.json").read_text(encoding="utf-8")) == preflight
 
 

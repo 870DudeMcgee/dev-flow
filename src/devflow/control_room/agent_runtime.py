@@ -10,6 +10,7 @@ from devflow.control_room.agent_registry import (
     adapter_execution_refusal,
     adapter_maturity,
     is_executable_agent_runtime,
+    is_local_openai_compatible_provider,
     is_local_model_worker_pool_agent,
     is_remote_advisory_agent,
     is_remote_patch_proposal_agent,
@@ -83,8 +84,9 @@ def resolve_agent_runtime_definition(
         agent_run_allowed = False
         packet_allowed = True
         default_job = "review" if "review" in " ".join(agent.secondary_roles).lower() else "gap-analysis"
+        profile_scope = "local OpenAI-compatible advisory" if provider and is_local_openai_compatible_provider(provider) else "remote advisory"
         refusal_reason = (
-            f"Agent '{agent.id}' is a remote advisory profile. "
+            f"Agent '{agent.id}' is a {profile_scope} profile. "
             "Use `devflow agent advise` for bounded recommendation evidence; task worker execution is not allowed."
         )
         next_command = f"devflow agent advise --profile {agent.id} --job {default_job} --json"

@@ -2443,8 +2443,9 @@ function renderOrchestrator(snap, presentation) {
   setText('orchestrator-health-label', hStatus === 'degraded' ? 'Degraded' : 'Nominal');
   if (health) {
     const total = snapHealth.total_tasks || 0;
+    let healthHtml = '';
     if (total === 0) {
-      health.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No tasks</div>';
+      healthHtml = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No tasks</div>';
     } else {
       const metrics = [
         { name: 'Active', value: snapHealth.active_tasks || 0, max: total, status: 'good' },
@@ -2453,7 +2454,7 @@ function renderOrchestrator(snap, presentation) {
         { name: 'Promoted', value: snapHealth.promoted_tasks || 0, max: total, status: 'good' },
         { name: 'Failed', value: snapHealth.worker_failed || 0, max: total, status: (snapHealth.worker_failed || 0) > 0 ? 'bad' : 'good' },
       ];
-      health.innerHTML = metrics.map(m => {
+      healthHtml = metrics.map(m => {
         const pct = m.max > 0 ? Math.round((m.value / m.max) * 100) : 0;
         return `<div class="health-row">
           <span class="label">${esc(m.name)} (${m.value})</span>
@@ -2461,9 +2462,60 @@ function renderOrchestrator(snap, presentation) {
         </div>`;
       }).join('');
     }
+    health.innerHTML = healthHtml + localModelHealthHtml(snap.agent_catalog || {});
   }
   setText('orchestrator-freshness', typeof snap.freshness === 'object' ? (snap.freshness?.status || 'ok') : (snap.freshness || 'unknown'));
   setText('orchestrator-goal-id', snap.focus_goal_id || (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
+}
+
+function localModelHealthHtml(agentCatalog) {
+  const ollama = agentCatalog?.local_ollama || {};
+  const openaiLocal = agentCatalog?.local_openai_compatible || {};
+  const policy = agentCatalog?.local_model_policy || {};
+  const machine = policy.machine || {};
+  const concurrency = policy.local_model_concurrency || {};
+  const ollamaModels = Array.isArray(ollama.installed_models) ? ollama.installed_models : [];
+  const endpointProviders = Array.isArray(openaiLocal.providers) ? openaiLocal.providers : [];
+  const readyEndpoints = endpointProviders.filter(provider => provider?.status === 'ready');
+  const endpointModels = readyEndpoints.flatMap(provider => {
+    const advertised = Array.isArray(provider.advertised_models) ? provider.advertised_models : [];
+    const configured = Array.isArray(provider.configured_models) ? provider.configured_models : [];
+    const rows = advertised.length ? advertised : configured;
+    return rows.map(model => ({
+      provider: provider.name || provider.id || 'local',
+      id: model.id || model.model || model.name || '',
+      context: model.context_length || null,
+    })).filter(model => model.id);
+  });
+  const defaultModel = policy.default_model || '';
+  const machineText = machine.total_memory_gb
+    ? `${machine.total_memory_gb}GB ${machine.machine_class || 'machine'}`
+    : (machine.machine_class || 'machine unknown');
+  const concurrencyText = concurrency.mode === 'single_flight'
+    ? 'one local model at a time'
+    : (concurrency.mode || 'runtime guarded');
+  if (!ollamaModels.length && !endpointModels.length) {
+    return `<div class="health-row local-model-row"><span class="label">Local models</span><span class="health-local-models">none discovered${defaultModel ? ` · default ${esc(defaultModel)}` : ''}<em>${esc(machineText)} · ${esc(concurrencyText)}</em></span></div>`;
+  }
+  const shownModels = endpointModels.slice(0, 3).map(model => {
+    const context = model.context ? ` ${model.context} ctx` : '';
+    return `${model.provider}/${model.id}${context}`;
+  }).join(' | ');
+  const endpointSummaries = readyEndpoints.slice(0, 4).map(provider => {
+    const advertised = Array.isArray(provider.advertised_models) ? provider.advertised_models : [];
+    const configured = Array.isArray(provider.configured_models) ? provider.configured_models : [];
+    const model = (advertised.length ? advertised : configured)[0] || {};
+    const modelId = model.id || model.model || model.name || provider.configured_model || '';
+    const context = model.context_length ? ` ${model.context_length} ctx` : '';
+    return `${provider.name || provider.id}${modelId ? `/${modelId}${context}` : ''}`;
+  }).filter(Boolean).join(' | ');
+  const endpointText = endpointModels.length
+    ? `<span>Hermes/custom ${endpointModels.length}</span>${endpointSummaries ? `<em>${esc(shortCommand(endpointSummaries, 150))}</em>` : shownModels ? `<em>${esc(shortCommand(shownModels, 120))}</em>` : ''}`
+    : '<span>Hermes/custom 0</span>';
+  return `<div class="health-row local-model-row">
+    <span class="label">Local models</span>
+    <span class="health-local-models"><strong>${defaultModel ? `Default ${esc(defaultModel)}` : `Ollama ${ollamaModels.length}`}</strong><span>Ollama ${ollamaModels.length}</span>${endpointText}<em>${esc(machineText)} · ${esc(concurrencyText)}</em></span>
+  </div>`;
 }
 
 function shouldUsePresentationPipeline(pipeline) {

@@ -239,6 +239,21 @@ def is_local_ollama_base_url(base_url: str | None) -> bool:
     return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
 
 
+def is_local_openai_compatible_base_url(base_url: str | None) -> bool:
+    if base_url is None or not base_url.strip():
+        return False
+    parsed = urlparse(base_url)
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def is_local_openai_compatible_provider(provider: ProviderDefinition) -> bool:
+    return (
+        provider.enabled
+        and provider.adapter in {"openai_compatible", "openai_chat"}
+        and is_local_openai_compatible_base_url(provider.base_url)
+    )
+
+
 def is_remote_advisory_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
     if not agent.enabled:
         return False

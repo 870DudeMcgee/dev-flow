@@ -57,7 +57,7 @@ def test_local_model_runtime_lock_is_single_flight(tmp_path: Path) -> None:
     ) is None
 
 
-def test_local_model_runtime_lock_scope_allows_different_provider_or_model(tmp_path: Path) -> None:
+def test_local_model_runtime_lock_blocks_different_provider_or_model_on_same_machine(tmp_path: Path) -> None:
     with local_model_runtime_lock(
         tmp_path,
         provider="ollama",
@@ -65,13 +65,16 @@ def test_local_model_runtime_lock_scope_allows_different_provider_or_model(tmp_p
         task_id="task-0001",
         worker_id="qwen-worker",
     ):
-        with local_model_runtime_lock(
-            tmp_path,
-            provider="ollama",
-            model="qwopus:latest",
-            task_id="task-0002",
-            worker_id="qwopus-worker",
-        ):
+        with pytest.raises(LocalModelRuntimeLockError, match="another local model"):
+            with local_model_runtime_lock(
+                tmp_path,
+                provider="ollama",
+                model="qwopus:latest",
+                task_id="task-0002",
+                worker_id="qwopus-worker",
+            ):
+                pass
+        with pytest.raises(LocalModelRuntimeLockError, match="another local model"):
             with local_model_runtime_lock(
                 tmp_path,
                 provider="llama-cpp",
@@ -79,16 +82,11 @@ def test_local_model_runtime_lock_scope_allows_different_provider_or_model(tmp_p
                 task_id="task-0003",
                 worker_id="qwen-server-worker",
             ):
-                statuses = list_local_model_runtime_status(tmp_path)
+                pass
+        statuses = list_local_model_runtime_status(tmp_path)
 
-    assert set(statuses) == {
-        "ollama/qwen3.6-32b-256k:latest",
-        "ollama/qwopus:latest",
-        "llama-cpp/qwen3.6-32b-256k:latest",
-    }
+    assert set(statuses) == {"ollama/qwen3.6-32b-256k:latest"}
     assert statuses["ollama/qwen3.6-32b-256k:latest"]["task_id"] == "task-0001"
-    assert statuses["ollama/qwopus:latest"]["task_id"] == "task-0002"
-    assert statuses["llama-cpp/qwen3.6-32b-256k:latest"]["task_id"] == "task-0003"
 
 
 def test_operating_layer_snapshot_exposes_read_only_local_model_runtime_status(tmp_path: Path) -> None:
@@ -106,7 +104,7 @@ def test_operating_layer_snapshot_exposes_read_only_local_model_runtime_status(t
     assert runtime["state"] == "running"
     assert runtime["task_id"] == "task-0001"
     assert runtime["worker_id"] == "qwen-worker"
-    assert runtime["lock_path"].startswith(".devflow/runtime/locks/local-model/ollama/")
+    assert runtime["lock_path"] == ".devflow/runtime/locks/local-model/global.lock"
 
 
 def test_stale_local_model_runtime_lock_is_reported_not_auto_deleted(tmp_path: Path) -> None:
@@ -122,7 +120,7 @@ def test_stale_local_model_runtime_lock_is_reported_not_auto_deleted(tmp_path: P
         "pid": 999_999_999,
         "host": socket.gethostname(),
         "acquired_at": datetime.now(timezone.utc).isoformat(),
-        "lock_path": ".devflow/runtime/locks/local-model/ollama/qwen3.6-32b-256k-latest.lock",
+        "lock_path": ".devflow/runtime/locks/local-model/global.lock",
     }
     (lock_dir / "owner.json").write_text(json.dumps(payload) + "\n", encoding="utf-8")
 

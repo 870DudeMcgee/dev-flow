@@ -3583,6 +3583,22 @@ def agent_catalog(
         typer.echo("unregistered_local_models:")
         for model in local["unregistered_models"]:
             typer.echo(f"- {model}")
+    local_openai = payload.get("local_openai_compatible", {})
+    typer.echo(f"local_openai_compatible: {local_openai.get('status', 'none')}")
+    local_policy = payload.get("local_model_policy", {})
+    if local_policy:
+        concurrency = local_policy.get("local_model_concurrency", {})
+        typer.echo(
+            f"local_model_default: {local_policy.get('default_provider_id', 'unknown')}/"
+            f"{local_policy.get('default_model', 'unknown')}"
+        )
+        typer.echo(f"local_model_concurrency: {concurrency.get('mode', 'unknown')}")
+    for provider_row in local_openai.get("providers", []):
+        model_count = len(provider_row.get("advertised_models") or provider_row.get("configured_models") or [])
+        typer.echo(
+            f"- {provider_row.get('id')}: {provider_row.get('status')} "
+            f"({model_count} models, {provider_row.get('base_url')})"
+        )
 
 
 @agent_app.command("add-provider")

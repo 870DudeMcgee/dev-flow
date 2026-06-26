@@ -238,6 +238,47 @@ INDEX_HTML = """<!doctype html>
             </div>
           </section>
 
+          <!-- ===== TASK CONTROL ===== -->
+          <section id="product-review-section" class="product-review-section" aria-label="Task Control">
+            <div class="product-review-header">
+              <div>
+                <h2 class="panel-title">Task Control</h2>
+                <p class="panel-subtitle">Task evidence, verification, review, and promotion live here.</p>
+              </div>
+            </div>
+            <div class="task-control-grid">
+            <!-- Worker lanes -->
+            <section class="dock-panel" aria-labelledby="worker-lanes-heading">
+              <div class="dock-panel-header">
+                <h3 id="worker-lanes-heading">Worker lanes</h3>
+                <output id="active-work-count" class="dock-count" aria-live="polite" aria-atomic="true">0 tasks</output>
+                <span class="dock-status-note">Live</span>
+              </div>
+              <div id="active-work-groups" class="worker-lanes-list" role="list" aria-label="Task cards"></div>
+            </section>
+
+            <!-- Review queue -->
+            <section class="dock-panel" aria-labelledby="review-queue-heading">
+              <div class="dock-panel-header">
+                <h3 id="review-queue-heading">Review queue</h3>
+                <output id="review-queue-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
+                <span class="dock-status-note">Live</span>
+              </div>
+              <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Review items"></div>
+            </section>
+
+            <!-- Evidence stream -->
+            <section class="dock-panel" aria-labelledby="evidence-stream-heading">
+              <div class="dock-panel-header">
+                <h3 id="evidence-stream-heading">Evidence stream</h3>
+                <output id="evidence-stream-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
+                <span class="dock-status-note">Live</span>
+              </div>
+              <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
+            </section>
+            </div>
+          </section>
+
           <!-- Mission Feed -->
           <section id="mission-feed-section" class="panel mission-feed-section" aria-label="Work feed">
             <div class="panel-header">
@@ -350,47 +391,6 @@ INDEX_HTML = """<!doctype html>
           </section>
         </div>
       </div>
-
-      <!-- ===== PRODUCT / REVIEW ===== -->
-      <section id="product-review-section" class="product-review-section" aria-label="Product / Review">
-        <div class="product-review-header">
-          <div>
-            <h2 class="panel-title">Product / Review</h2>
-            <p class="panel-subtitle">Task evidence, verification, review, and promotion live here.</p>
-          </div>
-        </div>
-        <div class="bottom-dock">
-        <!-- Worker lanes -->
-        <section class="dock-panel" aria-labelledby="worker-lanes-heading">
-          <div class="dock-panel-header">
-            <h3 id="worker-lanes-heading">Worker lanes</h3>
-            <output id="active-work-count" class="dock-count" aria-live="polite" aria-atomic="true">0 tasks</output>
-            <span class="dock-status-note">Live</span>
-          </div>
-          <div id="active-work-groups" class="worker-lanes-list" role="list" aria-label="Task cards"></div>
-        </section>
-
-        <!-- Review queue -->
-        <section class="dock-panel" aria-labelledby="review-queue-heading">
-          <div class="dock-panel-header">
-            <h3 id="review-queue-heading">Review queue</h3>
-            <output id="review-queue-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
-            <span class="dock-status-note">Live</span>
-          </div>
-          <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Review items"></div>
-        </section>
-
-        <!-- Evidence stream -->
-        <section class="dock-panel" aria-labelledby="evidence-stream-heading">
-          <div class="dock-panel-header">
-            <h3 id="evidence-stream-heading">Evidence stream</h3>
-            <output id="evidence-stream-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
-            <span class="dock-status-note">Live</span>
-          </div>
-          <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
-        </section>
-        </div>
-      </section>
 
       <!-- ===== FOOTER ===== -->
       <footer class="app-footer">

@@ -11,9 +11,10 @@ from devflow.control_room.persistence import get_task
 
 
 TELEGRAM_ROUTING_SCHEMA_VERSION = 1
-DEFAULT_TELEGRAM_MODEL = "gemma4:latest"
-PLANNING_MODEL = "qwen3.6:latest"
-DEEP_REVIEW_MODEL = "qwopus:latest"
+DEFAULT_TELEGRAM_PROVIDER_ID = "custom:qwen35-mtp"
+DEFAULT_TELEGRAM_MODEL = "qwen35-9b-mtp"
+PLANNING_MODEL = DEFAULT_TELEGRAM_MODEL
+DEEP_REVIEW_MODEL = DEFAULT_TELEGRAM_MODEL
 
 SIMPLE_CHAT = "simple_chat"
 DEVFLOW_READ = "devflow_read"
@@ -67,7 +68,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             route=DEVFLOW_READ,
             model=DEFAULT_TELEGRAM_MODEL,
             action=RUN_SAFE_COMMAND,
-            reason="DevFlow read-only status/list/next-action request; use the fast local default model.",
+            reason="DevFlow read-only status/list/next-action request; use the Qwen35 local default model.",
             requested_action="devflow_read",
             risk_level="low",
             repo_state=repo_state,
@@ -101,7 +102,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             route=DEEP_REVIEW,
             model=DEEP_REVIEW_MODEL,
             action=ANSWER,
-            reason="Deep architecture or hard reasoning request; route to Qwopus.",
+            reason="Deep architecture or hard reasoning request; route to the Qwen35 local default model.",
             requested_action="deep_review",
             risk_level="high",
             repo_state=repo_state,
@@ -114,7 +115,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             route=PLAN,
             model=PLANNING_MODEL,
             action=ANSWER,
-            reason="Planning, review, design, or risk-analysis request; route to Qwen.",
+            reason="Planning, review, design, or risk-analysis request; route to the Qwen35 local default model.",
             requested_action="plan",
             risk_level="medium",
             repo_state=repo_state,
@@ -145,7 +146,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
         route=SIMPLE_CHAT,
         model=DEFAULT_TELEGRAM_MODEL,
         action=ANSWER,
-        reason="Default Telegram/simple chat request; use Gemma for the fastest local response.",
+        reason="Default Telegram/simple chat request; use the Qwen35 local default model.",
         requested_action="chat",
         risk_level="low",
         repo_state=repo_state,
@@ -267,6 +268,7 @@ def _decision(
         {
             "schema_version": TELEGRAM_ROUTING_SCHEMA_VERSION,
             "route": route,
+            "provider_id": DEFAULT_TELEGRAM_PROVIDER_ID if model else None,
             "model": model,
             "action": action,
             "reason": reason,
@@ -325,6 +327,7 @@ def _operator_plan(decision: dict[str, Any]) -> dict[str, Any]:
         "telegram_reply_style": "short_summary_with_footer",
         "include_routing_footer": True,
         "routing_footer": decision["routing_footer"],
+        "provider_id": decision.get("provider_id"),
         "model": decision["model"],
         "recommended_command": recommended_command,
         "pending_action": pending_action,

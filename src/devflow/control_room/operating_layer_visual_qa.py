@@ -28,7 +28,7 @@ VIEWPORTS: tuple[dict[str, int | str], ...] = (
 
 VISUAL_FLOW = (
     "app loads -> Idea Greenhouse -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
-    "Product / Review with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
+    "Task Control with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
 )
 
 
@@ -545,7 +545,9 @@ def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:
     ]
 
     y = top + 306
-    rows.append(_text(left, y, "Worker lanes", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Task Control", 18 * scale, "#f6f3ff", 800))
+    y += 28
+    rows.append(_text(left, y, "Worker lanes", 15 * scale, "#dfe7ff", 800))
     y += 16
     for worker in workers:
         y += 34
@@ -553,7 +555,7 @@ def _render_snapshot_svg(snapshot: Any, viewport: dict[str, int | str]) -> str:
         rows.append(_progress_row(left, y, card_width, worker.name, worker.state, percent))
 
     y += 58
-    rows.append(_text(left, y, "Review queue", 18 * scale, "#f6f3ff", 800))
+    rows.append(_text(left, y, "Review queue", 15 * scale, "#dfe7ff", 800))
     for item in feed:
         y += 30
         rows.append(_text(left + 14, y, f"{item.label}: {item.title}", 13 * scale, "#dfe7ff", 650))

@@ -61,6 +61,15 @@ def scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchSta
     monkeypatch.setenv("DEVFLOW_HOME", devflow_home.as_posix())
 
     _run_devflow(root, devflow_home, "init")
+    _run_devflow(
+        root,
+        devflow_home,
+        "idea",
+        "capture",
+        "Build a readable operating-layer intake workbench that keeps rough ideas visible before task execution.",
+        "--title",
+        "Readable UI redesign idea",
+    )
     _run_devflow(root, devflow_home, "task", "create", "Browser active work")
     routing_decision = {
         "routing_decision": {
@@ -243,13 +252,11 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert desktop["idea_top"] < desktop["brainstorm_top"]
     assert desktop["brainstorm_top"] < desktop["pipeline_top"]
     assert desktop["pipeline_top"] < desktop["next_task_top"]
+    assert desktop["next_task_top"] < desktop["task_control_top"]
     assert desktop["pipeline_top"] < desktop["viewport_height"]
     assert desktop["next_task_top"] < desktop["viewport_height"]
-    assert desktop["active_top"] < desktop["viewport_height"]
-    assert desktop["worker_lanes_top"] < desktop["viewport_height"]
-    assert desktop["review_queue_top"] < desktop["viewport_height"]
-    assert desktop["evidence_stream_top"] < desktop["viewport_height"]
-    assert desktop["active_height"] <= desktop["viewport_height"] * 1.35
+    assert desktop["task_control_position"] != "fixed"
+    assert desktop["task_control_height"] > 180
     assert desktop["closed_guided_cards"] == 0
 
     page.set_viewport_size({"width": 390, "height": 900})
@@ -259,14 +266,16 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert mobile["idea_top"] < mobile["brainstorm_top"]
     assert mobile["brainstorm_top"] < mobile["pipeline_top"]
     assert mobile["pipeline_top"] < mobile["next_task_top"]
+    assert mobile["next_task_top"] < mobile["task_control_top"]
     assert mobile["pipeline_top"] < mobile["viewport_height"]
     assert mobile["next_task_top"] < mobile["viewport_height"] * 1.5
-    assert mobile["active_height"] <= mobile["viewport_height"] * 1.35
+    assert mobile["task_control_position"] != "fixed"
+    assert mobile["task_control_height"] > 320
     assert mobile["closed_guided_cards"] == 0
     assert _no_horizontal_overflow(page)
 
 
-def test_home_exposes_idea_to_task_flow_and_review_dock(browser_page: tuple[Page, list[str]]) -> None:
+def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
     metrics = page.evaluate(
         """() => {
@@ -275,8 +284,10 @@ def test_home_exposes_idea_to_task_flow_and_review_dock(browser_page: tuple[Page
             ['brainstorm', '#brainstorm-section'],
             ['pipeline', '#pipeline-spine'],
             ['task', '#orchestrator-section'],
+            ['task_control', '#product-review-section'],
           ];
-          const product = document.querySelector('#product-review-section')?.getBoundingClientRect();
+          const taskControl = document.querySelector('#product-review-section');
+          const taskControlRect = taskControl?.getBoundingClientRect();
           const lanes = ['#active-work-groups', '#guided-review-queue', '#guided-evidence-stream'].map((selector) => {
             const rect = document.querySelector(selector)?.getBoundingClientRect();
             return { selector, top: rect ? Math.round(rect.top) : null };
@@ -287,7 +298,12 @@ def test_home_exposes_idea_to_task_flow_and_review_dock(browser_page: tuple[Page
               const rect = element?.getBoundingClientRect();
               return [name, Boolean(element), rect ? Math.round(rect.top) : null];
             }),
-            product: { exists: Boolean(product), top: product ? Math.round(product.top) : null },
+            taskControl: {
+              exists: Boolean(taskControlRect),
+              top: taskControlRect ? Math.round(taskControlRect.top) : null,
+              position: taskControl ? getComputedStyle(taskControl).position : null,
+              label: taskControl?.getAttribute('aria-label') || '',
+            },
             lanes,
             viewport_height: Math.round(window.innerHeight),
           };
@@ -298,23 +314,118 @@ def test_home_exposes_idea_to_task_flow_and_review_dock(browser_page: tuple[Page
         "brainstorm",
         "pipeline",
         "task",
+        "task_control",
     ]
     tops = [top for _name, exists, top in metrics["flow"] if exists]
     assert tops == sorted(tops)
     assert tops[0] < 160
-    assert metrics["product"]["exists"] is True
-    assert metrics["product"]["top"] < metrics["viewport_height"]
-    assert all(item["top"] is not None and item["top"] < metrics["viewport_height"] for item in metrics["lanes"])
+    assert metrics["taskControl"]["exists"] is True
+    assert metrics["taskControl"]["position"] != "fixed"
+    assert metrics["taskControl"]["label"] == "Task Control"
+    assert all(item["top"] is not None for item in metrics["lanes"])
 
 
 def test_product_stage_contains_task_launchpad_review_and_evidence(browser_page) -> None:
     page, _console_errors = browser_page
     product = page.locator("#product-review-section")
     expect(product).to_be_visible()
-    expect(product).to_contain_text("Product / Review")
+    expect(product).to_contain_text("Task Control")
     expect(product).to_contain_text("Worker lanes")
     expect(product).to_contain_text("Review queue")
     expect(product).to_contain_text("Evidence stream")
+    assert product.evaluate("element => getComputedStyle(element).position") != "fixed"
+
+
+def test_pipeline_spine_buttons_do_not_overlap(browser_page: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page
+
+    overlaps = page.evaluate(
+        """() => {
+          const visible = (element) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+          };
+          const boxes = Array.from(document.querySelectorAll('#pipeline-spine button'))
+            .filter(visible)
+            .map((element, index) => {
+              const rect = element.getBoundingClientRect();
+              return {
+                index,
+                text: element.textContent.trim(),
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+              };
+            });
+          const failures = [];
+          for (let i = 0; i < boxes.length; i += 1) {
+            for (let j = i + 1; j < boxes.length; j += 1) {
+              const a = boxes[i];
+              const b = boxes[j];
+              const horizontal = a.left < b.right - 1 && a.right > b.left + 1;
+              const vertical = a.top < b.bottom - 1 && a.bottom > b.top + 1;
+              if (horizontal && vertical) failures.push([a.text, b.text]);
+            }
+          }
+          return failures;
+        }"""
+    )
+
+    assert overlaps == []
+
+
+def test_visible_controls_and_primary_cards_fit_without_horizontal_clipping(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    failures = page.evaluate(
+        """() => {
+          const selectors = [
+            'button',
+            'input',
+            'textarea',
+            '.idea-card',
+            '.worker-card',
+            '.review-card',
+            '.next-step-card',
+            '.dock-panel'
+          ];
+          const isVisible = (element) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+          };
+          return Array.from(document.querySelectorAll(selectors.join(',')))
+            .filter(isVisible)
+            .filter((element) => {
+              const style = getComputedStyle(element);
+              if (style.overflowX === 'auto' || style.overflowX === 'scroll') return false;
+              return Math.ceil(element.scrollWidth) > Math.ceil(element.clientWidth) + 2;
+            })
+            .map((element) => ({
+              tag: element.tagName.toLowerCase(),
+              className: element.className || '',
+              text: (element.textContent || element.getAttribute('placeholder') || '').trim().slice(0, 80),
+              clientWidth: Math.ceil(element.clientWidth),
+              scrollWidth: Math.ceil(element.scrollWidth),
+            }));
+        }"""
+    )
+
+    assert failures == []
+
+
+def test_idea_greenhouse_shows_lane_header_and_useful_card_height(browser_page: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page
+
+    expect(page.locator("#idea-greenhouse-lanes .idea-lane-header").first).to_be_visible()
+    first_card = page.locator("#idea-greenhouse-lanes .idea-card").first
+    expect(first_card).to_be_visible()
+    height = first_card.evaluate("element => Math.round(element.getBoundingClientRect().height)")
+    assert height > 80
 
 
 
@@ -1202,7 +1313,8 @@ def _home_layout_metrics(page: Page) -> dict[str, int]:
           const brainstorm = rect("#brainstorm-section");
           const pipeline = rect("#pipeline-spine");
           const nextTask = rect("#orchestrator-section");
-          const active = rect("#product-review-section");
+          const taskControl = rect("#product-review-section");
+          const taskControlElement = document.querySelector("#product-review-section");
           const workerLanes = rect("#active-work-groups");
           const reviewQueue = rect("#guided-review-queue");
           const evidenceStream = rect("#guided-evidence-stream");
@@ -1213,8 +1325,9 @@ def _home_layout_metrics(page: Page) -> dict[str, int]:
             brainstorm_top: brainstorm.top,
             pipeline_top: pipeline.top,
             next_task_top: nextTask.top,
-            active_top: active.top,
-            active_height: active.height,
+            task_control_top: taskControl.top,
+            task_control_height: taskControl.height,
+            task_control_position: taskControlElement ? getComputedStyle(taskControlElement).position : "",
             worker_lanes_top: workerLanes.top,
             review_queue_top: reviewQueue.top,
             evidence_stream_top: evidenceStream.top,

@@ -16,6 +16,7 @@ from devflow.control_room.agent_registry import (
     AgentDefinition,
     AgentRegistryError,
     ProviderDefinition,
+    is_local_openai_compatible_provider,
     is_remote_advisory_agent,
     is_remote_patch_proposal_agent,
     load_agent_registry,
@@ -109,7 +110,7 @@ def run_advice(
 
     api_key_env = provider.api_key_env or _default_api_key_env(provider)
     api_key = os.environ.get(api_key_env)
-    if not api_key:
+    if not api_key and not is_local_openai_compatible_provider(provider):
         error = f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set."
         payload = _advice_payload(
             root=root,
@@ -218,7 +219,7 @@ def run_patch_proposal(
 
     api_key_env = provider.api_key_env or _default_api_key_env(provider)
     api_key = os.environ.get(api_key_env)
-    if not api_key:
+    if not api_key and not is_local_openai_compatible_provider(provider):
         error = f"Provider '{provider.id}' requires {api_key_env}, but that environment variable is not set."
         payload = _patch_payload(
             root=root,
@@ -699,7 +700,7 @@ def _chat_completion(
     model: str,
     system_prompt: str,
     user_prompt: str,
-    api_key: str,
+    api_key: str | None,
     timeout_seconds: int | None = None,
     max_tokens: int | None = None,
     reasoning: dict[str, Any] | None = None,
@@ -747,7 +748,7 @@ def _provider_request_parts(
     model: str,
     system_prompt: str,
     user_prompt: str,
-    api_key: str,
+    api_key: str | None,
     max_tokens: int | None,
     reasoning: dict[str, Any] | None,
 ) -> tuple[str, dict[str, Any], dict[str, str]]:
@@ -767,10 +768,11 @@ def _provider_request_parts(
             body["max_tokens"] = max_tokens
         if reasoning is not None and provider.adapter == "openai_compatible":
             body["reasoning"] = reasoning
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        elif not is_local_openai_compatible_provider(provider):
+            raise OpenRouterAgentError(f"Provider '{provider.id}' requires an API key but none was provided.")
         if provider.provider == "openrouter" or provider.id == "openrouter":
             headers["X-OpenRouter-Title"] = "DevFlow"
         return url, body, headers
@@ -1083,7 +1085,7 @@ def _cap_text(text: str, max_chars: int) -> str:
     return text[:keep] + suffix
 
 
-def _safe_json(payload: dict[str, Any], *, api_key: str) -> str:
+def _safe_json(payload: dict[str, Any], *, api_key: str | None = None) -> str:
     return _redact(json.dumps(payload, indent=2, sort_keys=True) + "\n", api_key=api_key)
 
 

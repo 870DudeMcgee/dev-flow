@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 from http import HTTPStatus
 from http.client import HTTPConnection
 from pathlib import Path
@@ -37,6 +39,20 @@ from tests.helpers import setup_temp_git_repo
 
 
 runner = CliRunner()
+
+
+class MockUrlopenResponse:
+    def __init__(self, body: dict) -> None:
+        self.body = json.dumps(body).encode("utf-8")
+
+    def read(self, *args: object, **kwargs: object) -> bytes:
+        return self.body
+
+    def __enter__(self) -> "MockUrlopenResponse":
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        return None
 
 
 def _create_goal(tmp_path: Path) -> None:
@@ -107,7 +123,8 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert ".focus-overlay" in APP_CSS
     assert "pipeline-section" in INDEX_HTML
     assert ".panel" in APP_CSS
-    assert ".bottom-dock" in APP_CSS
+    assert ".task-control-grid" in APP_CSS
+    assert ".bottom-dock" not in APP_CSS
     assert "openFocus" in APP_JS
     assert "closeFocus" in APP_JS
     assert "sendBrainstormMessage" in APP_JS
@@ -128,7 +145,7 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "executeAction" in APP_JS
     assert "rememberApprovedActionResult" in APP_JS
     assert "renderWorkerLanes" in APP_JS
-    assert "bottom-dock" in APP_CSS
+    assert "task-control-grid" in INDEX_HTML
 
 
 def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
@@ -143,6 +160,28 @@ def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
     assert "idea-capture-submit" in INDEX_HTML
     assert "idea-greenhouse-lanes" in INDEX_HTML
     assert "idea-greenhouse-primary-action" in INDEX_HTML
+
+
+def test_operating_layer_task_control_replaces_fixed_review_dock_contract() -> None:
+    assert '<section id="product-review-section" class="product-review-section" aria-label="Task Control">' in INDEX_HTML
+    assert '<h2 class="panel-title">Task Control</h2>' in INDEX_HTML
+    assert 'class="task-control-grid"' in INDEX_HTML
+    assert "bottom-dock" not in INDEX_HTML
+    assert "Product / Review" not in INDEX_HTML
+    assert ".task-control-grid" in APP_CSS
+    assert ".bottom-dock" not in APP_CSS
+
+    product_review_rules = APP_CSS[
+        APP_CSS.index(".product-review-section {") : APP_CSS.index(".product-review-header {")
+    ]
+    assert "position: fixed" not in product_review_rules
+
+    desktop_rules = APP_CSS[APP_CSS.index("@media (min-width: 1201px)") : APP_CSS.index("@media (max-width: 1200px)")]
+    layout_column_rules = desktop_rules[
+        desktop_rules.index(".layout-columns {") : desktop_rules.index("}", desktop_rules.index(".layout-columns {"))
+    ]
+    assert "max-height" not in layout_column_rules
+    assert "overflow-y: auto" not in layout_column_rules
 
 
 def test_operating_layer_css_includes_idea_greenhouse_layout_contract() -> None:
@@ -170,11 +209,39 @@ def test_operating_layer_css_includes_idea_greenhouse_layout_contract() -> None:
     ):
         assert token in APP_CSS
 
+    idea_lane_rules = APP_CSS[
+        APP_CSS.index(".idea-greenhouse-lanes {") : APP_CSS.index(".idea-lane {")
+    ]
+    assert "max-height: 48px" not in idea_lane_rules
+
     mobile_rules = APP_CSS[APP_CSS.index("@media (max-width: 900px)") :]
     assert ".idea-greenhouse-lanes { grid-template-columns: 1fr; }" in mobile_rules
     assert mobile_rules.index("#idea-greenhouse-section { order: 1; }") < mobile_rules.index(
         "#brainstorm-section"
     ) < mobile_rules.index("#pipeline-spine") < mobile_rules.index("#orchestrator-section")
+
+
+def test_operating_layer_desktop_layout_keeps_primary_panels_from_flex_shrinking() -> None:
+    """Primary control-room panels may scroll on desktop, but must never shrink and clip content."""
+    desktop_rules = APP_CSS[APP_CSS.index("@media (min-width: 1201px)") : APP_CSS.index("@media (max-width: 1200px)")]
+
+    assert ".center-column > .panel { margin-bottom: 8px; flex-shrink: 0; }" in APP_CSS
+    assert ".right-column > .panel { flex-shrink: 0; }" in APP_CSS
+    assert ".layout-columns" in desktop_rules
+    layout_column_rules = desktop_rules[
+        desktop_rules.index(".layout-columns {") : desktop_rules.index("}", desktop_rules.index(".layout-columns {"))
+    ]
+    assert "max-height" not in layout_column_rules
+    assert "overflow-y: auto" not in layout_column_rules
+
+
+def test_operating_layer_pipeline_uses_readable_rows_not_tiny_auto_fit_cards() -> None:
+    pipeline_rules = APP_CSS[
+        APP_CSS.index("#pipeline-spine .pipeline-stages {") : APP_CSS.index("#pipeline-spine .pipeline-step {")
+    ]
+    assert "display: flex" in pipeline_rules
+    assert "flex-direction: column" in pipeline_rules
+    assert "repeat(auto-fit, minmax(118px, 1fr))" not in pipeline_rules
 
 
 def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
@@ -741,6 +808,7 @@ def test_operating_layer_snapshot_includes_latest_serial_local_agent_run_status(
 ) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
     result = create_serial_local_agent_run(
         tmp_path,
         run_id="snapshot-serial-run",
@@ -1435,6 +1503,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "Worker lanes" in body
         assert "Review queue" in body
         assert "Evidence stream" in body
+        assert "Task Control" in body
+        assert "Product / Review" not in body
         assert "Next Task" in body
         assert "Definition of Done" in body
         assert "focus-overlay" in body
@@ -1461,7 +1531,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "pipeline-section" in INDEX_HTML
         assert "pipeline-spine" in INDEX_HTML
         assert "product-review-section" in INDEX_HTML
-        assert "bottom-dock" in css
+        assert "task-control-grid" in css
+        assert "bottom-dock" not in css
         assert ".idea-greenhouse-lanes" in css
         assert ".idea-card" in css
         assert "worker-lanes-list" in css
@@ -1554,6 +1625,79 @@ def test_operating_layer_server_serves_app_and_snapshot(
         thread.join(timeout=5)
 
 
+def test_operating_layer_agents_marks_local_openai_compatible_profiles_as_local(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    add_provider = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-provider",
+            "qwen35-mtp",
+            "--adapter",
+            "openai_compatible",
+            "--base-url",
+            "http://127.0.0.1:8080/v1",
+        ],
+    )
+    assert add_provider.exit_code == 0, add_provider.output
+    add_model = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-model",
+            "--provider",
+            "qwen35-mtp",
+            "--model",
+            "qwen35-9b-mtp",
+            "--authority",
+            "advisory",
+            "--role",
+            "frontier_planner_architect_reviewer",
+            "--profile-id",
+            "local-qwen35-mtp",
+        ],
+    )
+    assert add_model.exit_code == 0, add_model.output
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockUrlopenResponse:
+        if req.full_url != "http://127.0.0.1:8080/v1/models":
+            raise urllib.error.URLError("endpoint unavailable in test")
+        return MockUrlopenResponse(
+            {
+                "data": [
+                    {
+                        "id": "qwen35-9b-mtp",
+                        "object": "model",
+                        "owned_by": "llamacpp",
+                        "meta": {"n_ctx": 65536, "n_params": 9_197_093_888},
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        connection.request("GET", "/api/agents")
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == HTTPStatus.OK
+        qwen = next(agent for agent in payload["agents"] if agent["id"] == "local-qwen35-mtp")
+        assert qwen["is_local"] is True
+        assert qwen["availability"]["status"] == "available"
+        assert qwen["availability"]["source"] == "local_openai_compatible"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
     tmp_path: Path,
     monkeypatch,
@@ -1629,6 +1773,8 @@ def test_operating_layer_guided_sections_render_before_advanced_sections() -> No
     assert "Worker lanes" in INDEX_HTML
     assert "Review queue" in INDEX_HTML
     assert "Evidence stream" in INDEX_HTML
+    assert "Task Control" in INDEX_HTML
+    assert "Product / Review" not in INDEX_HTML
     assert "Next Task" in INDEX_HTML
     assert "brainstorm-definition-of-done" in INDEX_HTML
     assert "Pipeline" in INDEX_HTML
@@ -1753,7 +1899,7 @@ def test_operating_layer_visual_qa_cli_renders_json_plan(
     payload = json.loads(result.output)
     assert payload["visual_flow"] == (
         "app loads -> Idea Greenhouse -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
-        "Product / Review with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
+        "Task Control with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
     )
     assert payload["browser_runtime"] == "codex-in-app-browser"
     assert payload["serve_command"] == "devflow operating-layer serve --host 127.0.0.1 --port 8765"

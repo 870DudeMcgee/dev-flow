@@ -54,7 +54,11 @@ class LocalModelRuntimeOwner:
 
 
 def local_model_lock_dir(root: Path, provider: str, model: str) -> Path:
-    return devflow_dir(root) / "runtime" / "locks" / "local-model" / _slug(provider) / f"{_slug(model)}.lock"
+    return _global_local_model_lock_dir(root)
+
+
+def _global_local_model_lock_dir(root: Path) -> Path:
+    return devflow_dir(root) / "runtime" / "locks" / "local-model" / "global.lock"
 
 
 @contextmanager
@@ -67,9 +71,9 @@ def local_model_runtime_lock(
     worker_id: str | None = None,
     operation: str = "local-model-run",
 ) -> Iterator[LocalModelRuntimeOwner]:
-    """Acquire a provider/model-scoped single-flight lock for a local model call."""
+    """Acquire the machine-wide single-flight lock for a local model call."""
 
-    lock_dir = local_model_lock_dir(root, provider, model)
+    lock_dir = _global_local_model_lock_dir(root)
     owner_id = uuid.uuid4().hex
     owner_payload = _owner_payload(
         root,
@@ -89,13 +93,13 @@ def local_model_runtime_lock(
             encoding="utf-8",
         )
     except FileExistsError as exc:
-        status = local_model_runtime_status(root, provider=provider, model=model)
+        status = _global_local_model_runtime_status(root)
         if status and status.state == "stale":
             raise LocalModelRuntimeLockError(
                 _stale_lock_message(root, status)
             ) from exc
         if status:
-            raise LocalModelRuntimeLockError(_running_lock_message(root, status)) from exc
+            raise LocalModelRuntimeLockError(_running_lock_message(root, status, requested_provider=provider, requested_model=model)) from exc
         raise LocalModelRuntimeLockError(
             f"Local model '{provider}/{model}' is locked at {relative_path(root, lock_dir)}."
         ) from exc
@@ -108,17 +112,28 @@ def local_model_runtime_lock(
 
 
 def local_model_runtime_status(root: Path, *, provider: str, model: str) -> LocalModelRuntimeOwner | None:
-    lock_dir = local_model_lock_dir(root, provider, model)
+    status = _global_local_model_runtime_status(root)
+    if status is None:
+        return None
+    if status.provider != provider or status.model != model:
+        return None
+    return status
+
+
+def _global_local_model_runtime_status(root: Path) -> LocalModelRuntimeOwner | None:
+    lock_dir = _global_local_model_lock_dir(root)
     owner_path = lock_dir / "owner.json"
     if not owner_path.exists():
         return None
     payload = _read_owner_payload(owner_path)
     state: RuntimeLockState = "running" if _owner_process_is_active(payload) else "stale"
     elapsed = _elapsed_seconds(payload.get("acquired_at"))
+    provider = str(payload.get("provider") or "unknown")
+    model = str(payload.get("model") or "unknown")
     return LocalModelRuntimeOwner(
         owner_id=str(payload.get("owner_id") or "unknown"),
-        provider=str(payload.get("provider") or provider),
-        model=str(payload.get("model") or model),
+        provider=provider,
+        model=model,
         task_id=_optional_str(payload.get("task_id")),
         worker_id=_optional_str(payload.get("worker_id")),
         operation=str(payload.get("operation") or "unknown"),
@@ -132,21 +147,10 @@ def local_model_runtime_status(root: Path, *, provider: str, model: str) -> Loca
 
 
 def list_local_model_runtime_status(root: Path) -> dict[str, dict[str, Any]]:
-    base = devflow_dir(root) / "runtime" / "locks" / "local-model"
-    if not base.exists():
+    status = _global_local_model_runtime_status(root)
+    if status is None:
         return {}
-    statuses: dict[str, dict[str, Any]] = {}
-    for lock_dir in sorted(base.glob("*/*.lock")):
-        owner_path = lock_dir / "owner.json"
-        if not owner_path.exists():
-            continue
-        payload = _read_owner_payload(owner_path)
-        provider = str(payload.get("provider") or lock_dir.parent.name)
-        model = str(payload.get("model") or lock_dir.name.removesuffix(".lock"))
-        status = local_model_runtime_status(root, provider=provider, model=model)
-        if status:
-            statuses[f"{provider}/{model}"] = status.model_dump()
-    return statuses
+    return {f"{status.provider}/{status.model}": status.model_dump()}
 
 
 def reclaim_stale_local_model_runtime_lock(root: Path, *, provider: str, model: str) -> bool:
@@ -157,7 +161,7 @@ def reclaim_stale_local_model_runtime_lock(root: Path, *, provider: str, model: 
         return False
     if status.state != "stale":
         raise LocalModelRuntimeLockError(_running_lock_message(root, status))
-    shutil.rmtree(local_model_lock_dir(root, provider, model), ignore_errors=True)
+    shutil.rmtree(_global_local_model_lock_dir(root), ignore_errors=True)
     return True
 
 
@@ -230,12 +234,25 @@ def _elapsed_seconds(value: Any) -> int | None:
     return max(0, int((datetime.now(timezone.utc) - acquired_at).total_seconds()))
 
 
-def _running_lock_message(root: Path, status: LocalModelRuntimeOwner) -> str:
+def _running_lock_message(
+    root: Path,
+    status: LocalModelRuntimeOwner,
+    *,
+    requested_provider: str | None = None,
+    requested_model: str | None = None,
+) -> str:
+    requested = (
+        f" Requested another local model '{requested_provider}/{requested_model}'."
+        if requested_provider
+        and requested_model
+        and (requested_provider != status.provider or requested_model != status.model)
+        else ""
+    )
     return (
         f"Local model '{status.provider}/{status.model}' is already running "
         f"for task {status.task_id or 'unknown'} via {status.worker_id or status.operation} "
-        f"(pid: {status.pid}, elapsed: {status.elapsed_seconds}s, lock: {status.lock_path}). "
-        "DevFlow local model runs are single-flight; wait for it to finish or inspect runtime status."
+        f"(pid: {status.pid}, elapsed: {status.elapsed_seconds}s, lock: {status.lock_path})."
+        f"{requested} DevFlow local model runs are single-flight; wait for it to finish or inspect runtime status."
     )
 
 

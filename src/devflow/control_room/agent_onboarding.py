@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +18,7 @@ from devflow.control_room.agent_registry import (
     AgentRegistryError,
     ProviderDefinition,
     adapter_maturity,
+    is_local_openai_compatible_provider,
     is_local_ollama_base_url,
     load_agent_registry,
     load_provider_registry,
@@ -26,6 +30,14 @@ from devflow.control_room.local_agent_discovery import (
     discover_local_ollama_models,
     parse_ollama_show,
 )
+from devflow.control_room.machine_capability import (
+    LOCAL_DEFAULT_MODEL_ID,
+    LOCAL_DEFAULT_PROVIDER_ID,
+    MachineCapability,
+    classify_model_fit,
+    discover_machine_capability,
+    local_model_concurrency_policy,
+)
 from devflow.control_room.persistence import atomic_write_text
 
 
@@ -34,6 +46,7 @@ Authority = Literal["read-only", "advisory", "patch-proposer", "disabled"]
 REMOTE_MODEL_ADAPTERS = {"openai_compatible", "openai_chat", "anthropic_messages", "gemini"}
 PROVIDER_ADAPTERS = {"ollama_chat", *REMOTE_MODEL_ADAPTERS}
 SAFE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{1,79}$")
+LOCAL_ENDPOINT_TIMEOUT_SECONDS = 1.0
 
 
 class AgentOnboardingError(ValueError):
@@ -340,10 +353,16 @@ def build_agent_catalog(root: Path, *, provider_id: str | None = None) -> dict[s
             }
         )
 
+    machine = discover_machine_capability()
+    local_ollama = _local_ollama_catalog(registry)
+    local_openai_compatible = _local_openai_compatible_catalog(registry, providers, machine=machine)
+    local_model_policy = _local_model_policy(local_openai_compatible, local_ollama, machine)
+
     profiles = []
     for agent in sorted(registry.agents.values(), key=lambda item: item.id):
         if provider_filter and agent.provider != provider_filter:
             continue
+        provider = providers.providers.get(agent.provider)
         profiles.append(
             {
                 "id": agent.id,
@@ -354,22 +373,31 @@ def build_agent_catalog(root: Path, *, provider_id: str | None = None) -> dict[s
                 "authority": _authority_for_agent(agent),
                 "default_mode": agent.default_mode,
                 "enabled": agent.enabled,
+                "availability": _profile_availability(
+                    agent,
+                    provider=provider,
+                    local_ollama=local_ollama,
+                    local_openai_compatible=local_openai_compatible,
+                ),
                 "runtime_contract": agent_runtime_contract(root, agent),
             }
         )
 
-    local_ollama = _local_ollama_catalog(registry)
-    actions = _catalog_actions(provider_rows)
+    actions = _catalog_actions(provider_rows, local_openai_compatible=local_openai_compatible)
     return {
         "schema_version": 1,
         "providers": provider_rows,
         "profiles": profiles,
         "local_ollama": local_ollama,
+        "local_openai_compatible": local_openai_compatible,
+        "local_model_policy": local_model_policy,
         "actions": actions,
     }
 
 
-def _catalog_actions(provider_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _catalog_actions(
+    provider_rows: list[dict[str, Any]], *, local_openai_compatible: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     actions = [
         {
             "label": "Refresh catalog",
@@ -378,7 +406,7 @@ def _catalog_actions(provider_rows: list[dict[str, Any]]) -> list[dict[str, Any]
             "safety_class": "pure_read_only",
             "requires_human_approval": False,
             "supervisor_may_auto_run": True,
-            "reason": "Read providers, profiles, runtime contracts, env status, and local Ollama discovery.",
+            "reason": "Read providers, profiles, runtime contracts, env status, local Ollama, and local OpenAI-compatible discovery.",
         }
     ]
     for provider in provider_rows[:6]:
@@ -398,7 +426,62 @@ def _catalog_actions(provider_rows: list[dict[str, Any]]) -> list[dict[str, Any]
                 "reason": "Writes or upserts one safe registry profile after exact approval.",
             }
         )
+    if local_openai_compatible:
+        actions.extend(_local_openai_onboarding_actions(local_openai_compatible))
     return actions
+
+
+def _local_openai_onboarding_actions(local_openai_compatible: dict[str, Any]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    for provider in local_openai_compatible.get("providers", []):
+        if not isinstance(provider, dict) or provider.get("status") != "ready":
+            continue
+        provider_id = _safe_provider_id_from_discovery(provider)
+        if not provider_id:
+            continue
+        base_url = str(provider.get("base_url") or "").strip()
+        actions.append(
+            {
+                "label": f"Register {provider.get('name') or provider_id}",
+                "command": f"devflow agent add-provider {provider_id} --adapter openai_compatible --base-url {base_url}",
+                "scope": "agent_catalog",
+                "safety_class": "approval_required_task_state",
+                "requires_human_approval": True,
+                "supervisor_may_auto_run": False,
+                "reason": "Registers this discovered local Hermes/OpenAI-compatible provider after exact approval.",
+            }
+        )
+        for model in _provider_model_rows(provider):
+            model_id = str(model.get("id") or "").strip()
+            if not model_id:
+                continue
+            profile_id = "local-qwen35-mtp" if model_id == LOCAL_DEFAULT_MODEL_ID else derive_profile_id(
+                provider_id, model_id, "advisory", "frontier_planner_architect_reviewer"
+            )
+            actions.append(
+                {
+                    "label": f"Add {model_id}",
+                    "command": (
+                        f"devflow agent add-model --provider {provider_id} --model {model_id} "
+                        "--authority advisory --role frontier_planner_architect_reviewer "
+                        f"--profile-id {profile_id}"
+                    ),
+                    "scope": "agent_catalog",
+                    "safety_class": "approval_required_task_state",
+                    "requires_human_approval": True,
+                    "supervisor_may_auto_run": False,
+                    "reason": "Adds a bounded advisory profile for the discovered local model.",
+                }
+            )
+    return actions
+
+
+def _safe_provider_id_from_discovery(provider: dict[str, Any]) -> str | None:
+    provider_id = str(provider.get("id") or provider.get("name") or "").strip()
+    if provider_id.startswith("hermes:"):
+        provider_id = provider_id.split(":", 1)[1]
+    provider_id = _slug(provider_id)
+    return provider_id if SAFE_ID_PATTERN.match(provider_id) else None
 
 
 def _local_ollama_catalog(registry: Any) -> dict[str, Any]:
@@ -421,6 +504,423 @@ def _local_ollama_catalog(registry: Any) -> dict[str, Any]:
         "manifests": [manifest.to_dict() for manifest in report.manifests],
         "errors": list(report.errors),
     }
+
+
+def _local_model_policy(
+    local_openai_compatible: dict[str, Any],
+    local_ollama: dict[str, Any],
+    machine: MachineCapability,
+) -> dict[str, Any]:
+    default_provider: dict[str, Any] | None = None
+    default_model: dict[str, Any] | None = None
+    ready_providers = [
+        provider
+        for provider in local_openai_compatible.get("providers", [])
+        if isinstance(provider, dict) and provider.get("status") == "ready"
+    ]
+    for provider in ready_providers:
+        models = _provider_model_rows(provider)
+        preferred = [model for model in models if model.get("id") == LOCAL_DEFAULT_MODEL_ID]
+        if preferred:
+            default_provider = provider
+            default_model = preferred[0]
+            break
+    if default_provider is None:
+        for provider in ready_providers:
+            models = _provider_model_rows(provider)
+            if provider.get("hermes_default_model"):
+                for model in models:
+                    if model.get("id") == provider.get("hermes_default_model"):
+                        default_provider = provider
+                        default_model = model
+                        break
+            if default_model is not None:
+                break
+    if default_provider is None:
+        for provider in ready_providers:
+            models = _provider_model_rows(provider)
+            if models:
+                default_provider = provider
+                default_model = models[0]
+                break
+
+    ollama_default = None
+    if default_model is None:
+        installed = [
+            model
+            for model in local_ollama.get("installed_models", [])
+            if isinstance(model, dict) and model.get("name")
+        ]
+        if installed:
+            ollama_default = installed[0]
+
+    model_id = str(default_model.get("id")) if default_model else str(ollama_default.get("name")) if ollama_default else LOCAL_DEFAULT_MODEL_ID
+    provider_id = str(default_provider.get("id")) if default_provider else "ollama" if ollama_default else LOCAL_DEFAULT_PROVIDER_ID
+    machine_payload = machine.to_payload()
+    machine_payload.pop("local_model_concurrency", None)
+    return {
+        "default_model": model_id,
+        "default_provider_id": provider_id,
+        "default_source": default_provider.get("source") if default_provider else "ollama" if ollama_default else "configured_default",
+        "machine": machine_payload,
+        "local_model_concurrency": local_model_concurrency_policy(),
+    }
+
+
+def _provider_model_rows(provider: dict[str, Any]) -> list[dict[str, Any]]:
+    advertised = provider.get("advertised_models")
+    if isinstance(advertised, list) and advertised:
+        return [item for item in advertised if isinstance(item, dict)]
+    configured = provider.get("configured_models")
+    if isinstance(configured, list):
+        return [item for item in configured if isinstance(item, dict)]
+    return []
+
+
+def _local_openai_compatible_catalog(registry: Any, providers: Any, *, machine: MachineCapability) -> dict[str, Any]:
+    provider_rows = _local_openai_provider_rows(providers)
+    provider_rows.extend(_hermes_custom_provider_rows())
+    if not provider_rows:
+        return {"status": "none", "providers": [], "unregistered_models": []}
+
+    seen: set[tuple[str, str]] = set()
+    discovered = []
+    for row in provider_rows:
+        key = (row["id"], row["base_url"])
+        if key in seen:
+            continue
+        seen.add(key)
+        discovered.append(_discover_openai_compatible_provider(row, machine=machine))
+
+    registered_by_provider: dict[str, set[str]] = {}
+    for agent in registry.agents.values():
+        registered_by_provider.setdefault(agent.provider, set()).add(agent.model)
+
+    unregistered = []
+    for provider in discovered:
+        registered = registered_by_provider.get(provider["id"], set())
+        model_ids = {
+            item["id"]
+            for item in provider.get("advertised_models", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        if not model_ids:
+            model_ids = {
+                item["id"]
+                for item in provider.get("configured_models", [])
+                if isinstance(item, dict) and item.get("id")
+            }
+        for model_id in sorted(model_ids - registered):
+            unregistered.append(
+                {
+                    "provider_id": provider["id"],
+                    "model": model_id,
+                    "source": provider["source"],
+                    "base_url": provider["base_url"],
+                }
+            )
+
+    ready = any(provider["status"] == "ready" for provider in discovered)
+    return {
+        "status": "ready" if ready else "unavailable",
+        "providers": discovered,
+        "unregistered_models": unregistered,
+    }
+
+
+def _profile_availability(
+    agent: AgentDefinition,
+    *,
+    provider: ProviderDefinition | None,
+    local_ollama: dict[str, Any],
+    local_openai_compatible: dict[str, Any],
+) -> dict[str, Any]:
+    if not agent.enabled:
+        return {"status": "disabled", "source": "registry", "reason": "agent_disabled"}
+
+    if agent.provider == "ollama" or agent.adapter == "ollama_chat":
+        if local_ollama.get("status") != "ready":
+            return {"status": "unknown", "source": "ollama", "reason": local_ollama.get("error") or "ollama_unavailable"}
+        installed = {item.get("name") for item in local_ollama.get("installed_models", []) if isinstance(item, dict)}
+        if agent.model in installed:
+            return {"status": "available", "source": "ollama", "reason": None}
+        return {"status": "missing", "source": "ollama", "reason": "model_not_installed"}
+
+    if provider and provider.adapter in {"openai_compatible", "openai_chat"} and _is_local_http_base_url(provider.base_url):
+        matching = [
+            item
+            for item in local_openai_compatible.get("providers", [])
+            if isinstance(item, dict) and item.get("id") == provider.id
+        ]
+        if not matching:
+            return {"status": "unknown", "source": "local_openai_compatible", "reason": "provider_not_discovered"}
+        endpoint = matching[0]
+        if endpoint.get("status") != "ready":
+            return {
+                "status": "unavailable",
+                "source": "local_openai_compatible",
+                "reason": endpoint.get("error") or "endpoint_unavailable",
+            }
+        available_models = _provider_model_id_set(endpoint)
+        if agent.model in available_models:
+            return {"status": "available", "source": "local_openai_compatible", "reason": None}
+        return {"status": "missing", "source": "local_openai_compatible", "reason": "model_not_advertised"}
+
+    return {"status": "not_checked", "source": "registry", "reason": "not_local_discovery_surface"}
+
+
+def _local_openai_provider_rows(providers: Any) -> list[dict[str, Any]]:
+    rows = []
+    for provider in sorted(providers.providers.values(), key=lambda item: item.id):
+        if provider.adapter not in {"openai_compatible", "openai_chat"}:
+            continue
+        if not provider.enabled or not _is_local_http_base_url(provider.base_url):
+            continue
+        rows.append(
+            {
+                "id": provider.id,
+                "name": provider.id,
+                "source": "devflow",
+                "base_url": provider.base_url,
+                "configured_model": None,
+                "configured_models": [],
+            }
+        )
+    return rows
+
+
+def _hermes_custom_provider_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for path in _hermes_config_paths():
+        if not path.exists():
+            continue
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        active_model = payload.get("model") if isinstance(payload.get("model"), dict) else {}
+        active_provider_name = _custom_provider_name(active_model.get("provider")) if isinstance(active_model, dict) else None
+        active_default_model = str(active_model.get("default") or active_model.get("model") or "").strip() if isinstance(active_model, dict) else ""
+        raw_providers = payload.get("custom_providers")
+        if isinstance(active_model, dict) and active_provider_name and active_model.get("base_url"):
+            raw_providers = list(raw_providers) if isinstance(raw_providers, list) else []
+            raw_providers.append(
+                {
+                    "name": active_provider_name,
+                    "base_url": active_model.get("base_url"),
+                    "model": active_default_model,
+                    "models": {
+                        active_default_model: {
+                            "context_length": active_model.get("context_length"),
+                            "supports_vision": active_model.get("supports_vision"),
+                        }
+                    }
+                    if active_default_model
+                    else {},
+                    "_hermes_active_default": True,
+                }
+            )
+        if not isinstance(raw_providers, list):
+            continue
+        for raw_provider in raw_providers:
+            if not isinstance(raw_provider, dict):
+                continue
+            name = str(raw_provider.get("name") or "").strip()
+            base_url = str(raw_provider.get("base_url") or "").strip()
+            if not name or not base_url or not _is_local_http_base_url(base_url):
+                continue
+            key = (name, base_url)
+            if key in seen:
+                continue
+            seen.add(key)
+            configured_model = str(raw_provider.get("model") or "").strip() or None
+            is_active_default = bool(raw_provider.get("_hermes_active_default")) or (
+                active_provider_name == name and bool(active_default_model)
+            )
+            rows.append(
+                {
+                    "id": f"hermes:{_slug(name)}",
+                    "name": name,
+                    "source": "hermes",
+                    "base_url": base_url,
+                    "configured_model": configured_model,
+                    "configured_models": _configured_models_from_hermes(raw_provider.get("models")),
+                    "config_path": path.as_posix(),
+                    "hermes_default_model": active_default_model if is_active_default else None,
+                    "hermes_default_provider": bool(is_active_default),
+                }
+            )
+    return rows
+
+
+def _custom_provider_name(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text.startswith("custom:"):
+        return None
+    name = text.split(":", 1)[1].strip()
+    return name or None
+
+
+def _hermes_config_paths() -> list[Path]:
+    hermes_root = Path.home() / ".hermes"
+    paths = [hermes_root / "config.yaml"]
+    profiles_dir = hermes_root / "profiles"
+    if profiles_dir.is_dir():
+        paths.extend(sorted(profiles_dir.glob("*/config.yaml")))
+    return paths
+
+
+def _configured_models_from_hermes(raw_models: object) -> list[dict[str, Any]]:
+    if not isinstance(raw_models, dict):
+        return []
+    models = []
+    for model_id, raw_meta in sorted(raw_models.items()):
+        if not isinstance(model_id, str):
+            continue
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+        models.append(
+            {
+                "id": model_id,
+                "context_length": _int_or_none(meta.get("context_length")),
+                "n_params": _int_or_none(meta.get("n_params") or meta.get("parameter_count") or meta.get("parameters")),
+                "supports_vision": bool(meta.get("supports_vision")) if "supports_vision" in meta else None,
+            }
+        )
+    return models
+
+
+def _discover_openai_compatible_provider(row: dict[str, Any], *, machine: MachineCapability) -> dict[str, Any]:
+    result = {
+        "id": row["id"],
+        "name": row["name"],
+        "source": row["source"],
+        "base_url": row["base_url"],
+        "configured_model": row.get("configured_model"),
+        "configured_models": row.get("configured_models", []),
+        "hermes_default_model": row.get("hermes_default_model"),
+        "hermes_default_provider": bool(row.get("hermes_default_provider")),
+        "status": "unavailable",
+        "advertised_models": [],
+    }
+    if row.get("config_path"):
+        result["config_path"] = row["config_path"]
+    try:
+        request = urllib.request.Request(_models_url(row["base_url"]), headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=LOCAL_ENDPOINT_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        result["error"] = str(exc)
+        return result
+    result["status"] = "ready"
+    result["advertised_models"] = _annotate_model_fit(
+        _advertised_models_from_payload(payload),
+        machine=machine,
+        preferred_model=str(row.get("hermes_default_model") or row.get("configured_model") or ""),
+    )
+    result["configured_models"] = _annotate_model_fit(
+        result["configured_models"],
+        machine=machine,
+        preferred_model=str(row.get("hermes_default_model") or row.get("configured_model") or ""),
+    )
+    return result
+
+
+def _annotate_model_fit(
+    rows: list[dict[str, Any]], *, machine: MachineCapability, preferred_model: str
+) -> list[dict[str, Any]]:
+    annotated = []
+    for row in rows:
+        item = dict(row)
+        model_id = str(item.get("id") or "")
+        preferred = model_id == LOCAL_DEFAULT_MODEL_ID or (bool(preferred_model) and model_id == preferred_model)
+        item["machine_fit"] = classify_model_fit(item, machine=machine, preferred=preferred)
+        annotated.append(item)
+    return annotated
+
+
+def _advertised_models_from_payload(payload: object) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    rows: dict[str, dict[str, Any]] = {}
+    for item in payload.get("data", []) if isinstance(payload.get("data"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if not isinstance(model_id, str) or not model_id:
+            continue
+        meta = item.get("meta") if isinstance(item.get("meta"), dict) else {}
+        rows[model_id] = {
+            "id": model_id,
+            "owned_by": item.get("owned_by"),
+            "context_length": _int_or_none(meta.get("n_ctx") or item.get("context_length")),
+            "n_params": _int_or_none(meta.get("n_params") or item.get("n_params") or item.get("parameter_count")),
+        }
+    for item in payload.get("models", []) if isinstance(payload.get("models"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("model") or item.get("name") or item.get("id")
+        if not isinstance(model_id, str) or not model_id:
+            continue
+        row = rows.setdefault(
+            model_id,
+            {"id": model_id, "owned_by": item.get("owned_by"), "context_length": None, "n_params": None},
+        )
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        row.setdefault("owned_by", item.get("owned_by"))
+        row["context_length"] = row.get("context_length") or _int_or_none(item.get("context_length") or details.get("n_ctx"))
+        row["n_params"] = row.get("n_params") or _int_or_none(item.get("n_params") or details.get("n_params"))
+    return [rows[key] for key in sorted(rows)]
+
+
+def _provider_model_id_set(provider: dict[str, Any]) -> set[str]:
+    model_ids = {
+        item.get("id")
+        for item in provider.get("advertised_models", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    model_ids.update(
+        item.get("id")
+        for item in provider.get("configured_models", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    )
+    return {model_id for model_id in model_ids if isinstance(model_id, str)}
+
+
+def _models_url(base_url: str) -> str:
+    stripped = base_url.rstrip("/")
+    parsed = urlparse(stripped)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        return f"{stripped}/models"
+    return f"{stripped}/v1/models"
+
+
+def _is_local_http_base_url(base_url: str | None) -> bool:
+    if base_url is None or not base_url.strip():
+        return False
+    parsed = urlparse(base_url)
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip().lower().replace(",", "")
+        scaled = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)\s*([bmk])", stripped)
+        if scaled:
+            multiplier = {"b": 1_000_000_000, "m": 1_000_000, "k": 1_000}[scaled.group(2)]
+            return int(float(scaled.group(1)) * multiplier)
+        digits = re.sub(r"[^0-9]", "", stripped)
+        return int(digits) if digits else None
+    return None
 
 
 def _local_read_only_agent(
@@ -625,6 +1125,13 @@ def _remote_advisory_agent(
     role: str,
     authority: Authority,
 ) -> AgentDefinition:
+    local_endpoint = is_local_openai_compatible_provider(provider)
+    purpose_scope = "local OpenAI-compatible" if local_endpoint else "remote"
+    manifest_note = (
+        "Model slug was registered from a discovered local endpoint; confirm /v1/models before high-trust use."
+        if local_endpoint
+        else "Model slug is accepted from operator input; no remote catalog call was made during onboarding."
+    )
     return AgentDefinition(
         id=profile_id,
         provider=provider.id,
@@ -635,13 +1142,13 @@ def _remote_advisory_agent(
         tier="frontier",
         default_mode="read_only" if authority == "read-only" else "frontier_read_only",
         execution_mode="automated",
-        purpose=f"Bounded remote advisory evidence profile for {provider.id}/{model_id}.",
+        purpose=f"Bounded {purpose_scope} advisory evidence profile for {provider.id}/{model_id}.",
         model_role_name=_slug(profile_id),
         secondary_roles=_secondary_roles(role, ["gap-analysis", "review", "status", "advisory"]),
         use_caution=[
             "Advisory evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, merge, or push."
         ],
-        manifest_notes=["Model slug is accepted from operator input; no remote catalog call was made during onboarding."],
+        manifest_notes=[manifest_note],
         workspace="isolated_task_workspace",
         can_see=["supervisor_packet", "task_packet", "status_projection", "verification_ledger_summary"],
         can_touch=["<task>/agent-advisory-runs/**"],

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 from pathlib import Path
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from typer.testing import CliRunner
@@ -343,6 +345,207 @@ def test_agent_catalog_reports_registered_and_unregistered_local_models(
     assert any(profile["model"] == "registered:latest" for profile in payload["profiles"])
 
 
+def test_agent_catalog_marks_local_availability_and_discovers_hermes_custom_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+
+    server, thread = _start_models_server(
+        {
+            "object": "list",
+            "data": [
+                {
+                    "id": "qwen35-9b-mtp",
+                    "object": "model",
+                    "owned_by": "llamacpp",
+                    "meta": {"n_ctx": 65536, "n_params": 9197093888},
+                }
+            ],
+        }
+    )
+    port = server.server_address[1]
+    hermes_config = tmp_path / ".hermes" / "config.yaml"
+    hermes_config.parent.mkdir(parents=True)
+    hermes_config.write_text(
+        f"""custom_providers:
+- name: qwen35-mtp
+  base_url: http://127.0.0.1:{port}/v1
+  api_mode: chat_completions
+  model: qwen35-9b-mtp
+  models:
+    qwen35-9b-mtp:
+      context_length: 65536
+      n_params: 9B
+      supports_vision: false
+""",
+        encoding="utf-8",
+    )
+
+    def fake_run_ollama(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        if args == ["ollama", "list"]:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout="NAME                       ID              SIZE      MODIFIED\n"
+                "gemma4:12b-it-qat          38044be4f923    7.2 GB    3 days ago\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=(
+                "  Model\n"
+                "    architecture        gemma4\n"
+                "    parameters          11.9B\n"
+                "    context length      262144\n"
+                "    embedding length    3840\n"
+                "    quantization        Q4_0\n"
+                "  Capabilities\n"
+                "    completion\n"
+                "    thinking\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("devflow.control_room.local_agent_discovery._run_ollama", fake_run_ollama)
+    add_gemma = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-model",
+            "--provider",
+            "ollama",
+            "--model",
+            "gemma4:12b-it-qat",
+            "--authority",
+            "patch-proposer",
+            "--role",
+            "implementation_worker",
+            "--profile-id",
+            "gemma4-12b-qat-implementer",
+            "--json",
+        ],
+    )
+    assert add_gemma.exit_code == 0, add_gemma.output
+    try:
+        result = runner.invoke(app, ["agent", "catalog", "--json"])
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    profiles = {profile["id"]: profile for profile in payload["profiles"]}
+    assert profiles["gemma4-12b-qat-implementer"]["availability"]["status"] == "available"
+    assert profiles["qwopus-implementer"]["availability"]["status"] == "missing"
+    assert profiles["qwopus-implementer"]["availability"]["reason"] == "model_not_installed"
+
+    local_endpoints = payload["local_openai_compatible"]
+    assert local_endpoints["status"] == "ready"
+    provider = next(item for item in local_endpoints["providers"] if item["id"] == "hermes:qwen35-mtp")
+    assert provider["id"] == "hermes:qwen35-mtp"
+    assert provider["source"] == "hermes"
+    assert provider["status"] == "ready"
+    assert provider["advertised_models"][0]["id"] == "qwen35-9b-mtp"
+    assert provider["advertised_models"][0]["context_length"] == 65536
+    assert local_endpoints["unregistered_models"] == [
+        {
+            "base_url": f"http://127.0.0.1:{port}/v1",
+            "model": "qwen35-9b-mtp",
+            "provider_id": "hermes:qwen35-mtp",
+            "source": "hermes",
+        }
+    ]
+
+
+def test_agent_catalog_prefers_qwen35_and_marks_heavy_models_unsafe_on_mac_mini(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    monkeypatch.setenv("DEVFLOW_MACHINE_RAM_GB", "16")
+
+    server, thread = _start_models_server(
+        {
+            "object": "list",
+            "data": [
+                {
+                    "id": "qwen35-9b-mtp",
+                    "object": "model",
+                    "owned_by": "llamacpp",
+                    "meta": {"n_ctx": 65536, "n_params": 9197093888},
+                },
+                {
+                    "id": "qwen-heavy-32b",
+                    "object": "model",
+                    "owned_by": "llamacpp",
+                    "meta": {"n_ctx": 131072, "n_params": 32000000000},
+                },
+            ],
+        }
+    )
+    port = server.server_address[1]
+    hermes_config = tmp_path / ".hermes" / "config.yaml"
+    hermes_config.parent.mkdir(parents=True)
+    hermes_config.write_text(
+        f"""model:
+  default: qwen35-9b-mtp
+  provider: custom:qwen35-mtp
+  base_url: http://127.0.0.1:{port}/v1
+  context_length: 65536
+  supports_vision: false
+custom_providers:
+- name: qwen35-mtp
+  base_url: http://127.0.0.1:{port}/v1
+  api_mode: chat_completions
+  model: qwen35-9b-mtp
+  models:
+    qwen35-9b-mtp:
+      context_length: 65536
+      n_params: 9B
+      supports_vision: false
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        result = runner.invoke(app, ["agent", "catalog", "--json"])
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    policy = payload["local_model_policy"]
+    assert policy["default_model"] == "qwen35-9b-mtp"
+    assert policy["default_provider_id"] == "hermes:qwen35-mtp"
+    assert policy["local_model_concurrency"]["mode"] == "single_flight"
+    assert policy["machine"]["total_memory_gb"] == 16
+    assert policy["machine"]["max_recommended_weight_class"] == "medium"
+
+    provider = next(item for item in payload["local_openai_compatible"]["providers"] if item["id"] == "hermes:qwen35-mtp")
+    qwen = next(item for item in provider["advertised_models"] if item["id"] == "qwen35-9b-mtp")
+    configured_qwen = next(item for item in provider["configured_models"] if item["id"] == "qwen35-9b-mtp")
+    heavy = next(item for item in provider["advertised_models"] if item["id"] == "qwen-heavy-32b")
+    assert qwen["machine_fit"]["status"] == "preferred"
+    assert qwen["machine_fit"]["weight_class"] == "medium"
+    assert configured_qwen["n_params"] == 9_000_000_000
+    assert configured_qwen["machine_fit"]["weight_class"] == "medium"
+    assert heavy["machine_fit"]["status"] == "not_recommended"
+    assert "16 GB" in heavy["machine_fit"]["reason"]
+    commands = [action["command"] for action in payload["actions"]]
+    assert f"devflow agent add-provider qwen35-mtp --adapter openai_compatible --base-url http://127.0.0.1:{port}/v1" in commands
+    assert (
+        "devflow agent add-model --provider qwen35-mtp --model qwen35-9b-mtp "
+        "--authority advisory --role frontier_planner_architect_reviewer --profile-id local-qwen35-mtp"
+    ) in commands
+
+
 def test_operating_layer_snapshot_exposes_agent_catalog_and_model_actions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -356,3 +559,25 @@ def test_operating_layer_snapshot_exposes_agent_catalog_and_model_actions(
     assert any(provider["id"] == "ollama" for provider in snapshot["agent_catalog"]["providers"])
     assert any(action["command"].startswith("devflow agent catalog") for action in snapshot["agent_catalog"]["actions"])
     assert any("agent add-model" in action["command"] for action in snapshot["agent_catalog"]["actions"])
+
+
+def _start_models_server(payload: dict[str, object]) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path != "/v1/models":
+                self.send_error(404)
+                return
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread

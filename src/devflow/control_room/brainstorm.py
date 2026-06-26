@@ -11,6 +11,7 @@ from typing import Any
 from devflow.control_room.agent_registry import (
     AgentDefinition,
     ProviderDefinition,
+    is_local_openai_compatible_provider,
     is_remote_advisory_agent,
     load_agent_registry,
     load_provider_registry,
@@ -109,6 +110,54 @@ def _ollama_extract_content(response_body: dict[str, Any]) -> str:
     raise OpenRouterAgentError("Ollama response did not include assistant content.")
 
 
+def _local_openai_compatible_chat_completion(
+    *,
+    provider: ProviderDefinition,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    if not provider.base_url:
+        raise OpenRouterAgentError(f"Provider '{provider.id}' base_url is missing.")
+    base_url = provider.base_url.rstrip("/")
+    url = f"{base_url}/chat/completions"
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    request_timeout = timeout_seconds or provider.default_timeout_seconds or _OLLAMA_DEFAULT_TIMEOUT
+    try:
+        with urllib.request.urlopen(request, timeout=request_timeout) as response:
+            decoded = response.read().decode("utf-8")
+    except urllib.error.URLError as exc:
+        raise OpenRouterAgentError(
+            f"Local OpenAI-compatible request failed: {exc.reason}. Is the service running at {base_url}?"
+        ) from exc
+    except TimeoutError as exc:
+        raise OpenRouterAgentError(
+            f"Local OpenAI-compatible request timed out after {request_timeout}s."
+        ) from exc
+    try:
+        payload = json.loads(decoded)
+    except json.JSONDecodeError as exc:
+        raise OpenRouterAgentError(f"Local OpenAI-compatible provider returned invalid JSON: {exc.msg}") from exc
+    if not isinstance(payload, dict):
+        raise OpenRouterAgentError("Local OpenAI-compatible response root was not a JSON object.")
+    return payload
+
+
 def _chat_completion_for_profile(
     *,
     profile: AgentDefinition,
@@ -120,6 +169,14 @@ def _chat_completion_for_profile(
     """Route to OpenRouter or Ollama depending on the provider."""
     if _is_ollama_provider(provider):
         return _ollama_chat_completion(
+            provider=provider,
+            model=profile.model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            timeout_seconds=provider.default_timeout_seconds,
+        )
+    if is_local_openai_compatible_provider(provider) and not api_key:
+        return _local_openai_compatible_chat_completion(
             provider=provider,
             model=profile.model,
             system_prompt=system_prompt,
@@ -185,9 +242,9 @@ def run_brainstorm_message(
         },
     )
 
-    is_ollama = _is_ollama_provider(provider)
+    is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
-    if not is_ollama:
+    if not is_local_provider:
         api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
         api_key = resolve_api_key(api_key_env)
         if not api_key:
@@ -400,9 +457,9 @@ def _generate_stage_with_model(
 ) -> dict[str, Any]:
     """Call a model to produce a structured spec/plan from the brainstorm transcript."""
     profile, provider = _load_brainstorm_profile(root, profile_id=profile_id)
-    is_ollama = _is_ollama_provider(provider)
+    is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
-    if not is_ollama:
+    if not is_local_provider:
         api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
         api_key = resolve_api_key(api_key_env)
         if not api_key:
@@ -525,8 +582,9 @@ def _load_brainstorm_profile(root: Path, *, profile_id: str | None = None) -> tu
     profile = load_agent_registry(root).require_agent(agent_id)
     provider = load_provider_registry(root).require_provider(profile.provider)
     is_ollama = _is_ollama_provider(provider)
-    if not is_ollama and not is_remote_advisory_agent(profile, provider=provider):
-        raise OpenRouterAgentError(f"Profile '{profile.id}' is not an advisory OpenRouter profile.")
+    is_local_openai = is_local_openai_compatible_provider(provider)
+    if not is_ollama and not is_local_openai and not is_remote_advisory_agent(profile, provider=provider):
+        raise OpenRouterAgentError(f"Profile '{profile.id}' is not an approved advisory model profile.")
     return profile, provider
 
 
