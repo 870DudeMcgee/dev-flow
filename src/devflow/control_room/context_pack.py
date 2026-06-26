@@ -340,7 +340,6 @@ def _build_legacy_context_pack(root: Path, task_id: str, role: str, *, persist_t
             _add_include(task_yaml_path, "canonical task definition")
 
         # Include git diff
-        diff_tokens = 0
         try:
             diff_proc = subprocess.run(
                 ["git", "diff"],
@@ -350,7 +349,6 @@ def _build_legacy_context_pack(root: Path, task_id: str, role: str, *, persist_t
                 timeout=5,
             )
             if diff_proc.returncode == 0 and diff_proc.stdout.strip():
-                diff_tokens = len(diff_proc.stdout) // 4
                 diff_path = task_dir(root, task_id) / "git-diff.patch"
                 diff_path.write_text(diff_proc.stdout, encoding="utf-8")
                 _add_include(diff_path, "git diff of changes to review")

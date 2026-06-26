@@ -21,7 +21,7 @@ def run_local_packet_review(
     
     # 1. Load task to verify it exists
     try:
-        task = get_task(repo_root, task_id)
+        get_task(repo_root, task_id)
     except KeyError as exc:
         raise ValueError(f"Task '{task_id}' not found.") from exc
 

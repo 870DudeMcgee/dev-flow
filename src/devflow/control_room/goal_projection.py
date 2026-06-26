@@ -75,7 +75,6 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     # 1. Retrieve metadata
     created_at = None
     updated_at = None
-    source = ""
     warnings: list[str] = []
 
     if goal_yaml_path.exists():
@@ -90,8 +89,6 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
                         created_at = v
                     elif k == "updated_at":
                         updated_at = v
-                    elif k == "source_brief_path":
-                        source = v
         except Exception as exc:
             warnings.append(f"warning: goal.yaml is unreadable: {exc}")
     else:
@@ -123,7 +120,7 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
         goal_md_exists = True
         try:
             content = (g_dir / "goal.md").read_text(encoding="utf-8")
-            lines = [l.strip() for l in content.splitlines() if l.strip()]
+            lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
             if lines:
                 title_line = lines[0]
                 if title_line.startswith("# Goal:"):
@@ -131,7 +128,7 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
                 elif title_line.startswith("#"):
                     title = title_line.lstrip("#").strip()
                 
-                body_lines = [l for l in lines if not l.startswith("#") and not l.startswith("-")][:3]
+                body_lines = [ln for ln in lines if not ln.startswith("#") and not ln.startswith("-")][:3]
                 if body_lines:
                     summary = " ".join(body_lines)[:100]
         except Exception as exc:

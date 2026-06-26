@@ -137,7 +137,6 @@ def _classify_archetype(
 
     code_edit_risk = "low"
     architectural_risk = "low"
-    reasoning_requirement_out = reasoning_requirement
 
     return {
         "archetype_id": archetype_id,

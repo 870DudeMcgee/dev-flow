@@ -191,16 +191,13 @@ def decompose_goal_into_tasks(goal_id: str, goal_dir: Path, repo_path: Path) -> 
     Returns list of task_ids (task-XXXX format).
     """
     goal_intent_path = goal_dir / "intent-metadata.yaml"
-    priority = "medium"
     effort = "medium"
     roles = ["planner", "implementer"]
     
     if goal_intent_path.exists():
         content = goal_intent_path.read_text(encoding="utf-8")
         for line in content.splitlines():
-            if line.startswith("priority:"):
-                priority = line.split(":", 1)[1].strip().lower()
-            elif line.startswith("effort:"):
+            if line.startswith("effort:"):
                 effort = line.split(":", 1)[1].strip().lower()
             elif line.startswith("suggested_roles:"):
                 raw_roles = line.split(":", 1)[1].strip()
@@ -347,7 +344,6 @@ def format_telegram_response(
                 lines.append(f"  - {f.name} (✅)")
     
     lines.extend(["", "⏳ **Next Steps**"])
-    status_file = repo_path / ".devflow" / "goals" / goal_id / "status.json"
     lines.append(f"• Goal status updated in {goal_id}/status.json")
     lines.append("• Task slices are created with workspaces")
     lines.append("• Workers are not running yet; start them through an approved execution command")

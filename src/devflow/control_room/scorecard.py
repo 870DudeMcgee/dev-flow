@@ -36,7 +36,6 @@ def generate_scorecard(root: Path, task_id: str) -> dict[str, Any]:
 
     task = get_task(root, task_id)
     rd = decision_data.get("routing_decision", {})
-    tf = fit_data.get("task_fit", {})
     rs = fit_data.get("repo_scan", {})
 
     selected = rd.get("selected", {})

@@ -320,7 +320,6 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     transcript = entry / "transcript.jsonl"
                     if not transcript.exists():
                         continue
-                    messages: list[dict[str, object]] = []
                     first_user_msg = ""
                     msg_count = 0
                     has_spec = (entry / "spec.md").exists()

@@ -184,7 +184,6 @@ def build_brainstorm_pipeline_detail(
 ) -> BrainstormPipelineDetail:
     """Build the shared Brainstorm -> Pipeline -> task creation story."""
     root = root.resolve()
-    session_path = _session_dir(root, session_id)
     normalized_stage = str(stage or "").strip().lower()
     artifact_rel = relative_path(root, artifact_path) if artifact_path else None
     stages = _pipeline_stages(root, session_id, records=records, current_artifact=artifact_path)

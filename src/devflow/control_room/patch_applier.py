@@ -171,7 +171,7 @@ def apply_patch_files(
 
         if is_deletion:
             # For deletes, check that the resulting content is empty
-            non_empty = [l for l in modified_lines if l.strip()]
+            non_empty = [ln for ln in modified_lines if ln.strip()]
             if non_empty:
                 raise PatchApplicationError(f"Deleted file {rel_target_path} must be empty after deletion")
             deleted_files_list.append(target_abs)

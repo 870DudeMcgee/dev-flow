@@ -443,7 +443,6 @@ def _read_yaml_routing(path: Path) -> dict[str, Any]:
         try:
             text = path.read_text(encoding="utf-8")
             lines = []
-            indent_depth = 0
             for line in text.splitlines():
                 stripped = line.lstrip()
                 current_indent = len(line) - len(stripped)
