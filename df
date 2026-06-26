@@ -1,5 +1,5 @@
 #!/bin/bash
-# df - Dev-Flow local bootstrap wrapper with environment diagnostics
+# df - Dev-Flow local bootstrap wrapper with environment diagnostics + auto-repair
 
 # 1. Virtual Environment Existence Check
 if [ ! -f ".venv/bin/devflow" ]; then
@@ -9,25 +9,34 @@ if [ ! -f ".venv/bin/devflow" ]; then
     exit 1
 fi
 
-# 2. Check python import path health
+# 2. Check python import path health, auto-repairing the macOS hidden flag.
 if ! .venv/bin/python -c "import devflow" 2>/dev/null; then
-    # Import failed, check for macOS hidden flags on site-packages
+    # Import failed. On macOS the usual cause is the UF_HIDDEN flag getting set
+    # on the venv (iCloud/Desktop sync, Finder ops). Clear it automatically and
+    # retry once - this is non-destructive (only the hidden flag bit changes).
     if [ "$(uname)" = "Darwin" ]; then
-        # Search site-packages specifically for the hidden flag
-        SITE_PACKAGES_HIDDEN=$(find .venv/lib -name "site-packages" -flags +hidden 2>/dev/null | wc -l)
+        SITE_PACKAGES_HIDDEN=$(find .venv -flags +hidden 2>/dev/null | wc -l)
         if [ "$SITE_PACKAGES_HIDDEN" -gt 0 ]; then
-            echo "Error: macOS hidden flags detected on .venv/lib/.../site-packages." >&2
-            echo "This prevents Python from resolving the editable install of 'devflow'." >&2
-            echo "Please run the following command to repair your environment:" >&2
-            echo "    find .venv -flags +hidden -print0 | xargs -0 chflags -h nohidden" >&2
+            echo "Notice: macOS hidden flag detected on .venv - auto-repairing..." >&2
+            find .venv -flags +hidden -print0 2>/dev/null | xargs -0 chflags -h nohidden 2>/dev/null
+            if .venv/bin/python -c "import devflow" 2>/dev/null; then
+                echo "Notice: repaired. (Tip: 'devflow doctor --repair' does this too.)" >&2
+            else
+                echo "Error: cleared hidden flags but 'import devflow' still fails." >&2
+                .venv/bin/python -c "import devflow" >&2
+                exit 1
+            fi
+        else
+            # Hidden flag was not the cause - surface the real import error.
+            echo "Error: Failed to import devflow. Output from import check:" >&2
+            .venv/bin/python -c "import devflow" >&2
             exit 1
         fi
+    else
+        echo "Error: Failed to import devflow. Output from import check:" >&2
+        .venv/bin/python -c "import devflow" >&2
+        exit 1
     fi
-    
-    # Otherwise, print the actual import error for debugging
-    echo "Error: Failed to import devflow. Output from import check:" >&2
-    .venv/bin/python -c "import devflow" >&2
-    exit 1
 fi
 
 # 3. Delegate to the actual venv devflow entrypoint

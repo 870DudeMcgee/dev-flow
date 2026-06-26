@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import json
-import os
 
 import typer
 
@@ -53,9 +52,7 @@ from devflow.control_room.task_patch_gate_command import (
 from devflow.control_room.task_closure import (
     TaskClosureError,
     cleanup_task as cleanup_closed_task,
-    closure_next_action,
     close_task,
-    read_closure,
 )
 from devflow.control_room.task_evidence_summary import (
     TaskEvidenceSummaryError,
@@ -1072,16 +1069,30 @@ def project_connect_github_command(
 
 @app.command("doctor")
 def doctor_command(
-    strict: bool = typer.Option(False, "--strict", help="Enforce strict production readiness checks.")
+    strict: bool = typer.Option(False, "--strict", help="Enforce strict production readiness checks."),
+    repair: bool = typer.Option(
+        False,
+        "--repair",
+        help="Auto-fix the macOS hidden flag on the venv before checking (non-destructive).",
+    ),
 ) -> None:
     """Check local control-room runtime readiness."""
     root = Path.cwd()
+    if repair:
+        from devflow.control_room.control_room_doctor import repair_macos_path_hygiene
+
+        fixed = repair_macos_path_hygiene(root)
+        if fixed:
+            for path in fixed:
+                typer.echo(f"repaired: cleared macOS hidden flag on {path}")
+        else:
+            typer.echo("repair: no macOS hidden flags found to clear")
     if strict:
         typer.echo(TRUSTED_LOCAL_WARNING)
     checks = doctor(root, strict=strict)
     failed = False
     for name, ok, detail in checks:
-        marker = "ok" if ok else "missing"
+        marker = "ok" if ok else "FAIL"
         typer.echo(f"{marker}: {name} ({detail})")
         failed = failed or not ok
     if failed:
@@ -1243,6 +1254,71 @@ def operating_layer_serve_command(
         typer.echo("Stopped Dev-Flow Operating Layer")
 
 
+@operating_layer_app.command("health")
+def operating_layer_health_command(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host of the running UI server."),
+    port: int = typer.Option(8765, "--port", min=1, max=65535, help="Port of the running UI server."),
+) -> None:
+    """Probe a running operating-layer server's real data path (/healthz + /api/snapshot)."""
+    from devflow.control_room.operating_layer_server import check_server_health, find_listening_pids
+
+    pids = find_listening_pids(port)
+    health = check_server_health(host, port)
+    typer.echo(f"server: http://{host}:{port}")
+    typer.echo(f"listening pids: {', '.join(str(p) for p in pids) if pids else 'none'}")
+    typer.echo(f"healthz: {'ok' if health['healthz_ok'] else 'FAIL'}")
+    typer.echo(
+        f"snapshot: {'ok' if health['snapshot_ok'] else 'FAIL'} ({health['snapshot_bytes']} bytes)"
+    )
+    if health["detail"]:
+        typer.echo(f"detail: {health['detail']}")
+    if not health["overall_ok"]:
+        if pids:
+            typer.echo("hint: server is up but its data path is broken - run 'devflow operating-layer restart'")
+        raise typer.Exit(code=1)
+
+
+@operating_layer_app.command("restart")
+def operating_layer_restart_command(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host for the local UI server."),
+    port: int = typer.Option(8765, "--port", min=0, help="Port for the local UI server. Use 0 for an ephemeral port."),
+    open_browser: bool = typer.Option(False, "--open", help="Open the local UI in the default browser."),
+) -> None:
+    """Stop any stale server on the port, then serve a fresh operating-layer UI.
+
+    Kills only the process(es) listening on the target TCP port - never unrelated
+    work. This is the fix for the stale-server trap where the browser shows a
+    frozen/empty control room because an old process is serving outdated code.
+    """
+    from devflow.control_room.operating_layer_server import (
+        run_operating_layer_server,
+        stop_listening_processes,
+    )
+
+    if port:
+        stopped = stop_listening_processes(port)
+        if stopped:
+            typer.echo(f"stopped stale server pid(s): {', '.join(str(p) for p in stopped)}")
+        else:
+            typer.echo(f"no existing server found on port {port}")
+
+    def _ready(server: object) -> None:
+        address = getattr(server, "server_address")
+        typer.echo(f"Dev-Flow Operating Layer: http://{address[0]}:{address[1]}")
+        typer.echo("Control layer active. Press Ctrl+C to stop.")
+
+    try:
+        run_operating_layer_server(
+            Path.cwd(),
+            host=host,
+            port=port,
+            open_browser=open_browser,
+            ready_callback=_ready,
+        )
+    except KeyboardInterrupt:
+        typer.echo("Stopped Dev-Flow Operating Layer")
+
+
 @operating_layer_app.command("install-service")
 def operating_layer_install_service_command(
     host: str = typer.Option("127.0.0.1", "--host", help="Host for the login service UI server."),
@@ -1282,7 +1358,7 @@ def operating_layer_install_service_command(
     typer.echo(f"Installed LaunchAgent: {result.plist_path}")
     typer.echo(f"Label: {result.label}")
     typer.echo(f"URL: {result.url}")
-    typer.echo(f"Starts at login: yes")
+    typer.echo("Starts at login: yes")
     typer.echo(f"Loaded now: {'yes' if result.loaded else 'no'}")
     typer.echo(f"Stdout log: {result.stdout_path}")
     typer.echo(f"Stderr log: {result.stderr_path}")
@@ -2376,9 +2452,9 @@ def task_local_review(
     typer.echo("-" * 50)
     typer.echo("")
     typer.echo("Recommended Next DevFlow Step:")
-    typer.echo(f"  1. Review the generated proposal evidence at:")
+    typer.echo("  1. Review the generated proposal evidence at:")
     typer.echo(f"     {rel_response_path}")
-    typer.echo(f"  2. Explicitly choose to run implementer, apply patch, or verify task:")
+    typer.echo("  2. Explicitly choose to run implementer, apply patch, or verify task:")
     typer.echo(f"     devflow task show {task_id}")
     typer.echo("-" * 50)
 
@@ -2460,7 +2536,7 @@ def task_auto_run(
     typer.echo(f"context_estimate: {context_estimate} tokens")
     typer.echo(f"requires_vision: {requires_vision}")
     typer.echo(f"requires_thinking: {requires_thinking}")
-    typer.echo(f"---")
+    typer.echo("---")
 
     # Step 2: Route (select best worker)
     decision_data = route_task(root, task_id, project_id=project)
@@ -2488,12 +2564,12 @@ def task_auto_run(
 
     if dry_run:
         if worker_id:
-            typer.echo(f"---")
+            typer.echo("---")
             typer.echo(f"Dry-run mode — to execute: devflow task run {task_id}{project_option} --worker {worker_id}")
         return
 
     # Step 3: Run
-    typer.echo(f"---")
+    typer.echo("---")
     typer.echo(f"Executing worker: {worker_id}")
 
     from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, list_worker_adapters

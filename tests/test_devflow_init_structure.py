@@ -294,7 +294,7 @@ def test_devflow_doctor_reports_seed_schema_drift() -> None:
 
             doctor = runner.invoke(app, ["doctor"])
             assert doctor.exit_code == 1
-            assert "missing: seed contract" in doctor.output
+            assert "FAIL: seed contract" in doctor.output
             assert ".devflow/workers/registry.yaml: workers must be an empty placeholder list" in doctor.output
         finally:
             os.chdir(old_cwd)
@@ -316,7 +316,7 @@ def test_devflow_doctor_reports_stale_seeded_context() -> None:
 
             doctor = runner.invoke(app, ["doctor"])
             assert doctor.exit_code == 1
-            assert "missing: seed contract" in doctor.output
+            assert "FAIL: seed contract" in doctor.output
             assert ".devflow/layers/implementation/known-gaps.md: stale context contradicts runtime" in doctor.output
         finally:
             os.chdir(old_cwd)

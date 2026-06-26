@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -87,12 +86,17 @@ def test_bootstrap_wrapper_hidden_site_packages(tmp_path: Path) -> None:
     venv_bin = tmp_path / ".venv" / "bin"
     venv_bin.mkdir(parents=True, exist_ok=True)
 
-    # Write mock python that fails to import devflow
+    # Mock python: fails to import devflow WHILE the hidden flag is set, and
+    # succeeds once the flag has been cleared. The wrapper auto-repairs the flag,
+    # so the second import attempt must pass and devflow must run.
     python_mock = venv_bin / "python"
     python_mock.write_text(
         "#!/bin/sh\n"
-        "exit 1\n",
-        encoding="utf-8"
+        f'if find "{site_packages}" -flags +hidden 2>/dev/null | grep -q .; then\n'
+        "  exit 1\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
     )
     python_mock.chmod(0o755)
 
@@ -100,6 +104,7 @@ def test_bootstrap_wrapper_hidden_site_packages(tmp_path: Path) -> None:
     devflow_mock = venv_bin / "devflow"
     devflow_mock.write_text(
         "#!/bin/sh\n"
+        "echo mock devflow executing\n"
         "exit 0\n",
         encoding="utf-8"
     )
@@ -109,16 +114,23 @@ def test_bootstrap_wrapper_hidden_site_packages(tmp_path: Path) -> None:
     subprocess.run(["chflags", "hidden", str(site_packages)], check=True)
 
     try:
-        # Run wrapper
+        # Run wrapper - it should auto-repair and recover.
         res = subprocess.run(
             ["./df", "--help"],
             cwd=tmp_path,
             capture_output=True,
             text=True,
         )
-        assert res.returncode == 1
-        assert "Error: macOS hidden flags detected on .venv/lib/.../site-packages" in res.stderr
-        assert "find .venv -flags +hidden -print0 | xargs -0 chflags -h nohidden" in res.stderr
+        assert res.returncode == 0, res.stderr
+        assert "auto-repairing" in res.stderr
+        assert "mock devflow executing" in res.stdout
+        # The hidden flag must actually be cleared after the wrapper runs.
+        leftover = subprocess.run(
+            ["find", str(site_packages), "-flags", "+hidden"],
+            capture_output=True,
+            text=True,
+        )
+        assert leftover.stdout.strip() == ""
     finally:
         # Clear hidden flag so tmp_path cleanup succeeds
         subprocess.run(["chflags", "nohidden", str(site_packages)])

@@ -29,7 +29,13 @@ from devflow.control_room.persistence import load_task, validate_event_log
 from devflow.control_room.seed import validate_seed_contract
 from devflow.control_room.task_artifacts import missing_task_baseline_artifacts
 
-__all__ = ["run_control_room_doctor"]
+__all__ = ["run_control_room_doctor", "repair_macos_path_hygiene"]
+
+# macOS UF_HIDDEN flag bit. When set on a venv's site-packages (commonly by
+# iCloud/Desktop sync or Finder operations), Python cannot resolve the editable
+# install and every `devflow` import fails. This is the single most common cause
+# of "the CLI won't start" on this project, so it is treated as a hard failure.
+_MACOS_HIDDEN_FLAG = 0x8000
 
 
 def run_control_room_doctor(root: Path, strict: bool = False) -> list[tuple[str, bool, str]]:
@@ -101,16 +107,56 @@ def _append_macos_path_hygiene_checks(root: Path, checks: list[tuple[str, bool, 
                 curr = path
                 while curr != abs_root and curr != curr.parent:
                     st = os.stat(curr)
-                    if hasattr(st, "st_flags") and (st.st_flags & 0x8000):
+                    if hasattr(st, "st_flags") and (st.st_flags & _MACOS_HIDDEN_FLAG):
                         checks.append((
                             f"python path hygiene ({curr.name})",
-                            True,
-                            f"local environment hygiene: macOS hidden flag set on {curr}; if imports fail, run 'chflags -R nohidden {curr}'",
+                            False,
+                            f"macOS hidden flag set on {curr} - this breaks 'import devflow'. "
+                            f"Run 'devflow doctor --repair' (or 'chflags -R nohidden {curr}') to fix.",
                         ))
                         break
                     curr = curr.parent
         except Exception:
             pass
+
+
+def repair_macos_path_hygiene(root: Path) -> list[Path]:
+    """Clear the macOS hidden flag from any venv path under ``root`` that is on
+    ``sys.path``. Returns the list of paths that were repaired. Non-destructive:
+    only the UF_HIDDEN flag bit is cleared; file contents are untouched. No-op on
+    non-macOS platforms.
+    """
+    repaired: list[Path] = []
+    if sys.platform != "darwin":
+        return repaired
+    try:
+        abs_root = root.resolve()
+    except Exception:
+        return repaired
+    seen: set[Path] = set()
+    for path_str in sys.path:
+        if not path_str:
+            continue
+        try:
+            path = Path(path_str).resolve()
+        except Exception:
+            continue
+        if not (abs_root in path.parents or path == abs_root):
+            continue
+        curr = path
+        while curr != abs_root and curr != curr.parent:
+            if curr in seen:
+                break
+            seen.add(curr)
+            try:
+                st = os.stat(curr)
+                if hasattr(st, "st_flags") and (st.st_flags & _MACOS_HIDDEN_FLAG):
+                    os.chflags(curr, st.st_flags & ~_MACOS_HIDDEN_FLAG)
+                    repaired.append(curr)
+            except Exception:
+                pass
+            curr = curr.parent
+    return repaired
 
 
 def _strict_runtime_adapter_check(root: Path) -> tuple[str, bool, str]:
