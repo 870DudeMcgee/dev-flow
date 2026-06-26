@@ -39,7 +39,25 @@ echo "--------------------------------------------------------------------------
 PYTHONPATH=src:. python3 -m compileall src
 echo "✓ All source files compiled successfully"
 
-# 4. Pytest Regression Suite
+# 4. Lint Check (ruff)
+echo -e "\n------------------------------------------------------------------------------"
+echo "🧹 Running Ruff Lint Check"
+echo "------------------------------------------------------------------------------"
+# Prefer the venv ruff; fall back to module invocation. Ruff config lives in
+# pyproject.toml ([tool.ruff]). This gate keeps the static-check target honest:
+# 'make lint' clean == release gate clean.
+if [[ -f ".venv/bin/ruff" ]]; then
+  RUFF_BIN=(".venv/bin/ruff")
+elif python3 -c "import ruff" >/dev/null 2>&1; then
+  RUFF_BIN=("python3" "-m" "ruff")
+else
+  echo "❌ Error: ruff is not installed. Install dev tools with: pip install -e \".[test]\"" >&2
+  exit 1
+fi
+"${RUFF_BIN[@]}" check .
+echo "✓ Ruff lint check passed"
+
+# 5. Pytest Regression Suite
 echo -e "\n------------------------------------------------------------------------------"
 echo "🧪 Running Pytest Regression Suite"
 echo "------------------------------------------------------------------------------"
@@ -51,7 +69,7 @@ else
 fi
 echo "✓ Pytest suite completed successfully"
 
-# 5. CLI Help Smoke Checks & Hiding Gating
+# 6. CLI Help Smoke Checks & Hiding Gating
 echo -e "\n------------------------------------------------------------------------------"
 echo "🖥 Running CLI Help Smoke & Experimental Command Hiding Checks"
 echo "------------------------------------------------------------------------------"
@@ -129,7 +147,7 @@ for cmd in "pack"; do
 done
 echo "✓ Experimental commands are successfully exposed under DEVFLOW_EXPERIMENTAL=1"
 
-# 6. Packaging & Distribution Smoke Check (if tools available)
+# 7. Packaging & Distribution Smoke Check (if tools available)
 echo -e "\n------------------------------------------------------------------------------"
 echo "📦 Packaging & Smoke Install Gating"
 echo "------------------------------------------------------------------------------"

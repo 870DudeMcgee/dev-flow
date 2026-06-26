@@ -38,6 +38,7 @@ hyperplane = [
 ]
 test = [
 	"pytest>=8.0",
+	"ruff>=0.6,<1",
 ]
 dev = [
 	"pytest>=8.0",
