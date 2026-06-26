@@ -288,7 +288,12 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "pass"
             if all(
                 token in INDEX_HTML + APP_CSS + APP_JS
-                for token in ("active-work-groups", "worker-card", "renderWorkerLanes", "buildFirstViewportPresentation")
+                for token in (
+                    "active-work-groups",
+                    "worker-card",
+                    "renderWorkerLanes",
+                    "firstViewportPresentationFromSnapshot",
+                )
             )
             else "fail",
         ),

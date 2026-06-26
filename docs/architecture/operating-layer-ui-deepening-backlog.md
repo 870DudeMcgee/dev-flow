@@ -143,6 +143,16 @@ Checkpoint 2026-06-25:
 
 Served browser validation now backs the first-viewport presentation slice. The desktop workbench keeps Brainstorm, Pipeline, Next Task, Worker lanes, Review queue, and Evidence stream visible without horizontal overflow. Presentation polish compacted the Idea/Pipeline stack, pinned the Product / Review dock on desktop, removed fake dock links, demoted the selected task title out of structural heading navigation, and collapsed the raw shell fallback until the operator opens it. Browser tests now assert the visible dock lanes and the deliberate shell-fallback interaction.
 
+Checkpoint 2026-06-26:
+
+`src/devflow/control_room/operating_layer_first_viewport.py` is now the current
+first-viewport presentation Interface for Brainstorm, Pipeline, Next Task,
+Worker lanes, Review queue, Evidence stream, and Launchpad. The browser script
+uses `snapshot.first_viewport` as the server presentation when it is complete.
+JavaScript reconstruction remains only as an older/partial snapshot Adapter, and
+the Brainstorm/Pipeline in-browser runtime override is documented as Pipeline
+only.
+
 Existing test anchors:
 
 - `tests/test_operator_ui_browser.py::test_app_loads_assets_snapshot_health_without_console_errors_or_overflow`

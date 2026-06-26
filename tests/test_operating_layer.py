@@ -115,7 +115,9 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "renderOrchestrator" in APP_JS
     assert "renderMissionFeed" in APP_JS
     assert "renderWorkerLanes" in APP_JS
-    assert "buildFirstViewportPresentation" in APP_JS
+    assert "firstViewportPresentationFromSnapshot" in APP_JS
+    assert "fallbackFirstViewportPresentation" in APP_JS
+    assert "older/partial snapshots" in APP_JS
     assert "renderFirstViewport" in APP_JS
     assert "renderSerialRuntimePanel" in APP_JS
     assert "serial-runtime-panel" in INDEX_HTML
@@ -387,6 +389,8 @@ def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields
 
     workbench = build_task_workbench(tmp_path)
     snapshot = build_operating_layer_snapshot(tmp_path)
+    direct_first_viewport = build_first_viewport_presentation(workbench, root=tmp_path).model_dump(mode="json")
+    snapshot_first_viewport = snapshot.first_viewport.model_dump(mode="json")
 
     assert snapshot.focus_task_id == workbench.focus_task_id
     assert [(lane.name, lane.task_ids) for lane in snapshot.lanes] == [
@@ -408,6 +412,21 @@ def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields
         activity.model_dump() for activity in workbench.worker_activity
     ]
     assert snapshot.review_loop.model_dump() == workbench.review_loop.model_dump()
+    for field in (
+        "active_task_count",
+        "total_task_count",
+        "next_task",
+        "worker_lanes",
+        "review_queue",
+        "evidence_stream",
+        "launchpad",
+    ):
+        assert snapshot_first_viewport[field] == direct_first_viewport[field]
+    assert {item["task_id"]: item["lane"] for item in snapshot_first_viewport["worker_lanes"]} == {
+        "task-0001": "new",
+        "task-0002": "needs_verification",
+        "task-0003": "ready_to_promote",
+    }
 
 
 def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
@@ -1569,7 +1588,10 @@ def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None
     assert "worker-card" in APP_JS
     assert "Worker lanes" in APP_JS
     assert "renderWorkerLanes" in APP_JS
-    assert "buildFirstViewportPresentation" in APP_JS
+    assert "firstViewportPresentationFromSnapshot" in APP_JS
+    assert "fallbackFirstViewportPresentation" in APP_JS
+    assert "older/partial snapshots" in APP_JS
+    assert "Browser runtime override" in APP_JS
     assert "renderFirstViewport" in APP_JS
     assert "BROWSER TASK CAPABILITIES" in APP_JS
     assert "Legacy fallback for older snapshots" in APP_JS

@@ -293,7 +293,7 @@ function taskLookupById(tasks) {
   return new Map((tasks || []).map(t => [t.id, t]));
 }
 
-function taskCardFromSnapshotTask(task) {
+function fallbackTaskCardFromSnapshotTask(task) {
   const status = task.lane || 'new';
   const latestEvent = lastTaskEvent(task);
   return {
@@ -311,7 +311,7 @@ function taskCardFromSnapshotTask(task) {
   };
 }
 
-function reviewCardFromSnapshotTask(task) {
+function fallbackReviewCardFromSnapshotTask(task) {
   const command = primaryTaskCommand(task);
   const detail = task.review_detail || {};
   const blockers = detail.blockers || task.review_blockers || task.promotion_blockers || [];
@@ -337,7 +337,7 @@ function reviewCardFromSnapshotTask(task) {
   };
 }
 
-function evidenceCardFromSnapshotPointer(item, taskLookup) {
+function fallbackEvidenceCardFromSnapshotPointer(item, taskLookup) {
   const task = taskLookup.get(item.task_id) || null;
   const path = item.path || item.verification_log_path || item.result_path || item.log_path || '';
   const command = item.command || item.verification_command || '';
@@ -353,8 +353,39 @@ function evidenceCardFromSnapshotPointer(item, taskLookup) {
   };
 }
 
-function buildFirstViewportPresentation(snap) {
+function hasCompleteServerFirstViewportPresentation(firstViewport) {
+  return Boolean(
+    firstViewport
+    && firstViewport.schema_version
+    && firstViewport.launchpad
+    && Array.isArray(firstViewport.worker_lanes)
+    && Array.isArray(firstViewport.review_queue)
+    && Array.isArray(firstViewport.evidence_stream)
+  );
+}
+
+function withSnapshotContext(presentation, source) {
+  const tasks = source.tasks || [];
+  return {
+    ...presentation,
+    tasks,
+    task_lookup: taskLookupById(tasks),
+    active_tasks: tasks.filter(t => t.lane !== 'closed'),
+    mission_feed: source.feed || source.mission_feed || [],
+    review_loop: source.review_loop || null,
+  };
+}
+
+function firstViewportPresentationFromSnapshot(snap) {
   const source = snap || {};
+  if (hasCompleteServerFirstViewportPresentation(source.first_viewport)) {
+    return withSnapshotContext(source.first_viewport, source);
+  }
+  return fallbackFirstViewportPresentation(source);
+}
+
+function fallbackFirstViewportPresentation(source) {
+  // Fallback for older/partial snapshots only; current snapshots use snapshot.first_viewport as the server interface.
   const server = source.first_viewport || null;
   const tasks = source.tasks || [];
   const taskLookup = taskLookupById(tasks);
@@ -394,11 +425,11 @@ function buildFirstViewportPresentation(snap) {
     brainstorm: server?.brainstorm || source.brainstorm || null,
     pipeline: server?.pipeline || source.pipeline || { stages: pipelineState?.stages || [] },
     next_task: server?.next_task || selectedTaskPresentation,
-    worker_lanes: Array.isArray(server?.worker_lanes) ? server.worker_lanes : sortedActiveTasks.map(taskCardFromSnapshotTask),
-    review_queue: Array.isArray(server?.review_queue) ? server.review_queue : reviewTasks.map(reviewCardFromSnapshotTask),
+    worker_lanes: Array.isArray(server?.worker_lanes) ? server.worker_lanes : sortedActiveTasks.map(fallbackTaskCardFromSnapshotTask),
+    review_queue: Array.isArray(server?.review_queue) ? server.review_queue : reviewTasks.map(fallbackReviewCardFromSnapshotTask),
     evidence_stream: Array.isArray(server?.evidence_stream)
       ? server.evidence_stream
-      : (source.evidence || []).map(item => evidenceCardFromSnapshotPointer(item, taskLookup)),
+      : (source.evidence || []).map(item => fallbackEvidenceCardFromSnapshotPointer(item, taskLookup)),
     mission_feed: source.feed || source.mission_feed || [],
     review_loop: source.review_loop || null,
     launchpad: {
@@ -414,8 +445,8 @@ function buildFirstViewportPresentation(snap) {
 
 function asFirstViewportPresentation(input) {
   if (input && Array.isArray(input.worker_lanes) && Array.isArray(input.review_queue)) return input;
-  if (Array.isArray(input)) return buildFirstViewportPresentation({ tasks: input });
-  return buildFirstViewportPresentation(input || snapshot || {});
+  if (Array.isArray(input)) return fallbackFirstViewportPresentation({ tasks: input });
+  return firstViewportPresentationFromSnapshot(input || snapshot || {});
 }
 
 function verificationBadge(status) {
@@ -1604,7 +1635,7 @@ function renderReviewQueue(reviewLoop, tasks) {
   if (!container) return;
   const presentation = reviewLoop && Array.isArray(reviewLoop.review_queue)
     ? reviewLoop
-    : buildFirstViewportPresentation({ review_loop: reviewLoop, tasks: tasks || [] });
+    : fallbackFirstViewportPresentation({ review_loop: reviewLoop, tasks: tasks || [] });
   const items = presentation.review_queue || [];
   const available = items.length;
   const count = $('review-queue-count');
@@ -1645,7 +1676,7 @@ function renderEvidenceStream(evidence, tasks) {
   if (!container) return;
   const presentation = evidence && Array.isArray(evidence.evidence_stream)
     ? evidence
-    : buildFirstViewportPresentation({ evidence: evidence || [], tasks: tasks || [] });
+    : fallbackFirstViewportPresentation({ evidence: evidence || [], tasks: tasks || [] });
   const items = presentation.evidence_stream || [];
   const count = $('evidence-stream-count');
   if (count) count.textContent = items.length + ' items';
@@ -2280,7 +2311,7 @@ function renderOperatorNextSteps(firstViewport, selected, snap) {
 function renderOrchestrator(snap, presentation) {
   if (!snap) return;
 
-  const firstViewport = presentation || buildFirstViewportPresentation(snap);
+  const firstViewport = presentation || firstViewportPresentationFromSnapshot(snap);
   const tasks = snap.tasks || [];
   const activeTasks = tasks.filter(t => t.lane !== 'closed');
   const launchpad = firstViewport.launchpad || {};
@@ -2386,6 +2417,7 @@ function renderOrchestrator(snap, presentation) {
 }
 
 function shouldUsePresentationPipeline(pipeline) {
+  // Browser runtime override: during an active Brainstorm session, local pipeline state can drive Pipeline only.
   return Boolean(
     pipeline
     && Array.isArray(pipeline.stages)
@@ -3287,7 +3319,7 @@ function render() {
   // Brainstorm transcript is managed by the chat form, not the snapshot.
   // The first viewport consumes renderable presentation slices with snapshot fallbacks.
   renderIdeaGreenhouse(snapshot?.idea_greenhouse || null);
-  renderFirstViewport(buildFirstViewportPresentation(snapshot));
+  renderFirstViewport(firstViewportPresentationFromSnapshot(snapshot));
 }
 
 // === INIT ===
