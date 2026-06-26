@@ -145,6 +145,20 @@ class BrainstormPipelineDetail(BaseModel):
     operator_summary: str
 
 
+class BrainstormEscalationResult(BaseModel):
+    schema_version: int = 1
+    status: str = "ready"
+    session_id: str
+    stage: str
+    artifact_path: str | None
+    lineage: dict[str, Any] | None
+    model_info: dict[str, Any] | None
+    pipeline_detail: BrainstormPipelineDetail
+    action: BrainstormTaskCreationAction | None = None
+    implementation_context: str | None = None
+    implementation_context_path: str | None = None
+
+
 class BrainstormSessionSnapshot(BaseModel):
     schema_version: int = 1
     session_id: str
@@ -246,6 +260,28 @@ def build_brainstorm_pipeline_detail(
         lineage=lineage,
         next_step_label=next_step_label,
         operator_summary=_operator_summary(normalized_stage, task_action, advisory_model, artifact_rel),
+    )
+
+
+def build_brainstorm_escalation_result(
+    detail: BrainstormPipelineDetail,
+    *,
+    artifact_path: str | None = None,
+    model_info: dict[str, Any] | None = None,
+) -> BrainstormEscalationResult:
+    """Build the typed Brainstorm escalation response consumed by adapters."""
+    implementation_context = detail.implementation_context
+    return BrainstormEscalationResult(
+        status=detail.status,
+        session_id=detail.session_id,
+        stage=detail.stage,
+        artifact_path=artifact_path or detail.artifact_path,
+        lineage=detail.lineage,
+        model_info=model_info,
+        pipeline_detail=detail,
+        action=detail.task_action,
+        implementation_context=implementation_context.text if implementation_context else None,
+        implementation_context_path=implementation_context.artifact_path if implementation_context else None,
     )
 
 

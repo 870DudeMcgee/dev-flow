@@ -1441,6 +1441,9 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "escalateBrainstormStage" in js
         assert "pipeline_detail" in js
         assert "taskActionFromPipelinePayload" in js
+        assert "Legacy Brainstorm payload fallback" in js
+        assert "if (typedTaskAction)" in js
+        assert "implContext?.text && implContext.text.trim()" not in js
         assert "renderBrainstormTranscript" in js
         assert "renderWorkerLanes" in js
         assert "renderIdeaGreenhouse" in js
@@ -1552,6 +1555,7 @@ def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
             "'Launchpad shows the created task and start composer.' 'Build brainstorm workbench'"
         )
         assert payload["action"]["safety_class"] == "approval_required_task_state"
+        assert payload["pipeline_detail"]["task_action"] == payload["action"]
         assert payload["pipeline_detail"]["task_action"]["command"] == payload["action"]["command"]
         assert payload["pipeline_detail"]["implementation_context"]["target_path_template"] == (
             ".devflow/workspaces/{task_id}/implementation-context.md"
@@ -1563,6 +1567,7 @@ def test_operating_layer_server_exposes_brainstorm_message_and_escalation(
         assert response.status == 200
         assert transcript_payload["implementation"].startswith("# Implementation Task")
         assert transcript_payload["pipeline"]["has_implementation"] is True
+        assert transcript_payload["pipeline"]["task_action"] == payload["pipeline_detail"]["task_action"]
         assert transcript_payload["pipeline"]["task_action"]["command"] == payload["action"]["command"]
     finally:
         server.shutdown()

@@ -17,6 +17,7 @@ from devflow.control_room.agent_registry import (
     load_provider_registry,
 )
 from devflow.control_room.brainstorm_pipeline import (
+    build_brainstorm_escalation_result,
     build_brainstorm_pipeline_detail,
     write_brainstorm_pipeline_detail,
 )
@@ -346,21 +347,11 @@ def escalate_brainstorm_session(
             advisory_profile=_advisory_profile_payload(root, profile_id=profile_id),
         )
         write_brainstorm_pipeline_detail(root, detail)
-        result: dict[str, Any] = {
-            "schema_version": 1,
-            "status": "ready",
-            "session_id": session,
-            "stage": normalized_stage,
-            "artifact_path": relative_path(root, artifact_path),
-            "lineage": detail.lineage,
-            "action": detail.task_action.model_dump(mode="json") if detail.task_action else None,
-            "model_info": model_info,
-            "pipeline_detail": detail.model_dump(mode="json"),
-        }
-        if detail.implementation_context:
-            result["implementation_context"] = detail.implementation_context.text
-            result["implementation_context_path"] = detail.implementation_context.artifact_path
-        return result
+        return build_brainstorm_escalation_result(
+            detail,
+            artifact_path=relative_path(root, artifact_path),
+            model_info=model_info,
+        ).model_dump(mode="json")
 
     artifact_path = _write_stage_artifact(
         root,
@@ -393,16 +384,11 @@ def escalate_brainstorm_session(
         advisory_profile=_advisory_profile_payload(root, profile_id=profile_id),
     )
     write_brainstorm_pipeline_detail(root, detail)
-    return {
-        "schema_version": 1,
-        "status": "ready",
-        "session_id": session,
-        "stage": normalized_stage,
-        "artifact_path": relative_path(root, artifact_path),
-        "lineage": detail.lineage,
-        "model_info": model_info,
-        "pipeline_detail": detail.model_dump(mode="json"),
-    }
+    return build_brainstorm_escalation_result(
+        detail,
+        artifact_path=relative_path(root, artifact_path),
+        model_info=model_info,
+    ).model_dump(mode="json")
 
 
 def _generate_stage_with_model(

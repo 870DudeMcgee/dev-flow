@@ -14,6 +14,10 @@ from devflow.control_room.brainstorm import (
     run_brainstorm_message,
     start_brainstorm_from_idea,
 )
+from devflow.control_room.brainstorm_pipeline import (
+    build_brainstorm_escalation_result,
+    build_brainstorm_pipeline_detail,
+)
 from tests.helpers import setup_temp_git_repo
 
 
@@ -188,6 +192,65 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
     )
     assert persisted["task_action"]["command"] == implementation_with_done["action"]["command"]
     assert "## Definition of Done" in (tmp_path / implementation_with_done["artifact_path"]).read_text(encoding="utf-8")
+
+
+def test_brainstorm_escalation_result_mirrors_pipeline_detail_for_compatibility(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    session_id = "typed-response"
+    session_dir = tmp_path / ".devflow" / "brainstorms" / session_id
+    session_dir.mkdir(parents=True)
+    records = [
+        {
+            "created_at": "2026-06-26T00:00:00Z",
+            "role": "user",
+            "kind": "message",
+            "content": "Turn this brainstorm into a task.",
+        }
+    ]
+    spec_path = session_dir / "spec.md"
+    plan_path = session_dir / "plan.md"
+    implementation_path = session_dir / "implementation.md"
+    spec_path.write_text("# Brainstorm Spec\n\nBuild the thing.\n", encoding="utf-8")
+    plan_path.write_text("# Brainstorm Plan\n\nShip it safely.\n", encoding="utf-8")
+    implementation_path.write_text("# Implementation Task\n\nCreate the task.\n", encoding="utf-8")
+
+    detail = build_brainstorm_pipeline_detail(
+        tmp_path,
+        session_id=session_id,
+        stage="implementation",
+        records=records,
+        artifact_path=implementation_path,
+        title="Build typed response",
+        definition_of_done="Task action comes from pipeline detail.",
+        model_info={"used_model": False, "profile_id": "test-profile"},
+    )
+    response = build_brainstorm_escalation_result(
+        detail,
+        artifact_path=".devflow/brainstorms/typed-response/implementation.md",
+        model_info={"used_model": False, "profile_id": "test-profile"},
+    ).model_dump(mode="json")
+
+    pipeline = response["pipeline_detail"]
+    assert pipeline["task_action"]["command"] == response["action"]["command"]
+    assert pipeline["task_action"] == response["action"]
+    assert response["implementation_context"] == pipeline["implementation_context"]["text"]
+    assert response["implementation_context_path"] == pipeline["implementation_context"]["artifact_path"]
+
+    spec_detail = build_brainstorm_pipeline_detail(
+        tmp_path,
+        session_id=session_id,
+        stage="spec",
+        records=records,
+        artifact_path=spec_path,
+        model_info={"used_model": False, "profile_id": "test-profile"},
+    )
+    spec_response = build_brainstorm_escalation_result(spec_detail).model_dump(mode="json")
+
+    assert spec_response["pipeline_detail"]["stage"] == "spec"
+    assert spec_response["pipeline_detail"]["task_action"] is None
+    assert spec_response["action"] is None
+    assert spec_response["implementation_context"] is None
+    assert spec_response["implementation_context_path"] is None
 
 
 def test_start_brainstorm_from_idea_creates_session_and_seeds_transcript(tmp_path: Path) -> None:

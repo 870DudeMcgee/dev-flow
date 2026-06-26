@@ -465,17 +465,21 @@ function shortCommand(command, limit) {
   const max = limit || 96;
   return value.length > max ? value.slice(0, max - 1) + '…' : value;
 }
+// Brainstorm response adapter helpers: current payloads use pipeline_detail; fallbacks support older partial responses.
 function pipelineDetailFromPayload(payload) {
   return payload?.pipeline_detail || {};
 }
 function taskActionFromPipelinePayload(payload) {
   const detail = pipelineDetailFromPayload(payload);
-  return detail.task_action || payload?.action || null;
+  if (detail.task_action) return detail.task_action;
+  // Legacy Brainstorm payload fallback: older responses mirrored the task action at the top level.
+  return payload?.action || null;
 }
 function implementationContextFromPipelinePayload(payload) {
   const detail = pipelineDetailFromPayload(payload);
   const context = detail.implementation_context || null;
   if (context && context.text) return context;
+  // Legacy Brainstorm payload fallback: older responses mirrored context text at the top level.
   if (payload?.implementation_context) {
     return {
       text: payload.implementation_context,
@@ -1454,15 +1458,16 @@ function setupPipelineButtons(scope) {
           if (payload.stage === 'implementation' && taskAction) {
             appendBrainstormMsg('system', detail.operator_summary || 'Creating implementation task...', {});
             try {
-              // Prefer atomic bridge: single round-trip for task + context
+              // Prefer typed pipeline_detail: single bridge call creates the task and context evidence.
               const implContext = implementationContextFromPipelinePayload(payload);
+              const typedTaskAction = detail.task_action || null;
+              let bridgePayload = null;
               let createdTaskId = null;
               let outLine = '';
 
-              if (implContext?.text && implContext.text.trim()) {
-                // Use the new /api/brainstorm/create-task bridge
+              if (typedTaskAction) {
                 const dodValue = currentBrainstormDefinitionOfDone();
-                const bridgePayload = await createTaskFromBrainstorm(
+                bridgePayload = await createTaskFromBrainstorm(
                   brainstormSessionId,
                   taskAction.title,
                   { definition_of_done: dodValue || undefined }
@@ -1473,7 +1478,7 @@ function setupPipelineButtons(scope) {
                 createdTaskId = bridgePayload.task_id;
                 outLine = `Task ${createdTaskId}: ${taskAction.title}`;
               } else {
-                // Fallback to legacy two-step choreography
+                // Legacy Brainstorm payload fallback: older payloads may only include top-level action.
                 const cmd = taskAction.command;
                 const actionResult = await runApprovedCommand(cmd, {});
                 if (actionResult.executed && actionResult.exit_code === 0) {

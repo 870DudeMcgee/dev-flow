@@ -72,6 +72,11 @@ def test_operating_layer_js_uses_active_brainstorm_session_for_atomic_bridge() -
     assert "createTaskFromBrainstorm(\n                  session_id," not in APP_JS
     assert "Brainstorm task bridge did not return a task id" in APP_JS
     assert "Implementation context target:" in APP_JS
+    assert "Legacy Brainstorm payload fallback" in APP_JS
+    assert "if (detail.task_action) return detail.task_action;" in APP_JS
+    assert APP_JS.index("if (detail.task_action) return detail.task_action;") < APP_JS.index("return payload?.action || null;")
+    assert "if (typedTaskAction)" in APP_JS
+    assert "implContext?.text && implContext.text.trim()" not in APP_JS
 
 
 def test_brainstorm_create_task_bridge_writes_context_and_lineage(tmp_path: Path) -> None:
@@ -210,6 +215,13 @@ def test_operating_layer_brainstorm_implementation_escalation_exposes_task_actio
         assert status == 200, f"create-task returned {status}: {payload}"
         assert payload["task_id"].startswith("task-")
         assert payload["context_path"]
+        assert payload["context_path"] in payload["evidence_paths"]
+        assert payload["post_create_action"]["task_id"] == payload["task_id"]
+        assert payload["post_create_action"]["command"] == (
+            f"devflow task run {payload['task_id']} --worker shell -- <command>"
+        )
+        assert payload["launchpad"]["selected_task_id"] == payload["task_id"]
+        assert payload["pipeline_detail"]["launchpad_selection"] == payload["launchpad"]
         assert len(payload.get("actions", [])) >= 1
 
         # Task exists in the persistence store

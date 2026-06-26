@@ -171,6 +171,45 @@ Operating-layer depth and visible evidence:
 - The brainstorm task bridge is deeper, making idea capture and task creation
   more connected to the executable Dev-Flow task loop.
 
+## Brainstorm Pipeline Response Adapter Snapshot
+
+Slice date: 2026-06-26
+
+Worktree state: current `main` at `64991f2` plus the local Brainstorm pipeline
+response-adapter edits. `graphify-out/` remains generated evidence and should
+not be committed.
+
+Refreshed Graphify metrics for this slice:
+
+| Metric | Current |
+|---|---:|
+| Nodes | 8,761 |
+| Edges | 21,020 |
+| Communities | 540 |
+| `control_room_brainstorm_pipeline` degree | 40 |
+| `control_room_brainstorm` degree | 34 |
+| `control_room_operating_layer_server` degree | 44 |
+
+Slice Graphify commands run:
+
+```bash
+.venv/bin/graphify update .
+.venv/bin/graphify diagnose multigraph --json --graph graphify-out/graph.json
+.venv/bin/graphify explain "control_room_brainstorm_pipeline" --graph graphify-out/graph.json
+.venv/bin/graphify explain "control_room_brainstorm" --graph graphify-out/graph.json
+.venv/bin/graphify explain "control_room_operating_layer_server" --graph graphify-out/graph.json
+```
+
+Graphify structural diagnostic reported `0` missing endpoints, dangling
+endpoints, self-loops, exact duplicate edges, same-endpoint collapsed edges,
+relation variant groups, source-file variant groups, source-location variant
+groups, and context variant groups. `control_room_brainstorm_pipeline` now
+contains `BrainstormPipelineDetail`, `BrainstormEscalationResult`,
+`BrainstormTaskCreationResult`, `build_brainstorm_pipeline_detail()`,
+`build_brainstorm_escalation_result()`, and `create_task_from_brainstorm()` as
+the Brainstorm -> Pipeline -> Task creation Interface. `brainstorm.py` and
+`operating_layer_server.py` remain Adapters around that Interface.
+
 ## Remaining Risks
 
 - `graphify-out/` is still untracked generated evidence. It should remain local

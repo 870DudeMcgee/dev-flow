@@ -232,6 +232,18 @@ Benefits:
 - Leverage: task creation, implementation context, and next launchpad selection can be tested without a full browser flow.
 - The UI can make model identity and task creation evidence clearer.
 
+Checkpoint 2026-06-26:
+
+`src/devflow/control_room/brainstorm_pipeline.py` now owns
+`BrainstormPipelineDetail`, `BrainstormEscalationResult`, and
+`BrainstormTaskCreationResult` as the current Brainstorm -> Pipeline -> Task
+creation Interface. `brainstorm.py`, `operating_layer_server.py`, and
+`operating_layer_script.py` are Adapters around that Interface: they consume
+`pipeline_detail.task_action`, `pipeline_detail.implementation_context`,
+`post_create_action`, and `launchpad` first while preserving top-level
+`action`, `implementation_context`, and `implementation_context_path` mirrors
+for older browser payloads.
+
 Existing test anchors:
 
 - `tests/test_brainstorm_workbench.py::test_brainstorm_escalation_writes_spec_plan_and_returns_task_action`

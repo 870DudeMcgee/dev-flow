@@ -360,7 +360,6 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 return
             snapshot = load_brainstorm_session_snapshot(root, session_id=session_id)
             payload = snapshot.model_dump(mode="json")
-            payload["pipeline"] = snapshot.pipeline.model_dump(mode="json")
             self._send_json(payload, HTTPStatus.OK)
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
