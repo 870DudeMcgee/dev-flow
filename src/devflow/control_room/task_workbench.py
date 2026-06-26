@@ -577,6 +577,7 @@ def _review_loop_summary(
     next_action: DashboardNextAction,
 ) -> TaskWorkbenchReviewLoop:
     needs_verification = [task for task in tasks if task.lane == "needs_verification"]
+    needs_review = [task for task in tasks if task.lane == "needs_review"]
     ready_to_promote = [task for task in tasks if task.lane == "ready_to_promote"]
     blocked_decisions = [item for item in review_queue if item.lane in {"blocked", "failed"}]
     verified_count = sum(1 for task in tasks if _worker_task_verified_or_ready(task))
@@ -592,6 +593,9 @@ def _review_loop_summary(
     elif ready_to_promote:
         status = "ready_to_promote"
         headline = f"{len(ready_to_promote)} task{'s' if len(ready_to_promote) != 1 else ''} ready for browser approval"
+    elif needs_review:
+        status = "needs_review"
+        headline = f"{len(needs_review)} task{'s' if len(needs_review) != 1 else ''} need{'s' if len(needs_review) == 1 else ''} review"
     elif needs_verification:
         status = "needs_verification"
         headline = f"{len(needs_verification)} task{'s' if len(needs_verification) != 1 else ''} need{'s' if len(needs_verification) == 1 else ''} verification"
@@ -602,14 +606,17 @@ def _review_loop_summary(
     promotion_command = promotion_candidates[0].command if promotion_candidates else None
     blocked_command = blocked_decisions[0].command if status == "needs_human_decision" and blocked_decisions else None
     ready_command = ready_to_promote[0].next_action.command if ready_to_promote else None
+    review_command = needs_review[0].next_action.command if needs_review else None
     verification_command = needs_verification[0].next_action.command if needs_verification else None
     command = blocked_command
     if not command and status == "ready_to_promote":
         command = promotion_command or ready_command
+    if not command and status == "needs_review":
+        command = review_command
     if not command and status == "needs_verification":
         command = verification_command
     if not command:
-        command = next_action.command or promotion_command or ready_command or verification_command or "devflow dashboard"
+        command = next_action.command or promotion_command or ready_command or review_command or verification_command or "devflow dashboard"
 
     from devflow.control_room.browser_action_policy import (
         get_browser_allowed_mutations,
