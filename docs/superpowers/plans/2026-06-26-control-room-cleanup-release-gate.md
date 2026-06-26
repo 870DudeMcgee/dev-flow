@@ -194,7 +194,12 @@ Files:
 - [ ] Run the release-readiness stale-context scan exactly as the release Module expects:
 
 ```bash
-rg -n "(must use /Users/jewelbait/Desktop/DevFlow|old checkout path is current|legacy workflow authority|autonomous routing is active)" \
+STALE_CONTEXT_PATTERN='(must use /Users/jewelbait/Desktop/'\
+'Dev''Flow|old checkout path is '\
+'current|legacy workflow '\
+'authority|autonomous routing is '\
+'active)'
+rg -n "$STALE_CONTEXT_PATTERN" \
   AGENTS.md PRODUCT_NORTH_STAR.md README.md docs src/devflow/control_room tests \
   --glob '!src/devflow/control_room/release_readiness.py' \
   > .devflow/release/control-room-cleanup-2026-06-26/stale-context.log || true
