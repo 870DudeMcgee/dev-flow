@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import sys
 from io import BytesIO, StringIO
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -12,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app, df_app
-from devflow.control_room.agent_terminal import AgentTerminalRunner, resolve_and_include_file
+from devflow.control_room.agent_terminal import resolve_and_include_file
 from tests.helpers import init_test_git_repo
 
 runner = CliRunner()

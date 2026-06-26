@@ -9,11 +9,11 @@ from devflow.control_room.evidence_review_detail import EvidenceReviewDetail, bu
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
-from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
+from devflow.control_room.models import TaskRecord
 from devflow.control_room.patch_dry_run import latest_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review
 from devflow.control_room.paths import task_dir
-from devflow.control_room.persistence import get_task, list_tasks, utc_now
+from devflow.control_room.persistence import get_task, utc_now
 from devflow.control_room.project_registry import project_task_ref
 from devflow.control_room.question_resume import build_question_snapshot
 from devflow.control_room.scheduler_projection import build_scheduler_snapshot

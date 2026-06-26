@@ -3,7 +3,7 @@ import tempfile
 import os
 import shutil
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from devflow.evals import run_role_eval, compare_prompts
 
 class TestEvals(unittest.TestCase):

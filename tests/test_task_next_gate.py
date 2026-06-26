@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
-import pytest
 
 from tests.helpers import setup_temp_git_repo
 
@@ -274,9 +273,9 @@ def test_operating_layer_server_blocks_approval_required_actions(
     worker_log = tmp_path / ".devflow" / "tasks" / "task-0001" / "logs" / "worker.log"
 
     from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer
-    import threading, json
+    import threading
+    import json
     from http.client import HTTPConnection
-    from http import HTTPStatus
 
     server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

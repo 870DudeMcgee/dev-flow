@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -10,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.git_state import inspect_git_state
-from devflow.control_room.goal_loop import GoalLoopLane
 from devflow.control_room.parallel_task_creation import ParallelTaskCreationRun, run_parallel_task_creation_batch
 from devflow.control_room.parallel_verification import ParallelVerificationRun, run_parallel_verification_batch
 from devflow.control_room.parallel_worker import ParallelWorkerRun, run_parallel_worker_batch

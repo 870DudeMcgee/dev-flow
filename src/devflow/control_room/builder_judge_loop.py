@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -38,7 +36,7 @@ from devflow.control_room.brainstorm import (
     _normalize_raw_response,
 )
 from devflow.control_room.env_loader import resolve_api_key
-from devflow.control_room.openrouter_agent import OpenRouterAgentError, _redact
+from devflow.control_room.openrouter_agent import _redact
 from devflow.control_room.paths import devflow_dir, relative_path
 from devflow.control_room.persistence import atomic_write_text
 from devflow.control_room.stage_artifact import write_stage_artifact as _save_stage_artifact

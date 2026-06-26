@@ -9,7 +9,6 @@ from typing import Any
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.paths import (
     absolute_path,
-    relative_path,
     task_dir,
     workspaces_dir,
 )

@@ -20,7 +20,6 @@ from unittest.mock import patch, MagicMock
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.service import get_task
 
 runner = CliRunner()
 

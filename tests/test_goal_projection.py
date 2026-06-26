@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import os
-import sys
-import yaml
 from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.goals import create_goal_from_markdown, goal_dir
+from devflow.control_room.goals import goal_dir
 from devflow.control_room.goal_projection import build_goal_status_projection
 
 

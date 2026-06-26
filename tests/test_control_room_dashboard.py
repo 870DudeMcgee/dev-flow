@@ -8,7 +8,6 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.persistence import get_task, load_task
 
 runner = CliRunner()
 

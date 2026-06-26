@@ -1,7 +1,6 @@
 import unittest
 import tempfile
 import os
-import shutil
 from devflow.dag import TaskDAG
 
 class TestDAG(unittest.TestCase):

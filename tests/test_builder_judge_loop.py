@@ -9,8 +9,6 @@ from typing import Any
 import pytest
 
 from devflow.control_room.builder_judge_loop import (
-    DEFAULT_BUILDER_PROFILE,
-    DEFAULT_JUDGE_PROFILE,
     BuilderJudgeConfig,
     BuilderJudgeConfigError,
     get_builder_judge_run,

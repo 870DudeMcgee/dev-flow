@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from datetime import datetime, timezone
 
-from devflow.control_room.persistence import get_task, utc_now
+from devflow.control_room.persistence import get_task
 from devflow.control_room.task_packet import build_task_packet, render_task_packet_text
 from devflow.control_room.local_model_client import LocalModelClient, LocalModelClientError
 

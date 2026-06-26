@@ -1041,10 +1041,10 @@ def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
     }
     assert task["review_detail"]["agent_evidence_summary"] == summary
     assert task["review_detail"]["operator_summary"] == "Worker/model evidence is captured; review it before the next gate."
-    assert f".devflow/tasks/task-0001/local-model-runs/run-1/run.json" in task["review_detail"]["evidence_paths"]
+    assert ".devflow/tasks/task-0001/local-model-runs/run-1/run.json" in task["review_detail"]["evidence_paths"]
     assert any(artifact["kind"] == "model run" for artifact in task["review_detail"]["artifacts"])
     assert payload["evidence"][0]["kind"] == "model run"
-    assert payload["evidence"][0]["path"] == f".devflow/tasks/task-0001/local-model-runs/run-1/run.json"
+    assert payload["evidence"][0]["path"] == ".devflow/tasks/task-0001/local-model-runs/run-1/run.json"
     assert payload["first_viewport"]["evidence_stream"][0]["kind"] == "model run"
 
 

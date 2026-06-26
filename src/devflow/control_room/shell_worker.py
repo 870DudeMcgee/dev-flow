@@ -82,7 +82,7 @@ class ShellWorkerAdapter:
             proc.wait()
 
             if limit_exceeded:
-                log.write(f"\n[DEVFLOW ERROR] Shell execution output exceeded limit of 10MB. Process terminated.\n")
+                log.write("\n[DEVFLOW ERROR] Shell execution output exceeded limit of 10MB. Process terminated.\n")
                 log.flush()
                 latest = _latest_log_line(worker_input.log_file)
                 return WorkerResult(

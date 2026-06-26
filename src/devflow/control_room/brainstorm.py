@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import urllib.error
 import urllib.request
@@ -481,7 +480,7 @@ def _stage_user_prompt(records: list[dict[str, Any]], stage: str) -> str:
         if content:
             lines.extend([f"### {role.title()}", "", content, ""])
     lines.extend([
-        f"## Task",
+        "## Task",
         "",
         f"Produce a structured {stage} document from this transcript. "
         f"Extract the core idea, decisions made, requirements, and concrete next steps. "

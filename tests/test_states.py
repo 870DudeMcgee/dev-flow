@@ -1,6 +1,5 @@
 import unittest
 import tempfile
-import os
 from devflow.states import validate_transition, execute_recipe
 
 class TestStates(unittest.TestCase):

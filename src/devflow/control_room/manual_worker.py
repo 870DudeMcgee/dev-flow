@@ -4,7 +4,6 @@ import sys
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.models import WorkerInput, WorkerResult

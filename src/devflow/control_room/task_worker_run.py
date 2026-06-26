@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import shlex
 from pathlib import Path
-from typing import Any
 
 from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
 from devflow.control_room.agent_registry import load_agent_registry, load_provider_registry

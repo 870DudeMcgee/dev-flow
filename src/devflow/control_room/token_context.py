@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from devflow.control_room.service import list_tasks
 
 
 ContextMode = Literal["balanced", "review-graph", "debug-focused", "planning", "docs"]

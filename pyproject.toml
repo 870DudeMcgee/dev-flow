@@ -39,6 +39,10 @@ hyperplane = [
 test = [
 	"pytest>=8.0",
 ]
+dev = [
+	"pytest>=8.0",
+	"ruff>=0.6,<1",
+]
 
 [project.scripts]
 devflow = "devflow.cli:main"
@@ -50,3 +54,28 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 devflow = ["schemas/*.json"]
+
+[tool.ruff]
+# Lint the source and tests; the editable-install venv and generated dirs are noise.
+src = ["src"]
+extend-exclude = [".venv", "build", "dist", "graphify-out", "scratch", "src/devflow/_legacy"]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+# Scoped to rules that catch real bugs, not opinionated style. Pyflakes (F)
+# finds unused imports/vars, repeated dict keys, and redefinitions; the pycodestyle
+# error subset (E4/E7) catches import and comparison mistakes.
+select = ["F", "E4", "E7", "E9", "W6"]
+# E402 (import-not-at-top): DevFlow deliberately uses lazy in-function imports for
+# CLI startup speed, so this rule fights the architecture. Excluded by design.
+ignore = ["E402"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files and __init__.py re-exports legitimately keep "unused" names.
+"tests/**" = ["F841"]
+"**/__init__.py" = ["F401"]
+# service.py is a deliberate facade: it re-exports task/persistence/promotion
+# helpers (e.g. get_task is imported via service in ~25 modules). The imports
+# look "unused" locally but are the module's whole purpose. Do NOT auto-fix.
+"src/devflow/control_room/service.py" = ["F401"]

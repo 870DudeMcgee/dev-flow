@@ -1,19 +1,15 @@
 """Telegram to DevFlow pipeline: intent parsing, goal creation, task decomposition, worker dispatch, and status reporting."""
 from __future__ import annotations
 
-import json
 import re
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.goals import next_goal_id, create_goal_from_markdown, render_goal_summary
+from devflow.control_room.goals import next_goal_id, create_goal_from_markdown
 from devflow.control_room.intent_scaffold import build_scaffold_pending_action
-from devflow.control_room.persistence import get_task, list_tasks
-from devflow.control_room.models import TaskRecord, TaskStatus
-from devflow.control_room.git_state import inspect_git_state
+from devflow.control_room.persistence import get_task
 from devflow.control_room.service import create_task
 from devflow.control_room.task_lifecycle import record_task_update
 
@@ -316,14 +312,14 @@ def format_telegram_response(
     """Format a Telegram-friendly response about the DevFlow pipeline progress."""
     
     lines = [
-        f"🚀 **DevFlow Intent Received**",
-        f"",
+        "🚀 **DevFlow Intent Received**",
+        "",
         f"Goal: {goal_id}",
         f"Title: {intent.goal_title}",
         f"Priority: {intent.priority.upper()}",
         f"Effort: {intent.estimated_effort.title()}",
-        f"",
-        f"🎯 **Acceptedance Criteria**",
+        "",
+        "🎯 **Acceptedance Criteria**",
     ]
     
     for i, criterion in enumerate(intent.acceptance_criteria, 1):
@@ -341,7 +337,7 @@ def format_telegram_response(
     
     lines.extend([
         "",
-        f"📊 **Goal Artifacts Created**",
+        "📊 **Goal Artifacts Created**",
     ])
     
     goal_dir = repo_path / ".devflow" / "goals" / goal_id
@@ -353,9 +349,9 @@ def format_telegram_response(
     lines.extend(["", "⏳ **Next Steps**"])
     status_file = repo_path / ".devflow" / "goals" / goal_id / "status.json"
     lines.append(f"• Goal status updated in {goal_id}/status.json")
-    lines.append(f"• Task slices are created with workspaces")
-    lines.append(f"• Workers are not running yet; start them through an approved execution command")
-    lines.append(f"• Monitor via: `devflow status --json`")
+    lines.append("• Task slices are created with workspaces")
+    lines.append("• Workers are not running yet; start them through an approved execution command")
+    lines.append("• Monitor via: `devflow status --json`")
     
     return "\n".join(lines)
 

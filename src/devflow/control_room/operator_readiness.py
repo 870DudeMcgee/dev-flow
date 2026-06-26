@@ -373,7 +373,7 @@ def _next_safe_action(tasks: list[OperatorTaskProjection], warnings: list[Operat
     if stale:
         return OperatorNextSafeAction(
             kind="inspect_stale_directive",
-            command=f"devflow freshness loop --json",
+            command="devflow freshness loop --json",
             reason="Refresh stale operator guidance before dispatching worker tasks.",
         )
     worker_ready = next((task for task in tasks if task.readiness.worker_ready), None)

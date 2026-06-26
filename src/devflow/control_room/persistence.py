@@ -10,8 +10,6 @@ from typing import Any
 
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.paths import (
-    absolute_path,
-    relative_path,
     system_events_path,
     task_dir,
     tasks_dir,

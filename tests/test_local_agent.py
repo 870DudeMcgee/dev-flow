@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch, MagicMock
 import urllib.error
 import os
-import sys
 from scripts.local_agent_runner import generate_text, get_selected_model
 
 class TestLocalAgentRunner(unittest.TestCase):

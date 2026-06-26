@@ -53,15 +53,15 @@ async def handle_telegram_message(
         affected = intent.get("affected_areas", [])
 
         response_lines = [
-            f"🚀 **DevFlow Intent Received**",
-            f"",
+            "🚀 **DevFlow Intent Received**",
+            "",
             f"Goal: **{goal_id}**",
             f"Title: *{goal_title}*",
             f"Priority: *{priority}*",
             f"Effort: *{effort}*",
             f"Affected areas: {', '.join(affected)}",
-            f"",
-            f"📋 **Task Slices**",
+            "",
+            "📋 **Task Slices**",
         ]
 
         for tid in task_ids:

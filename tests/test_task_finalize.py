@@ -10,7 +10,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.finalizer import finalize_task, FinalizationError, is_ignored_evidence
+from devflow.control_room.finalizer import is_ignored_evidence
 
 runner = CliRunner()
 

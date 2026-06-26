@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import urllib.error
 import urllib.request
@@ -149,7 +148,7 @@ class AgentTerminalRunner:
                 print(f"\nError: Ollama HTTP request failed at configured local URL {self.base_url}.", file=sys.stderr)
                 print(f"Raw Ollama error: {raw_error}", file=sys.stderr)
             sys.exit(1)
-        except urllib.error.URLError as exc:
+        except urllib.error.URLError:
             print(f"\nError: Ollama could not be reached at {self.base_url}.\n", file=sys.stderr)
             print("Start Ollama and retry:\nollama serve", file=sys.stderr)
             sys.exit(1)

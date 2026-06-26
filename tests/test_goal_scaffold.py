@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from devflow.control_room.goals import create_goal_from_markdown, render_goal_summary, goal_dir
+from devflow.control_room.goals import create_goal_from_markdown, goal_dir
 from devflow.cli import app
 
 
@@ -43,7 +43,7 @@ def test_goal_scaffold_creation(tmp_path: Path) -> None:
 
     # 4. Check goal.md content and metadata
     goal_md_text = (g_dir / "goal.md").read_text(encoding="utf-8")
-    assert f"# Goal: G-0001" in goal_md_text
+    assert "# Goal: G-0001" in goal_md_text
     assert brief_content in goal_md_text
 
     # 5. Check task-slices.yaml contents

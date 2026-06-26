@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from devflow.control_room.persistence import save_task, get_task
+from devflow.control_room.persistence import save_task
 from devflow.control_room.service import create_task
 from devflow.control_room.estimator import _line_and_token_estimate, estimate_task_fit, save_task_fit
 from devflow.cli import app

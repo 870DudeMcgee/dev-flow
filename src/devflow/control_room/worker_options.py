@@ -81,7 +81,7 @@ def build_worker_options(
 
     # Always present fallback shell (right below AI workers in render order).
     shell_cmd = f"devflow task run {task_id} --worker shell -- <command>"
-    if project_id and not "--project" in shell_cmd:
+    if project_id and "--project" not in shell_cmd:
         before_sep, sep, after_sep = shell_cmd.partition(" -- ")
         shell_cmd = f"{before_sep} --project {project_id}{sep}{after_sep}"
 
@@ -168,7 +168,7 @@ def _inject_routing_decision(
                 is_local=_is_local_provider(item.get("provider")),
                 supervisor_may_auto_run=False,
                 blocked_reason=reason_msg,
-                reason=f"Routing decision rejected this worker.",
+                reason="Routing decision rejected this worker.",
             )
             blocked[wid] = entry
 
@@ -190,7 +190,7 @@ def _inject_routing_decision(
                 is_local=False,
                 supervisor_may_auto_run=False,
                 blocked_reason=reason_msg,
-                reason=f"Routing decision left this worker unresolved.",
+                reason="Routing decision left this worker unresolved.",
             )
             blocked[wid] = entry
 

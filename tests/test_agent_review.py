@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 from devflow.cli import init_workspace
 from devflow.repo_map import refresh_repo_maps
 from devflow.agents.runner import run_review_agent
-from devflow.artifacts import list_artifacts, read_artifact
+from devflow.artifacts import read_artifact
 
 class TestAgentReviewRunner(unittest.TestCase):
     def setUp(self):

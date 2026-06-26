@@ -12,7 +12,6 @@ from typer.testing import CliRunner
 from devflow.cli import app
 from devflow.control_room.service import get_task
 from devflow.control_room.local_ollama_worker import find_latest_worker_evidence
-from devflow.control_room.persistence import load_task
 from devflow.control_room.locks import task_mutation_lock, TaskLockError
 
 runner = CliRunner()

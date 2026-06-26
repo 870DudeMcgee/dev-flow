@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import json
 import subprocess
-import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
-from devflow.control_room.models import TaskRecord
-from devflow.control_room.paths import absolute_path, relative_path, task_dir
+from devflow.control_room.paths import absolute_path, task_dir
 from devflow.control_room.persistence import get_task, utc_now, atomic_write_text, save_task
 from devflow.control_room.git_worktree import (
     is_git_worktree_task,
     git_worker_state,
     _diff_summary,
-    branch_head,
-    _worktree_dirty
+    branch_head
 )
 from devflow.control_room.scout import RepoScout
 

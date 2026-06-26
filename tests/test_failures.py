@@ -34,7 +34,7 @@ class TestFailures(unittest.TestCase):
 
 class TestDiagnostics(unittest.TestCase):
     def test_pytest_adapter_extracts_details(self):
-        from devflow.diagnostics import DiagnosticAnalyzer, PytestAdapter
+        from devflow.diagnostics import PytestAdapter
         output = (
             "================================== FAILURES ==================================\n"
             "___________________________ test_claim_task_clean ____________________________\n"

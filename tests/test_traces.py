@@ -5,7 +5,7 @@ import shutil
 import json
 import threading
 import time
-from devflow.traces import Span, get_active_trace_id, start_span
+from devflow.traces import Span, get_active_trace_id
 
 class TestTraces(unittest.TestCase):
     def setUp(self):

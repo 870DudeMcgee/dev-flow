@@ -18,7 +18,7 @@ from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.status_projection import format_verify_token
-from devflow.control_room.service import create_task, get_task
+from devflow.control_room.service import get_task
 
 runner = CliRunner()
 

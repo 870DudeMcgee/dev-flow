@@ -1,9 +1,7 @@
 import unittest
 import os
-import tempfile
-import shutil
 from unittest.mock import patch, MagicMock
-from devflow.agents.profiles import AgentProfile, load_agent_profile
+from devflow.agents.profiles import load_agent_profile
 
 class TestAgentProfiles(unittest.TestCase):
     def test_load_agent_profile_defaults(self):
