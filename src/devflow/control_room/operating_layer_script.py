@@ -1345,14 +1345,16 @@ function renderPipeline(input) {
       if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
       action.appendChild(btn1);
 
-      const btn2 = document.createElement('button');
-      btn2.type = 'button';
-      btn2.className = 'btn btn-sm btn-secondary';
-      btn2.dataset.bjQualityGate = 'spec';
-      btn2.title = 'Run builder-judge quality gate before escalating';
-      btn2.textContent = 'QC Gate';
-      if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
-      action.appendChild(btn2);
+      if (isActive || isComplete) {
+        const btn2 = document.createElement('button');
+        btn2.type = 'button';
+        btn2.className = 'btn btn-sm btn-secondary';
+        btn2.dataset.bjQualityGate = 'spec';
+        btn2.title = 'Run builder-judge quality gate before escalating';
+        btn2.textContent = 'QC Gate';
+        if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
+        action.appendChild(btn2);
+      }
     } else if (stage.id === 'spec') {
       const btn1 = document.createElement('button');
       btn1.type = 'button';
@@ -1362,14 +1364,16 @@ function renderPipeline(input) {
       if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
       action.appendChild(btn1);
 
-      const btn2 = document.createElement('button');
-      btn2.type = 'button';
-      btn2.className = 'btn btn-sm btn-secondary';
-      btn2.dataset.bjQualityGate = 'spec';
-      btn2.title = 'Run builder-judge quality gate before generating spec';
-      btn2.textContent = 'QC Gate';
-      if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
-      action.appendChild(btn2);
+      if (isActive || isComplete) {
+        const btn2 = document.createElement('button');
+        btn2.type = 'button';
+        btn2.className = 'btn btn-sm btn-secondary';
+        btn2.dataset.bjQualityGate = 'spec';
+        btn2.title = 'Run builder-judge quality gate before generating spec';
+        btn2.textContent = 'QC Gate';
+        if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
+        action.appendChild(btn2);
+      }
     } else if (stage.id === 'plan') {
       const btn1 = document.createElement('button');
       btn1.type = 'button';
@@ -1379,14 +1383,16 @@ function renderPipeline(input) {
       if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
       action.appendChild(btn1);
 
-      const btn2 = document.createElement('button');
-      btn2.type = 'button';
-      btn2.className = 'btn btn-sm btn-secondary';
-      btn2.dataset.bjQualityGate = 'plan';
-      btn2.title = 'Run builder-judge quality gate before generating plan';
-      btn2.textContent = 'QC Gate';
-      if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
-      action.appendChild(btn2);
+      if (isActive || isComplete) {
+        const btn2 = document.createElement('button');
+        btn2.type = 'button';
+        btn2.className = 'btn btn-sm btn-secondary';
+        btn2.dataset.bjQualityGate = 'plan';
+        btn2.title = 'Run builder-judge quality gate before generating plan';
+        btn2.textContent = 'QC Gate';
+        if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
+        action.appendChild(btn2);
+      }
     } else if (stage.id === 'implementation') {
       const btn = document.createElement('button');
       btn.type = 'button';

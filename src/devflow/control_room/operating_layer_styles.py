@@ -253,19 +253,18 @@ body {
 
 /* ===== LAYOUT COLUMNS ===== */
 .layout-columns {
-  display: block;
+  display: flex;
+  gap: 24px;
   padding: 18px 20px 0;
 }
 .center-column {
-  flex: 0 1 1120px;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: 1120px;
-  width: min(100%, 1120px);
   margin: 0 auto;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 .right-column {
   width: 340px;
@@ -276,7 +275,7 @@ body {
   gap: 12px;
 }
 .history-panel {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -285,7 +284,7 @@ body {
   overflow-y: auto;
   flex: 1;
   padding: 4px 0;
-  max-height: 400px;
+  max-height: 200px;
 }
 .history-list .session-item {
   padding: 8px 10px;
@@ -414,8 +413,8 @@ body {
 
 /* ===== BRAINSTORM SECTION ===== */
 .brainstorm-transcript {
-  min-height: 64px;
-  max-height: 120px;
+  min-height: 200px;
+  max-height: 500px;
   overflow-y: auto;
   padding: 12px 14px;
   display: flex;
@@ -555,10 +554,10 @@ body {
   width: 100%;
 }
 .idea-capture-form textarea {
-  height: 68px;
+  height: 52px;
   line-height: 1.45;
-  max-height: 180px;
-  min-height: 64px;
+  max-height: 160px;
+  min-height: 48px;
   resize: vertical;
 }
 .idea-capture-form input {
@@ -619,11 +618,15 @@ body {
 }
 .idea-greenhouse-lanes {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   max-width: 100%;
   min-width: 0;
-  padding: 12px 18px 18px;
+  padding: 10px 16px 12px;
+}
+.idea-greenhouse-lanes:has(.idea-card) {
+  max-height: 380px;
+  overflow: hidden;
 }
 .idea-lane {
   --idea-accent: var(--border);
@@ -633,18 +636,11 @@ body {
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  max-height: 340px;
   min-width: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 .idea-lane .idea-card {
   flex-shrink: 0;
-}
-.idea-lane-header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--bg-2);
 }
 .idea-lane-header {
   align-items: center;
@@ -653,7 +649,7 @@ body {
   gap: 8px;
   justify-content: space-between;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 .idea-lane-header strong {
   color: var(--text);
@@ -1730,8 +1726,8 @@ summary:focus-visible {
 #pipeline-spine .pipeline-stages {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px 18px;
+  gap: 6px;
+  padding: 10px 14px 14px;
 }
 .pipeline-step { display: flex; gap: 12px; position: relative; }
 #pipeline-spine .pipeline-step {
@@ -1739,11 +1735,11 @@ summary:focus-visible {
   background: var(--bg-2);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
-  gap: 14px;
-  padding: 14px 16px;
+  gap: 8px;
+  padding: 8px 10px 0px 10px;
 }
-.pipeline-step:not(:last-child) { padding-bottom: 8px; }
-#pipeline-spine .pipeline-step:not(:last-child) { padding-bottom: 8px; }
+.pipeline-step:not(:last-child) { padding-bottom: 0; }
+#pipeline-spine .pipeline-step:not(:last-child) { padding-bottom: 0; }
 .step-number {
   display: flex;
   flex-direction: column;
@@ -1841,7 +1837,7 @@ summary:focus-visible {
   outline: none;
   padding: 8px 10px;
 }
-#pipeline-spine .definition-editor textarea { height: 76px; min-height: 72px; max-height: 160px; }
+#pipeline-spine .definition-editor textarea { height: 54px; min-height: 54px; max-height: 120px; }
 .definition-editor textarea:focus { border-color: var(--accent); }
 
 /* ===== SYSTEM HEALTH ===== */
@@ -1919,7 +1915,6 @@ summary:focus-visible {
   border-radius: var(--radius);
   display: flex;
   flex-direction: column;
-  min-height: 300px;
   min-width: 0;
   overflow: hidden;
 }
@@ -1954,9 +1949,9 @@ summary:focus-visible {
 .worker-lanes-list { max-height: 320px; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 9px; }
 .worker-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: flex-start;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
   padding: 10px 11px;
   border: 1px solid transparent;
   border-left: 3px solid transparent;
@@ -2432,9 +2427,6 @@ summary:focus-visible {
   .layout-columns {
     overflow-y: visible;
   }
-  .idea-greenhouse-lanes {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  }
   .task-control-grid {
     gap: 16px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2518,13 +2510,13 @@ summary:focus-visible {
 }
 
 /* ===== BUILDER-JUDGE LOOP ===== */
-.builder-judge-section { margin-top: 12px; }
-.bj-form-area { display: flex; flex-direction: column; gap: 10px; padding: 12px 0; }
-.bj-form-group { display: flex; flex-direction: column; gap: 4px; }
-.bj-form-group label { font-size: 11px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.builder-judge-section { margin-top: 8px; }
+.bj-form-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+.bj-form-group { display: flex; flex-direction: column; gap: 2px; }
+.bj-form-group label { font-size: 10px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 .bj-form-group textarea, .bj-form-group select, .bj-form-group input {
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  color: var(--text); padding: 6px 10px; font-size: 13px; outline: none; font-family: inherit;
+  color: var(--text); padding: 4px 8px; font-size: 12px; outline: none; font-family: inherit;
 }
 .bj-form-group textarea:focus, .bj-form-group select:focus, .bj-form-group input:focus {
   border-color: var(--accent);
