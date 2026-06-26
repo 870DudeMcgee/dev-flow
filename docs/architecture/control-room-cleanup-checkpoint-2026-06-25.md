@@ -266,6 +266,54 @@ source-location variant groups, and context variant groups. `graphify-out/`
 remains generated local evidence and is not part of the tracked release
 checkpoint.
 
+## 2026-06-26 Brainstorm Pipeline Browser Proof
+
+The Brainstorm-to-Pipeline browser fix passed focused verification and a fresh
+scratch functional proof.
+
+Commands passed:
+
+```bash
+git diff --check
+PYTHONPATH=src:. .venv/bin/python -m pytest \
+  tests/test_brainstorm_workbench.py \
+  tests/test_brainstorm_task_bridge.py \
+  tests/test_operating_layer.py \
+  tests/test_operator_ui_browser.py \
+  -q
+PYTHONPATH=src:. .venv/bin/python -m devflow.cli operating-layer visual-qa --json
+PYTHONPATH=src:. .venv/bin/python -m devflow.cli git status
+```
+
+Result: `118 passed, 1 skipped`; operating-layer visual QA passed for desktop
+and mobile.
+
+Scratch proof:
+
+- Scratch repo: `/tmp/devflow-ui-proof.hkwe4l`
+- Screenshot evidence: `/private/tmp/devflow-ui-proof-flow-20260626T135035780366Z`
+- Result file: `/tmp/devflow-ui-proof.hkwe4l/proof.txt`
+- Final file content: `ui-proof`
+
+Proof flow covered:
+
+`Brainstorm -> Spec -> Plan -> Implementation -> Create task -> Run shell -> Verify -> Promote preview -> Promote`
+
+Provider behavior: the scratch server ran with an isolated `HOME` and no
+`OPENROUTER_API_KEY`, so OpenRouter failure was visible in the transcript and
+non-blocking. Local fallback artifacts still wrote `spec.md`, `plan.md`, and
+`implementation.md`; the created task recorded `brainstorm_created` lineage and
+`implementation-context.md`.
+
+Browser validation note: the in-app Browser plugin connected and navigated, but
+its screenshot call failed with `Timed out running CDP command
+"Page.captureScreenshot" for tab 1`. Because this plan explicitly calls for
+Playwright proof, the rendered proof was completed with standalone Playwright.
+
+Final Dev-Flow git status after verification was dirty only because of the
+intended tracked edits; before committing it reported `safe_for_worker_writes:
+no`, `safe_for_promotion: no`, and `safe_for_push: no`.
+
 ## Remaining Risks
 
 - `graphify-out/` is still untracked generated evidence. It should remain local

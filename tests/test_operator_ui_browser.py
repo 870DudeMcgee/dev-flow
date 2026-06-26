@@ -821,6 +821,151 @@ def test_brainstorm_definition_of_done_persists_per_session(browser_page: tuple[
     assert new_session_id != session_id
 
 
+def test_brainstorm_message_refreshes_pipeline_without_reload(browser_page: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page
+    session_id = "browser-proof-submit"
+    pipeline = _brainstorm_pipeline_payload(session_id)
+
+    page.route(
+        "**/api/brainstorm/message",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "schema_version": 1,
+                    "status": "failed",
+                    "session_id": session_id,
+                    "profile_id": "deepseek-v4-flash-free-brainstormer",
+                    "provider": "openrouter",
+                    "model": "deepseek/deepseek-v4-flash:free",
+                    "transcript_path": f".devflow/brainstorms/{session_id}/transcript.jsonl",
+                    "run_path": f".devflow/brainstorms/{session_id}/run.json",
+                    "will_call_provider": True,
+                    "created_at": "2026-06-26T12:00:00Z",
+                    "error": "Provider 'openrouter' request failed: HTTP Error 404: Not Found",
+                }
+            ),
+        ),
+    )
+    page.route(
+        "**/api/brainstorm/transcript?*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "messages": [
+                        {
+                            "created_at": "2026-06-26T12:00:00Z",
+                            "role": "user",
+                            "kind": "message",
+                            "content": "Turn this into a task.",
+                        },
+                        {
+                            "created_at": "2026-06-26T12:00:01Z",
+                            "role": "system",
+                            "kind": "provider_error",
+                            "content": "Provider 'openrouter' request failed: HTTP Error 404: Not Found",
+                        },
+                    ],
+                    "spec": None,
+                    "plan": None,
+                    "implementation": None,
+                    "pipeline": pipeline,
+                }
+            ),
+        ),
+    )
+
+    page.locator("#brainstorm-message").fill("Turn this into a task.")
+    page.locator("#brainstorm-chat-form button[type='submit']").click()
+
+    expect(page.locator("#brainstorm-transcript")).to_contain_text("HTTP Error 404", timeout=10_000)
+    expect(
+        page.locator('#pipeline-stages-container .pipeline-step[data-stage="spec"] [data-brainstorm-stage="spec"]')
+    ).to_be_enabled(timeout=10_000)
+    assert page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')") == session_id
+
+
+def test_reloaded_browser_adopts_first_viewport_brainstorm_session(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+    session_id = "browser-existing"
+    _write_brainstorm_transcript(
+        scratch_state.root,
+        session_id,
+        "Reload should preserve this transcript session.",
+    )
+
+    page.reload(wait_until="domcontentloaded")
+    _wait_for_hydration(page)
+
+    spec_action = page.locator('#pipeline-stages-container .pipeline-step[data-stage="spec"] [data-brainstorm-stage="spec"]')
+    expect(spec_action).to_be_enabled(timeout=10_000)
+    assert page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')") == session_id
+
+    spec_action.click()
+    expect(page.locator("#brainstorm-transcript")).to_contain_text("Artifact:", timeout=10_000)
+    assert "brainstorm session has no transcript" not in page.locator("#brainstorm-transcript").inner_text()
+    assert (scratch_state.root / ".devflow" / "brainstorms" / session_id / "spec.md").exists()
+
+
+def test_brainstorm_pipeline_creates_task_from_browser(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, _console_errors = browser_page
+    before_tasks = _task_dir_names(scratch_state.root)
+
+    page.locator("#brainstorm-message").fill("Create a browser proof task for ui-proof.txt.")
+    page.locator("#brainstorm-chat-form button[type='submit']").click()
+    expect(page.locator("#brainstorm-transcript")).to_contain_text("OPENROUTER_API_KEY", timeout=10_000)
+
+    session_id = page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')")
+    assert isinstance(session_id, str)
+    assert session_id.startswith("browser-")
+
+    spec_action = page.locator('#pipeline-stages-container .pipeline-step[data-stage="spec"] [data-brainstorm-stage="spec"]')
+    expect(spec_action).to_be_enabled(timeout=10_000)
+    spec_action.click()
+    _wait_for_path(scratch_state.root / ".devflow" / "brainstorms" / session_id / "spec.md")
+    expect(page.locator("#brainstorm-transcript")).to_contain_text("Model error:", timeout=10_000)
+
+    plan_action = page.locator('#pipeline-stages-container .pipeline-step[data-stage="plan"] [data-brainstorm-stage="plan"]')
+    expect(plan_action).to_be_enabled(timeout=10_000)
+    plan_action.click()
+    _wait_for_path(scratch_state.root / ".devflow" / "brainstorms" / session_id / "plan.md")
+
+    page.locator("#brainstorm-definition-of-done").fill("ui-proof.txt exists and contains ui-proof.")
+    implementation_action = page.locator(
+        '#pipeline-stages-container .pipeline-step[data-stage="implementation"] [data-brainstorm-stage="implementation"]'
+    )
+    expect(implementation_action).to_be_enabled(timeout=10_000)
+    implementation_action.click()
+
+    task_id = _wait_for_new_task(scratch_state.root, before_tasks)
+    expect(page.locator("#brainstorm-transcript")).to_contain_text(f"Task {task_id}", timeout=15_000)
+    expect(page.locator("#orchestrator-goal-title")).to_contain_text(task_id, timeout=15_000)
+    expect(page.locator("#active-work-groups")).to_contain_text(task_id, timeout=15_000)
+
+    context_path = scratch_state.root / ".devflow" / "workspaces" / task_id / "implementation-context.md"
+    assert context_path.exists()
+    assert session_id in context_path.read_text(encoding="utf-8")
+    events = [
+        json.loads(line)
+        for line in (scratch_state.root / ".devflow" / "tasks" / task_id / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    created_event = next(event for event in events if event["event"] == "brainstorm_created")
+    assert created_event["session_id"] == session_id
+    assert created_event["context_path"] == f".devflow/workspaces/{task_id}/implementation-context.md"
+
+
 def test_action_api_blocks_unsafe_commands(
     browser_page: tuple[Page, list[str]],
     operating_layer_url: str,
@@ -970,6 +1115,8 @@ def _devflow_env(devflow_home: Path) -> dict[str, str]:
     env["PYTHONPATH"] = f"{REPO_ROOT / 'src'}:{REPO_ROOT}"
     env["DEVFLOW_HOME"] = devflow_home.as_posix()
     env.setdefault("DEVFLOW_EXPERIMENTAL", "1")
+    env["HOME"] = devflow_home.as_posix()
+    env.pop("OPENROUTER_API_KEY", None)
     return env
 
 
@@ -1095,6 +1242,82 @@ def _write_question(root: Path, task_id: str) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def _write_brainstorm_transcript(root: Path, session_id: str, message: str) -> None:
+    session_dir = root / ".devflow" / "brainstorms" / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    session_dir.joinpath("transcript.jsonl").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-06-26T12:00:00Z",
+                "role": "user",
+                "kind": "message",
+                "content": message,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _task_dir_names(root: Path) -> set[str]:
+    tasks_dir = root / ".devflow" / "tasks"
+    return {path.name for path in tasks_dir.iterdir() if path.is_dir()} if tasks_dir.exists() else set()
+
+
+def _wait_for_new_task(root: Path, before: set[str], timeout: float = 10.0) -> str:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        current = _task_dir_names(root)
+        created = sorted(current - before)
+        if created:
+            return created[-1]
+        time.sleep(0.1)
+    raise AssertionError("new Brainstorm-created task did not appear")
+
+
+def _wait_for_path(path: Path, timeout: float = 10.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"expected path to exist: {path}")
+
+
+def _brainstorm_pipeline_payload(session_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "session_id": session_id,
+        "stage": "brainstorm",
+        "status": "ready",
+        "has_transcript": True,
+        "has_spec": False,
+        "has_plan": False,
+        "has_implementation": False,
+        "next_step_label": "Escalate to spec",
+        "operator_summary": "Transcript is ready for Spec.",
+        "stages": [
+            {
+                "id": "brainstorm",
+                "label": "Brainstorm",
+                "status": "complete",
+                "artifact_path": f".devflow/brainstorms/{session_id}/transcript.jsonl",
+                "evidence_paths": [f".devflow/brainstorms/{session_id}/transcript.jsonl"],
+            },
+            {"id": "spec", "label": "Spec", "status": "pending", "artifact_path": None, "evidence_paths": []},
+            {"id": "plan", "label": "Plan", "status": "pending", "artifact_path": None, "evidence_paths": []},
+            {
+                "id": "implementation",
+                "label": "Implementation Task",
+                "status": "pending",
+                "artifact_path": None,
+                "evidence_paths": [],
+            },
+        ],
+    }
 
 
 def _write_hermes_launch_evidence(

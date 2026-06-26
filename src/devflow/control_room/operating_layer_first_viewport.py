@@ -53,7 +53,7 @@ PIPELINE_STAGE_ACTION_LABELS: dict[str, str] = {
     "task": "View Tasks",
 }
 
-PIPELINE_COMPLETE_STATES = {"complete", "accepted", "passed"}
+PIPELINE_COMPLETE_STATES = {"complete", "accepted", "passed", "draft"}
 
 
 class FirstViewportLatestEvent(BaseModel):
@@ -470,4 +470,3 @@ def _read_transcript(path: Path) -> list[dict[str, Any]]:
         if isinstance(value, dict):
             records.append(value)
     return records
-

@@ -266,7 +266,7 @@ def test_operating_layer_js_start_brainstorm_from_idea_contract() -> None:
     assert "data-idea-brainstorm" in APP_JS
     assert "idea-brainstorm-status" in APP_JS
     assert "JSON.stringify({ idea_id: ideaId })" in APP_JS
-    assert "localStorage.setItem('devflow-brainstorm-session', data.session_id)" in APP_JS
+    assert "setActiveBrainstormSession(data.session_id, { userSelected: true })" in APP_JS
     assert "setActiveNav('brainstorm')" in APP_JS
     assert "await loadBrainstormTranscript(data.session_id)" in APP_JS
     assert "Brainstorm session started from " in APP_JS
@@ -501,6 +501,52 @@ def test_first_viewport_module_shapes_brainstorm_pipeline_and_launchpad(
     assert payload["next_task"]["action_label"] == "Start shell"
     assert payload["worker_lanes"][0]["task_id"] == "task-0001"
     assert payload["launchpad"]["selected_task_id"] == "task-0001"
+
+
+def test_brainstorm_message_failure_still_exposes_same_session_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    import devflow.control_room.env_loader as env_loader_mod
+
+    monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "missing.env")
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    session_id = "browser-contract"
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        connection.request(
+            "POST",
+            "/api/brainstorm/message",
+            body=json.dumps({"session_id": session_id, "message": "Make a browser-proof pipeline."}),
+            headers={"Content-Type": "application/json"},
+        )
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == HTTPStatus.OK
+        assert payload["status"] == "failed"
+        assert payload["session_id"] == session_id
+        assert "OPENROUTER_API_KEY" in payload["error"]
+
+        connection = HTTPConnection(host, port, timeout=5)
+        connection.request("GET", f"/api/brainstorm/transcript?session_id={session_id}")
+        transcript_response = connection.getresponse()
+        transcript = json.loads(transcript_response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert transcript_response.status == HTTPStatus.OK
+    assert transcript["session_id"] == session_id
+    assert transcript["pipeline"]["session_id"] == session_id
+    assert transcript["pipeline"]["has_transcript"] is True
+    stages = {stage["id"]: stage for stage in transcript["pipeline"]["stages"]}
+    assert stages["brainstorm"]["status"] == "complete"
+    assert stages["spec"]["status"] == "pending"
+    assert transcript["pipeline"]["next_step_label"] == "Escalate to spec"
 
 
 def test_task_definition_of_done_persists_loads_old_tasks_shows_and_snapshots(

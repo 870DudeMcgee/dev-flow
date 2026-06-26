@@ -400,6 +400,53 @@ def test_manual_spec_escalation_exposes_draft_status_in_pipeline_stages(tmp_path
     assert persisted_stages_map["spec"]["status"] == "draft"
 
 
+def test_model_error_spec_escalation_writes_fallback_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    session_id = "session-model-error"
+    session_dir = tmp_path / ".devflow" / "brainstorms" / session_id
+    session_dir.mkdir(parents=True)
+    session_dir.joinpath("transcript.jsonl").write_text(
+        json.dumps(
+            {
+                "created_at": "2026-06-26T12:00:00Z",
+                "role": "user",
+                "kind": "message",
+                "content": "Make the browser pipeline recover from provider errors.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    import devflow.control_room.brainstorm as brainstorm_mod
+
+    def fail_chat_completion(**_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("Provider 'openrouter' request failed: HTTP Error 404: Not Found")
+
+    monkeypatch.setattr(brainstorm_mod, "_chat_completion_for_profile", fail_chat_completion)
+
+    payload = escalate_brainstorm_session(
+        root=tmp_path,
+        session_id=session_id,
+        stage="spec",
+        use_model=True,
+    )
+
+    assert payload["status"] == "ready"
+    assert payload["model_info"]["used_model"] is False
+    assert "HTTP Error 404" in payload["model_info"]["error"]
+    spec_path = tmp_path / payload["artifact_path"]
+    assert spec_path.exists()
+    assert "Model error:" in spec_path.read_text(encoding="utf-8")
+    assert payload["pipeline_detail"]["has_spec"] is True
+    stages_map = {stage["id"]: stage for stage in payload["pipeline_detail"]["stages"]}
+    assert stages_map["spec"]["status"] == "draft"
+
+
 def test_manual_plan_escalation_exposes_draft_status_in_pipeline_stages(tmp_path: Path) -> None:
     """Same draft-status check but for plan stage."""
     setup_temp_git_repo(tmp_path)

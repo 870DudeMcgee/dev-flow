@@ -4,14 +4,15 @@ APP_JS = """
 // === STATE ===
 let snapshot = null;
 let selectedProjectId = null;
-let brainstormSessionId = localStorage.getItem('devflow-brainstorm-session') || `browser-${Date.now().toString(36)}`;
-localStorage.setItem('devflow-brainstorm-session', brainstormSessionId);
+let brainstormSessionId = '';
+let userSelectedBrainstormSession = false;
 let brainstormMessage = '';
 let selectedTaskId = null;
 let availableAgents = [];
 let selectedProfileId = localStorage.getItem('devflow-brainstorm-profile') || null;
 const ACTION_APPROVAL_PHRASE = 'I approve this exact Dev-Flow command';
 const BRAINSTORM_DOD_PREFIX = 'devflow-brainstorm-definition-of-done:';
+setActiveBrainstormSession(localStorage.getItem('devflow-brainstorm-session') || `browser-${Date.now().toString(36)}`);
 
 // === HELPERS ===
 function $(id) { return document.getElementById(id); }
@@ -493,6 +494,15 @@ function implementationContextFromPipelinePayload(payload) {
 function brainstormDefinitionStorageKey(sessionId) {
   return BRAINSTORM_DOD_PREFIX + String(sessionId || brainstormSessionId || 'default');
 }
+function setActiveBrainstormSession(sessionId, options) {
+  const sid = String(sessionId || '').trim();
+  if (!sid) return false;
+  brainstormSessionId = sid;
+  localStorage.setItem('devflow-brainstorm-session', sid);
+  if (options && options.userSelected) userSelectedBrainstormSession = true;
+  loadBrainstormDefinitionOfDone();
+  return true;
+}
 function currentBrainstormDefinitionOfDone() {
   const input = $('brainstorm-definition-of-done');
   return String(input?.value || '').trim();
@@ -510,6 +520,32 @@ function setupBrainstormDefinitionOfDone() {
     localStorage.setItem(brainstormDefinitionStorageKey(), input.value);
   });
 }
+function pipelineHasSessionEvidence(state) {
+  if (!state) return false;
+  if (state.has_transcript || state.has_spec || state.has_plan || state.has_implementation) return true;
+  return (state.stages || []).some(stage => isPipelineStageComplete(stage));
+}
+function firstViewportBrainstormSessionId(snap) {
+  return String(
+    snap?.first_viewport?.pipeline?.session_id
+    || snap?.first_viewport?.brainstorm?.session_id
+    || snap?.pipeline?.session_id
+    || ''
+  ).trim();
+}
+function adoptFirstViewportBrainstormSession(snap) {
+  const sid = firstViewportBrainstormSessionId(snap);
+  if (!sid) return false;
+  if (userSelectedBrainstormSession && brainstormSessionId && brainstormSessionId !== sid) return false;
+  const activePipelineSession = String(pipelineState?.session_id || '').trim();
+  if (activePipelineSession && activePipelineSession !== sid && pipelineHasSessionEvidence(pipelineState)) return false;
+  if (!setActiveBrainstormSession(sid)) return false;
+  const presentationPipeline = snap?.first_viewport?.pipeline || snap?.pipeline || null;
+  if (presentationPipeline && Array.isArray(presentationPipeline.stages)) {
+    pipelineState = presentationPipeline;
+  }
+  return true;
+}
 
 // === SNAPSHOT LOADING ===
 async function loadSnapshot(project) {
@@ -517,6 +553,7 @@ async function loadSnapshot(project) {
   try {
     const resp = await fetch(url);
     snapshot = await resp.json();
+    adoptFirstViewportBrainstormSession(snapshot);
     render();
   } catch (e) {
     snapshot = null;
@@ -712,10 +749,15 @@ async function loadBrainstormTranscript(sessionId) {
   try {
     const resp = await fetch(`/api/brainstorm/transcript?session_id=${encodeURIComponent(sessionId)}`);
     const data = await resp.json();
+    setActiveBrainstormSession(data.session_id || data.pipeline?.session_id || sessionId);
     const container = $('brainstorm-transcript');
     if (!container) return;
     if (!data.messages || data.messages.length === 0) {
       container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
+      pipelineState = data.pipeline && Array.isArray(data.pipeline.stages)
+        ? data.pipeline
+        : { session_id: data.session_id || sessionId, stages: [] };
+      renderPipeline();
       return;
     }
     container.innerHTML = '';
@@ -751,14 +793,12 @@ async function loadBrainstormTranscript(sessionId) {
 }
 
 function newBrainstormSession() {
-  brainstormSessionId = `browser-${Date.now().toString(36)}`;
-  localStorage.setItem('devflow-brainstorm-session', brainstormSessionId);
-  loadBrainstormDefinitionOfDone();
+  setActiveBrainstormSession(`browser-${Date.now().toString(36)}`, { userSelected: true });
   const container = $('brainstorm-transcript');
   if (container) {
     container.innerHTML = '<div class="brainstorm-empty-state">Start a brainstorm conversation above.</div>';
   }
-  pipelineState = { stages: [] };
+  pipelineState = { session_id: brainstormSessionId, stages: [] };
   renderPipeline();
   loadBrainstormSessions();
 }
@@ -793,9 +833,7 @@ async function loadBrainstormSessions() {
       item.addEventListener('click', () => {
         const sid = item.dataset.sessionId;
         if (!sid) return;
-        brainstormSessionId = sid;
-        localStorage.setItem('devflow-brainstorm-session', sid);
-        loadBrainstormDefinitionOfDone();
+        setActiveBrainstormSession(sid, { userSelected: true });
         loadBrainstormTranscript(sid);
         loadBrainstormSessions();
       });
@@ -913,6 +951,7 @@ function setupBrainstormForm() {
     try {
       const payload = await sendBrainstormMessage(msg);
       removeThinkingIndicator();
+      if (payload.session_id) setActiveBrainstormSession(payload.session_id);
       if (payload.status === 'success' && payload.assistant_message) {
         appendBrainstormMsg('assistant', payload.assistant_message, { time: shortTime(payload.created_at) });
       } else if (payload.error) {
@@ -924,9 +963,10 @@ function setupBrainstormForm() {
       removeThinkingIndicator();
       appendBrainstormMsg('system', 'Request failed. Check that OPENROUTER_API_KEY is set.', { kind: 'provider_error' });
     }
+    await refreshPipelineState();
     input.disabled = false;
     if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send'; }
-    loadBrainstormSessions();
+    await loadBrainstormSessions();
     input.focus();
   });
   // Shift+Enter for newline
@@ -1142,7 +1182,12 @@ async function refreshPipelineState() {
   try {
     const resp = await fetch(`/api/brainstorm/transcript?session_id=${encodeURIComponent(brainstormSessionId)}`);
     const data = await resp.json();
-    pipelineState.stages = data.pipeline?.stages || [];
+    if (data.session_id || data.pipeline?.session_id) {
+      setActiveBrainstormSession(data.session_id || data.pipeline.session_id);
+    }
+    pipelineState = data.pipeline && Array.isArray(data.pipeline.stages)
+      ? data.pipeline
+      : { session_id: data.session_id || brainstormSessionId, stages: [] };
   } catch(e) { /* ignore */ }
   renderPipeline();
 }
@@ -1150,7 +1195,7 @@ async function refreshPipelineState() {
 function isPipelineStageComplete(stage) {
   if (stage?.complete === true || stage?.done === true) return true;
   const status = String(stage?.status || '').toLowerCase();
-  return ['complete', 'accepted', 'passed'].includes(status);
+  return ['complete', 'accepted', 'passed', 'draft'].includes(status);
 }
 
 function getPipelineFirstIncompleteIndex(state) {
@@ -1449,9 +1494,7 @@ function setupPipelineButtons(scope) {
       try {
         const payload = await escalateBrainstormStage(stage, useModel);
         if (useModel) removeThinkingIndicator();
-        if (payload.error) {
-          appendBrainstormMsg('system', payload.error, { kind: 'provider_error' });
-        } else if (payload.status === 'ready') {
+        if (payload.status === 'ready') {
           const stageLabel = payload.stage ? payload.stage.charAt(0).toUpperCase() + payload.stage.slice(1) : 'Stage';
           const detail = pipelineDetailFromPayload(payload);
           const taskAction = taskActionFromPipelinePayload(payload);
@@ -1523,10 +1566,12 @@ function setupPipelineButtons(scope) {
             }
             if (info) appendBrainstormMsg('system', info, {});
           }
+        } else if (payload.error) {
+          appendBrainstormMsg('system', payload.error, { kind: 'provider_error' });
         }
-        loadSnapshot(selectedProjectId);
-        refreshPipelineState();
-        loadBrainstormSessions();
+        await loadSnapshot(selectedProjectId);
+        await refreshPipelineState();
+        await loadBrainstormSessions();
       } catch(e) {
         removeThinkingIndicator();
         appendBrainstormMsg('system', 'Escalation failed: ' + (e.message || 'unknown error'), { kind: 'provider_error' });
@@ -3252,15 +3297,14 @@ function setupTaskSurfaceActions() {
           setIdeaDetailStatus(data.error || 'Failed to start brainstorm.', 'error', statusId);
           return;
         }
-        localStorage.setItem('devflow-brainstorm-session', data.session_id);
-        brainstormSessionId = data.session_id;
+        setActiveBrainstormSession(data.session_id, { userSelected: true });
         setIdeaDetailStatus('Session: ' + data.session_id, 'success', statusId);
         setActiveNav('brainstorm');
         closeFocus();
         await loadBrainstormTranscript(data.session_id);
         appendBrainstormMsg('system', 'Brainstorm session started from ' + ideaId + '. Next: add context or escalate to Spec when the idea is clear.', {});
-        loadBrainstormSessions();
-        refreshPipelineState();
+        await loadBrainstormSessions();
+        await refreshPipelineState();
         const input = $('brainstorm-message');
         if (input) input.focus();
       } catch(e) {
