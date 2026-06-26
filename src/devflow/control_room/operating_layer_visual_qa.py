@@ -249,8 +249,7 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "Idea Greenhouse is the first main content section after the top bar.",
             "pass"
             if (
-                _index_before("idea-greenhouse-section", "brainstorm-section")
-                and _index_before("brainstorm-section", "pipeline-spine")
+                _index_before("idea-greenhouse-section", "pipeline-spine")
                 and _index_before("pipeline-spine", "orchestrator-section")
             )
             else "fail",
@@ -261,8 +260,8 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
             "Idea Greenhouse sits at the top of the Idea-to-Product pipeline with capture form and lanes.",
             "pass"
             if (
-                _index_before("idea-greenhouse-section", "brainstorm-section")
-                and _index_before("brainstorm-section", "orchestrator-section")
+                _index_before("idea-greenhouse-section", "pipeline-spine")
+                and _index_before("history-panel", "brainstorm-section")
                 and all(
                     token in INDEX_HTML
                     for token in ("idea-capture-form", "idea-greenhouse-lanes")
@@ -345,8 +344,8 @@ def _playwright_assertions() -> list[dict[str, str]]:
                 "const pipeline = document.querySelector('#pipeline-spine');"
                 "const orchestrator = document.querySelector('#orchestrator-section');"
                 "return Boolean(greenhouse && brainstorm && pipeline && orchestrator && "
-                "greenhouse.compareDocumentPosition(brainstorm) & Node.DOCUMENT_POSITION_FOLLOWING && "
-                "brainstorm.compareDocumentPosition(pipeline) & Node.DOCUMENT_POSITION_FOLLOWING && "
+                "document.querySelector('.right-column #brainstorm-section') && "
+                "greenhouse.compareDocumentPosition(pipeline) & Node.DOCUMENT_POSITION_FOLLOWING && "
                 "pipeline.compareDocumentPosition(orchestrator) & Node.DOCUMENT_POSITION_FOLLOWING && "
                 "greenhouse.querySelector('#idea-capture-form') && "
                 "greenhouse.querySelector('#idea-greenhouse-lanes'));"
@@ -474,9 +473,9 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
           const launchpadCommand = document.querySelector('#orchestrator-command');
           const launchpadAction = document.querySelector('#next-task-action-slot');
           const missionFeed = document.querySelector('#mission-feed-section');
-          const healthSection = document.querySelector('.health-section');
+          const topbarHealth = document.querySelector('#topbar-health');
           const brainstormRect = brainstormSection ? brainstormSection.getBoundingClientRect() : null;
-          const healthRect = healthSection ? healthSection.getBoundingClientRect() : null;
+          const healthRect = topbarHealth ? topbarHealth.getBoundingClientRect() : null;
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
             guided_first_viewport: document.querySelector('.center-column > section')?.id === 'idea-greenhouse-section',
@@ -485,8 +484,8 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
               brainstormSection &&
               pipelineSection &&
               orchestratorSection &&
-              greenhouseSection.compareDocumentPosition(brainstormSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
-              brainstormSection.compareDocumentPosition(pipelineSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              document.querySelector('.right-column #brainstorm-section') &&
+              greenhouseSection.compareDocumentPosition(pipelineSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
               pipelineSection.compareDocumentPosition(orchestratorSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
               greenhouseSection.querySelector('#idea-capture-form') &&
               greenhouseSection.querySelector('#idea-greenhouse-lanes')
@@ -504,11 +503,12 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
               document.querySelector('#orchestrator-section')
             ),
             no_mission_feed_action_overlap: Boolean(
-              !brainstormRect || !healthRect ||
-              brainstormRect.right <= healthRect.left ||
-              healthRect.right <= brainstormRect.left ||
-              brainstormRect.bottom <= healthRect.top ||
-              healthRect.bottom <= brainstormRect.top
+              Boolean(topbarHealth) &&
+              (!brainstormRect || !healthRect ||
+                brainstormRect.right <= healthRect.left ||
+                healthRect.right <= brainstormRect.left ||
+                brainstormRect.bottom <= healthRect.top ||
+                healthRect.bottom <= brainstormRect.top)
             ),
           };
         }"""

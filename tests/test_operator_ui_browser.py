@@ -275,6 +275,64 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     assert _no_horizontal_overflow(page)
 
 
+def test_home_shell_is_compact_and_topbar_health_replaces_side_panel(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, _console_errors = browser_page
+
+    metrics = page.evaluate(
+        """() => {
+          const box = (selector) => {
+            const element = document.querySelector(selector);
+            const rect = element?.getBoundingClientRect();
+            return rect ? {
+              exists: true,
+              top: Math.round(rect.top),
+              height: Math.round(rect.height),
+              width: Math.round(rect.width),
+              position: getComputedStyle(element).position,
+              display: getComputedStyle(element).display,
+            } : { exists: false, top: 99999, height: 0, width: 0, position: "", display: "none" };
+          };
+          const nav = document.querySelector('[data-nav="work"]');
+          return {
+            sidebar: box('.sidebar'),
+            brandText: box('.brand-text'),
+            topbarHealth: box('#topbar-health'),
+            healthSectionCount: document.querySelectorAll('.health-section').length,
+            brainstormTranscript: box('#brainstorm-transcript'),
+            pipeline: box('#pipeline-spine'),
+            pipelineSteps: Array.from(document.querySelectorAll('#pipeline-spine .pipeline-step')).map((element) => {
+              const rect = element.getBoundingClientRect();
+              return { height: Math.round(rect.height) };
+            }),
+            history: box('#brainstorm-history-details'),
+            historyList: box('#brainstorm-sessions-list'),
+            nextTask: box('#orchestrator-section'),
+            operatorNextSteps: box('#operator-next-steps'),
+            scrollRatio: Number((document.documentElement.scrollHeight / window.innerHeight).toFixed(2)),
+            navTarget: nav?.getAttribute('href') || '',
+            navLabelDisplay: nav ? getComputedStyle(nav.querySelector('span')).display : '',
+          };
+        }"""
+    )
+
+    assert metrics["sidebar"]["width"] <= 72
+    assert metrics["brandText"]["display"] == "none"
+    assert metrics["navLabelDisplay"] == "none"
+    assert metrics["navTarget"] == "#product-review-section"
+    assert metrics["topbarHealth"]["exists"] is True
+    assert metrics["healthSectionCount"] == 0
+    assert metrics["brainstormTranscript"]["height"] >= 340
+    assert metrics["pipeline"]["height"] <= 300
+    assert max(step["height"] for step in metrics["pipelineSteps"]) <= 64
+    assert metrics["history"]["height"] <= 170
+    assert metrics["historyList"]["height"] <= 96
+    assert metrics["nextTask"]["height"] <= 440
+    assert metrics["operatorNextSteps"]["height"] <= 170
+    assert metrics["scrollRatio"] <= 3.2
+
+
 def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Page, list[str]]) -> None:
     page, _console_errors = browser_page
     metrics = page.evaluate(

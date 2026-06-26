@@ -567,6 +567,29 @@ function setActiveNav(navId) {
   const target = document.querySelector(`[data-nav="${navId}"]`);
   if (target) target.classList.add('active');
 }
+function setupNavigation() {
+  const navTargets = {
+    home: '#idea-greenhouse-section',
+    work: '#product-review-section',
+    review: '#product-review-section',
+    projects: '#repo-selector',
+    advanced: '#builder-judge-section',
+  };
+  document.querySelectorAll('.nav-item[data-nav]').forEach(link => {
+    link.addEventListener('click', (event) => {
+      const navId = link.dataset.nav;
+      const selector = navTargets[navId] || link.getAttribute('href');
+      const target = selector ? document.querySelector(selector) : null;
+      if (!target) return;
+      event.preventDefault();
+      setActiveNav(navId);
+      target.scrollIntoView({ behavior: 'smooth', block: navId === 'projects' ? 'center' : 'start' });
+      if (navId === 'projects') {
+        target.click();
+      }
+    });
+  });
+}
 
 // === REPO SELECTOR ===
 let currentBrowsePath = null;
@@ -810,11 +833,12 @@ async function loadBrainstormSessions() {
     const container = $('brainstorm-sessions-list');
     if (!container) return;
     const sessions = data.sessions || [];
+    setText('brainstorm-history-count', sessions.length ? String(sessions.length) : '0');
     if (sessions.length === 0) {
       container.innerHTML = '<div style="padding:8px;color:var(--text-muted);font-size:11px;">No previous sessions</div>';
       return;
     }
-    container.innerHTML = sessions.slice(0, 30).map(s => {
+    container.innerHTML = sessions.slice(0, 8).map(s => {
       const isActive = s.session_id === brainstormSessionId;
       const badges = [];
       if (s.has_spec) badges.push('<span class="si-badge">SPEC</span>');
@@ -1760,11 +1784,24 @@ function renderEvidenceStream(evidence, tasks) {
   }).join('');
 }
 
+function updateTaskControlEmptyState() {
+  const section = $('product-review-section');
+  if (!section) return;
+  const hasRows = Boolean(
+    section.querySelector('.worker-card')
+      || section.querySelector('.review-card')
+      || section.querySelector('.evidence-item')
+  );
+  section.classList.toggle('is-empty', !hasRows);
+}
+
 // === MISSION FEED ===
 function renderMissionFeed(feedItems) {
   const container = $('mission-feed-list');
   if (!container) return;
   const items = feedItems || [];
+  const section = $('mission-feed-section');
+  section?.classList.toggle('is-empty', items.length === 0);
   const count = $('mission-feed-count');
   if (count) count.textContent = String(items.length);
   if (items.length === 0) {
@@ -2371,7 +2408,7 @@ function renderOrchestrator(snap, presentation) {
   const tasks = snap.tasks || [];
   const activeTasks = tasks.filter(t => t.lane !== 'closed');
   const launchpad = firstViewport.launchpad || {};
-  const fallbackTaskId = launchpad.selected_task_id || snap.focus_task_id || activeTasks[0]?.id || tasks[0]?.id || null;
+  const fallbackTaskId = launchpad.selected_task_id || snap.focus_task_id || activeTasks[0]?.id || null;
   const selected = tasks.find(t => t.id === selectedTaskId) || tasks.find(t => t.id === fallbackTaskId) || null;
   selectedTaskId = selected?.id || null;
 
@@ -2384,6 +2421,9 @@ function renderOrchestrator(snap, presentation) {
   const latestEvidence = $('next-task-latest-evidence');
   const switcher = $('orchestrator-agent-progress');
   const cmd = $('orchestrator-command');
+  const section = $('orchestrator-section');
+  const isIdle = !selected || activeTasks.length === 0;
+  if (section) section.classList.toggle('is-idle', isIdle);
 
   if (!selected) {
     if (title) title.innerHTML = 'No task selected';
@@ -2442,13 +2482,28 @@ function renderOrchestrator(snap, presentation) {
     card.classList.toggle('selected', card.dataset.taskId === selectedTaskId);
   });
 
-  // Health — render real metrics from the health object
-  const health = $('orchestrator-health-bars');
   const snapHealth = snap.health || {};
+  renderTopbarHealth(snapHealth, snap.agent_catalog || {}, activeTasks.length);
+}
+
+function renderTopbarHealth(snapHealth, agentCatalog, activeTaskCount) {
+  const health = $('orchestrator-health-bars');
+  const currentSnapshot = snapshot || {};
+  const total = snapHealth.total_tasks || 0;
   const hStatus = snapHealth.timeout || snapHealth.worker_failed > 0 ? 'degraded' : 'nominal';
   setText('orchestrator-health-label', hStatus === 'degraded' ? 'Degraded' : 'Nominal');
+  setText(
+    'topbar-health-summary',
+    total
+      ? `${activeTaskCount || 0} active · ${snapHealth.ready_to_promote || 0} ready`
+      : 'No tasks'
+  );
+  const dot = $('topbar-health-dot');
+  if (dot) {
+    dot.classList.toggle('online', hStatus !== 'degraded');
+    dot.classList.toggle('warning', hStatus === 'degraded');
+  }
   if (health) {
-    const total = snapHealth.total_tasks || 0;
     let healthHtml = '';
     if (total === 0) {
       healthHtml = '<div style="color:var(--text-muted);font-size:11px;padding:4px;">No tasks</div>';
@@ -2468,10 +2523,15 @@ function renderOrchestrator(snap, presentation) {
         </div>`;
       }).join('');
     }
-    health.innerHTML = healthHtml + localModelHealthHtml(snap.agent_catalog || {});
+    health.innerHTML = healthHtml + localModelHealthHtml(agentCatalog || {});
   }
-  setText('orchestrator-freshness', typeof snap.freshness === 'object' ? (snap.freshness?.status || 'ok') : (snap.freshness || 'unknown'));
-  setText('orchestrator-goal-id', snap.focus_goal_id || (activeTasks.length ? `${activeTasks.length} tasks` : 'none'));
+  setText(
+    'orchestrator-freshness',
+    typeof currentSnapshot.freshness === 'object'
+      ? (currentSnapshot.freshness?.status || 'ok')
+      : (currentSnapshot.freshness || 'unknown')
+  );
+  setText('orchestrator-goal-id', currentSnapshot.focus_goal_id || (activeTaskCount ? `${activeTaskCount} tasks` : 'none'));
 }
 
 function localModelHealthHtml(agentCatalog) {
@@ -2538,6 +2598,13 @@ function renderFirstViewport(presentation) {
   renderWorkerLanes(presentation);
   renderReviewQueue(presentation);
   renderEvidenceStream(presentation);
+  $('product-review-section')?.classList.toggle(
+    'is-empty',
+    !(presentation.worker_lanes || []).length
+      && !(presentation.review_queue || []).length
+      && !(presentation.evidence_stream || []).length
+  );
+  updateTaskControlEmptyState();
   renderMissionFeed(presentation.mission_feed || []);
   renderOrchestrator(snapshot, presentation);
 }
@@ -3701,6 +3768,7 @@ async function loadBuilderJudgeLoops() {
 }
 
 function init() {
+  setupNavigation();
   setupRepoSelector();
   setupModelSelector();
   setupBrainstormForm();

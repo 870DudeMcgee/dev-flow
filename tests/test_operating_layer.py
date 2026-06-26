@@ -118,8 +118,8 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert INDEX_HTML is SPLIT_INDEX_HTML
     assert APP_CSS is SPLIT_APP_CSS
     assert APP_JS is SPLIT_APP_JS
-    assert '<link rel="stylesheet" href="/app.css">' in INDEX_HTML
-    assert '<script src="/app.js"></script>' in INDEX_HTML
+    assert '<link rel="stylesheet" href="/app.css?v=layout-compact-20260626">' in INDEX_HTML
+    assert '<script src="/app.js?v=layout-compact-20260626"></script>' in INDEX_HTML
     assert ".focus-overlay" in APP_CSS
     assert "pipeline-section" in INDEX_HTML
     assert ".panel" in APP_CSS
@@ -217,15 +217,17 @@ def test_operating_layer_css_includes_idea_greenhouse_layout_contract() -> None:
     mobile_rules = APP_CSS[APP_CSS.index("@media (max-width: 900px)") :]
     assert ".idea-greenhouse-lanes { grid-template-columns: 1fr; }" in mobile_rules
     assert mobile_rules.index("#idea-greenhouse-section { order: 1; }") < mobile_rules.index(
-        "#brainstorm-section"
-    ) < mobile_rules.index("#pipeline-spine") < mobile_rules.index("#orchestrator-section")
+        ".history-panel { order: 2; }"
+    ) < mobile_rules.index("#brainstorm-section") < mobile_rules.index("#pipeline-spine") < mobile_rules.index(
+        "#orchestrator-section"
+    ) < mobile_rules.index("#product-review-section")
 
 
 def test_operating_layer_desktop_layout_keeps_primary_panels_from_flex_shrinking() -> None:
     """Primary control-room panels may scroll on desktop, but must never shrink and clip content."""
     desktop_rules = APP_CSS[APP_CSS.index("@media (min-width: 1201px)") : APP_CSS.index("@media (max-width: 1200px)")]
 
-    assert ".center-column > .panel { margin-bottom: 8px; flex-shrink: 0; }" in APP_CSS
+    assert ".center-column > .panel { margin-bottom: 0; flex-shrink: 0; }" in APP_CSS
     assert ".right-column > .panel { flex-shrink: 0; }" in APP_CSS
     assert ".layout-columns" in desktop_rules
     layout_column_rules = desktop_rules[
@@ -235,13 +237,53 @@ def test_operating_layer_desktop_layout_keeps_primary_panels_from_flex_shrinking
     assert "overflow-y: auto" not in layout_column_rules
 
 
-def test_operating_layer_pipeline_uses_readable_rows_not_tiny_auto_fit_cards() -> None:
+def test_operating_layer_home_layout_uses_compact_shell_contract() -> None:
+    assert "--sidebar-w: 56px;" in APP_CSS
+    assert ".sidebar:hover" in APP_CSS
+    assert ".sidebar:hover .brand-text" in APP_CSS
+    assert '<a href="#product-review-section" class="nav-item" data-nav="work"' in INDEX_HTML
+    assert '<a href="#product-review-section" class="nav-item" data-nav="review"' in INDEX_HTML
+    assert "setupNavigation" in APP_JS
+    assert "scrollIntoView" in APP_JS
+
+    assert 'id="topbar-health"' in INDEX_HTML
+    assert 'class="panel health-section"' not in INDEX_HTML
+    assert "#topbar-health" in APP_CSS
+    assert ".health-section" not in APP_CSS
+    assert "orchestrator-health-bars" in INDEX_HTML
+    assert "renderTopbarHealth" in APP_JS
+
+    assert 'id="brainstorm-history-details"' in INDEX_HTML
+    assert ".history-panel details" in APP_CSS
+    assert ".brainstorm-section" in APP_CSS
+    assert "min-height: clamp(340px, 44vh, 520px);" in APP_CSS
+    assert "#pipeline-spine .pipeline-step" in APP_CSS
+    assert "min-height: 0;" in APP_CSS
+    assert ".orchestrator-section.is-idle" in APP_CSS
+    assert "toggle('is-idle'" in APP_JS
+
+
+def test_operating_layer_idle_desktop_moves_brainstorm_to_right_chat_rail() -> None:
+    assert INDEX_HTML.index('class="panel history-panel"') < INDEX_HTML.index('id="brainstorm-section"')
+    right_column = INDEX_HTML[INDEX_HTML.index('<div class="right-column">') : INDEX_HTML.index('</div>\n      </div>', INDEX_HTML.index('<div class="right-column">'))]
+    assert 'id="brainstorm-section"' in right_column
+    assert 'id="brainstorm-transcript"' in right_column
+
+    assert ".right-column .brainstorm-section" in APP_CSS
+    assert ".right-column .brainstorm-transcript" in APP_CSS
+    assert ".product-review-section.is-empty" in APP_CSS
+    assert ".mission-feed-section.is-empty" in APP_CSS
+    assert "$('product-review-section')?.classList.toggle" in APP_JS
+    assert "section?.classList.toggle('is-empty'" in APP_JS
+
+
+def test_operating_layer_pipeline_uses_compact_four_step_grid() -> None:
     pipeline_rules = APP_CSS[
         APP_CSS.index("#pipeline-spine .pipeline-stages {") : APP_CSS.index("#pipeline-spine .pipeline-step {")
     ]
-    assert "display: flex" in pipeline_rules
-    assert "flex-direction: column" in pipeline_rules
-    assert "repeat(auto-fit, minmax(118px, 1fr))" not in pipeline_rules
+    assert "display: grid" in pipeline_rules
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in pipeline_rules
+    assert "repeat(auto-fit" not in pipeline_rules
 
 
 def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
@@ -1511,7 +1553,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "focus-panel" in body
         assert "Next Safe Action" in body
         assert "Work Feed" in body
-        assert "System Health" in body
+        assert "topbar-health" in body
+        assert "System Health" not in body
         assert "repo-name" in body
         assert "branch-name" in body
         assert "Control Room" in body
@@ -1541,7 +1584,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "focus-overlay" in css
         assert "focus-panel" in css
         assert "focus-overlay" in css
-        assert "health-section" in css
+        assert "topbar-health" in css
+        assert "health-section" not in css
         assert "next-task-meta" in css
         assert "definition-editor" in css
         assert "pipeline-stages" in css

@@ -7,7 +7,7 @@ INDEX_HTML = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Dev-Flow Operating Layer — control room">
   <title>Dev-Flow Operating Layer</title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=layout-compact-20260626">
 </head>
 <body>
   <div class="app-shell">
@@ -24,23 +24,23 @@ INDEX_HTML = """<!doctype html>
       </div>
 
       <nav class="nav-list" aria-label="Sections">
-        <a href="#home" class="nav-item active" data-nav="home">
+        <a href="#idea-greenhouse-section" class="nav-item active" data-nav="home" aria-label="Home">
           <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
           <span>Home</span>
         </a>
-        <a href="#work" class="nav-item" data-nav="work">
+        <a href="#product-review-section" class="nav-item" data-nav="work" aria-label="Work">
           <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v2H6V4zm0 4h8v2H6V8zm0 4h8v2H6v-2z" clip-rule="evenodd"/></svg>
           <span>Work</span>
         </a>
-        <a href="#review" class="nav-item" data-nav="review">
+        <a href="#product-review-section" class="nav-item" data-nav="review" aria-label="Review">
           <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           <span>Review</span>
         </a>
-        <a href="#projects" class="nav-item" data-nav="projects">
+        <a href="#repo-selector" class="nav-item" data-nav="projects" aria-label="Projects">
           <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
           <span>Projects</span>
         </a>
-        <a href="#advanced" class="nav-item" data-nav="advanced">
+        <a href="#builder-judge-section" class="nav-item" data-nav="advanced" aria-label="Advanced">
           <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
           <span>Advanced</span>
         </a>
@@ -105,11 +105,23 @@ INDEX_HTML = """<!doctype html>
 
         <div class="topbar-right">
           <button id="refresh-button" type="button" class="topbar-btn" title="Refresh snapshot">⟳ Refresh</button>
-          <span class="control-status">
-            <span class="status-dot online" aria-hidden="true"></span>
-            Control Room Online
-            <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-          </span>
+          <div id="topbar-health" class="topbar-health" aria-label="System health">
+            <span id="topbar-health-dot" class="status-dot online" aria-hidden="true"></span>
+            <output id="orchestrator-health-label" class="topbar-health-label" aria-live="polite" aria-atomic="true">Nominal</output>
+            <span id="topbar-health-summary" class="topbar-health-summary">0 tasks</span>
+            <details class="topbar-health-details">
+              <summary aria-label="Show system health details">
+                <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+              </summary>
+              <div class="topbar-health-popover">
+                <div id="orchestrator-health-bars" class="health-bars"></div>
+                <div class="health-meta">
+                  <div><span class="label">Freshness</span><output id="orchestrator-freshness">unknown</output></div>
+                  <div><span class="label">Goal</span><output id="orchestrator-goal-id">none</output></div>
+                </div>
+              </div>
+            </details>
+          </div>
         </div>
       </header>
 
@@ -152,44 +164,6 @@ INDEX_HTML = """<!doctype html>
 
             <div id="idea-greenhouse-primary-action" class="idea-primary-action"></div>
             <div id="idea-greenhouse-lanes" class="idea-greenhouse-lanes"></div>
-          </section>
-
-          <!-- Brainstorm -->
-          <section id="brainstorm-section" class="panel brainstorm-section" aria-label="Brainstorm">
-            <div class="panel-header">
-              <h2 class="panel-title">Brainstorm</h2>
-              <div class="panel-header-controls">
-                <button class="btn btn-sm btn-secondary" id="brainstorm-new-session" type="button" style="padding:3px 10px;font-size:11px;">+ New</button>
-                <div class="model-selector-wrap">
-                  <span class="model-selector" id="model-selector" tabindex="0" role="button" aria-haspopup="listbox">
-                    <span id="model-selector-label">DeepSeek V4 Flash Free</span>
-                    <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-                  </span>
-                  <div class="model-dropdown" id="model-dropdown" hidden></div>
-                </div>
-                <label class="evidence-toggle">
-                  <input type="checkbox" id="local-evidence-only" checked>
-                  <span>Local evidence only</span>
-                </label>
-              </div>
-            </div>
-
-            <div id="brainstorm-transcript" class="brainstorm-transcript" role="log" aria-live="polite" aria-label="Brainstorm transcript"></div>
-
-            <form id="brainstorm-chat-form" class="brainstorm-chat-form">
-              <textarea id="brainstorm-message" autocomplete="off" placeholder="Ask DeepSeek anything about your idea, architecture, or next step..."></textarea>
-              <div class="composer-row">
-                <span class="composer-shortcuts">
-                  <span class="shortcut-badge">@</span>
-                  <span class="shortcut-badge">/</span>
-                </span>
-                <span class="newline-hint">Shift + Enter for newline</span>
-                <button id="brainstorm-send" class="btn btn-primary" type="submit">
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
-                  Send
-                </button>
-              </div>
-            </form>
           </section>
 
           <!-- Pipeline spine -->
@@ -366,28 +340,59 @@ INDEX_HTML = """<!doctype html>
           </section>
         </div>
 
-        <!-- Right: Health + history -->
+        <!-- Right: compact history -->
         <div class="right-column">
-          <!-- System Health -->
-          <section class="panel health-section" aria-label="System health">
-            <div class="panel-header">
-              <h2 class="panel-title">System Health</h2>
-              <output id="orchestrator-health-label" class="status-badge online" aria-live="polite" aria-atomic="true">Nominal</output>
-            </div>
-            <div id="orchestrator-health-bars" class="health-bars"></div>
-            <div class="health-meta">
-              <div><span class="label">Freshness</span><output id="orchestrator-freshness">unknown</output></div>
-              <div><span class="label">Goal</span><output id="orchestrator-goal-id">none</output></div>
-            </div>
-          </section>
-
           <!-- Brainstorm History -->
           <section class="panel history-panel" aria-label="Brainstorm history">
             <div class="panel-header">
               <h2 class="panel-title" style="font-size:13px;">History</h2>
               <button class="btn btn-sm btn-secondary" id="brainstorm-new-session-side" type="button" style="padding:2px 8px;font-size:10px;">+ New</button>
             </div>
-            <div id="brainstorm-sessions-list" class="history-list"></div>
+            <details id="brainstorm-history-details" open>
+              <summary>
+                <span>Recent brainstorms</span>
+                <output id="brainstorm-history-count" aria-live="polite">0</output>
+              </summary>
+              <div id="brainstorm-sessions-list" class="history-list"></div>
+            </details>
+          </section>
+
+          <!-- Brainstorm -->
+          <section id="brainstorm-section" class="panel brainstorm-section" aria-label="Brainstorm">
+            <div class="panel-header">
+              <h2 class="panel-title">Brainstorm</h2>
+              <div class="panel-header-controls">
+                <button class="btn btn-sm btn-secondary" id="brainstorm-new-session" type="button" style="padding:3px 10px;font-size:11px;">+ New</button>
+                <div class="model-selector-wrap">
+                  <span class="model-selector" id="model-selector" tabindex="0" role="button" aria-haspopup="listbox">
+                    <span id="model-selector-label">DeepSeek V4 Flash Free</span>
+                    <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                  </span>
+                  <div class="model-dropdown" id="model-dropdown" hidden></div>
+                </div>
+                <label class="evidence-toggle">
+                  <input type="checkbox" id="local-evidence-only" checked>
+                  <span>Local evidence only</span>
+                </label>
+              </div>
+            </div>
+
+            <div id="brainstorm-transcript" class="brainstorm-transcript" role="log" aria-live="polite" aria-label="Brainstorm transcript"></div>
+
+            <form id="brainstorm-chat-form" class="brainstorm-chat-form">
+              <textarea id="brainstorm-message" autocomplete="off" placeholder="Ask DeepSeek anything about your idea, architecture, or next step..."></textarea>
+              <div class="composer-row">
+                <span class="composer-shortcuts">
+                  <span class="shortcut-badge">@</span>
+                  <span class="shortcut-badge">/</span>
+                </span>
+                <span class="newline-hint">Shift + Enter for newline</span>
+                <button id="brainstorm-send" class="btn btn-primary" type="submit">
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+                  Send
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       </div>
@@ -412,7 +417,7 @@ INDEX_HTML = """<!doctype html>
 
     </main>
   </div>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=layout-compact-20260626"></script>
 </body>
 </html>
 """
