@@ -364,7 +364,6 @@ def run_telegram_to_devflow_pipeline(message: str, repo_path: Path | str) -> dic
     repo_path = Path(repo_path)
     pending_action = build_scaffold_pending_action(message, source="telegram")
     return {
-        "pipeline_step": "started",
         "raw_message": message,
         "status": "pending_approval",
         "pipeline_step": "intent_scaffold_pending",
