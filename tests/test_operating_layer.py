@@ -368,6 +368,48 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
 
 
+def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "created task"]).exit_code == 0
+    assert runner.invoke(app, ["task", "create", "completed task needing verification"]).exit_code == 0
+    assert runner.invoke(app, ["task", "create", "verified task ready for promotion"]).exit_code == 0
+
+    completed = runner.invoke(app, ["task", "run", "task-0002", "--shell", "echo done > task-0002.txt"])
+    assert completed.exit_code == 0, completed.output
+    ready = runner.invoke(app, ["task", "run", "task-0003", "--shell", "echo done > task-0003.txt"])
+    assert ready.exit_code == 0, ready.output
+    verified = runner.invoke(app, ["task", "verify", "task-0003", "--shell", "test -f task-0003.txt"])
+    assert verified.exit_code == 0, verified.output
+
+    workbench = build_task_workbench(tmp_path)
+    snapshot = build_operating_layer_snapshot(tmp_path)
+
+    assert snapshot.focus_task_id == workbench.focus_task_id
+    assert [(lane.name, lane.task_ids) for lane in snapshot.lanes] == [
+        (lane.name, lane.task_ids) for lane in workbench.lanes
+    ]
+    assert [(task.id, task.lane) for task in snapshot.tasks] == [
+        (task.id, task.lane) for task in workbench.tasks
+    ]
+    assert [candidate.model_dump() for candidate in snapshot.promotion_desk] == [
+        candidate.model_dump() for candidate in workbench.promotion_candidates
+    ]
+    assert [pointer.model_dump() for pointer in snapshot.evidence] == [
+        pointer.model_dump() for pointer in workbench.evidence_stream
+    ]
+    assert [receipt.model_dump() for receipt in snapshot.gate_receipts] == [
+        receipt.model_dump() for receipt in workbench.gate_receipts
+    ]
+    assert [activity.model_dump() for activity in snapshot.worker_activity] == [
+        activity.model_dump() for activity in workbench.worker_activity
+    ]
+    assert snapshot.review_loop.model_dump() == workbench.review_loop.model_dump()
+
+
 def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
     tmp_path: Path,
     monkeypatch,

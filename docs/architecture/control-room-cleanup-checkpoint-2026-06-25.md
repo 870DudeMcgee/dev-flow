@@ -75,6 +75,40 @@ were rerun. Final Graphify evidence:
   `graph.json` is post-build evidence, so raw producer loss would need earlier
   extraction instrumentation if it becomes a release question.
 
+## Task Workbench Adapter Thinning Snapshot
+
+Slice date: 2026-06-25
+
+Worktree state: current `main` at `5eba865b` plus the local Task workbench
+adapter-thinning edits. `graphify-out/` remains ignored generated evidence.
+
+Refreshed Graphify metrics for this slice:
+
+| Metric | Current |
+|---|---:|
+| Files | 648 |
+| Nodes | 8,677 |
+| Edges | 20,886 |
+| Communities | 527 |
+| `control_room_operating_layer` degree | 104 |
+| `control_room_task_workbench` degree | 47 |
+
+Slice Graphify commands run:
+
+```bash
+.venv/bin/graphify update .
+.venv/bin/graphify diagnose multigraph --json --graph graphify-out/graph.json
+.venv/bin/graphify explain "control_room_operating_layer" --graph graphify-out/graph.json
+.venv/bin/graphify explain "control_room_task_workbench" --graph graphify-out/graph.json
+```
+
+Graphify structural diagnostic reported `0` missing endpoints, dangling
+endpoints, self-loops, exact duplicate edges, same-endpoint collapsed edges,
+relation variant groups, source-file variant groups, source-location variant
+groups, and context variant groups. `control_room_operating_layer` degree fell
+from the pre-slice value of `118` to `104` after duplicate task-centered helper
+logic moved behind the Task workbench Interface.
+
 ## Commit Groups
 
 Range: `a2164c2` through `a67db3c`

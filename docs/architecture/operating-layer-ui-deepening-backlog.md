@@ -54,6 +54,10 @@ Benefits:
 - Leverage: Worker lanes, Review queue, Evidence stream, Task Inspector, and health counts can consume the same projection.
 - Tests can target the Task workbench Interface directly instead of inspecting a whole browser snapshot or searching a JavaScript blob.
 
+Checkpoint 2026-06-25:
+
+The Task workbench projection in `src/devflow/control_room/task_workbench.py` is now the task-centered Interface for selected task, lanes, task cards and controls, promotion candidates, evidence stream, gate receipts, worker activity, and review-loop state. `src/devflow/control_room/operating_layer.py` has been thinned to an Adapter for those fields while retaining public snapshot models and the operating-layer inbox overlay for human-decision pressure.
+
 Existing test anchors:
 
 - `tests/test_operating_layer.py::test_operating_layer_snapshot_json_is_read_only_contract`

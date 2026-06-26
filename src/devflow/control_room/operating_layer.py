@@ -25,7 +25,7 @@ from devflow.control_room.idea_foundry import IdeaFoundryError, greenhouse_lane_
 from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
-from devflow.control_room.paths import goals_dir, relative_path, task_dir
+from devflow.control_room.paths import goals_dir, relative_path
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.question_resume import QuestionSnapshot, build_question_snapshot
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
@@ -36,10 +36,11 @@ from devflow.control_room.operating_layer_first_viewport import (
     FirstViewportPresentation,
     build_first_viewport_presentation,
 )
-from devflow.control_room.task_workbench import build_task_workbench
+from devflow.control_room.task_workbench import TaskWorkbenchReviewLoop, build_task_workbench
 
 
 OPERATING_LAYER_SCHEMA_VERSION = 1
+DECISION_INBOX_KINDS = {"question", "blocked_task", "task_attention", "human_decision"}
 IDEA_LANE_ORDER = ["raw", "clarify", "candidate", "promoted", "parked", "archived"]
 IDEA_LANE_LABELS = {
     "raw": "Raw",
@@ -588,13 +589,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
             goal_board=goal_board,
             focus_goal_id=focus_goal_id,
         ),
-        review_loop=_review_loop_summary(
-            tasks,
-            inbox=inbox,
-            gate_receipts=gate_receipts,
-            promotion_desk=promotion_desk,
-            next_action=dashboard_next_action,
-        ),
+        review_loop=_operating_review_loop_from_workbench(task_workbench.review_loop, inbox=inbox),
         scheduler=_scheduler_card(scheduler),
         idea_greenhouse=idea_greenhouse,
         operator_readiness=dashboard.operator_readiness,
@@ -616,6 +611,29 @@ def _operating_task_from_workbench(task: Any) -> OperatingLayerTask:
     for internal_field in ("worker_model_label", "next_safe_action", "evidence_paths"):
         payload.pop(internal_field, None)
     return OperatingLayerTask(**payload)
+
+
+def _operating_review_loop_from_workbench(
+    review_loop: TaskWorkbenchReviewLoop,
+    *,
+    inbox: list[OperatingLayerInboxItem],
+) -> OperatingLayerReviewLoop:
+    payload = review_loop.model_dump()
+    blocked_decisions = [item for item in inbox if item.kind in DECISION_INBOX_KINDS]
+    if blocked_decisions:
+        decision_count = len(blocked_decisions)
+        payload.update(
+            status="needs_human_decision",
+            headline=(
+                f"{decision_count} decision item{'s' if decision_count != 1 else ''} "
+                f"{'need' if decision_count != 1 else 'needs'} attention"
+            ),
+            blocked_decision_count=decision_count,
+        )
+        command = next((item.command for item in blocked_decisions if item.command), None)
+        if command:
+            payload["next_safe_action"] = command
+    return OperatingLayerReviewLoop(**payload)
 
 
 def _try_freshness(root: Path, warnings: list[str]) -> FreshnessReport | None:
@@ -972,137 +990,6 @@ def _goal_cards(root: Path, freshness: FreshnessReport | None) -> list[Operating
     return goals
 
 
-def _focus_task_id(tasks: list[OperatingLayerTask]) -> str | None:
-    for lane in ("blocked", "failed", "running", "ready_to_promote", "needs_review", "needs_verification", "new", "idle"):
-        for task in tasks:
-            if task.lane == lane:
-                return task.id
-    return None
-
-
-def _worker_activity(tasks: list[OperatingLayerTask]) -> list[OperatingLayerWorkerActivity]:
-    grouped: dict[str, list[OperatingLayerTask]] = {}
-    for task in tasks:
-        worker = _normalized_worker(task.worker)
-        if not worker:
-            continue
-        grouped.setdefault(worker, []).append(task)
-
-    rows: list[OperatingLayerWorkerActivity] = []
-    for worker, worker_tasks in grouped.items():
-        profile = _worker_profile(worker)
-        open_tasks = [task for task in worker_tasks if task.lane != "closed"]
-        verified = [task for task in worker_tasks if _worker_task_verified_or_ready(task)]
-        latest_task = next((task for task in open_tasks if task.latest), None) or next(
-            (task for task in worker_tasks if task.latest),
-            worker_tasks[0],
-        )
-        state = _worker_state(open_tasks)
-        rows.append(
-            OperatingLayerWorkerActivity(
-                worker=worker,
-                code=profile["code"],
-                name=profile["name"],
-                description=profile["description"],
-                state=state,
-                state_class=_worker_state_class(state),
-                tone=profile["tone"],
-                task_count=len(worker_tasks),
-                verified_percent=round((len(verified) / len(worker_tasks)) * 100) if worker_tasks else 0,
-                recent_output_count=sum(len(task.detail.recent_events) for task in worker_tasks),
-                latest=f"{latest_task.id}: {latest_task.latest or latest_task.display_status}",
-                first_task_id=(open_tasks[0] if open_tasks else worker_tasks[0]).id if worker_tasks else None,
-            )
-        )
-
-    return sorted(
-        rows,
-        key=lambda row: (
-            0 if row.state == "Running" else 1 if row.state == "Needs attention" else 2 if row.state == "Waiting" else 3,
-            -row.task_count,
-            row.worker,
-        ),
-    )[:6]
-
-
-def _review_loop_summary(
-    tasks: list[OperatingLayerTask],
-    *,
-    inbox: list[OperatingLayerInboxItem],
-    gate_receipts: list[OperatingLayerGateReceipt],
-    promotion_desk: list[OperatingLayerPromotionCandidate],
-    next_action: DashboardNextAction,
-) -> OperatingLayerReviewLoop:
-    needs_review = [task for task in tasks if task.lane == "needs_review"]
-    needs_verification = [task for task in tasks if task.lane == "needs_verification"]
-    ready_to_promote = [task for task in tasks if task.lane == "ready_to_promote"]
-    blocked_decisions = [
-        item for item in inbox if item.kind in {"question", "blocked_task", "task_attention", "human_decision"}
-    ]
-    verified_count = sum(1 for gate in gate_receipts if gate.verification)
-    worker_output_count = sum(1 for gate in gate_receipts if gate.worker_evidence)
-
-    if blocked_decisions:
-        status = "needs_human_decision"
-        decision_count = len(blocked_decisions)
-        headline = (
-            f"{decision_count} decision item{'s' if decision_count != 1 else ''} "
-            f"{'need' if decision_count != 1 else 'needs'} attention"
-        )
-    elif ready_to_promote:
-        status = "ready_to_promote"
-        headline = f"{len(ready_to_promote)} task{'s' if len(ready_to_promote) != 1 else ''} ready for browser approval"
-    elif needs_review:
-        status = "needs_review"
-        headline = f"{len(needs_review)} task{'s' if len(needs_review) != 1 else ''} need{'s' if len(needs_review) == 1 else ''} patch review"
-    elif needs_verification:
-        status = "needs_verification"
-        headline = f"{len(needs_verification)} task{'s' if len(needs_verification) != 1 else ''} need{'s' if len(needs_verification) == 1 else ''} verification"
-    else:
-        status = "watching"
-        headline = "No browser approval items are waiting"
-
-    promotion_command = promotion_desk[0].command if promotion_desk else None
-    blocked_command = blocked_decisions[0].command if status == "needs_human_decision" and blocked_decisions else None
-    ready_command = ready_to_promote[0].next_action.command if ready_to_promote else None
-    review_command = needs_review[0].next_action.command if needs_review else None
-    verification_command = needs_verification[0].next_action.command if needs_verification else None
-    command = blocked_command
-    if not command and status == "ready_to_promote":
-        command = promotion_command or ready_command
-    if not command and status == "needs_review":
-        command = review_command
-    if not command and status == "needs_verification":
-        command = verification_command
-    if not command:
-        command = next_action.command or promotion_command or ready_command or verification_command or "devflow dashboard"
-
-    from devflow.control_room.browser_action_policy import (
-        get_browser_allowed_mutations,
-        get_browser_blocked_mutations,
-    )
-
-    return OperatingLayerReviewLoop(
-        status=status,
-        headline=headline,
-        next_safe_action=command,
-        browser_allowed_mutations=get_browser_allowed_mutations(),
-        browser_blocked_mutations=get_browser_blocked_mutations(),
-        needs_verification_count=len(needs_verification),
-        ready_to_promote_count=len(ready_to_promote),
-        blocked_decision_count=len(blocked_decisions),
-        last_result_retention="browser-session",
-        evidence_summary=(
-            f"{worker_output_count} task{'s' if worker_output_count != 1 else ''} "
-            f"{'have' if worker_output_count != 1 else 'has'} worker output; "
-            f"{verified_count} task{'s' if verified_count != 1 else ''} "
-            f"{'have' if verified_count != 1 else 'has'} passed verification; "
-            f"{len(ready_to_promote)} task{'s' if len(ready_to_promote) != 1 else ''} "
-            f"{'are' if len(ready_to_promote) != 1 else 'is'} ready for promotion."
-        ),
-    )
-
-
 def _mission_feed(
     tasks: list[OperatingLayerTask],
     *,
@@ -1259,7 +1146,7 @@ def _plain_feed_kind(kind: str) -> str:
         "task_attention": "Task attention",
         "human_decision": "Human decision",
     }
-    return labels.get(kind, _plain_worker_name(kind))
+    return labels.get(kind, _plain_label(kind))
 
 
 def _plain_gate_name(next_gate: str) -> str:
@@ -1286,97 +1173,9 @@ def _short_time_label(timestamp: str | None) -> str:
     return parsed.strftime("%I:%M %p").lstrip("0")
 
 
-def _normalized_worker(worker: str) -> str | None:
-    value = str(worker or "").strip()
-    if not value or value in {"unassigned", "unknown"}:
-        return None
-    return value
-
-
-def _worker_profile(worker: str) -> dict[str, str]:
-    profiles = {
-        "shell": {
-            "code": "SH",
-            "name": "Shell worker",
-            "description": "Runs the command DevFlow was given inside the task workspace.",
-            "tone": "violet",
-        },
-        "devflow-manual-codex-worker": {
-            "code": "CDX",
-            "name": "Manual Codex worker",
-            "description": "A human-launched Codex handoff that writes task evidence back to DevFlow.",
-            "tone": "blue",
-        },
-        "qwopus-implementer": {
-            "code": "QWO",
-            "name": "Qwopus implementer",
-            "description": "Local Ollama worker evidence for implementation proposals.",
-            "tone": "mint",
-        },
-        "qwen-planner": {
-            "code": "QWN",
-            "name": "Local Qwen planner",
-            "description": "Local Ollama planning output captured as evidence.",
-            "tone": "gold",
-        },
-        "gemma-reviewer": {
-            "code": "GEM",
-            "name": "Gemma reviewer",
-            "description": "Local Ollama review output captured as evidence.",
-            "tone": "pink",
-        },
-    }
-    return profiles.get(
-        worker,
-        {
-            "code": _worker_code(worker),
-            "name": _plain_worker_name(worker),
-            "description": "DevFlow worker evidence grouped by the worker id recorded on tasks.",
-            "tone": "blue",
-        },
-    )
-
-
-def _worker_code(worker: str) -> str:
-    parts = [part for part in "".join(char if char.isalnum() else " " for char in worker).split() if part]
-    return "".join(part[0] for part in parts).upper()[:3] or "WRK"
-
-
-def _plain_worker_name(worker: str) -> str:
-    parts = [part for part in worker.replace("_", "-").split("-") if part]
-    return " ".join(part[:1].upper() + part[1:] for part in parts) or "Worker"
-
-
-def _worker_state(open_tasks: list[OperatingLayerTask]) -> str:
-    if any(task.lane == "running" for task in open_tasks):
-        return "Running"
-    if any(task.lane in {"blocked", "failed"} or _worker_task_failed(task) for task in open_tasks):
-        return "Needs attention"
-    if any(task.lane in {"new", "needs_verification", "ready_to_promote", "idle"} for task in open_tasks):
-        return "Waiting"
-    return "Recorded"
-
-
-def _worker_state_class(state: str) -> str:
-    if state == "Running":
-        return "active"
-    if state == "Needs attention":
-        return "blocked"
-    if state == "Recorded":
-        return "complete"
-    return "idle"
-
-
-def _worker_task_failed(task: OperatingLayerTask) -> bool:
-    return "fail" in task.verification_status.lower() or "failed" in task.display_status.lower()
-
-
-def _worker_task_verified_or_ready(task: OperatingLayerTask) -> bool:
-    return (
-        "pass" in task.verification_status.lower()
-        or bool(task.promotion_ready or task.merge_ready)
-        or task.lane == "closed"
-    )
+def _plain_label(value: str) -> str:
+    parts = [part for part in value.replace("_", "-").split("-") if part]
+    return " ".join(part[:1].upper() + part[1:] for part in parts) or "Item"
 
 
 def _project_id(root: Path, warnings: list[str]) -> str | None:
@@ -1525,23 +1324,6 @@ def _inbox_items(
             )
 
     return sorted(items, key=lambda item: (item.priority, item.id))
-
-
-def _promotion_candidates(
-    projections: list[TaskStatusProjection],
-    *,
-    project_id: str | None,
-) -> list[OperatingLayerPromotionCandidate]:
-    return [
-        OperatingLayerPromotionCandidate(
-            task_id=projection.task.id,
-            title=projection.task.title,
-            command=_scope_task_command(f"devflow task promote-preview {projection.task.id}", project_id),
-            merge_ready=projection.merge_ready,
-            blockers=projection.promotion_blockers,
-        )
-        for projection in projections
-    ]
 
 
 def _freshness_card(freshness: FreshnessReport | None) -> OperatingLayerFreshness | None:
@@ -1937,29 +1719,6 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _gate_receipts(root: Path, projections: list[TaskStatusProjection]) -> list[OperatingLayerGateReceipt]:
-    receipts: list[OperatingLayerGateReceipt] = []
-    for projection in projections:
-        task = projection.task
-        worker_evidence = bool(task.log_path or task.result_path or task.status in {"complete", "verified", "promoted"})
-        verification = projection.verification_status == "passed" or task.status in {"verified", "promoted"}
-        promotion_readiness = bool(projection.ready_to_promote or projection.promotion_ready or _merge_readiness_exists(root, task.id))
-        human_decision = task.status in {"promoted", "closed"}
-        receipts.append(
-            OperatingLayerGateReceipt(
-                task_id=task.id,
-                intake=True,
-                worker_evidence=worker_evidence,
-                verification=verification,
-                promotion_readiness=promotion_readiness,
-                human_decision=human_decision,
-                next_gate=_next_gate(worker_evidence, verification, promotion_readiness, human_decision),
-                command=projection.dashboard_next_action.command,
-            )
-        )
-    return receipts
-
-
 def _multi_project_card(warnings: list[str]) -> OperatingLayerMultiProject | None:
     try:
         state = collect_multi_project_dashboard_state()
@@ -2017,39 +1776,6 @@ def _project_actions(project_id: str | None) -> list[OperatingLayerAction]:
     return [_action(label, command, scope) for label, command, scope in commands]
 
 
-def _task_actions(
-    task_id: str,
-    next_action_command: str | None,
-    *,
-    project_id: str | None,
-    ready_to_promote: bool,
-) -> list[OperatingLayerAction]:
-    commands: list[tuple[str, str, str]] = [
-        ("Show task", _scope_task_command(f"devflow task show {task_id}", project_id), "task"),
-        ("Review capsule", _scope_task_command(f"devflow task capsule {task_id}", project_id), "task"),
-        ("Task log", _scope_task_command(f"devflow task log {task_id}", project_id), "task"),
-        ("Task packet", _scope_task_command(f"devflow task packet {task_id}", project_id), "task"),
-    ]
-    if next_action_command:
-        commands.insert(0, ("Next safe action", next_action_command, "task"))
-    if ready_to_promote:
-        commands.extend(
-            [
-                ("Review preview", _scope_task_command(f"devflow task promote-preview {task_id}", project_id), "task"),
-                ("Approve promotion", _scope_task_command(f"devflow task promote {task_id}", project_id), "task"),
-            ]
-        )
-
-    seen: set[str] = set()
-    actions: list[OperatingLayerAction] = []
-    for label, command, scope in commands:
-        if command in seen:
-            continue
-        seen.add(command)
-        actions.append(_action(label, command, scope))
-    return actions
-
-
 def _scope_task_command(command: str, project_id: str | None) -> str:
     if not project_id or "--project" in command or not command.startswith("devflow task "):
         return command
@@ -2078,26 +1804,3 @@ def _action(label: str, command: str, scope: str) -> OperatingLayerAction:
         required_inputs=capability.required_inputs,
         reason=capability.reason,
     )
-
-
-def _merge_readiness_exists(root: Path, task_id: str) -> bool:
-    return (task_dir(root, task_id) / "merge-readiness.json").exists()
-
-
-def _next_gate(
-    worker_evidence: bool,
-    verification: bool,
-    promotion_readiness: bool,
-    human_decision: bool,
-) -> str:
-    if human_decision:
-        return "closed"
-    if not worker_evidence:
-        return "run_worker"
-    if not verification:
-        return "verify"
-    if not promotion_readiness:
-        return "promotion_preview"
-    if not human_decision:
-        return "human_decision"
-    return "closed"
