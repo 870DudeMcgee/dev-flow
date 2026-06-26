@@ -5,17 +5,17 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from devflow.control_room.evidence_review_detail import EvidenceReviewDetail, build_evidence_review_detail
 from devflow.control_room.git_state import inspect_git_state
-from devflow.control_room.git_worktree import git_worker_lane_summary, is_git_worktree_task, worker_id_for_task
+from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.models import TASK_SCHEMA_VERSION, TaskRecord
 from devflow.control_room.patch_dry_run import latest_patch_dry_run
 from devflow.control_room.patch_review import latest_patch_review
-from devflow.control_room.paths import relative_path, task_dir, task_worker_dir
+from devflow.control_room.paths import task_dir
 from devflow.control_room.persistence import get_task, list_tasks, utc_now
 from devflow.control_room.project_registry import project_task_ref
 from devflow.control_room.question_resume import build_question_snapshot
-from devflow.control_room.qwopus_evidence import read_qwopus_evidence
 from devflow.control_room.scheduler_projection import build_scheduler_snapshot
 from devflow.control_room.status_projection import build_task_status_projection, list_task_status_projections
 from devflow.control_room.task_closure import read_closure
@@ -502,7 +502,7 @@ def render_supervisor_policy(*, json_output: bool) -> str:
 def build_task_next_action(root: Path, task_id: str, *, project_id: str | None = None) -> dict[str, Any]:
     task = get_task(root, task_id)
     projection = build_task_status_projection(root, task_id, task=task)
-    evidence = _task_evidence(root, task)
+    evidence = _task_evidence(root, task, projection=projection, project_id=project_id)
     policy = build_supervisor_policy()
     action = _decide_next_action(root, task, projection, evidence)
     if project_id:
@@ -558,10 +558,11 @@ def render_task_next_action(root: Path, task_id: str, *, json_output: bool, proj
 def build_task_review(root: Path, task_id: str, *, project_id: str | None = None) -> dict[str, Any]:
     task = get_task(root, task_id)
     projection = build_task_status_projection(root, task_id, task=task)
-    evidence = _task_evidence(root, task)
+    evidence = _task_evidence(root, task, projection=projection, project_id=project_id)
     next_action = build_task_next_action(root, task_id, project_id=project_id)
     policy = build_supervisor_policy()
     closure = read_closure(root, task.id)
+    evidence_detail = evidence["detail"]
     review = {
         "schema_version": SUPERVISOR_SCHEMA_VERSION,
         "task": {
@@ -627,6 +628,7 @@ def build_task_review(root: Path, task_id: str, *, project_id: str | None = None
         "forbidden_actions": policy["forbidden_actions"],
         "evidence_paths": evidence["evidence_paths"],
         "missing_optional_artifacts": evidence["missing_evidence"],
+        "evidence_detail": _evidence_detail_payload(evidence_detail),
         "closed": {
             "outcome": closure.get("outcome") if closure else task.close_outcome,
             "reason": closure.get("reason") if closure else task.close_reason,
@@ -897,7 +899,7 @@ def _compact_task_record(
     *,
     include_evidence_paths: bool = False,
 ) -> dict[str, Any]:
-    evidence = _task_evidence(root, task)
+    evidence = _task_evidence(root, task, projection=projection)
     worker_lane = git_worker_lane_summary(root, task)
     local_worker_lane = local_worker_lane_summary(root, task)
     next_action = build_task_next_action(root, task.id)
@@ -1242,72 +1244,71 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
     return result
 
 
-def _task_evidence(root: Path, task: TaskRecord) -> dict[str, Any]:
-    path = task_dir(root, task.id)
-    evidence_paths: list[str] = []
-    missing_evidence: list[str] = []
-    unknowns: list[str] = []
-    for required in ("task.yaml", "events.jsonl"):
-        _record_path(root, path / required, evidence_paths, missing_evidence, unknowns)
+def _evidence_detail_payload(detail: EvidenceReviewDetail) -> dict[str, Any]:
+    return {
+        "schema_version": detail.schema_version,
+        "review_state": detail.review_state,
+        "review_reason": detail.review_reason,
+        "operator_summary": detail.operator_summary,
+        "artifacts": [artifact.model_dump(mode="json") for artifact in detail.artifacts],
+        "changed_files": detail.changed_files,
+        "changed_file_preview": detail.changed_file_preview,
+        "agent_evidence_summary": detail.agent_evidence_summary,
+        "notes": detail.notes,
+    }
 
+
+def _read_display_json(root: Path, display_path: str | None) -> dict[str, Any] | None:
+    if not display_path:
+        return None
+    path = Path(display_path)
+    candidate = path if path.is_absolute() else root / path
+    return _read_json(candidate)
+
+
+def _task_evidence(
+    root: Path,
+    task: TaskRecord,
+    *,
+    projection: Any | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    projection = projection or build_task_status_projection(root, task.id, task=task)
+    detail = build_evidence_review_detail(root, projection, project_id=project_id)
+    path = task_dir(root, task.id)
     verification = _read_json(path / "verification.json")
-    verification_path = _record_path(root, path / "verification.json", evidence_paths, missing_evidence, unknowns)
     patch_review = latest_patch_review(root, task.id)
     patch_dry_run = latest_patch_dry_run(root, task.id)
-    patch_application = _read_json(path / "patch-application.json")
-    patch_application_path = _optional_path(root, path / "patch-application.json", evidence_paths)
-    proposal_paths = _proposal_patch_paths(root, task)
-    evidence_paths.extend(proposal_paths)
-    review_path = _latest_evidence_path(patch_review, "_review_path", evidence_paths)
-    dry_run_path = _latest_evidence_path(patch_dry_run, "_dry_run_path", evidence_paths)
-    promotion_preview, promotion_preview_path = _promotion_preview(root, task)
-    if promotion_preview_path:
-        evidence_paths.append(promotion_preview_path)
-    git_facts_path = _git_facts_path(root, task)
-    if git_facts_path:
-        evidence_paths.append(git_facts_path)
-
-    changed_files = _changed_files(patch_review, patch_dry_run, promotion_preview)
+    patch_application = _read_display_json(root, detail.patch_application_path)
+    promotion_preview = _read_display_json(root, detail.promotion_preview_path)
     promotion_status = "available" if promotion_preview else "unknown"
     verification_status = _artifact_status(verification, "status")
     stale_or_conflicted = _stale_or_conflicted(promotion_preview)
+    verification_path = detail.verification_path if verification else None
     return {
-        "evidence_paths": sorted(set(evidence_paths)),
-        "missing_evidence": sorted(set(missing_evidence)),
-        "unknowns": sorted(set(unknowns)),
-        "has_proposal_patch": bool(proposal_paths),
-        "proposal_patch_paths": proposal_paths,
+        "detail": detail,
+        "evidence_paths": detail.evidence_paths,
+        "missing_evidence": detail.missing_evidence,
+        "unknowns": sorted({f"missing {path}" for path in detail.missing_evidence}),
+        "has_proposal_patch": bool(detail.proposal_patch_paths),
+        "proposal_patch_paths": detail.proposal_patch_paths,
         "patch_review": patch_review,
-        "patch_review_path": review_path,
+        "patch_review_path": detail.patch_review_path,
         "patch_dry_run": patch_dry_run,
-        "patch_dry_run_path": dry_run_path,
+        "patch_dry_run_path": detail.patch_dry_run_path,
         "patch_application": patch_application,
-        "patch_application_path": patch_application_path,
+        "patch_application_path": detail.patch_application_path,
         "verification": verification,
         "verification_status": verification_status,
         "verification_path": verification_path,
         "promotion_preview": promotion_preview,
-        "promotion_preview_path": promotion_preview_path,
+        "promotion_preview_path": detail.promotion_preview_path,
         "promotion_preview_status": promotion_status,
         "promotion_readiness": _promotion_readiness_value(promotion_preview),
         "stale_or_conflicted": stale_or_conflicted,
-        "changed_files": changed_files,
-        "git_facts_path": git_facts_path,
+        "changed_files": detail.changed_files,
+        "git_facts_path": detail.git_facts_path,
     }
-
-
-def _proposal_patch_paths(root: Path, task: TaskRecord) -> list[str]:
-    paths: list[Path] = []
-    qwopus = read_qwopus_evidence(root, task.id)
-    if qwopus and qwopus.has_proposal_patch:
-        paths.append(qwopus.proposal_patch_path)
-    agents_dir = task_dir(root, task.id) / "agents"
-    if agents_dir.exists():
-        paths.extend(path for path in agents_dir.glob("*/proposal.patch") if path.exists() and path.stat().st_size > 0)
-    runs_dir = task_dir(root, task.id) / "local-model-runs"
-    if runs_dir.exists():
-        paths.extend(path for path in runs_dir.glob("*/proposal.patch") if path.exists() and path.stat().st_size > 0)
-    return sorted({relative_path(root, path) for path in paths})
 
 
 def _patch_review_command(task_id: str, evidence: dict[str, Any]) -> str:
@@ -1318,25 +1319,6 @@ def _patch_review_command(task_id: str, evidence: dict[str, Any]) -> str:
             if len(parts) > index + 1:
                 return f"devflow task review-patch {task_id} --agent {parts[index + 1]}"
     return f"devflow task review-patch {task_id}"
-
-
-def _promotion_preview(root: Path, task: TaskRecord) -> tuple[dict[str, Any] | None, str | None]:
-    candidates: list[Path] = []
-    if is_git_worktree_task(task):
-        candidates.append(task_worker_dir(root, task.id, worker_id_for_task(task)) / "promotion-preview.json")
-    candidates.append(task_dir(root, task.id) / "promotion-preview.json")
-    for path in candidates:
-        payload = _read_json(path)
-        if payload:
-            return payload, relative_path(root, path)
-    return None, None
-
-
-def _git_facts_path(root: Path, task: TaskRecord) -> str | None:
-    if not is_git_worktree_task(task):
-        return None
-    path = task_worker_dir(root, task.id, worker_id_for_task(task)) / "git.json"
-    return relative_path(root, path) if path.exists() else None
 
 
 def _status_promotion_readiness(task: TaskRecord, projection: Any, evidence: dict[str, Any]) -> str:
@@ -1374,34 +1356,6 @@ def _stale_or_conflicted(preview: dict[str, Any] | None) -> bool:
         return False
     conflict = str(preview.get("conflict_prediction") or "")
     return bool(preview.get("baseline_stale") or preview.get("origin_baseline_stale") or conflict not in {"", "clean"})
-
-
-def _changed_files(
-    patch_review: dict[str, Any] | None,
-    patch_dry_run: dict[str, Any] | None,
-    promotion_preview: dict[str, Any] | None,
-) -> list[str]:
-    files: list[str] = []
-    if promotion_preview:
-        for key in ("changed_files", "added", "modified", "deleted", "untracked", "binary"):
-            value = promotion_preview.get(key)
-            if isinstance(value, list):
-                files.extend(str(item) for item in value)
-        renamed = promotion_preview.get("renamed")
-        if isinstance(renamed, list):
-            for item in renamed:
-                if isinstance(item, dict):
-                    files.append(str(item.get("to") or item.get("path") or item))
-                else:
-                    files.append(str(item))
-    if patch_review and isinstance(patch_review.get("files_touched"), list):
-        files.extend(str(item) for item in patch_review["files_touched"])
-    if patch_dry_run:
-        for key in ("files_checked", "files_would_create", "files_would_modify", "files_would_delete"):
-            value = patch_dry_run.get(key)
-            if isinstance(value, list):
-                files.extend(str(item) for item in value)
-    return sorted(set(files))
 
 
 def _review_risks(projection: Any, evidence: dict[str, Any]) -> list[str]:
@@ -1475,40 +1429,6 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
-
-
-def _record_path(
-    root: Path,
-    path: Path,
-    evidence_paths: list[str],
-    missing_evidence: list[str],
-    unknowns: list[str],
-) -> str | None:
-    rel = relative_path(root, path)
-    if path.exists():
-        evidence_paths.append(rel)
-        return rel
-    missing_evidence.append(rel)
-    unknowns.append(f"missing {rel}")
-    return None
-
-
-def _optional_path(root: Path, path: Path, evidence_paths: list[str]) -> str | None:
-    if not path.exists():
-        return None
-    rel = relative_path(root, path)
-    evidence_paths.append(rel)
-    return rel
-
-
-def _latest_evidence_path(payload: dict[str, Any] | None, key: str, evidence_paths: list[str]) -> str | None:
-    if not payload:
-        return None
-    path = payload.get(key)
-    if isinstance(path, str) and path:
-        evidence_paths.append(path)
-        return path
-    return None
 
 
 def _git_status_summary(root: Path) -> dict[str, Any]:

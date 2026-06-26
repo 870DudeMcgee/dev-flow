@@ -452,8 +452,37 @@ def test_task_review_json_cites_evidence_paths_and_tolerates_missing_artifacts(t
     assert payload["patch_review"]["status"] == "low_risk_candidate"
     assert payload["verification"]["status"] == "unknown"
     assert payload["promotion_preview"]["status"] == "unknown"
+    for key in (
+        "patch_proposal",
+        "patch_review",
+        "patch_dry_run",
+        "patch_application",
+        "verification",
+        "promotion_preview",
+        "git",
+        "risks",
+        "blocked_reasons",
+        "next_action",
+        "commands_safe_to_run",
+        "commands_requiring_human_approval",
+        "evidence_paths",
+        "missing_optional_artifacts",
+    ):
+        assert key in payload
     assert f".devflow/tasks/{task.id}/task.yaml" in payload["evidence_paths"]
     assert f".devflow/tasks/{task.id}/agents/qwopus-implementer/proposal.patch" in payload["evidence_paths"]
+    assert f".devflow/tasks/{task.id}/verification.json" in payload["missing_optional_artifacts"]
+    assert payload["changed_files"] == ["a.txt"]
+    detail = payload["evidence_detail"]
+    assert detail["schema_version"] == 1
+    assert detail["review_state"] == "patch_dry_run"
+    assert detail["review_reason"] == "patch dry-run needed"
+    assert detail["operator_summary"]
+    assert detail["changed_files"] == ["a.txt"]
+    assert detail["agent_evidence_summary"]["has_worker_evidence"] is True
+    assert any(artifact["kind"] == "patch review" for artifact in detail["artifacts"])
+    assert any(artifact["kind"] == "patch proposal" for artifact in detail["artifacts"])
+    assert isinstance(detail["notes"], list)
     assert payload["next_action"]["next_safe_action"] == (
         f"request human approval before running devflow task patch-dry-run {task.id}"
     )

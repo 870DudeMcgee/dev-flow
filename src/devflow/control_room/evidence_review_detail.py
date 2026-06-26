@@ -7,8 +7,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devflow.control_room.agent_evidence import AgentEvidenceSummary, summarize_agent_evidence
+from devflow.control_room.git_worktree import is_git_worktree_task, worker_id_for_task
 from devflow.control_room.log_sanitizer import sanitize_log_line
-from devflow.control_room.paths import absolute_path, relative_path, task_dir
+from devflow.control_room.patch_dry_run import latest_patch_dry_run
+from devflow.control_room.patch_review import latest_patch_review
+from devflow.control_room.paths import absolute_path, relative_path, task_dir, task_worker_dir
 from devflow.control_room.review_readiness import ReviewReadinessProjection, build_review_readiness_projection
 from devflow.control_room.status_projection import TaskStatusProjection
 
@@ -59,6 +62,13 @@ class EvidenceReviewDetail(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     promotion_blockers: list[str] = Field(default_factory=list)
     evidence_paths: list[str] = Field(default_factory=list)
+    missing_evidence: list[str] = Field(default_factory=list)
+    proposal_patch_paths: list[str] = Field(default_factory=list)
+    patch_review_path: str | None = None
+    patch_dry_run_path: str | None = None
+    patch_application_path: str | None = None
+    promotion_preview_path: str | None = None
+    git_facts_path: str | None = None
     changed_files: list[str] = Field(default_factory=list)
     changed_file_preview: str | None = None
     operator_summary: str
@@ -103,18 +113,41 @@ def build_evidence_review_detail(
     latest_worker_line = _artifact_preview(root, task.log_path, notes)
     latest_verification_line = _artifact_preview(root, projection.verification_log_path, notes)
     result_preview = _artifact_preview(root, task.result_path, notes)
-    changed_files = _changed_workspace_files(root, task.workspace, notes)
-    changed_file_preview = _changed_file_contents(root, task.workspace, changed_files, notes)
+    patch_review = latest_patch_review(root, task.id)
+    patch_dry_run = latest_patch_dry_run(root, task.id)
+    patch_application_path = _optional_existing_path(root, base / "patch-application.json")
+    promotion_preview, promotion_preview_path = _promotion_preview(root, task)
+    git_facts_path = _git_facts_path(root, task)
+    proposal_patch_paths = _proposal_patch_paths(root, task.id)
+    patch_review_path = _latest_payload_path(patch_review, "_review_path")
+    patch_dry_run_path = _latest_payload_path(patch_dry_run, "_dry_run_path")
+    workspace_changed_files = _changed_workspace_files(root, task.workspace, notes)
+    changed_files = _changed_files(
+        root,
+        promotion_preview=promotion_preview,
+        patch_review=patch_review,
+        patch_dry_run=patch_dry_run,
+        workspace_changed_files=workspace_changed_files,
+    )
+    changed_file_preview = _changed_file_contents(root, task.workspace, workspace_changed_files, notes)
+    missing_evidence: list[str] = []
     evidence_paths = _evidence_paths(
         root,
         task_id=task.id,
         task_log_path=task.log_path,
         result_path=task.result_path,
         verification_log_path=projection.verification_log_path,
+        missing_evidence=missing_evidence,
         review=review,
         worker_lane=worker_lane,
         local_worker_lane=local_worker_lane,
         agent_summary=agent_summary,
+        proposal_patch_paths=proposal_patch_paths,
+        patch_review_path=patch_review_path,
+        patch_dry_run_path=patch_dry_run_path,
+        patch_application_path=patch_application_path,
+        promotion_preview_path=promotion_preview_path,
+        git_facts_path=git_facts_path,
     )
     blockers = _dedupe([*review.blockers, *projection.promotion_blockers])
     artifacts = _artifacts(
@@ -122,6 +155,9 @@ def build_evidence_review_detail(
         projection=projection,
         review=review,
         agent_summary=agent_summary,
+        patch_review_path=patch_review_path,
+        patch_dry_run_path=patch_dry_run_path,
+        patch_application_path=patch_application_path,
         latest_timestamp=latest_timestamp,
         latest_worker_line=latest_worker_line,
         latest_verification_line=latest_verification_line,
@@ -151,6 +187,13 @@ def build_evidence_review_detail(
         blockers=blockers,
         promotion_blockers=projection.promotion_blockers,
         evidence_paths=evidence_paths,
+        missing_evidence=missing_evidence,
+        proposal_patch_paths=proposal_patch_paths,
+        patch_review_path=patch_review_path,
+        patch_dry_run_path=patch_dry_run_path,
+        patch_application_path=patch_application_path,
+        promotion_preview_path=promotion_preview_path,
+        git_facts_path=git_facts_path,
         changed_files=changed_files,
         changed_file_preview=changed_file_preview or None,
         operator_summary=operator_summary,
@@ -187,19 +230,36 @@ def _evidence_paths(
     task_log_path: str | None,
     result_path: str | None,
     verification_log_path: str | None,
+    missing_evidence: list[str],
     review: ReviewReadinessProjection,
     worker_lane: dict[str, Any] | None,
     local_worker_lane: dict[str, Any] | None,
     agent_summary: AgentEvidenceSummary,
+    proposal_patch_paths: list[str],
+    patch_review_path: str | None,
+    patch_dry_run_path: str | None,
+    patch_application_path: str | None,
+    promotion_preview_path: str | None,
+    git_facts_path: str | None,
 ) -> list[str]:
     base = task_dir(root, task_id)
+    task_metadata_path = _record_required_path(root, base / "task.yaml", missing_evidence)
+    events_path = _record_required_path(root, base / "events.jsonl", missing_evidence)
+    verification_path = _record_required_path(root, base / "verification.json", missing_evidence)
     paths = [
+        task_metadata_path,
+        events_path,
         _display_artifact_path(root, task_log_path),
         _display_artifact_path(root, result_path),
         _display_artifact_path(root, verification_log_path),
-        relative_path(root, base / "events.jsonl"),
-        relative_path(root, base / "verification.json") if (base / "verification.json").exists() else None,
+        verification_path,
         *review.evidence,
+        *proposal_patch_paths,
+        patch_review_path,
+        patch_dry_run_path,
+        patch_application_path,
+        promotion_preview_path,
+        git_facts_path,
     ]
     if worker_lane:
         paths.extend(str(path) for path in worker_lane.get("evidence_paths") or [])
@@ -230,6 +290,9 @@ def _artifacts(
     projection: TaskStatusProjection,
     review: ReviewReadinessProjection,
     agent_summary: AgentEvidenceSummary,
+    patch_review_path: str | None,
+    patch_dry_run_path: str | None,
+    patch_application_path: str | None,
     latest_timestamp: str | None,
     latest_worker_line: str | None,
     latest_verification_line: str | None,
@@ -282,6 +345,39 @@ def _artifacts(
                 command=projection.verification_command,
                 timestamp=latest_timestamp,
                 priority=15,
+            )
+        )
+    if patch_review_path:
+        artifacts.append(
+            EvidenceReviewArtifact(
+                kind="patch review",
+                label="Patch review",
+                text=patch_review_path,
+                path=patch_review_path,
+                timestamp=latest_timestamp,
+                priority=22,
+            )
+        )
+    if patch_dry_run_path:
+        artifacts.append(
+            EvidenceReviewArtifact(
+                kind="patch dry-run",
+                label="Patch dry-run",
+                text=patch_dry_run_path,
+                path=patch_dry_run_path,
+                timestamp=latest_timestamp,
+                priority=23,
+            )
+        )
+    if patch_application_path:
+        artifacts.append(
+            EvidenceReviewArtifact(
+                kind="patch application",
+                label="Patch application",
+                text=patch_application_path,
+                path=patch_application_path,
+                timestamp=latest_timestamp,
+                priority=24,
             )
         )
     if review.promotion_preview_path:
@@ -468,6 +564,118 @@ def _compact_agent_evidence_summary(summary: AgentEvidenceSummary) -> dict[str, 
         "manual_result_present": summary.manual_result_present,
         "next_safe_action": summary.next_safe_action,
     }
+
+
+def _record_required_path(root: Path, path: Path, missing_evidence: list[str]) -> str | None:
+    rel = relative_path(root, path)
+    if path.exists():
+        return rel
+    missing_evidence.append(rel)
+    return None
+
+
+def _optional_existing_path(root: Path, path: Path) -> str | None:
+    return relative_path(root, path) if path.exists() else None
+
+
+def _latest_payload_path(payload: dict[str, Any] | None, key: str) -> str | None:
+    if not payload:
+        return None
+    value = payload.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _proposal_patch_paths(root: Path, task_id: str) -> list[str]:
+    base = task_dir(root, task_id)
+    paths: list[Path] = []
+    for parent_name in ("agents", "local-model-runs"):
+        parent = base / parent_name
+        if not parent.exists():
+            continue
+        paths.extend(
+            path
+            for path in parent.glob("*/proposal.patch")
+            if path.exists() and path.is_file() and path.stat().st_size > 0
+        )
+    return sorted({relative_path(root, path) for path in paths})
+
+
+def _promotion_preview(root: Path, task: Any) -> tuple[dict[str, Any] | None, str | None]:
+    for path in _promotion_preview_candidates(root, task):
+        payload = _read_json_object(path)
+        if payload:
+            return payload, relative_path(root, path)
+    return None, None
+
+
+def _promotion_preview_candidates(root: Path, task: Any) -> list[Path]:
+    candidates: list[Path] = []
+    if is_git_worktree_task(task):
+        candidates.append(task_worker_dir(root, task.id, worker_id_for_task(task)) / "promotion-preview.json")
+    candidates.append(task_dir(root, task.id) / "promotion-preview.json")
+    return candidates
+
+
+def _git_facts_path(root: Path, task: Any) -> str | None:
+    if not is_git_worktree_task(task):
+        return None
+    path = task_worker_dir(root, task.id, worker_id_for_task(task)) / "git.json"
+    return relative_path(root, path) if path.exists() else None
+
+
+def _read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _changed_files(
+    root: Path,
+    *,
+    promotion_preview: dict[str, Any] | None,
+    patch_review: dict[str, Any] | None,
+    patch_dry_run: dict[str, Any] | None,
+    workspace_changed_files: list[str],
+) -> list[str]:
+    files: list[str] = []
+    if promotion_preview:
+        for key in ("changed_files", "added", "modified", "deleted", "untracked", "binary"):
+            value = promotion_preview.get(key)
+            if isinstance(value, list):
+                files.extend(_metadata_file_value(root, item) for item in value)
+        renamed = promotion_preview.get("renamed")
+        if isinstance(renamed, list):
+            for item in renamed:
+                if isinstance(item, dict):
+                    files.append(_metadata_file_value(root, item.get("to") or item.get("path") or item))
+                else:
+                    files.append(_metadata_file_value(root, item))
+    if patch_review and isinstance(patch_review.get("files_touched"), list):
+        files.extend(_metadata_file_value(root, item) for item in patch_review["files_touched"])
+    if patch_dry_run:
+        for key in ("files_checked", "files_would_create", "files_would_modify", "files_would_delete"):
+            value = patch_dry_run.get(key)
+            if isinstance(value, list):
+                files.extend(_metadata_file_value(root, item) for item in value)
+    files.extend(workspace_changed_files)
+    return sorted({path for path in files if path})
+
+
+def _metadata_file_value(root: Path, value: Any) -> str:
+    if isinstance(value, dict):
+        return _scrub_project_root(root, str(value))
+    text = str(value)
+    path = Path(text)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return _scrub_project_root(root, text)
+    return text
 
 
 def _changed_workspace_files(root: Path, workspace_value: str, notes: list[str], *, limit: int = 20) -> list[str]:

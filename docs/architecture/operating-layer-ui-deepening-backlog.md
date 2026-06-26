@@ -186,6 +186,19 @@ Benefits:
 - Leverage: Review queue, Evidence stream, Task Inspector, and promotion detail can share one story.
 - Tests can verify evidence meaning without full browser rendering.
 
+Checkpoint 2026-06-26:
+
+`src/devflow/control_room/evidence_review_detail.py` is now the shared
+operator-facing evidence/review Interface for Task workbench and Supervisor
+review output. It owns task metadata and event evidence paths, worker/model
+evidence summaries, proposal patch paths, patch review and dry-run artifacts,
+promotion preview and git evidence paths, missing evidence, changed-file
+metadata, review readiness, promotion blockers, and artifact summaries.
+`src/devflow/control_room/supervisor_surface.py` now consumes this detail for
+operator-facing review JSON/text fields while keeping approval policy, command
+classification, next-action decisions, and raw status interpretation local to
+the supervisor Adapter.
+
 Existing test anchors:
 
 - `tests/test_operating_layer.py::test_operating_layer_snapshot_includes_compact_agent_evidence_summary`
