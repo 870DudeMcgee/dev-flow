@@ -1,7 +1,7 @@
 # Control Room Cleanup Checkpoint
 
 Date: 2026-06-25
-Status: Phase checkpoint before promotion decision
+Status: Release gate passed on 2026-06-26; waiting on explicit human push/tag/build approval
 
 This checkpoint captures the control-room cleanup phase after the Graphify
 baseline and before any push or broad promotion. It is evidence for deciding
@@ -18,12 +18,12 @@ Source: `docs/architecture/graphify-architecture-baseline.md`
 | Edges | 19,765 |
 | Communities | 507 |
 
-## Current Snapshot
+## Pre-Gate Graphify Snapshot (Historical)
 
 | Field | Value |
 |---|---|
-| Current head | `a67db3c` |
-| Graphify report commit | `a67db3c0` |
+| Historical head | Brainstorm task bridge checkpoint before release-gate repairs |
+| Graphify report commit | Brainstorm task bridge checkpoint before release-gate repairs |
 | Graphify output status | Generated evidence remains untracked in `graphify-out/` |
 
 Refreshed Graphify metrics:
@@ -62,7 +62,7 @@ After report regeneration, the export, tree, and multigraph diagnostic commands
 were rerun. Final Graphify evidence:
 
 - `GRAPH_REPORT.md` reports `8,654` nodes, `20,860` edges, and `534`
-  communities built from `a67db3c0`.
+  communities built from the Brainstorm task bridge checkpoint.
 - `export callflow-html` loaded `8,654` nodes, `20,860` edges, and `16`
   sections, then wrote `17` sections, `16` Mermaid diagrams, and `15` call
   tables.
@@ -111,7 +111,7 @@ logic moved behind the Task workbench Interface.
 
 ## Commit Groups
 
-Range: `a2164c2` through `a67db3c`
+Range: `a2164c2` through the Brainstorm task bridge checkpoint
 
 Baseline and intake:
 
@@ -149,7 +149,7 @@ Operating-layer depth and visible evidence:
 - `de6b572` refactor: deepen first viewport presentation
 - `942e456` polish: verify first viewport operating layer
 - `718377c` refactor: consolidate evidence review detail
-- `a67db3c` refactor: deepen brainstorm task bridge
+- Brainstorm task bridge checkpoint: refactor: deepen brainstorm task bridge
 
 ## What Improved
 
@@ -210,14 +210,71 @@ contains `BrainstormPipelineDetail`, `BrainstormEscalationResult`,
 the Brainstorm -> Pipeline -> Task creation Interface. `brainstorm.py` and
 `operating_layer_server.py` remain Adapters around that Interface.
 
+## Final Release Gate: 2026-06-26
+
+Release gate evidence was captured after the cleanup train and two gate repairs:
+
+- `43536729` fixed the operating-layer review-loop summary so Qwopus patch
+  review tasks surface `needs_review` instead of falling back to `watching`.
+- `b100c383` rewrote the release-gate plan's stale-context scan snippet so the
+  plan itself no longer matched the stale-context poison regex.
+
+Release-readiness scope:
+
+| Field | Value |
+|---|---|
+| Release-gate head | `b100c383a07b3832c2cdbabd1c95e153991ae6fe` |
+| Local ahead count | 12 commits ahead of `origin/main` |
+| Git state | Clean `main`; `safe_for_worker_writes: yes`; `safe_for_push: yes` |
+| Evidence root | `.devflow/release/control-room-cleanup-2026-06-26/` |
+
+Gate results:
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Focused operating-layer smoke | Passed: 128 passed in 31.65s | `.devflow/release/control-room-cleanup-2026-06-26/focused-operating-layer.log` |
+| Full pytest | Passed: 1411 passed, 7 skipped, 2 warnings in 373.62s | `.devflow/release/control-room-cleanup-2026-06-26/full-pytest.log` |
+| Production-readiness dogfood | Passed: run `dogfood-20260626T022616Z`, score 172/174, Silver met | `.devflow/release/control-room-cleanup-2026-06-26/dogfood-production-readiness.log`; `.devflow/release/control-room-cleanup-2026-06-26/dogfood-report.md` |
+| Operating-layer visual QA | Passed: desktop/mobile evidence present, no horizontal overflow, first viewport flow intact | `.devflow/release/control-room-cleanup-2026-06-26/operating-layer-visual-qa.json` |
+| Stale-context scan | Passed: evidence file is empty | `.devflow/release/control-room-cleanup-2026-06-26/stale-context.log` |
+| Dev-Flow release readiness | Passed: all checks passed | `.devflow/release/control-room-cleanup-2026-06-26/release-readiness.json` |
+| Graphify diagnostics | Passed: no structural multigraph problems | `.devflow/release/control-room-cleanup-2026-06-26/graphify-multigraph-diagnose.json` |
+
+Release-readiness next safe action:
+
+> Release readiness is satisfied; tag or build the release from this clean
+> checkpoint after human approval.
+
+Final Graphify metrics:
+
+| Metric | Current |
+|---|---:|
+| Nodes | 8,779 |
+| Edges | 21,037 |
+| Communities | 546 |
+| `control_room_operating_layer` degree | 103 |
+| `control_room_task_workbench` degree | 44 |
+| `control_room_browser_task_capabilities` degree | 13 |
+| `control_room_operating_layer_first_viewport` degree | 27 |
+| `control_room_evidence_review_detail` degree | 39 |
+| `control_room_brainstorm_pipeline` degree | 40 |
+
+Graphify multigraph diagnostic reported `0` non-object edges, missing endpoint
+edges, dangling endpoint edges, self-loops, exact duplicate edges, same-endpoint
+collapsed edges, relation variant groups, source-file variant groups,
+source-location variant groups, and context variant groups. `graphify-out/`
+remains generated local evidence and is not part of the tracked release
+checkpoint.
+
 ## Remaining Risks
 
 - `graphify-out/` is still untracked generated evidence. It should remain local
   unless the team explicitly decides to version specific Graphify artifacts.
-- No full release gate has run for the 23-commit phase now at `a67db3c`; this
-  checkpoint is not a substitute for broad pytest, UI smoke, or dogfood gates.
-- Existing UI marker warnings remain a known risk. They should be reviewed in
-  the broader gate before pushing or promoting the full phase.
+- The release gate passed at `b100c383`, but no push, tag, build, publication,
+  or promotion has been approved or performed.
+- Full pytest still reports two unregistered UI-browser marker warnings. They
+  did not block release readiness, but the marker registration should be cleaned
+  up in a separate low-risk maintenance slice.
 - Graphify metrics grew rather than shrank. That is acceptable for this phase
   because the work moved behavior into named modules and visible operating-layer
   surfaces, but the next cleanup pass should keep checking whether high-level
@@ -225,21 +282,19 @@ the Brainstorm -> Pipeline -> Task creation Interface. `brainstorm.py` and
 
 ## Promotion Recommendation
 
-Checkpoint first, then run the broader release gate before pushing or promoting
-the cleanup phase. The phase is coherent enough to preserve with a checkpoint
-commit, but the current evidence is not enough to push a 24-commit cleanup train
-without broader verification.
+The broader release gate has passed. The branch is ready for an explicit human
+approval decision before any push, tag, build, publication, or broad promotion.
 
 Recommended decision path:
 
-1. Commit this checkpoint.
-2. Run the broader release gate, including targeted operating-layer UI tests,
-   broader pytest coverage appropriate for the touched task/control-room
-   modules, and a cache-busted browser smoke where practical.
-3. If the broader gate passes, use Dev-Flow promotion/push commands rather than
-   raw push or broad manual promotion.
+1. Review the checkpoint and runtime evidence under
+   `.devflow/release/control-room-cleanup-2026-06-26/`.
+2. If approved, use Dev-Flow release/push commands rather than raw push or broad
+   manual promotion.
+3. Keep `graphify-out/`, `.devflow/`, `dist/`, and other generated evidence
+   untracked unless a future task explicitly changes that policy.
 
 ## Next Safe Action
 
-After the checkpoint commit, run the broader release gate before pushing or
-promoting the cleanup phase.
+Ask the human operator for explicit approval before running a push, tag, build,
+publication, or promotion command.
