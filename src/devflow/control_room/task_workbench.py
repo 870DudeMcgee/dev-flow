@@ -6,9 +6,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from devflow.control_room.browser_task_capabilities import (
-    build_browser_task_capability,
-    intent_for_command,
-    label_for_command,
+    build_task_action_capabilities,
+    build_task_capability,
+    build_task_control_capabilities,
+    scope_task_command,
 )
 from devflow.control_room.dashboard import DashboardNextAction
 from devflow.control_room.evidence_review_detail import EvidenceReviewDetail, build_evidence_review_detail
@@ -329,7 +330,7 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
     task = projection.task
     next_action = DashboardNextAction(**projection.dashboard_next_action.model_dump())
     if next_action.command:
-        next_action.command = _scope_task_command(next_action.command, project_id)
+        next_action.command = scope_task_command(next_action.command, project_id)
     worker_lane = git_worker_lane_summary(root, task)
     local_worker_lane = local_worker_lane_summary(root, task)
     review_readiness = build_review_readiness_projection(
@@ -502,7 +503,11 @@ def _promotion_candidates(
         TaskWorkbenchPromotionCandidate(
             task_id=projection.task.id,
             title=projection.task.title,
-            command=_scope_task_command(f"devflow task promote-preview {projection.task.id}", project_id),
+            command=build_task_capability(
+                "review_preview",
+                projection.task.id,
+                project_id=project_id,
+            ).command,
             merge_ready=projection.merge_ready,
             blockers=projection.promotion_blockers,
         )
@@ -558,7 +563,7 @@ def _gate_receipts(
                 promotion_readiness=promotion_readiness,
                 human_decision=human_decision,
                 next_gate=_next_gate(worker_evidence, verification, promotion_readiness, human_decision),
-                command=_scope_task_command(command, project_id) if command else None,
+                command=scope_task_command(command, project_id) if command else None,
             )
         )
     return receipts
@@ -818,30 +823,15 @@ def _task_actions(
     project_id: str | None,
     ready_to_promote: bool,
 ) -> list[TaskWorkbenchAction]:
-    commands: list[tuple[str, str, str]] = [
-        ("Show task", _scope_task_command(f"devflow task show {task_id}", project_id), "task"),
-        ("Review capsule", _scope_task_command(f"devflow task capsule {task_id}", project_id), "task"),
-        ("Task log", _scope_task_command(f"devflow task log {task_id}", project_id), "task"),
-        ("Task packet", _scope_task_command(f"devflow task packet {task_id}", project_id), "task"),
-    ]
-    if next_action_command:
-        commands.insert(0, ("Next safe action", next_action_command, "task"))
-    if ready_to_promote:
-        commands.extend(
-            [
-                ("Review preview", _scope_task_command(f"devflow task promote-preview {task_id}", project_id), "task"),
-                ("Approve promotion", _scope_task_command(f"devflow task promote {task_id}", project_id), "task"),
-            ]
+    return [
+        TaskWorkbenchAction(**capability.model_dump())
+        for capability in build_task_action_capabilities(
+            task_id,
+            project_id=project_id,
+            next_action_command=next_action_command,
+            ready_to_promote=ready_to_promote,
         )
-
-    seen: set[str] = set()
-    actions: list[TaskWorkbenchAction] = []
-    for label, command, scope in commands:
-        if command in seen:
-            continue
-        seen.add(command)
-        actions.append(_action(label, command, scope))
-    return actions
+    ]
 
 
 def _task_controls(
@@ -851,115 +841,20 @@ def _task_controls(
     project_id: str | None,
     ready_to_promote: bool,
 ) -> list[TaskWorkbenchControl]:
-    task_id = projection.task.id
-    commands: list[tuple[str, str, str]] = [
-        ("inspect", "Inspect", _scope_task_command(f"devflow task show {task_id}", project_id)),
-    ]
-    if projection.task.status == "closed":
-        cleanup = next_action_command if next_action_command and " task cleanup " in next_action_command else None
-        if not cleanup and projection.suggested_next_action.startswith("devflow task cleanup "):
-            cleanup = _scope_task_command(projection.suggested_next_action, project_id)
-        if cleanup and cleanup != "none":
-            commands.append(("cleanup_preview", "Cleanup preview", cleanup))
-    else:
-        if next_action_command:
-            commands.append(
-                (
-                    intent_for_command(next_action_command),
-                    label_for_command(next_action_command),
-                    next_action_command,
-                )
-            )
-        if projection.task.status == "created":
-            commands.append(
-                (
-                    "start_shell",
-                    "Start shell",
-                    _scope_task_command(f"devflow task run {task_id} --worker shell -- <command>", project_id),
-                )
-            )
-        if projection.failed_verification:
-            commands.append(
-                (
-                    "verify",
-                    "Verify",
-                    _scope_task_command(f'devflow task verify {task_id} --shell "<command>"', project_id),
-                )
-            )
-        if projection.is_worker_failed or projection.is_timeout:
-            commands.append(
-                (
-                    "retry",
-                    "Retry",
-                    _scope_task_command(f"devflow task run {task_id} --worker shell -- <command>", project_id),
-                )
-            )
-        if ready_to_promote:
-            commands.extend(
-                [
-                    (
-                        "review_preview",
-                        "Review preview",
-                        _scope_task_command(f"devflow task promote-preview {task_id}", project_id),
-                    ),
-                    ("promote", "Promote", _scope_task_command(f"devflow task promote {task_id}", project_id)),
-                ]
-            )
-        commands.append(
-            (
-                "close",
-                "Close",
-                _scope_task_command(
-                    f'devflow task close {task_id} --outcome evidence-only --reason "<reason>"',
-                    project_id,
-                ),
-            )
+    return [
+        TaskWorkbenchControl(**capability.model_dump())
+        for capability in build_task_control_capabilities(
+            projection.task.id,
+            project_id=project_id,
+            task_status=projection.task.status,
+            next_action_command=next_action_command,
+            suggested_next_action=projection.suggested_next_action,
+            failed_verification=projection.failed_verification,
+            worker_failed=projection.is_worker_failed,
+            timed_out=projection.is_timeout,
+            ready_to_promote=ready_to_promote,
         )
-
-    seen: set[tuple[str, str]] = set()
-    controls: list[TaskWorkbenchControl] = []
-    for intent, label, command in commands:
-        key = (intent, command)
-        if key in seen:
-            continue
-        seen.add(key)
-        controls.append(_control(intent, label, command))
-    return controls
-
-
-def _action(label: str, command: str, scope: str) -> TaskWorkbenchAction:
-    capability = build_browser_task_capability(
-        intent_for_command(command),
-        label,
-        command,
-        scope=scope,
-    )
-    return TaskWorkbenchAction(
-        label=capability.label,
-        command=capability.command,
-        scope=capability.scope,
-        safety_class=capability.safety_class,
-        requires_human_approval=capability.requires_human_approval,
-        supervisor_may_auto_run=capability.supervisor_may_auto_run,
-        intent=capability.intent,
-        required_inputs=capability.required_inputs,
-        reason=capability.reason,
-    )
-
-
-def _control(intent: str, label: str, command: str) -> TaskWorkbenchControl:
-    capability = build_browser_task_capability(intent, label, command)
-    return TaskWorkbenchControl(**capability.model_dump())
-
-
-def _scope_task_command(command: str, project_id: str | None) -> str:
-    if not project_id or "--project" in command or not command.startswith("devflow task "):
-        return command
-    before_separator, separator, after_separator = command.partition(" -- ")
-    scoped = f"{before_separator} --project {project_id}"
-    if separator:
-        return f"{scoped}{separator}{after_separator}"
-    return scoped
+    ]
 
 
 def _merge_readiness_exists(root: Path, task_id: str) -> bool:

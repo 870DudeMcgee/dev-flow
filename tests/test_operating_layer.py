@@ -1576,6 +1576,7 @@ def test_operating_layer_task_cards_expose_state_specific_next_actions() -> None
     assert "raw.intent || intentForCommand(raw.command)" in APP_JS
     assert "raw.required_inputs" in APP_JS
     assert "Array.isArray(raw.required_inputs) && raw.required_inputs.length" not in APP_JS
+    assert "for (const control of task?.controls || []) push(control);" in APP_JS
     assert "for (const action of task?.actions || []) push(action);" in APP_JS
     assert "function taskCapabilities" in APP_JS
     assert "task?.controls" in APP_JS

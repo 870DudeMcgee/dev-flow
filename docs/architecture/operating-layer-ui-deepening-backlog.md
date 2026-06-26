@@ -97,6 +97,15 @@ Checkpoint 2026-06-25:
 
 The browser task capability Interface now lives in `src/devflow/control_room/browser_task_capabilities.py`. `task_workbench.py` maps task state into typed capabilities, and browser JavaScript consumes capability fields before falling back to command inference for older snapshots. Server execution remains the approval-gated Adapter in `operating_layer_server.py`.
 
+Checkpoint 2026-06-26:
+
+`browser_task_capabilities.py` now owns task command templates, task project
+scoping, typed capability construction, required-input metadata, deduped
+action/control composition, and supervisor classification. `task_workbench.py`
+decides which controls are available from task state and asks the capability
+Module to build them. `operating_layer.py` reuses the shared scoping helper for
+task-linked commands instead of carrying a duplicate helper.
+
 Existing test anchors:
 
 - `tests/test_operating_layer.py::test_operating_layer_server_runs_approved_shell_worker_in_task_workspace`

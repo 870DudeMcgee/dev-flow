@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from devflow.control_room.browser_task_capabilities import (
     build_browser_task_capability,
     intent_for_command,
+    scope_task_command,
 )
 from devflow.control_room.dashboard import (
     DashboardHealth,
@@ -550,7 +551,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
 
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
     if dashboard_next_action.command:
-        dashboard_next_action.command = _scope_task_command(dashboard_next_action.command, project_id)
+        dashboard_next_action.command = scope_task_command(dashboard_next_action.command, project_id)
 
     return OperatingLayerSnapshot(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -1255,7 +1256,7 @@ def _inbox_items(
         if projection.manual_agent_question:
             if task.id in question_task_ids:
                 continue
-            command = _scope_task_command(f"devflow task show {task.id}", project_id)
+            command = scope_task_command(f"devflow task show {task.id}", project_id)
             items.append(
                 OperatingLayerInboxItem(
                     id=f"question:{task.id}",
@@ -1272,7 +1273,7 @@ def _inbox_items(
             )
             continue
         if projection.is_blocked:
-            command = _scope_task_command(f"devflow task show {task.id}", project_id)
+            command = scope_task_command(f"devflow task show {task.id}", project_id)
             items.append(
                 OperatingLayerInboxItem(
                     id=f"blocked:{task.id}",
@@ -1289,7 +1290,7 @@ def _inbox_items(
             continue
         if projection.failed_verification or projection.is_worker_failed or projection.is_timeout:
             command = projection.dashboard_next_action.command or f"devflow task show {task.id}"
-            command = _scope_task_command(command, project_id)
+            command = scope_task_command(command, project_id)
             items.append(
                 OperatingLayerInboxItem(
                     id=f"attention:{task.id}",
@@ -1464,7 +1465,7 @@ def _lane_actions(root: Path, lane: Any, *, project_id: str | None) -> list[Oper
     if lane.command:
         commands.append(("Lane recommendation", _safe_goal_command(root, lane.command, project_id)))
     for task_id in lane.linked_task_ids:
-        commands.append(("Show linked task", _scope_task_command(f"devflow task show {task_id}", project_id)))
+        commands.append(("Show linked task", scope_task_command(f"devflow task show {task_id}", project_id)))
     return _deduped_actions(commands, "goal")
 
 
@@ -1483,7 +1484,7 @@ def _safe_goal_command(root: Path, command: str | None, project_id: str | None) 
     if not command:
         return None
     safe = _scrub_project_root(root, command)
-    return _scope_task_command(safe, project_id)
+    return scope_task_command(safe, project_id)
 
 
 def _spec_board(root: Path, freshness: FreshnessReport | None) -> list[OperatingLayerSpecBoardGoal]:
@@ -1774,16 +1775,6 @@ def _project_actions(project_id: str | None) -> list[OperatingLayerAction]:
     if project_id:
         commands.append(("Project doctor", f"devflow project doctor {project_id}", "project"))
     return [_action(label, command, scope) for label, command, scope in commands]
-
-
-def _scope_task_command(command: str, project_id: str | None) -> str:
-    if not project_id or "--project" in command or not command.startswith("devflow task "):
-        return command
-    before_separator, separator, after_separator = command.partition(" -- ")
-    scoped = f"{before_separator} --project {project_id}"
-    if separator:
-        return f"{scoped}{separator}{after_separator}"
-    return scoped
 
 
 def _action(label: str, command: str, scope: str) -> OperatingLayerAction:
