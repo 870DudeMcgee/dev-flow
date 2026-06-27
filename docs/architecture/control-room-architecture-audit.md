@@ -11,9 +11,9 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Metric | Value |
 |---|---:|
-| Nodes | 9,122 |
-| Edges | 21,578 |
-| Communities | 543 |
+| Nodes | 9,124 |
+| Edges | 21,586 |
+| Communities | 536 |
 | Extracted edges | 81% |
 | Inferred edges | 19% |
 | Ambiguous edges | 0% |
@@ -36,7 +36,7 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 |---:|---|---:|---:|---:|---|
 | 1 | `src/devflow/cli.py` | 5,000 | 187 | 142 | yes |
 | 2 | `tests/test_operating_layer.py` | 2,847 | 99 | 24 | no |
-| 3 | `src/devflow/control_room/dogfood.py` | 2,482 | 40 | 31 | yes |
+| 3 | `src/devflow/control_room/dogfood.py` | 2,478 | 40 | 31 | yes |
 | 4 | `src/devflow/control_room/operating_layer_script.py` | 3,929 | 0 | 0 | yes |
 | 5 | `src/devflow/control_room/operating_layer.py` | 1,299 | 71 | 17 | yes |
 | 6 | `tests/test_operator_ui_browser.py` | 1,718 | 58 | 5 | no |

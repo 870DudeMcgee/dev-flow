@@ -156,6 +156,12 @@ def write_case_json_artifact(
     return path
 
 
+def write_case_text_artifact(state: dict[str, Any], root: Path, path: Path, text: str) -> Path:
+    atomic_write_text(path, text)
+    record_artifact(state, path, root=root)
+    return path
+
+
 def write_case_summary_artifact(
     state: dict[str, Any],
     root: Path,

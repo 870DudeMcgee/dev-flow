@@ -98,6 +98,7 @@ from devflow.control_room.dogfood_case_result import (
     write_case_result as _write_case_result,
     write_case_json_artifact as _write_case_json_artifact,
     write_case_summary_artifact as _write_case_summary_artifact,
+    write_case_text_artifact as _write_case_text_artifact,
 )
 
 __all__ = [
@@ -278,9 +279,8 @@ def _case_tiny_docs(
     )
     packet_json = packet.model_dump_json(indent=2)
     packet_path = case_dir / "artifacts" / "task-packet.json"
-    atomic_write_text(packet_path, packet_json + "\n")
+    _write_case_text_artifact(state, root, packet_path, packet_json + "\n")
     state["context_packet_size"] = len(packet_json)
-    _record_artifact(state, packet_path, root=root)
     _record_command(state, f"devflow task packet {task.id}", status="passed", output=relative_path(root, packet_path))
 
     run_shell_task(
@@ -328,8 +328,7 @@ def _case_cli_help(
 
     help_result = _run_devflow_help(root, ["dogfood", "--help"])
     help_path = case_dir / "artifacts" / "dogfood-help.txt"
-    atomic_write_text(help_path, help_result.stdout + help_result.stderr)
-    _record_artifact(state, help_path, root=root)
+    _write_case_text_artifact(state, root, help_path, help_result.stdout + help_result.stderr)
     _record_command(
         state,
         "devflow dogfood --help",
@@ -1328,8 +1327,7 @@ def _case_handoff_resume(
             "",
         ]
     )
-    atomic_write_text(handoff_path, handoff)
-    _record_artifact(state, handoff_path, root=root)
+    _write_case_text_artifact(state, root, handoff_path, handoff)
 
     scores: dict[str, int] = {}
     failures: list[str] = []
@@ -1589,10 +1587,9 @@ def _case_question_blocker_resume_loop(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "question-resume-repo"
-    _init_git_native_dogfood_repo(scratch)
-    init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir, "question-resume-repo", state=state, root=root, evidence_label="question-resume"
+    )
 
     task = create_task(scratch, "Dogfood question blocker")
     task.status = "blocked"
@@ -1695,10 +1692,9 @@ def _case_operator_readiness_reconciliation(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "operator-readiness-repo"
-    _init_git_native_dogfood_repo(scratch)
-    init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir, "operator-readiness-repo", state=state, root=root, evidence_label="operator-readiness"
+    )
 
     project_dir = scratch / ".devflow" / "project"
     project_dir.mkdir(parents=True, exist_ok=True)

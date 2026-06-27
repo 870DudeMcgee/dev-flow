@@ -15,7 +15,7 @@ from devflow.control_room.dogfood import (
     run_dogfood_suite,
     validate_dogfood_case,
 )
-from devflow.control_room.dogfood_case_result import write_case_json_artifact
+from devflow.control_room.dogfood_case_result import write_case_json_artifact, write_case_text_artifact
 from devflow.control_room.persistence import list_tasks
 
 
@@ -54,6 +54,18 @@ def test_case_json_artifact_writer_records_relative_path(tmp_path: Path) -> None
     assert written == artifact_path
     assert artifact_path.read_text(encoding="utf-8") == '{\n  "a": {\n    "b": 2\n  },\n  "z": 1\n}\n'
     assert state["artifacts_created"] == ["case/artifacts/summary.json"]
+
+
+def test_case_text_artifact_writer_records_relative_path(tmp_path: Path) -> None:
+    state = {"artifacts_created": []}
+    artifact_path = tmp_path / "case" / "artifacts" / "handoff.md"
+    artifact_path.parent.mkdir(parents=True)
+
+    written = write_case_text_artifact(state, tmp_path, artifact_path, "# Handoff\n")
+
+    assert written == artifact_path
+    assert artifact_path.read_text(encoding="utf-8") == "# Handoff\n"
+    assert state["artifacts_created"] == ["case/artifacts/handoff.md"]
 
 
 def test_case_schema_and_suite_totals() -> None:
