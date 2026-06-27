@@ -560,15 +560,11 @@ def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields
     ]
     workbench_tasks = [task.model_dump(mode="json") for task in workbench.tasks]
     assert [task.model_dump(mode="json") for task in snapshot.tasks] == workbench_tasks
-    browser_tasks = []
-    for task in workbench_tasks:
-        browser_task = dict(task)
-        for internal_field in ("worker_model_label", "next_safe_action", "evidence_paths"):
-            browser_task.pop(internal_field, None)
-        browser_tasks.append(browser_task)
     snapshot_payload = snapshot.model_dump(mode="json")
-    assert snapshot_payload["tasks"] == browser_tasks
-    assert all("worker_model_label" not in task for task in snapshot_payload["tasks"])
+    assert snapshot_payload["tasks"] == workbench_tasks
+    assert all("worker_model_label" in task for task in snapshot_payload["tasks"])
+    assert all("next_safe_action" in task for task in snapshot_payload["tasks"])
+    assert all("evidence_paths" in task for task in snapshot_payload["tasks"])
     assert [candidate.model_dump() for candidate in snapshot.promotion_desk] == [
         candidate.model_dump() for candidate in workbench.promotion_candidates
     ]

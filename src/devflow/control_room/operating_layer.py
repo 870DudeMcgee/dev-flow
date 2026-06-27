@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field
 
 from devflow.control_room.browser_task_capabilities import (
     build_browser_task_capability,
@@ -289,11 +289,6 @@ class OperatingLayerSnapshot(BaseModel):
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
-    @field_serializer("tasks")
-    def _serialize_tasks(self, tasks: list[TaskWorkbenchTask], info: Any) -> list[dict[str, Any]]:
-        mode = getattr(info, "mode", "python")
-        return [_browser_task_payload(task, mode=mode) for task in tasks]
-
 
 def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id: str | None = None) -> OperatingLayerSnapshot:
     root = (repo_root or Path.cwd()).resolve()
@@ -368,13 +363,6 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
 def render_operating_layer_snapshot_json(repo_root: Path | None = None, *, project_id: str | None = None) -> str:
     snapshot = build_operating_layer_snapshot(repo_root, project_id=project_id)
     return json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
-
-
-def _browser_task_payload(task: TaskWorkbenchTask, *, mode: str) -> dict[str, Any]:
-    payload = task.model_dump(mode=mode)
-    for internal_field in ("worker_model_label", "next_safe_action", "evidence_paths"):
-        payload.pop(internal_field, None)
-    return payload
 
 
 def _review_loop_with_inbox_pressure(
