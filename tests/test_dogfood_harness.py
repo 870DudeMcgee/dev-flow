@@ -303,9 +303,9 @@ def test_model_audition_dogfood_case_proves_evidence_ladder(tmp_path: Path) -> N
     assert any("scorecard ranked grounded output first and flagged false claims" in lesson for lesson in case_result["lessons"])
     summary_path = next(path for path in case_result["artifacts_created"] if path.endswith("model-audition-summary.json"))
     summary = yaml.safe_load((tmp_path / summary_path).read_text(encoding="utf-8"))
-    assert summary["selected_candidate_count"] == 3
-    assert summary["run_count"] == 3
-    assert summary["top_profile"] == "local-gemma4-31b-dense-judge"
+    assert summary["selected_candidate_count"] == 2
+    assert summary["run_count"] == 2
+    assert summary["top_profile"] == "local-gemma4-qat"
     assert summary["false_claim_flagged"] is True
     assert summary["task_yaml_unchanged"] is True
 
@@ -387,9 +387,8 @@ def test_unknown_requested_case_is_skipped_with_reason(tmp_path: Path) -> None:
 def test_cleanup_failure_is_visible(tmp_path: Path, monkeypatch) -> None:
     _init_dogfood_repo(tmp_path)
 
-    def fake_cleanup(path: Path, warnings: list[str]) -> bool:
-        warnings.append("cleanup failed for marker")
-        return False
+    def fake_cleanup(path: Path) -> tuple[bool, str]:
+        return False, "cleanup failed for marker"
 
     monkeypatch.setattr(dogfood, "_cleanup_file", fake_cleanup)
 

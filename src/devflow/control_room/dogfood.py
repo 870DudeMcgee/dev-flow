@@ -38,7 +38,6 @@ from devflow.control_room.operating_layer_visual_qa import (
 )
 from devflow.control_room.orchestration_plan import create_orchestration_plan
 from devflow.control_room.paths import (
-    dogfood_cases_dir,
     dogfood_runs_dir,
     relative_path,
 )
@@ -63,701 +62,57 @@ from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packet, build_task_packet
 from devflow.control_room.worker_evidence import write_worker_evidence
 from devflow.control_room.worker_outcome import validate_worker_outcome, validate_worker_outcome_file
+from devflow.control_room.dogfood_case_catalog import (
+    CATEGORY_LABELS,
+    CATEGORY_MAX,
+    DOGFOOD_SCHEMA_VERSION,
+    PRODUCTION_READINESS_SUITE,
+    DogfoodCaseCatalog,
+    materialize_dogfood_cases,
+    production_readiness_cases,
+    render_dogfood_case,
+    render_dogfood_case_list,
+    validate_dogfood_case,
+)
+from devflow.control_room.dogfood_case_result import (
+    award_case_points as _award,
+    build_dogfood_run_yaml as _build_run_yaml,
+    build_dogfood_scorecard as _build_scorecard,
+    failed_case_result as _failed_case_result,
+    finalize_case_result as _finalize_case,
+    git_baseline as _git_baseline,
+    git_short_status as _git_short_status,
+    record_artifact as _record_artifact,
+    record_artifacts as _record_artifacts,
+    record_command as _record_command,
+    record_lesson as _record_lesson,
+    record_warning as _record_warning,
+    render_dogfood_report as _render_report,
+    set_cleanup_status as _set_cleanup_status,
+    skipped_unknown_case_result as _skipped_unknown_case,
+    start_case_result as _new_case_state,
+    write_case_result as _write_case_result,
+)
+
+__all__ = [
+    "CATEGORY_MAX",
+    "DOGFOOD_SCHEMA_VERSION",
+    "PRODUCTION_READINESS_SUITE",
+    "load_dogfood_run",
+    "materialize_dogfood_cases",
+    "production_readiness_cases",
+    "render_dogfood_case",
+    "render_dogfood_case_list",
+    "render_dogfood_score",
+    "run_dogfood_suite",
+    "validate_dogfood_case",
+]
 
 
-DOGFOOD_SCHEMA_VERSION = 1
-PRODUCTION_READINESS_SUITE = "production-readiness"
 DEFAULT_DOGFOOD_RUN_RETENTION = 1
-SILVER_THRESHOLD = 82
-
-CATEGORY_MAX: dict[str, int] = {
-    "A_safety_git_discipline": 26,
-    "B_pipeline_correctness": 38,
-    "C_context_efficiency": 15,
-    "D_worker_artifact_quality": 36,
-    "E_recovery_failure_handling": 34,
-    "F_knowledge_capture": 10,
-    "G_performance_lightweight": 5,
-    "H_operating_layer_visual_qa": 10,
-}
-
-CATEGORY_LABELS: dict[str, str] = {
-    "A_safety_git_discipline": "A - Safety and Git discipline",
-    "B_pipeline_correctness": "B - Pipeline correctness",
-    "C_context_efficiency": "C - Context efficiency",
-    "D_worker_artifact_quality": "D - Worker/artifact quality",
-    "E_recovery_failure_handling": "E - Recovery and failure handling",
-    "F_knowledge_capture": "F - Knowledge capture",
-    "G_performance_lightweight": "G - Performance/lightweight behavior",
-    "H_operating_layer_visual_qa": "H - Operating-layer visual QA",
-}
-
-CRITICAL_CASES = {
-    "unsafe-worker-outcome",
-    "git-native-worker-lane-hardening",
-    "plan-only-unsafe-git-state",
-    "failed-verification-recovery",
-    "central-schema-refactor-risk",
-}
 
 
 CaseRunner = Callable[[Path, str, dict[str, Any], Path, dict[str, Any]], dict[str, Any]]
-
-
-def production_readiness_cases() -> list[dict[str, Any]]:
-    cases = [
-        _case_definition(
-            case_id="tiny-deterministic-docs-task",
-            title="Tiny deterministic docs task",
-            category="B_pipeline_correctness",
-            task_type="docs_only_shell_task",
-            risk_level="low",
-            purpose="Prove Dev-Flow does not overcomplicate a tiny deterministic change.",
-            expected_behavior=[
-                "create a bounded task",
-                "build a bounded task packet",
-                "run a tiny workspace-only docs command",
-                "verify with a docs-appropriate check",
-                "leave the main checkout untouched except ignored dogfood evidence",
-            ],
-            command_sequence=[
-                "devflow task create 'Dogfood tiny docs task'",
-                "devflow task packet <task-id>",
-                "devflow task run <task-id> --worker shell -- /bin/sh -c 'mkdir -p docs && printf ...'",
-                "devflow task verify <task-id> --shell 'test -s docs/dogfood-tiny-note.md'",
-            ],
-            success_criteria=[
-                "task reaches verified state",
-                "context packet stays bounded",
-                "workspace-only file is verified",
-                "no promotion or provider call occurs",
-            ],
-            scoring={
-                "A_safety_git_discipline": 0,
-                "B_pipeline_correctness": 4,
-                "C_context_efficiency": 7,
-                "G_performance_lightweight": 2,
-            },
-        ),
-        _case_definition(
-            case_id="cli-help-bounded-feature-task",
-            title="CLI/help bounded feature task",
-            category="B_pipeline_correctness",
-            task_type="cli_help_plan_only",
-            risk_level="low",
-            purpose="Prove small CLI-facing work follows the pipeline without broad execution.",
-            expected_behavior=[
-                "create/load task",
-                "write orchestration plan-only evidence",
-                "inspect dogfood CLI help",
-                "avoid unrelated edits and provider calls",
-            ],
-            command_sequence=[
-                "devflow task create 'Dogfood CLI help bounded task'",
-                "devflow task orchestrate <task-id> --plan-only",
-                "devflow dogfood --help",
-            ],
-            success_criteria=[
-                "orchestration plan exists",
-                "dogfood help exposes run/list/report commands",
-                "command evidence is stored as a case artifact",
-            ],
-            scoring={
-                "B_pipeline_correctness": 6,
-                "C_context_efficiency": 3,
-                "G_performance_lightweight": 2,
-            },
-        ),
-        _case_definition(
-            case_id="unsafe-worker-outcome",
-            title="Unsafe worker outcome",
-            category="A_safety_git_discipline",
-            task_type="worker_outcome_validation",
-            risk_level="high",
-            purpose="Prove invalid worker metadata is rejected and preserved as evidence.",
-            expected_behavior=[
-                "files_touched with parent traversal fails",
-                ".git paths fail",
-                "unsafe human-review metadata is enforced",
-                "validation writes evidence without mutating source",
-            ],
-            command_sequence=[
-                "write invalid worker outcome JSON",
-                "devflow worker validate-outcome <outcome-json>",
-            ],
-            success_criteria=[
-                "validation status is failed",
-                "path safety errors are explicit",
-                "human review error is explicit",
-            ],
-            scoring={
-                "A_safety_git_discipline": 4,
-                "D_worker_artifact_quality": 5,
-            },
-        ),
-        _case_definition(
-            case_id="git-native-worker-lane-hardening",
-            title="Git-native worker lane hardening",
-            category="A_safety_git_discipline",
-            task_type="git_native_two_lane_recovery",
-            risk_level="high",
-            purpose="Prove opt-in Git worktree lanes are visible, recoverable, promotable, and cleanup-safe.",
-            expected_behavior=[
-                "create two Git-native shell-worker lanes in a scratch repo",
-                "verify each lane against its worker branch commit",
-                "preview both lanes and project lane readiness across supervisor and operating-layer surfaces",
-                "promote one lane in the scratch repo",
-                "confirm the second lane reports stale recovery after main advances",
-                "dry-run and apply cleanup for the promoted lane while preserving task evidence",
-            ],
-            command_sequence=[
-                "devflow task create --git-worktree 'Dogfood Git lane one' (scratch repo)",
-                "devflow task create --git-worktree 'Dogfood Git lane two' (scratch repo)",
-                "devflow task run <task-id> --worker shell -- commit disjoint file",
-                "devflow task verify <task-id> --shell 'test -f <file>'",
-                "devflow task promote-preview <task-id>",
-                "devflow task promote <first-task-id> (scratch repo only)",
-                "devflow task cleanup <first-task-id> --dry-run/--apply (scratch repo only)",
-            ],
-            success_criteria=[
-                "both lanes are ready before promotion",
-                "supervisor status and operating-layer snapshot expose lane summaries",
-                "second lane reports stale recovery after first promotion",
-                "cleanup removes the promoted worktree and preserves canonical task evidence",
-            ],
-            scoring={
-                "A_safety_git_discipline": 4,
-                "B_pipeline_correctness": 2,
-                "E_recovery_failure_handling": 2,
-            },
-        ),
-        _case_definition(
-            case_id="local-worker-lane-hardening",
-            title="Local worker lane hardening",
-            category="D_worker_artifact_quality",
-            task_type="local_worker_evidence_ladder",
-            risk_level="medium",
-            purpose="Prove registry-backed local worker evidence is visible and recoverable without provider calls.",
-            expected_behavior=[
-                "write deterministic read-only WorkerEvidence",
-                "write deterministic local patch worker proposal evidence",
-                "project both local worker lane types across supervisor and operating-layer surfaces",
-                "run patch review, dry-run, apply, verify, and promote-preview gates explicitly",
-                "avoid provider API calls, autonomous routing, auto-promotion, commits, pushes, databases, and hidden memory",
-            ],
-            command_sequence=[
-                "write read-only WorkerEvidence fixture",
-                "write local patch worker proposal fixture",
-                "devflow task review-patch <task-id> --agent qwopus-implementer",
-                "devflow task patch-dry-run <task-id> --agent qwopus-implementer",
-                "devflow task apply-patch <task-id> --agent qwopus-implementer",
-                "devflow task verify <task-id> --shell 'test -f hello.txt'",
-                "devflow task promote-preview <task-id>",
-            ],
-            success_criteria=[
-                "read-only local worker lane is summarized with review-only next action",
-                "local patch worker lane advances through the explicit patch ladder",
-                "workspace mutation occurs only after apply-patch",
-                "supervisor and operating-layer snapshots expose local worker lane state",
-            ],
-            scoring={
-                "A_safety_git_discipline": 2,
-                "B_pipeline_correctness": 2,
-                "D_worker_artifact_quality": 3,
-                "E_recovery_failure_handling": 3,
-            },
-        ),
-        _case_definition(
-            case_id="registry-runtime-contract",
-            title="Registry runtime contract",
-            category="D_worker_artifact_quality",
-            task_type="registry_runtime_contract",
-            risk_level="medium",
-            purpose=(
-                "Prove agent registry list/show/packet surfaces expose runnable, evidence-only, "
-                "packet-only/read-only, and provider-refusal contracts without provider calls."
-            ),
-            expected_behavior=[
-                "create a scratch repo and initialize Dev-Flow",
-                "create a task and inspect agent list/show JSON runtime contracts",
-                "build shell and manual packets with evidence boundaries",
-                "run the devflow-shell-worker registry alias only inside the isolated workspace",
-                "attempt and refuse an enabled remote/provider-backed agent before any provider call",
-                "write registry-runtime-contract-summary.json evidence",
-            ],
-            command_sequence=[
-                "devflow init (scratch repo)",
-                "devflow task create 'Dogfood registry runtime contract'",
-                "devflow agent list --json",
-                "devflow agent show devflow-shell-worker --json",
-                "devflow agent packet <task-id> devflow-shell-worker",
-                "devflow agent packet <task-id> devflow-manual-codex-worker",
-                "devflow task run <task-id> --worker devflow-shell-worker -- /bin/sh -c 'printf ...'",
-                "devflow task run <task-id> --worker remote-provider-worker (refused)",
-            ],
-            success_criteria=[
-                "runtime_contract JSON has execution surface, run allowances, packet allowance, refusal, next command, and evidence contract",
-                "shell alias writes agent-local packet/log/result evidence and mutates only the workspace",
-                "manual packet keeps handoff, result, question, and failure contracts",
-                "remote/provider-backed run refuses with experimental_readonly or equivalent runtime refusal",
-                "no provider APIs, routing, verification, promotion, commit, push, database, RAG, embeddings, or hidden memory are used",
-            ],
-            scoring={
-                "A_safety_git_discipline": 2,
-                "B_pipeline_correctness": 3,
-                "D_worker_artifact_quality": 3,
-                "E_recovery_failure_handling": 2,
-            },
-        ),
-        _case_definition(
-            case_id="success-empty-worker-outcome",
-            title="success_empty worker outcome",
-            category="D_worker_artifact_quality",
-            task_type="worker_outcome_quality",
-            risk_level="medium",
-            purpose="Prove empty worker success is preserved as no useful progress.",
-            expected_behavior=[
-                "success_empty remains success_empty in tool evidence",
-                "no_useful_result is not normalized into completed useful work",
-                "useful result scores higher than empty result",
-            ],
-            command_sequence=[
-                "write no_useful_result outcome with success_empty tool status",
-                "write completed outcome with success_with_result tool status",
-                "compare deterministic usefulness scores",
-            ],
-            success_criteria=[
-                "empty outcome validates only with human review required",
-                "success_empty earns less usefulness credit than success_with_result",
-            ],
-            scoring={
-                "B_pipeline_correctness": 2,
-                "D_worker_artifact_quality": 7,
-            },
-        ),
-        _case_definition(
-            case_id="model-audition-evidence",
-            title="Model audition evidence ladder",
-            category="D_worker_artifact_quality",
-            task_type="local_model_audition",
-            risk_level="medium",
-            purpose="Prove read-only local model auditions produce plan/run/score/report evidence without provider calls.",
-            expected_behavior=[
-                "write dry-run candidate plan evidence",
-                "execute selected read-only local profiles through deterministic WorkerEvidence fixtures",
-                "write audition-level runs, scorecard, and report artifacts",
-                "rank grounded output above generic or hallucinated output",
-                "avoid source edits, proposal.patch, verification, promotion, commits, pushes, and provider calls",
-            ],
-            command_sequence=[
-                "devflow agent audition <task-id> --job review-debug --dry-run --json (fixture discovery)",
-                "devflow agent audition <task-id> --job review-debug --execute --json (fixture worker-pool runs)",
-            ],
-            success_criteria=[
-                "dry-run plan selects no more than three safe candidates",
-                "execute writes runs.json, scorecard.json, and report.md",
-                "WorkerEvidence is reused under local-model-runs",
-                "scorecard ranks grounded output first and flags false claims",
-            ],
-            scoring={
-                "A_safety_git_discipline": 2,
-                "B_pipeline_correctness": 3,
-                "D_worker_artifact_quality": 4,
-            },
-        ),
-        _case_definition(
-            case_id="plan-only-unsafe-git-state",
-            title="Plan-only unsafe Git state",
-            category="A_safety_git_discipline",
-            task_type="orchestration_plan_git_guardrail",
-            risk_level="high",
-            purpose="Prove orchestration recognizes unsafe Git state without running workers.",
-            expected_behavior=[
-                "temporary dirty marker makes Git state unsafe",
-                "plan records dirty_git_tree stop condition",
-                "parallelism is blocked",
-                "temporary marker is removed and cleanup result is visible",
-            ],
-            command_sequence=[
-                "create temporary dirty marker",
-                "devflow task orchestrate <task-id> --plan-only",
-                "remove temporary dirty marker",
-            ],
-            success_criteria=[
-                "dirty_git_tree is active",
-                "recommended execution is human_review_first or sequential",
-                "no worker execution occurs",
-                "cleanup status is recorded",
-            ],
-            scoring={
-                "A_safety_git_discipline": 5,
-                "E_recovery_failure_handling": 3,
-            },
-        ),
-        _case_definition(
-            case_id="failed-verification-recovery",
-            title="Failed verification recovery",
-            category="E_recovery_failure_handling",
-            task_type="verification_failure",
-            risk_level="medium",
-            purpose="Prove failed verification blocks promotion readiness and records next state.",
-            expected_behavior=[
-                "failed verification is captured",
-                "promotion readiness is blocked",
-                "next safe action is explainable",
-            ],
-            command_sequence=[
-                "devflow task create 'Dogfood failed verification recovery'",
-                "devflow task run <task-id> --worker shell -- /bin/sh -c 'printf actual > recovery.txt'",
-                "devflow task verify <task-id> --shell 'test \"$(cat recovery.txt)\" = expected'",
-                "inspect promotion readiness errors",
-            ],
-            success_criteria=[
-                "task status is verification_failed",
-                "verification exit code is non-zero",
-                "promotion_readiness_errors is non-empty",
-            ],
-            scoring={
-                "A_safety_git_discipline": 4,
-                "B_pipeline_correctness": 3,
-                "E_recovery_failure_handling": 6,
-            },
-        ),
-        _case_definition(
-            case_id="knowledge-capture-from-validation-failure",
-            title="Knowledge capture from validation failure",
-            category="F_knowledge_capture",
-            task_type="knowledge_capture",
-            risk_level="low",
-            purpose="Prove validation failures can become proposed, source-linked knowledge.",
-            expected_behavior=[
-                "validation failure evidence exists",
-                "knowledge capture creates a proposed item",
-                "source validation artifact is linked",
-                "search can find the item",
-                "knowledge is not auto-promoted",
-            ],
-            command_sequence=[
-                "write invalid worker outcome JSON",
-                "devflow worker validate-outcome <outcome-json>",
-                "devflow knowledge capture --from-validation <validation-json>",
-                "devflow knowledge search validation",
-            ],
-            success_criteria=[
-                "knowledge status is proposed",
-                "linked artifacts include validation evidence",
-                "search returns the proposed item",
-            ],
-            scoring={
-                "D_worker_artifact_quality": 3,
-                "F_knowledge_capture": 10,
-            },
-        ),
-        _case_definition(
-            case_id="handoff-resume",
-            title="Handoff/resume",
-            category="E_recovery_failure_handling",
-            task_type="artifact_resume",
-            risk_level="low",
-            purpose="Prove a fresh agent can reconstruct state from files and reports.",
-            expected_behavior=[
-                "task id and artifact paths are written to handoff evidence",
-                "state reloads from canonical task files",
-                "next safe action is explicit",
-                "no hidden state is required",
-            ],
-            command_sequence=[
-                "devflow task create 'Dogfood handoff resume'",
-                "devflow task run <task-id> --worker shell -- /bin/sh -c 'printf handoff > handoff.txt'",
-                "devflow task verify <task-id> --shell 'test -s handoff.txt'",
-                "write dogfood handoff.md from file artifacts",
-            ],
-            success_criteria=[
-                "fresh load of task succeeds",
-                "handoff includes task id, artifacts, state, and next safe action",
-            ],
-            scoring={
-                "B_pipeline_correctness": 3,
-                "C_context_efficiency": 2,
-                "E_recovery_failure_handling": 2,
-            },
-        ),
-        _case_definition(
-            case_id="parallelism-decision-docs-test-split",
-            title="Parallelism decision docs/test split",
-            category="C_context_efficiency",
-            task_type="orchestration_context_layers",
-            risk_level="low",
-            purpose="Prove safe parallelism can be recommended or blocked conservatively with clear roles.",
-            expected_behavior=[
-                "plan-only orchestration writes role layers",
-                "workers cannot promote",
-                "DevMode skills are required",
-                "no provider or worker execution occurs",
-            ],
-            command_sequence=[
-                "devflow task create 'Update docs and tests for dogfood split'",
-                "devflow task orchestrate <task-id> --plan-only",
-            ],
-            success_criteria=[
-                "role context layers are present",
-                "all roles have can_promote false",
-                "notes state plan-only with no workers or providers",
-            ],
-            scoring={
-                "C_context_efficiency": 3,
-                "G_performance_lightweight": 1,
-            },
-        ),
-        _case_definition(
-            case_id="central-schema-refactor-risk",
-            title="Central schema/refactor risk",
-            category="A_safety_git_discipline",
-            task_type="orchestration_high_risk_refusal",
-            risk_level="high",
-            purpose="Prove unsafe parallelism is refused for high-risk central changes.",
-            expected_behavior=[
-                "risk is high or medium",
-                "recommended execution is not parallel",
-                "parallelism_allowed is false",
-                "human review is required",
-            ],
-            command_sequence=[
-                "devflow task create 'Rewrite whole repo migration and disable guardrail'",
-                "devflow task orchestrate <task-id> --plan-only",
-            ],
-            success_criteria=[
-                "plan records high-risk stop conditions",
-                "parallel execution is refused",
-            ],
-            scoring={
-                "A_safety_git_discipline": 3,
-                "E_recovery_failure_handling": 2,
-            },
-        ),
-        _case_definition(
-            case_id="simple-scheduler-parallel-coordination",
-            title="Simple scheduler parallel coordination",
-            category="B_pipeline_correctness",
-            task_type="scheduler_projection",
-            risk_level="medium",
-            purpose="Prove scheduler status coordinates ready, blocked, stale, retry, and batch evidence without autonomous execution.",
-            expected_behavior=[
-                "project ready parallel batches from goal slice evidence",
-                "surface dependency-blocked and question-blocked work",
-                "mark stale running tasks without cleaning locks or rerunning work",
-                "write explicit retry-request evidence without clearing old logs",
-                "avoid provider calls, background scheduling, auto-verification, auto-promotion, commits, pushes, databases, and hidden memory",
-            ],
-            command_sequence=[
-                "write deterministic goal slices and task evidence",
-                "devflow scheduler status --json",
-                "devflow scheduler retry <task-id> --reason '<reason>' --json",
-            ],
-            success_criteria=[
-                "scheduler exposes ready, blocked, stale, and retry counts",
-                "next action points to an explicit existing Dev-Flow command",
-                "retry evidence preserves prior task state",
-            ],
-            scoring={
-                "B_pipeline_correctness": 2,
-                "D_worker_artifact_quality": 3,
-                "E_recovery_failure_handling": 5,
-            },
-        ),
-        _case_definition(
-            case_id="question-blocker-resume-loop",
-            title="Question blocker resume loop",
-            category="E_recovery_failure_handling",
-            task_type="question_resume_evidence",
-            risk_level="medium",
-            purpose="Exercise explicit question answer evidence without running workers or providers.",
-            expected_behavior=[
-                "list deterministic open question evidence",
-                "surface malformed question evidence as a warning",
-                "persist a human answer without changing source worker output",
-                "let scheduler recommend a conservative explicit resume command",
-                "avoid worker resume, provider calls, verification, promotion, commits, pushes, databases, and background schedulers",
-            ],
-            command_sequence=[
-                "write deterministic worker question evidence",
-                "devflow question list --json",
-                "devflow question answer <question-id> --answer '<answer>' --json",
-                "devflow scheduler status --json",
-            ],
-            success_criteria=[
-                "question list exposes one deterministic open blocker and warning evidence",
-                "answer writes project-level and task-local records",
-                "source question evidence is preserved byte-for-byte",
-                "scheduler no longer treats the answered question as an open blocker",
-            ],
-            scoring={
-                "B_pipeline_correctness": 2,
-                "D_worker_artifact_quality": 2,
-                "E_recovery_failure_handling": 4,
-            },
-        ),
-        _case_definition(
-            case_id="operator-readiness-reconciliation",
-            title="Operator readiness reconciliation",
-            category="E_recovery_failure_handling",
-            task_type="operator_readiness_projection",
-            risk_level="medium",
-            purpose="Prove operator-facing status, scheduler, supervisor, and operating-layer projections agree on lifecycle blockers and plain task labels.",
-            expected_behavior=[
-                "build deterministic generated-name and descriptive-name task fixtures",
-                "mark a goal lifecycle as missing without mutating it from the projection",
-                "preserve stale freshness dispatch evidence as a warning",
-                "make scheduler, status, supervisor packet, and operating-layer snapshot agree on operator readiness counts",
-                "prefer lifecycle repair over worker dispatch or stale task-creation guidance",
-            ],
-            command_sequence=[
-                "write deterministic operator-readiness fixture",
-                "devflow status --json",
-                "devflow scheduler status --json",
-                "devflow supervisor packet --json",
-                "devflow operating-layer snapshot --json",
-            ],
-            success_criteria=[
-                "major surfaces agree on worker-ready and lifecycle-blocked counts",
-                "next safe action points to lifecycle repair",
-                "generated task ids remain secondary to the descriptive slice title",
-                "stale freshness guidance is retained as a warning, not an executable directive",
-            ],
-            scoring={
-                "B_pipeline_correctness": 2,
-                "D_worker_artifact_quality": 2,
-                "E_recovery_failure_handling": 3,
-            },
-        ),
-        _case_definition(
-            case_id="intent-scaffold-approval-path",
-            title="Intent scaffold approval path",
-            category="B_pipeline_correctness",
-            task_type="intent_scaffold_approval",
-            risk_level="medium",
-            purpose=(
-                "Prove raw operator intent becomes reviewable Idea Foundry and goal/task scaffold evidence "
-                "before canonical tasks or workers exist."
-            ),
-            expected_behavior=[
-                "capture raw idea evidence",
-                "preview scaffold without mutating goals or tasks",
-                "write scaffold review evidence",
-                "simulate human classification and idea promotion",
-                "create goal from reviewed scaffold evidence",
-                "project task slices without creating canonical task records",
-                "avoid provider calls, worker runs, verification, task promotion, commits, and pushes",
-            ],
-            command_sequence=[
-                "devflow idea capture 'build a search plugin'",
-                "devflow idea scaffold-goal <idea-id> --dry-run",
-                "devflow idea scaffold-goal <idea-id>",
-                "devflow idea classify <idea-id> --maturity goal_ready",
-                "devflow idea promote <idea-id> --to goal",
-                "devflow idea create-goal <idea-id>",
-                "devflow goal slices <goal-id>",
-            ],
-            success_criteria=[
-                "dry-run scaffold preview leaves the scratch repo unchanged",
-                "scaffold-goal JSON and Markdown evidence exist before goal creation",
-                "created goal consumes scaffold PRD, context, risk, handoff, and task-slice evidence",
-                "no canonical task record, worker run, verification, task promotion, commit, push, or provider call occurs",
-            ],
-            scoring={
-                "B_pipeline_correctness": 4,
-                "D_worker_artifact_quality": 4,
-                "E_recovery_failure_handling": 2,
-            },
-        ),
-        _case_definition(
-            case_id="operating-layer-visual-qa-hardening",
-            title="Operating Layer visual QA hardening",
-            category="H_operating_layer_visual_qa",
-            task_type="operating_layer_visual_qa",
-            risk_level="medium",
-            purpose="Prove the local operating-layer UI has deterministic visual QA evidence in dogfood.",
-            expected_behavior=[
-                "desktop and mobile visual QA paths are planned",
-                "current and baseline PNG/SVG artifacts are written",
-                "deterministic fallback is enough when browser screenshots are unavailable",
-                "external/Appshot or Playwright rasters are accepted when present",
-                "visual metadata covers no-overflow, guided first viewport, active work cards, and approval states",
-            ],
-            command_sequence=[
-                "devflow task create 'Dogfood operating layer visual QA'",
-                "devflow task run <task-id> --worker shell -- /bin/sh -c 'printf visual > visual.txt'",
-                "devflow task verify <task-id> --shell 'test -s visual.txt'",
-                "devflow operating-layer visual-qa --write-current --update-baseline --json",
-            ],
-            success_criteria=[
-                "desktop and mobile current/baseline artifacts exist",
-                "visual QA status is pass",
-                "metadata confirms no horizontal overflow",
-                "metadata confirms guided first viewport ordering, active work cards, and approval states",
-            ],
-            scoring={
-                "H_operating_layer_visual_qa": 10,
-            },
-        ),
-    ]
-    _validate_suite_totals(cases)
-    return cases
-
-
-def validate_dogfood_case(case: dict[str, Any]) -> list[str]:
-    required = {
-        "schema_version",
-        "id",
-        "title",
-        "category",
-        "task_type",
-        "risk_level",
-        "purpose",
-        "expected_behavior",
-        "setup",
-        "command_sequence",
-        "success_criteria",
-        "scoring",
-        "cleanup",
-        "notes",
-    }
-    errors: list[str] = []
-    missing = sorted(required - set(case))
-    if missing:
-        errors.append(f"missing required fields: {', '.join(missing)}")
-        return errors
-    if case["schema_version"] != DOGFOOD_SCHEMA_VERSION:
-        errors.append("schema_version must be 1")
-    if not isinstance(case["id"], str) or not case["id"]:
-        errors.append("id must be a non-empty string")
-    if case["category"] not in CATEGORY_MAX:
-        errors.append(f"unknown category: {case['category']}")
-    if case["risk_level"] not in {"low", "medium", "high"}:
-        errors.append("risk_level must be low, medium, or high")
-    for list_key in ("expected_behavior", "command_sequence", "success_criteria", "notes"):
-        if not isinstance(case[list_key], list):
-            errors.append(f"{list_key} must be a list")
-    scoring = case["scoring"]
-    if not isinstance(scoring, dict) or not scoring:
-        errors.append("scoring must be a non-empty mapping")
-    else:
-        for category, value in scoring.items():
-            if category not in CATEGORY_MAX:
-                errors.append(f"unknown scoring category: {category}")
-            if not isinstance(value, int) or value < 0:
-                errors.append(f"scoring.{category} must be a non-negative integer")
-    return errors
-
-
-def materialize_dogfood_cases(root: Path) -> list[Path]:
-    paths: list[Path] = []
-    dogfood_cases_dir(root).mkdir(parents=True, exist_ok=True)
-    for case in production_readiness_cases():
-        path = dogfood_cases_dir(root) / f"{case['id']}.yaml"
-        atomic_write_text(path, yaml.safe_dump(case, sort_keys=False))
-        paths.append(path)
-    return paths
 
 
 def run_dogfood_suite(
@@ -773,8 +128,10 @@ def run_dogfood_suite(
     if keep_runs < 1:
         raise ValueError("keep_runs must be at least 1.")
 
+    catalog = DogfoodCaseCatalog.production_readiness()
+
     init_control_room(root)
-    materialize_dogfood_cases(root)
+    catalog.materialize(root)
     run_id = _new_run_id(root)
     run_dir = dogfood_runs_dir(root) / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -782,8 +139,8 @@ def run_dogfood_suite(
 
     started = time.monotonic()
     baseline = _git_baseline(root)
-    requested = list(case_ids) if case_ids else [case["id"] for case in production_readiness_cases()]
-    cases_by_id = {case["id"]: case for case in production_readiness_cases()}
+    requested = catalog.requested_ids(case_ids)
+    cases_by_id = catalog.by_id()
     results: list[dict[str, Any]] = []
 
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -864,22 +221,6 @@ def load_dogfood_run(root: Path, run_id: str) -> dict[str, Any]:
     }
 
 
-def render_dogfood_case_list(cases: list[dict[str, Any]] | None = None) -> str:
-    selected = cases or production_readiness_cases()
-    lines = ["Dogfood suite: production-readiness", ""]
-    for case in selected:
-        max_score = _case_max_score(case)
-        lines.append(f"{case['id']}: {case['title']} ({max_score} pts, {case['risk_level']} risk)")
-    return "\n".join(lines) + "\n"
-
-
-def render_dogfood_case(case_id: str) -> str:
-    cases = {case["id"]: case for case in production_readiness_cases()}
-    if case_id not in cases:
-        raise KeyError(f"Dogfood case not found: {case_id}")
-    return yaml.safe_dump(cases[case_id], sort_keys=False)
-
-
 def render_dogfood_score(scorecard: dict[str, Any]) -> str:
     threshold = scorecard["threshold_result"]
     lines = [
@@ -900,43 +241,6 @@ def render_dogfood_score(scorecard: dict[str, Any]) -> str:
         lines.append("warnings:")
         lines.extend(f"  - {warning}" for warning in scorecard["warnings"])
     return "\n".join(lines) + "\n"
-
-
-def _case_definition(
-    *,
-    case_id: str,
-    title: str,
-    category: str,
-    task_type: str,
-    risk_level: str,
-    purpose: str,
-    expected_behavior: list[str],
-    command_sequence: list[str],
-    success_criteria: list[str],
-    scoring: dict[str, int],
-) -> dict[str, Any]:
-    return {
-        "schema_version": DOGFOOD_SCHEMA_VERSION,
-        "id": case_id,
-        "title": title,
-        "category": category,
-        "task_type": task_type,
-        "risk_level": risk_level,
-        "purpose": purpose,
-        "expected_behavior": expected_behavior,
-        "setup": ["Create only task, outcome, or dogfood artifacts required for this case."],
-        "command_sequence": command_sequence,
-        "success_criteria": success_criteria,
-        "scoring": scoring,
-        "cleanup": [
-            "Do not promote, push, call providers, create databases, or create dashboard assets.",
-            "Remove any temporary non-.devflow dirty marker created by the case.",
-        ],
-        "notes": [
-            "Deterministic local dogfood case.",
-            "Workers remain replaceable; Dev-Flow owns state, verification, and promotion gates.",
-        ],
-    }
 
 
 def _task_ids(root: Path) -> set[str]:
@@ -970,7 +274,7 @@ def _case_tiny_docs(
     packet_path = case_dir / "artifacts" / "task-packet.json"
     atomic_write_text(packet_path, packet_json + "\n")
     state["context_packet_size"] = len(packet_json)
-    state["artifacts_created"].append(relative_path(root, packet_path))
+    _record_artifact(state, packet_path, root=root)
     _record_command(state, f"devflow task packet {task.id}", status="passed", output=relative_path(root, packet_path))
 
     run_shell_task(
@@ -1013,13 +317,13 @@ def _case_cli_help(
 
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     plan_path = root / ".devflow" / "tasks" / task.id / "orchestration-plan.yaml"
-    state["artifacts_created"].append(relative_path(root, plan_path))
+    _record_artifact(state, plan_path, root=root)
     _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed", output=relative_path(root, plan_path))
 
     help_result = _run_devflow_help(root, ["dogfood", "--help"])
     help_path = case_dir / "artifacts" / "dogfood-help.txt"
     atomic_write_text(help_path, help_result.stdout + help_result.stderr)
-    state["artifacts_created"].append(relative_path(root, help_path))
+    _record_artifact(state, help_path, root=root)
     _record_command(
         state,
         "devflow dogfood --help",
@@ -1077,9 +381,9 @@ def _case_unsafe_worker_outcome(
         notes=["intentionally invalid unsafe worker outcome"],
     )
     atomic_write_text(outcome_path, json.dumps(outcome, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, outcome_path))
+    _record_artifact(state, outcome_path, root=root)
     result = validate_worker_outcome_file(root, outcome_path)
-    state["artifacts_created"].append(result["output_path"])
+    _record_artifact(state, result["output_path"])
     shared["unsafe_validation_path"] = result["output_path"]
     _record_command(
         state,
@@ -1129,7 +433,7 @@ def _case_git_native_worker_lane(
     state = _new_case_state(root, run_id, case, case_dir)
     scratch = case_dir / "artifacts" / "git-native-lane-repo"
     _init_git_native_dogfood_repo(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
     _record_command(state, "git init scratch Git-native dogfood repo", status="passed", output=relative_path(root, scratch))
 
     init_control_room(scratch)
@@ -1212,7 +516,7 @@ def _case_git_native_worker_lane(
     }
     summary_path = case_dir / "artifacts" / "git-native-lane-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
 
     status_lanes = [task.get("worker_lane") for task in status["tasks"] if task.get("worker_lane")]
     operating_lanes = [task.get("worker_lane") for task in operating["tasks"] if task.get("worker_lane")]
@@ -1272,7 +576,7 @@ def _case_local_worker_lane(
     scratch = case_dir / "artifacts" / "local-worker-lane-repo"
     _init_git_native_dogfood_repo(scratch)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
     _record_command(state, "git init scratch local-worker-lane dogfood repo", status="passed", output=relative_path(root, scratch))
 
     read_only = create_task(scratch, "Dogfood read-only local worker evidence")
@@ -1389,7 +693,7 @@ def _case_local_worker_lane(
     }
     summary_path = case_dir / "artifacts" / "local-worker-lane-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "route")
@@ -1449,7 +753,7 @@ def _case_registry_runtime_contract(
     scratch.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-b", "main"], cwd=scratch, check=True, capture_output=True, text=True, timeout=20)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
     _record_command(state, "devflow init (scratch registry-runtime-contract repo)", status="passed", output=relative_path(root, scratch))
 
     registry_path = scratch / ".devflow/agents/registry.yaml"
@@ -1576,7 +880,7 @@ agents:
     }
     summary_path = case_dir / "artifacts" / "registry-runtime-contract-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("push-main", "promote", "verify", "route", "agent run")
@@ -1643,7 +947,7 @@ def _case_model_audition_evidence(
     scratch = case_dir / "artifacts" / "model-audition-repo"
     _init_git_native_dogfood_repo(scratch)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
     _record_command(state, "git init scratch model-audition dogfood repo", status="passed", output=relative_path(root, scratch))
 
     task = create_task(scratch, "Dogfood model audition evidence")
@@ -1740,7 +1044,7 @@ def _case_model_audition_evidence(
     }
     summary_path = case_dir / "artifacts" / "model-audition-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "promote", "verify")
@@ -1778,7 +1082,7 @@ def _case_model_audition_evidence(
         4,
         report_exists
         and ranking
-        and ranking[0]["profile_id"] == "local-gemma4-31b-dense-judge"
+        and ranking[0]["profile_id"] == "local-gemma4-qat"
         and summary["false_claim_flagged"]
         and scorecard["will_update_routing_policy"] is False,
         "scorecard ranked grounded output first and flagged false claims",
@@ -1814,15 +1118,17 @@ def _case_success_empty(
     useful_score = _worker_usefulness_score(useful)
     atomic_write_text(case_dir / "artifacts" / "empty-outcome.json", json.dumps(empty, indent=2, sort_keys=True) + "\n")
     atomic_write_text(case_dir / "artifacts" / "useful-outcome.json", json.dumps(useful, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].extend(
+    _record_artifacts(
+        state,
         [
-            relative_path(root, case_dir / "artifacts" / "empty-outcome.json"),
-            relative_path(root, case_dir / "artifacts" / "useful-outcome.json"),
-        ]
+            case_dir / "artifacts" / "empty-outcome.json",
+            case_dir / "artifacts" / "useful-outcome.json",
+        ],
+        root=root,
     )
     _record_command(state, "validate success_empty outcome in-process", status="passed" if not empty_errors else "failed")
     _record_command(state, "validate success_with_result outcome in-process", status="passed" if not useful_errors else "failed")
-    state["lessons"].append(f"success_empty usefulness score {empty_score}; success_with_result score {useful_score}")
+    _record_lesson(state, f"success_empty usefulness score {empty_score}; success_with_result score {useful_score}")
 
     scores: dict[str, int] = {}
     failures: list[str] = []
@@ -1857,6 +1163,7 @@ def _case_plan_only_unsafe_git(
 
     marker = root / f".dogfood-dirty-marker-{run_id}"
     marker_created = False
+    cleanup_status = "not_required"
     try:
         marker.write_text("temporary dogfood dirty marker\n", encoding="utf-8")
         marker_created = True
@@ -1865,8 +1172,12 @@ def _case_plan_only_unsafe_git(
         _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed")
     finally:
         if marker_created:
-            cleanup_ok = _cleanup_file(marker, state["warnings"])
-            state["cleanup_status"] = "marker_removed" if cleanup_ok else f"cleanup_failed: {marker.name}"
+            cleanup_ok, cleanup_warning = _cleanup_file(marker)
+            cleanup_status = _set_cleanup_status(
+                state,
+                "marker_removed" if cleanup_ok else f"cleanup_failed: {marker.name}",
+                warning=cleanup_warning,
+            )
 
     active = {item["condition"] for item in plan.get("stop_conditions", []) if item.get("active")}
     scores: dict[str, int] = {}
@@ -1887,7 +1198,7 @@ def _case_plan_only_unsafe_git(
         failures,
         "E_recovery_failure_handling",
         3,
-        state["cleanup_status"] == "marker_removed" and not marker.exists(),
+        cleanup_status == "marker_removed" and not marker.exists(),
         "temporary dirty marker cleanup is visible",
     )
     return _finalize_case(root, case, state, scores, failures)
@@ -1920,7 +1231,7 @@ def _case_failed_verification(
         case_dir / "artifacts" / "promotion-readiness-errors.json",
         json.dumps(readiness_errors, indent=2) + "\n",
     )
-    state["artifacts_created"].append(relative_path(root, case_dir / "artifacts" / "promotion-readiness-errors.json"))
+    _record_artifact(state, case_dir / "artifacts" / "promotion-readiness-errors.json", root=root)
 
     scores: dict[str, int] = {}
     failures: list[str] = []
@@ -1957,7 +1268,7 @@ def _case_knowledge_capture(
     _record_command(state, f"devflow knowledge capture --from-validation {validation_path}", status="passed", output=item["id"])
     results = search_knowledge(root, "validation")
     _record_command(state, "devflow knowledge search validation", status="passed", output=str(len(results)))
-    state["artifacts_created"].append(f".devflow/knowledge/{item['id']}/knowledge.json")
+    _record_artifact(state, f".devflow/knowledge/{item['id']}/knowledge.json")
 
     scores: dict[str, int] = {}
     failures: list[str] = []
@@ -2022,7 +1333,7 @@ def _case_handoff_resume(
         ]
     )
     atomic_write_text(handoff_path, handoff)
-    state["artifacts_created"].append(relative_path(root, handoff_path))
+    _record_artifact(state, handoff_path, root=root)
 
     scores: dict[str, int] = {}
     failures: list[str] = []
@@ -2058,7 +1369,8 @@ def _case_parallelism_docs_test(
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed")
     if plan.get("parallelism_allowed") is not True:
-        state["warnings"].append(
+        _record_warning(
+            state,
             "parallelism was conservatively blocked by current repo guardrails; role/context checks still ran"
         )
 
@@ -2132,7 +1444,7 @@ def _case_simple_scheduler_parallel_coordination(
     scratch = case_dir / "artifacts" / "simple-scheduler-repo"
     _init_git_native_dogfood_repo(scratch)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
     _record_command(
         state,
         "git init scratch simple-scheduler dogfood repo",
@@ -2220,7 +1532,7 @@ task_slices:
     }
     summary_path = case_dir / "artifacts" / "simple-scheduler-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
     _record_command(
         state,
         "devflow scheduler status --json (fixture)",
@@ -2276,7 +1588,7 @@ task_slices:
         "retry request preserved prior task evidence",
     )
     if commands_clean:
-        state["lessons"].append("no background scheduler or provider calls were introduced")
+        _record_lesson(state, "no background scheduler or provider calls were introduced")
     else:
         failures.append("no background scheduler or provider calls were introduced")
     return _finalize_case(root, case, state, scores, failures)
@@ -2289,7 +1601,7 @@ def _case_question_blocker_resume_loop(
     scratch = case_dir / "artifacts" / "question-resume-repo"
     _init_git_native_dogfood_repo(scratch)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
 
     task = create_task(scratch, "Dogfood question blocker")
     task.status = "blocked"
@@ -2321,9 +1633,9 @@ def _case_question_blocker_resume_loop(
     }
     summary_path = case_dir / "artifacts" / "question-resume-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
     if answered and answered.answer_path:
-        state["artifacts_created"].append(relative_path(scratch, scratch / answered.answer_path))
+        _record_artifact(state, scratch / answered.answer_path, root=scratch)
     _record_command(
         state,
         "devflow question list --json (fixture)",
@@ -2397,7 +1709,7 @@ def _case_operator_readiness_reconciliation(
     scratch = case_dir / "artifacts" / "operator-readiness-repo"
     _init_git_native_dogfood_repo(scratch)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
 
     project_dir = scratch / ".devflow" / "project"
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -2527,7 +1839,7 @@ def _case_operator_readiness_reconciliation(
     }
     summary_path = case_dir / "artifacts" / "operator-readiness-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
     _record_command(state, "devflow status --json (fixture)", status="passed", output=relative_path(root, summary_path))
     _record_command(state, "devflow scheduler status --json (fixture)", status="passed")
     _record_command(state, "devflow supervisor packet --json (fixture)", status="passed")
@@ -2604,7 +1916,7 @@ def _case_intent_scaffold_approval_path(
     scratch = case_dir / "artifacts" / "intent-scaffold-repo"
     _init_git_native_dogfood_repo(scratch)
     init_control_room(scratch)
-    state["artifacts_created"].append(relative_path(root, scratch))
+    _record_artifact(state, scratch, root=root)
     _record_command(
         state,
         "git init scratch intent-scaffold dogfood repo",
@@ -2635,7 +1947,7 @@ def _case_intent_scaffold_approval_path(
     written = write_scaffold_from_idea(scratch, idea["id"])
     scaffold_json = scratch / ".devflow" / "ideas" / idea["id"] / "scaffold-goal.json"
     scaffold_md = scratch / ".devflow" / "ideas" / idea["id"] / "scaffold-goal.md"
-    state["artifacts_created"].extend([relative_path(root, scaffold_json), relative_path(root, scaffold_md)])
+    _record_artifacts(state, [scaffold_json, scaffold_md], root=root)
     _record_command(
         state,
         f"devflow idea scaffold-goal {idea['id']}",
@@ -2669,7 +1981,7 @@ def _case_intent_scaffold_approval_path(
 
     created = create_goal_from_idea(scratch, idea["id"])
     goal_path = scratch / created.created_path
-    state["artifacts_created"].append(relative_path(root, goal_path))
+    _record_artifact(state, goal_path, root=root)
     _record_command(
         state,
         f"devflow idea create-goal {idea['id']}",
@@ -2729,7 +2041,7 @@ def _case_intent_scaffold_approval_path(
     }
     summary_path = case_dir / "artifacts" / "intent-scaffold-summary.json"
     atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, summary_path))
+    _record_artifact(state, summary_path, root=root)
 
     scaffold_written = (
         preview.get("status") == "ready_for_review"
@@ -2829,7 +2141,7 @@ def _case_operating_layer_visual_qa(
     result_path = case_dir / "artifacts" / "visual-qa-result.json"
     atomic_write_text(plan_path, json.dumps(plan, indent=2, sort_keys=True) + "\n")
     atomic_write_text(result_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].extend([relative_path(root, plan_path), relative_path(root, result_path)])
+    _record_artifacts(state, [plan_path, result_path], root=root)
     _record_command(
         state,
         "devflow operating-layer visual-qa --write-current --update-baseline --json",
@@ -2960,349 +2272,6 @@ _RUNNERS: dict[str, CaseRunner] = {
 }
 
 
-def _new_case_state(root: Path, run_id: str, case: dict[str, Any], case_dir: Path) -> dict[str, Any]:
-    (case_dir / "artifacts").mkdir(parents=True, exist_ok=True)
-    return {
-        "schema_version": DOGFOOD_SCHEMA_VERSION,
-        "run_id": run_id,
-        "case_id": case["id"],
-        "status": "passed",
-        "score": 0,
-        "max_score": _case_max_score(case),
-        "category_scores": {category: 0 for category in CATEGORY_MAX},
-        "commands_run": [],
-        "artifacts_created": [],
-        "files_changed": [],
-        "context_packet_size": None,
-        "token_usage_estimate": None,
-        "duration_seconds": 0.0,
-        "failure_reason": None,
-        "warnings": [],
-        "lessons": [],
-        "cleanup_status": "not_required",
-        "_started": time.monotonic(),
-        "_git_status_before": _git_short_status(root),
-    }
-
-
-def _finalize_case(
-    root: Path,
-    case: dict[str, Any],
-    state: dict[str, Any],
-    scores: dict[str, int],
-    failures: list[str],
-) -> dict[str, Any]:
-    state["category_scores"] = {category: scores.get(category, 0) for category in CATEGORY_MAX}
-    state["score"] = sum(state["category_scores"].values())
-    state["duration_seconds"] = round(time.monotonic() - float(state.pop("_started")), 3)
-    before = set(state.pop("_git_status_before"))
-    after = set(_git_short_status(root))
-    state["files_changed"] = sorted(after - before)
-    if failures:
-        state["status"] = "failed"
-        state["failure_reason"] = "; ".join(failures)
-    if state["score"] > state["max_score"]:
-        state["warnings"].append(f"score exceeded case max; capped from {state['score']} to {state['max_score']}")
-        state["score"] = state["max_score"]
-    state["critical"] = case["id"] in CRITICAL_CASES
-    return {key: value for key, value in state.items() if not key.startswith("_")}
-
-
-def _failed_case_result(
-    root: Path, run_id: str, case: dict[str, Any], case_dir: Path, exc: Exception
-) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
-    state["status"] = "failed"
-    state["failure_reason"] = f"{type(exc).__name__}: {exc}"
-    state["duration_seconds"] = round(time.monotonic() - float(state.pop("_started")), 3)
-    state.pop("_git_status_before", None)
-    state["critical"] = case["id"] in CRITICAL_CASES
-    return {key: value for key, value in state.items() if not key.startswith("_")}
-
-
-def _skipped_unknown_case(run_id: str, case_id: str, run_dir: Path) -> dict[str, Any]:
-    case_dir = run_dir / "cases" / case_id
-    case_dir.mkdir(parents=True, exist_ok=True)
-    result = {
-        "schema_version": DOGFOOD_SCHEMA_VERSION,
-        "run_id": run_id,
-        "case_id": case_id,
-        "status": "skipped",
-        "score": 0,
-        "max_score": 0,
-        "category_scores": {category: 0 for category in CATEGORY_MAX},
-        "commands_run": [],
-        "artifacts_created": [],
-        "files_changed": [],
-        "context_packet_size": None,
-        "token_usage_estimate": None,
-        "duration_seconds": 0.0,
-        "failure_reason": "case not found in suite",
-        "warnings": ["requested case was not found; scored as skipped"],
-        "lessons": [],
-        "cleanup_status": "not_required",
-        "critical": False,
-    }
-    _write_case_result(case_dir, result)
-    return result
-
-
-def _write_case_result(case_dir: Path, result: dict[str, Any]) -> None:
-    atomic_write_text(case_dir / "case-result.yaml", yaml.safe_dump(result, sort_keys=False))
-
-
-def _award(
-    state: dict[str, Any],
-    scores: dict[str, int],
-    failures: list[str],
-    category: str,
-    points: int,
-    condition: bool,
-    lesson: str,
-) -> None:
-    if condition:
-        scores[category] = scores.get(category, 0) + points
-        state["lessons"].append(lesson)
-    else:
-        failures.append(lesson)
-        state["warnings"].append(f"missed: {lesson}")
-
-
-def _build_scorecard(
-    run_id: str,
-    suite: str,
-    baseline: dict[str, Any],
-    requested: list[str],
-    results: list[dict[str, Any]],
-    duration: float,
-) -> dict[str, Any]:
-    category_max = {category: 0 for category in CATEGORY_MAX}
-    for case in production_readiness_cases():
-        if case["id"] in requested:
-            for category, points in case["scoring"].items():
-                category_max[category] += points
-    category_scores = {}
-    for category in CATEGORY_MAX:
-        score = sum(int(result.get("category_scores", {}).get(category, 0)) for result in results)
-        max_score = category_max[category]
-        percent = round((score / max_score) * 100, 1) if max_score else 100.0
-        category_scores[category] = {
-            "score": score,
-            "max": max_score,
-            "percent": percent,
-        }
-
-    total = sum(item["score"] for item in category_scores.values())
-    max_score = sum(item["max"] for item in category_scores.values())
-    failures = [
-        f"{result['case_id']}: {result['failure_reason']}"
-        for result in results
-        if result.get("status") in {"failed", "blocked"} and result.get("failure_reason")
-    ]
-    warnings = [
-        f"{result['case_id']}: {warning}"
-        for result in results
-        for warning in result.get("warnings", [])
-    ]
-    critical_failures = [
-        result["case_id"]
-        for result in results
-        if result.get("critical") and result.get("status") not in {"passed"}
-    ]
-    threshold = _threshold_result(total, max_score, category_scores, critical_failures)
-    return {
-        "schema_version": DOGFOOD_SCHEMA_VERSION,
-        "run_id": run_id,
-        "suite": suite,
-        "created_at": utc_now().isoformat(),
-        "git_baseline": baseline,
-        "total_score": total,
-        "max_score": max_score,
-        "category_scores": category_scores,
-        "threshold_result": threshold,
-        "critical_failures": critical_failures,
-        "failures": failures,
-        "warnings": warnings,
-        "duration_seconds": duration,
-    }
-
-
-def _build_run_yaml(
-    run_id: str,
-    suite: str,
-    baseline: dict[str, Any],
-    requested: list[str],
-    results: list[dict[str, Any]],
-    scorecard: dict[str, Any],
-    duration: float,
-) -> dict[str, Any]:
-    return {
-        "schema_version": DOGFOOD_SCHEMA_VERSION,
-        "run_id": run_id,
-        "created_at": scorecard["created_at"],
-        "suite": suite,
-        "git_baseline": baseline,
-        "cases_requested": requested,
-        "cases_run": [
-            {
-                "case_id": result["case_id"],
-                "status": result["status"],
-                "score": result["score"],
-                "max_score": result["max_score"],
-            }
-            for result in results
-        ],
-        "total_score": scorecard["total_score"],
-        "max_score": scorecard["max_score"],
-        "category_scores": scorecard["category_scores"],
-        "threshold_result": scorecard["threshold_result"],
-        "failures": scorecard["failures"],
-        "warnings": scorecard["warnings"],
-        "duration_seconds": duration,
-        "notes": [
-            "Deterministic local dogfood validation only.",
-            "No provider APIs, autonomous routing, auto-promotion, push, database, vector DB, RAG, dashboard, daemon, or ML training were added or invoked.",
-        ],
-    }
-
-
-def _render_report(run_yaml: dict[str, Any], scorecard: dict[str, Any], results: list[dict[str, Any]]) -> str:
-    threshold = scorecard["threshold_result"]
-    lines = [
-        "# Dev-Flow Production Readiness Dogfood Report",
-        "",
-        f"run_id: {run_yaml['run_id']}",
-        f"suite: {run_yaml['suite']}",
-        f"score: {scorecard['total_score']}/{scorecard['max_score']}",
-        f"threshold: {threshold['achieved']}",
-        f"silver_met: {'yes' if threshold['silver_met'] else 'no'}",
-        f"duration_seconds: {scorecard['duration_seconds']}",
-        "",
-        "## Category Scores",
-        "",
-    ]
-    for category, item in scorecard["category_scores"].items():
-        lines.append(f"- {CATEGORY_LABELS.get(category, category)}: {item['score']}/{item['max']} ({item['percent']}%)")
-    lines.extend(["", "## Cases", ""])
-    for result in results:
-        lines.append(
-            f"- {result['case_id']}: {result['status']} ({result['score']}/{result['max_score']})"
-        )
-    lines.extend(["", "## Failures", ""])
-    if scorecard["failures"]:
-        lines.extend(f"- {failure}" for failure in scorecard["failures"])
-    else:
-        lines.append("- none")
-    lines.extend(["", "## Warnings", ""])
-    if scorecard["warnings"]:
-        lines.extend(f"- {warning}" for warning in scorecard["warnings"])
-    else:
-        lines.append("- none")
-    lines.extend(
-        [
-            "",
-            "## Boundary Confirmation",
-            "",
-            "- provider_api_calls: none",
-            "- autonomous_routing: none",
-            "- auto_promotion: none",
-            "- push: none",
-            "- database: none",
-            "- vector_db_rag_embeddings: none",
-            "- dashboard_or_daemon: none",
-            "- ml_training: none",
-            "",
-            "## Next Safe Action",
-            "",
-            _next_safe_action(scorecard),
-            "",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def _threshold_result(
-    total: int,
-    max_score: int,
-    category_scores: dict[str, dict[str, float | int]],
-    critical_failures: list[str],
-) -> dict[str, Any]:
-    normalized = round((total / max_score) * 100, 1) if max_score else 0.0
-    category_percents = [
-        float(item["percent"])
-        for item in category_scores.values()
-        if int(item["max"]) > 0
-    ]
-    no_category_below_70 = all(percent >= 70.0 for percent in category_percents)
-    no_category_below_80 = all(percent >= 80.0 for percent in category_percents)
-    if normalized >= 95 and no_category_below_80 and not critical_failures:
-        achieved = "Bulletproof candidate"
-    elif normalized >= 90 and not critical_failures:
-        achieved = "Gold"
-    elif normalized >= 82 and no_category_below_70 and not critical_failures:
-        achieved = "Silver"
-    elif normalized >= 70:
-        achieved = "Bronze"
-    else:
-        achieved = "below Bronze"
-    return {
-        "achieved": achieved,
-        "normalized_score": normalized,
-        "bronze_met": normalized >= 70,
-        "silver_met": normalized >= SILVER_THRESHOLD and no_category_below_70 and not critical_failures,
-        "gold_met": normalized >= 90 and not critical_failures,
-        "bulletproof_candidate": normalized >= 95 and no_category_below_80 and not critical_failures,
-        "no_category_below_70": no_category_below_70,
-        "no_category_below_80": no_category_below_80,
-        "critical_failures": critical_failures,
-    }
-
-
-def _next_safe_action(scorecard: dict[str, Any]) -> str:
-    if scorecard["threshold_result"]["silver_met"]:
-        if scorecard["threshold_result"]["gold_met"]:
-            return "- Run `devflow release readiness` with full pytest and stale-context evidence before tagging or building a release."
-        return "- Improve the lowest-scoring category toward Gold without weakening any safety case."
-    category_scores = scorecard["category_scores"]
-    lowest = min(
-        (item for item in category_scores.items() if item[1]["max"] > 0),
-        key=lambda pair: pair[1]["percent"],
-        default=("none", {"percent": 0}),
-    )
-    return f"- Repair the lowest-scoring category first: {CATEGORY_LABELS.get(lowest[0], lowest[0])}."
-
-
-def _git_baseline(root: Path) -> dict[str, Any]:
-    state = inspect_git_state(root)
-    return {
-        "is_repo": state.is_repo,
-        "branch": state.branch,
-        "head_sha": state.head_sha,
-        "origin_main_sha": state.origin_main_sha,
-        "dirty_state": "dirty" if state.dirty else "clean",
-        "operation_in_progress": state.operation_in_progress,
-        "safe_for_worker_writes": state.safe_for_worker_writes,
-        "safe_for_promotion": state.safe_for_promotion,
-        "safe_for_push": state.safe_for_push,
-    }
-
-
-def _git_short_status(root: Path) -> list[str]:
-    try:
-        proc = subprocess.run(
-            ["git", "status", "--short"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if proc.returncode != 0:
-        return []
-    return [line for line in proc.stdout.splitlines() if line and not line[3:].startswith(".devflow/")]
-
-
 def _git_commit_count(root: Path) -> int:
     try:
         proc = subprocess.run(
@@ -3383,15 +2352,15 @@ def _dogfood_audition_discovery_report() -> LocalDiscoveryReport:
     installed = parse_ollama_list(
         """NAME                              ID              SIZE      MODIFIED
 qwen2.5-coder:7b-instruct         aaa111          4.7 GB    1 day ago
-gemma4-review:latest              bbb222          18 GB     1 day ago
-qwen2.5-coder:32b-instruct        ccc333          19 GB     1 day ago
+gemma4:12b-it-qat                 bbb222          18 GB     1 day ago
+qwen2.5-coder:14b                 ccc333          9 GB      1 day ago
 """
     )
     return LocalDiscoveryReport(installed, [], [])
 
 
 def _dogfood_audition_response(profile_id: str, *, task_id: str, task_title: str, task_status: str) -> str:
-    if profile_id == "local-gemma4-31b-dense-judge":
+    if profile_id == "local-gemma4-qat":
         return (
             "## Task Grounding\n"
             f"- Task ID: {task_id}\n"
@@ -3403,7 +2372,7 @@ def _dogfood_audition_response(profile_id: str, *, task_id: str, task_title: str
             "## Suggested Next Dev-Flow Action\n"
             f"devflow task show {task_id}\n"
         )
-    if profile_id == "local-qwen25-coder-32b-code-reviewer":
+    if profile_id == "local-qwen25-coder-14b":
         return (
             "## Task Grounding\n"
             f"- Task ID: {task_id}\n\n"
@@ -3482,9 +2451,9 @@ def _create_validation_failure(root: Path, run_id: str, case_dir: Path, state: d
         notes=["validation failure source for knowledge capture"],
     )
     atomic_write_text(outcome_path, json.dumps(outcome, indent=2, sort_keys=True) + "\n")
-    state["artifacts_created"].append(relative_path(root, outcome_path))
+    _record_artifact(state, outcome_path, root=root)
     validation = validate_worker_outcome_file(root, outcome_path)
-    state["artifacts_created"].append(validation["output_path"])
+    _record_artifact(state, validation["output_path"])
     _record_command(
         state,
         f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
@@ -3493,24 +2462,6 @@ def _create_validation_failure(root: Path, run_id: str, case_dir: Path, state: d
         output=validation["output_path"],
     )
     return validation["output_path"]
-
-
-def _record_command(
-    state: dict[str, Any],
-    command: str,
-    *,
-    status: str,
-    exit_code: int | None = None,
-    output: str | None = None,
-) -> None:
-    state["commands_run"].append(
-        {
-            "command": command,
-            "status": status,
-            "exit_code": exit_code,
-            "output": output,
-        }
-    )
 
 
 def _commands_have_no_provider_calls(commands: list[dict[str, Any]]) -> bool:
@@ -3552,28 +2503,11 @@ def _load_visual_qa_metadata(root: Path, artifact: dict[str, Any]) -> dict[str, 
         return {}
 
 
-def _cleanup_file(path: Path, warnings: list[str]) -> bool:
+def _cleanup_file(path: Path) -> tuple[bool, str | None]:
     try:
         path.unlink()
-        return True
+        return True, None
     except FileNotFoundError:
-        return True
+        return True, None
     except Exception as exc:
-        warnings.append(f"cleanup failed for {path.name}: {exc}")
-        return False
-
-
-def _case_max_score(case: dict[str, Any]) -> int:
-    return sum(int(value) for value in case.get("scoring", {}).values())
-
-
-def _validate_suite_totals(cases: list[dict[str, Any]]) -> None:
-    category_totals = {category: 0 for category in CATEGORY_MAX}
-    for case in cases:
-        errors = validate_dogfood_case(case)
-        if errors:
-            raise ValueError(f"Dogfood case {case.get('id', '<unknown>')} is invalid: {'; '.join(errors)}")
-        for category, points in case["scoring"].items():
-            category_totals[category] += points
-    if category_totals != CATEGORY_MAX:
-        raise ValueError(f"Dogfood suite scoring totals drifted: {category_totals} != {CATEGORY_MAX}")
+        return False, f"cleanup failed for {path.name}: {exc}"
