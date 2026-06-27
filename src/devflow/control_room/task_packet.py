@@ -199,8 +199,6 @@ def is_path_excluded(path_str: str) -> bool:
 
 def build_bounded_sources(
     root: Path,
-    task_id: str,
-    goal_id: str,
     goal_path: Path,
     task_path: Path,
     context_budget_data: dict[str, Any],
@@ -213,103 +211,21 @@ def build_bounded_sources(
 
     total_loaded_chars = 0
 
-    # Let's check for slice.md
-    slice_md = task_path / "slice.md"
-    slice_rel = relative_path(root, slice_md)
-    if slice_md.exists() and not is_path_excluded(slice_rel):
-        try:
-            content = slice_md.read_text(encoding="utf-8")
-            if len(content) > MAX_INCLUDED_SOURCE_CHARS:
-                content = content[:MAX_INCLUDED_SOURCE_CHARS]
-            
-            if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
-                remaining = MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars
-                content = content[:remaining]
-            
-            total_loaded_chars += len(content)
-            
-            included_summaries.append({
-                "source": slice_rel,
-                "kind": "summary",
-                "content": content
-            })
-            source_pointers.append(slice_rel)
-        except Exception as exc:
-            warnings.append(f"warning: failed to read slice.md: {exc}")
-
-    # Let's check for prd.md
-    prd_md = goal_path / "prd.md"
-    prd_rel = relative_path(root, prd_md)
-    if prd_md.exists() and not is_path_excluded(prd_rel):
-        try:
-            content = prd_md.read_text(encoding="utf-8")
-            original_chars = len(content)
-            truncated = False
-            included_chars = original_chars
-            if original_chars > MAX_INCLUDED_SOURCE_CHARS:
-                content = content[:MAX_INCLUDED_SOURCE_CHARS]
-                truncated = True
-                included_chars = MAX_INCLUDED_SOURCE_CHARS
-            
-            if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
-                remaining = MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars
-                content = content[:remaining]
-                truncated = True
-                included_chars = len(content)
-            
-            total_loaded_chars += len(content)
-            
-            entry = {
-                "source": prd_rel,
-                "kind": "summary",
-                "content": content,
-            }
-            if truncated:
-                entry["truncated"] = True
-                entry["original_chars"] = original_chars
-                entry["included_chars"] = included_chars
-            included_summaries.append(entry)
-            source_pointers.append(prd_rel)
-        except Exception as exc:
-            warnings.append(f"warning: failed to read prd.md: {exc}")
-    else:
-        warnings.append(f"warning: prd.md is missing in {goal_path.name}")
-
-    # Let's check for out-of-scope.md
-    oos_md = goal_path / "out-of-scope.md"
-    oos_rel = relative_path(root, oos_md)
-    if oos_md.exists() and not is_path_excluded(oos_rel):
-        try:
-            content = oos_md.read_text(encoding="utf-8")
-            original_chars = len(content)
-            truncated = False
-            included_chars = original_chars
-            if original_chars > MAX_OUT_OF_SCOPE_CHARS:
-                content = content[:MAX_OUT_OF_SCOPE_CHARS]
-                truncated = True
-                included_chars = MAX_OUT_OF_SCOPE_CHARS
-            
-            if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
-                remaining = MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars
-                content = content[:remaining]
-                truncated = True
-                included_chars = len(content)
-            
-            total_loaded_chars += len(content)
-            
-            entry = {
-                "source": oos_rel,
-                "kind": "summary",
-                "content": content,
-            }
-            if truncated:
-                entry["truncated"] = True
-                entry["original_chars"] = original_chars
-                entry["included_chars"] = included_chars
-            included_summaries.append(entry)
-            source_pointers.append(oos_rel)
-        except Exception as exc:
-            warnings.append(f"warning: failed to read out-of-scope.md: {exc}")
+    for path, max_chars, missing_warning in (
+        (task_path / "slice.md", MAX_INCLUDED_SOURCE_CHARS, None),
+        (goal_path / "prd.md", MAX_INCLUDED_SOURCE_CHARS, f"warning: prd.md is missing in {goal_path.name}"),
+        (goal_path / "out-of-scope.md", MAX_OUT_OF_SCOPE_CHARS, None),
+    ):
+        total_loaded_chars = _include_text_summary(
+            root,
+            path,
+            max_chars,
+            total_loaded_chars,
+            included_summaries,
+            source_pointers,
+            warnings,
+            missing_warning=missing_warning,
+        )
 
     # Decisions.yaml and open-questions.yaml as parsed YAML summaries
     decisions_yaml = goal_path / "decisions.yaml"
@@ -396,6 +312,58 @@ def build_bounded_sources(
         "source_pointers": source_pointers[:50],  # MAX_CONTEXT_POINTERS
         "excluded_sources": excluded_sources
     }
+
+
+def _include_text_summary(
+    root: Path,
+    path: Path,
+    max_chars: int,
+    total_loaded_chars: int,
+    included_summaries: list[dict[str, Any]],
+    source_pointers: list[str],
+    warnings: list[str],
+    *,
+    missing_warning: str | None = None,
+) -> int:
+    rel_path = relative_path(root, path)
+    if not path.exists():
+        if missing_warning:
+            warnings.append(missing_warning)
+        return total_loaded_chars
+    if is_path_excluded(rel_path):
+        return total_loaded_chars
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        warnings.append(f"warning: failed to read {path.name}: {exc}")
+        return total_loaded_chars
+
+    original_chars = len(content)
+    truncated = False
+    included_chars = original_chars
+    if original_chars > max_chars:
+        content = content[:max_chars]
+        truncated = True
+        included_chars = max_chars
+    if total_loaded_chars + len(content) > MAX_TOTAL_INCLUDED_SOURCE_CHARS:
+        remaining = max(0, MAX_TOTAL_INCLUDED_SOURCE_CHARS - total_loaded_chars)
+        content = content[:remaining]
+        truncated = True
+        included_chars = len(content)
+
+    total_loaded_chars += len(content)
+    entry: dict[str, Any] = {
+        "source": rel_path,
+        "kind": "summary",
+        "content": content,
+    }
+    if truncated:
+        entry["truncated"] = True
+        entry["original_chars"] = original_chars
+        entry["included_chars"] = included_chars
+    included_summaries.append(entry)
+    source_pointers.append(rel_path)
+    return total_loaded_chars
 
 
 def read_goal_link(root: Path, task_id: str) -> dict | None:
@@ -653,8 +621,6 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
             
             bounded_sources = build_bounded_sources(
                 repo_root,
-                task_id,
-                goal_id,
                 goal_path,
                 task_path,
                 context_budget,
