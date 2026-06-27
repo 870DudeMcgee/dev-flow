@@ -23,6 +23,7 @@ from devflow.control_room.agent_onboarding import build_agent_catalog
 from devflow.control_room.evidence_review_detail import EvidenceReviewDetail
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.idea_foundry import IdeaFoundryError, greenhouse_lane_for_idea, list_ideas
+from devflow.control_room.local_model_inventory import build_local_model_inventory
 from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
@@ -513,6 +514,7 @@ class OperatingLayerSnapshot(BaseModel):
     idea_greenhouse: OperatingLayerIdeaGreenhouse | None = None
     operator_readiness: OperatorReadinessSnapshot | None = None
     agent_catalog: dict[str, Any] = Field(default_factory=dict)
+    local_model_inventory: dict[str, Any] = Field(default_factory=dict)
     local_model_runtime: dict[str, Any] = Field(default_factory=dict)
     serial_local_agent_run: dict[str, Any] = Field(default_factory=dict)
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
@@ -552,6 +554,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
     if dashboard_next_action.command:
         dashboard_next_action.command = scope_task_command(dashboard_next_action.command, project_id)
+    agent_catalog = _agent_catalog_card(root, warnings)
 
     return OperatingLayerSnapshot(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -594,7 +597,8 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         scheduler=_scheduler_card(scheduler),
         idea_greenhouse=idea_greenhouse,
         operator_readiness=dashboard.operator_readiness,
-        agent_catalog=_agent_catalog_card(root, warnings),
+        agent_catalog=agent_catalog,
+        local_model_inventory=build_local_model_inventory(agent_catalog),
         local_model_runtime=list_local_model_runtime_status(root),
         serial_local_agent_run=_serial_local_agent_run_card(root, warnings),
         action_rail=_project_actions(project_id),

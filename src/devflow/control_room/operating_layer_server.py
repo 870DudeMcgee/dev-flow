@@ -437,7 +437,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 load_agent_registry,
                 load_provider_registry,
             )
+            from devflow.control_room.local_model_inventory import build_local_model_inventory
             catalog = build_agent_catalog(root)
+            profile_by_id = {
+                profile["id"]: profile
+                for profile in catalog.get("profiles", [])
+                if isinstance(profile, dict) and profile.get("id")
+            }
             availability_by_profile = {
                 profile["id"]: profile.get("availability", {})
                 for profile in catalog.get("profiles", [])
@@ -459,6 +465,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 availability = availability_by_profile.get(agent.id, {})
                 if is_local and availability.get("status") in {"missing", "unavailable"}:
                     continue
+                catalog_profile = profile_by_id.get(agent.id, {})
                 agents.append({
                     "id": agent.id,
                     "model": agent.model,
@@ -467,10 +474,20 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     "tier": agent.tier,
                     "secondary_roles": agent.secondary_roles,
                     "provider": agent.provider,
+                    "adapter": catalog_profile.get("adapter") or agent.adapter,
+                    "role": catalog_profile.get("role") or agent.role,
+                    "authority": catalog_profile.get("authority"),
                     "is_local": is_local,
                     "availability": availability,
+                    "runtime_contract": catalog_profile.get("runtime_contract", {}),
                 })
-            self._send_json({"agents": agents}, HTTPStatus.OK)
+            self._send_json(
+                {
+                    "agents": agents,
+                    "local_model_inventory": build_local_model_inventory(catalog),
+                },
+                HTTPStatus.OK,
+            )
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 

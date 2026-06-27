@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 from devflow.cli import app
 from devflow.control_room.agent_registry import load_agent_registry, load_provider_registry
 from devflow.control_room.agent_runtime import agent_runtime_contract
+from devflow.control_room.local_model_inventory import build_local_model_inventory
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from tests.helpers import setup_temp_git_repo
 
@@ -544,6 +545,167 @@ custom_providers:
         "devflow agent add-model --provider qwen35-mtp --model qwen35-9b-mtp "
         "--authority advisory --role frontier_planner_architect_reviewer --profile-id local-qwen35-mtp"
     ) in commands
+
+
+def test_local_model_inventory_builds_machine_summary_and_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    monkeypatch.setenv("DEVFLOW_MACHINE_RAM_GB", "16")
+
+    server, thread = _start_models_server(
+        {
+            "object": "list",
+            "data": [
+                {
+                    "id": "qwen35-9b-mtp",
+                    "object": "model",
+                    "owned_by": "llamacpp",
+                    "meta": {"n_ctx": 65536, "n_params": 9197093888},
+                }
+            ],
+        }
+    )
+    port = server.server_address[1]
+    hermes_config = tmp_path / ".hermes" / "config.yaml"
+    hermes_config.parent.mkdir(parents=True)
+    hermes_config.write_text(
+        f"""model:
+  default: qwen35-9b-mtp
+  provider: custom:qwen35-mtp
+  base_url: http://127.0.0.1:{port}/v1
+  context_length: 65536
+custom_providers:
+- name: qwen35-mtp
+  base_url: http://127.0.0.1:{port}/v1
+  model: qwen35-9b-mtp
+""",
+        encoding="utf-8",
+    )
+
+    add_provider = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-provider",
+            "qwen35-mtp",
+            "--adapter",
+            "openai_compatible",
+            "--base-url",
+            f"http://127.0.0.1:{port}/v1",
+            "--json",
+        ],
+    )
+    assert add_provider.exit_code == 0, add_provider.output
+    add_model = runner.invoke(
+        app,
+        [
+            "agent",
+            "add-model",
+            "--provider",
+            "qwen35-mtp",
+            "--model",
+            "qwen35-9b-mtp",
+            "--authority",
+            "advisory",
+            "--role",
+            "frontier_planner_architect_reviewer",
+            "--profile-id",
+            "local-qwen35-mtp",
+            "--json",
+        ],
+    )
+    assert add_model.exit_code == 0, add_model.output
+
+    try:
+        result = runner.invoke(app, ["agent", "catalog", "--json"])
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert result.exit_code == 0, result.output
+    inventory = build_local_model_inventory(json.loads(result.output))
+
+    assert inventory["schema_version"] == 1
+    assert inventory["summary"]["default_model"] == "qwen35-9b-mtp"
+    assert inventory["summary"]["default_provider_id"] == "qwen35-mtp"
+    assert inventory["summary"]["machine_label"] == "16GB mac_mini"
+    assert inventory["summary"]["concurrency_label"] == "one local model at a time"
+    assert inventory["summary"]["available_profile_count"] >= 1
+    qwen = next(row for row in inventory["rows"] if row["row_id"] == "profile:local-qwen35-mtp")
+    assert qwen == {
+        "row_id": "profile:local-qwen35-mtp",
+        "kind": "registered_profile",
+        "provider_id": "qwen35-mtp",
+        "provider_label": "qwen35-mtp",
+        "model": "qwen35-9b-mtp",
+        "profile_id": "local-qwen35-mtp",
+        "selectable_profile_id": "local-qwen35-mtp",
+        "status": "available",
+        "status_label": "Available",
+        "source": "local_openai_compatible",
+        "adapter": "openai_compatible",
+        "role": "frontier_planner_architect_reviewer",
+        "authority": "advisory",
+        "size": None,
+        "context_length": 65536,
+        "n_params": 9197093888,
+        "weight_class": "medium",
+        "machine_fit_status": "preferred",
+        "machine_fit_reason": "Preferred local Hermes model for this machine.",
+        "action": None,
+        "detail": "Registered profile is available on this machine.",
+    }
+
+
+def test_local_model_inventory_adds_concrete_ollama_onboarding_action(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_ollama(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        if args == ["ollama", "list"]:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout="NAME              ID       SIZE      MODIFIED\n"
+                "qwen3:14b         abc123   9.3 GB    1 day ago\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=(
+                "  Model\n"
+                "    architecture        qwen3\n"
+                "    parameters          14.0B\n"
+                "    context length      40960\n"
+                "    quantization        Q4_K_M\n"
+                "  Capabilities\n"
+                "    completion\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("devflow.control_room.local_agent_discovery._run_ollama", fake_run_ollama)
+
+    result = runner.invoke(app, ["agent", "catalog", "--json"])
+
+    assert result.exit_code == 0, result.output
+    inventory = build_local_model_inventory(json.loads(result.output))
+    row = next(row for row in inventory["rows"] if row["kind"] == "unregistered_ollama_model")
+    assert row["model"] == "qwen3:14b"
+    assert row["status"] == "needs_profile"
+    assert row["action"]["label"] == "Add profile"
+    assert row["action"]["command"] == (
+        "devflow agent add-model --provider ollama --model qwen3:14b "
+        "--authority read-only --role local_senior_worker --json"
+    )
 
 
 def test_operating_layer_snapshot_exposes_agent_catalog_and_model_actions(

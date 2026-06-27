@@ -251,7 +251,19 @@ def test_operating_layer_home_layout_uses_compact_shell_contract() -> None:
     assert "#topbar-health" in APP_CSS
     assert ".health-section" not in APP_CSS
     assert "orchestrator-health-bars" in INDEX_HTML
+    assert "local-model-inventory" in INDEX_HTML
     assert "renderTopbarHealth" in APP_JS
+    assert "renderLocalModelInventory" in APP_JS
+    assert "data-local-model-command" in APP_JS
+    for token in (
+        ".local-model-inventory",
+        ".local-model-summary",
+        ".local-model-list",
+        ".local-model-item",
+        ".local-model-status",
+        ".local-model-action",
+    ):
+        assert token in APP_CSS
 
     assert 'id="brainstorm-history-details"' in INDEX_HTML
     assert ".history-panel details" in APP_CSS
@@ -301,6 +313,15 @@ def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
         "Evidence paths",
     ):
         assert token in APP_JS
+
+
+def test_operating_layer_js_model_selectors_share_all_available_agents_contract() -> None:
+    assert "function selectableAgents()" in APP_JS
+    assert "const agentRows = selectableAgents().map(agent =>" in APP_JS
+    assert "const selectorAgents = selectableAgents();" in APP_JS
+    assert "selectorAgents.map(a =>" in APP_JS
+    assert "const ids = selectorAgents.map(a => a.id);" in APP_JS
+    assert "a.adapter === 'openai_compatible' || a.adapter === 'ollama_chat'" not in APP_JS
 
 
 def test_operating_layer_css_includes_park_archive_form_tokens() -> None:
@@ -1734,12 +1755,35 @@ def test_operating_layer_agents_marks_local_openai_compatible_profiles_as_local(
         assert response.status == HTTPStatus.OK
         qwen = next(agent for agent in payload["agents"] if agent["id"] == "local-qwen35-mtp")
         assert qwen["is_local"] is True
+        assert qwen["adapter"] == "openai_compatible"
+        assert qwen["role"] == "frontier_planner_architect_reviewer"
+        assert qwen["authority"] == "advisory"
         assert qwen["availability"]["status"] == "available"
         assert qwen["availability"]["source"] == "local_openai_compatible"
+        assert qwen["runtime_contract"]["execution_surface"] == "agent_advise"
+        assert payload["local_model_inventory"]["schema_version"] == 1
+        assert any(
+            row["row_id"] == "profile:local-qwen35-mtp"
+            for row in payload["local_model_inventory"]["rows"]
+        )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_operating_layer_snapshot_exposes_local_model_inventory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    snapshot = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    assert snapshot["local_model_inventory"]["schema_version"] == 1
+    assert "summary" in snapshot["local_model_inventory"]
+    assert "rows" in snapshot["local_model_inventory"]
 
 
 def test_operating_layer_server_exposes_brainstorm_message_and_escalation(

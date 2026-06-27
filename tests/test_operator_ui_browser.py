@@ -191,6 +191,44 @@ def operating_layer_url(scratch_state: ScratchState) -> str:
 
 
 @pytest.fixture()
+def operating_layer_url_with_fake_ollama(scratch_state: ScratchState, tmp_path: Path) -> str:
+    port = _free_port()
+    fake_bin = _write_fake_ollama(tmp_path)
+    env = _devflow_env(scratch_state.devflow_home)
+    env["PATH"] = f"{fake_bin.as_posix()}:{env.get('PATH', '')}"
+    env["DEVFLOW_MACHINE_RAM_GB"] = "16"
+    process = subprocess.Popen(
+        [
+            PYTHON.as_posix(),
+            "-m",
+            "devflow.cli",
+            "operating-layer",
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=scratch_state.root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    base_url = f"http://127.0.0.1:{port}"
+    try:
+        _wait_for_healthz(base_url, process)
+        yield base_url
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+
+@pytest.fixture()
 def browser_page(operating_layer_url: str):
     if sync_playwright is None:
         pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
@@ -203,6 +241,24 @@ def browser_page(operating_layer_url: str):
         console_errors: list[str] = []
         page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
         page.goto(operating_layer_url, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+        yield page, console_errors
+        browser.close()
+
+
+@pytest.fixture()
+def browser_page_with_fake_ollama(operating_layer_url_with_fake_ollama: str):
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.goto(operating_layer_url_with_fake_ollama, wait_until="domcontentloaded")
         _wait_for_hydration(page)
         yield page, console_errors
         browser.close()
@@ -238,6 +294,40 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
     expect(page.locator("#guided-review-queue")).to_contain_text("Browser promotion candidate")
     assert _no_horizontal_overflow(page)
+    assert console_errors == []
+
+
+def test_local_model_inventory_and_dropdown_show_fake_ollama_models(
+    browser_page_with_fake_ollama: tuple[Page, list[str]],
+) -> None:
+    page, console_errors = browser_page_with_fake_ollama
+
+    page.locator(".topbar-health-details summary").click()
+    inventory = page.locator("#local-model-inventory")
+    expect(inventory).to_be_visible()
+    expect(inventory).to_contain_text("Local Models")
+    expect(inventory).to_contain_text("16GB mac_mini")
+    expect(inventory).to_contain_text("one local model at a time")
+    expect(inventory).to_contain_text("qwopus:latest")
+    expect(inventory).to_contain_text("qwen3:14b")
+    expect(inventory.locator("[data-local-model-command]", has_text="Add profile")).to_be_visible()
+
+    page.locator(".topbar-health-details summary").click()
+    page.locator("#model-selector").click()
+    dropdown = page.locator("#model-dropdown")
+    expect(dropdown).to_be_visible()
+    expect(dropdown).to_contain_text("Available profiles")
+    expect(dropdown).to_contain_text("Installed local models")
+    expect(dropdown).to_contain_text("local-qwopus-inspector")
+    expect(dropdown).to_contain_text("qwen3:14b")
+    expect(dropdown.locator("[data-agent-id='local-qwopus-inspector']")).to_be_visible()
+    expect(dropdown.locator("[data-local-model-command]", has_text="Add profile")).to_be_visible()
+
+    dropdown.locator("[data-agent-id='local-qwopus-inspector']").click()
+    expect(page.locator("#model-selector-label")).to_contain_text("local-qwopus-inspector")
+
+    assert page.locator("#bj-builder-model option[value='local-qwopus-inspector']").count() == 1
+    assert page.locator("#bj-judge-model option[value='local-qwopus-inspector']").count() == 1
     assert console_errors == []
 
 
@@ -1263,6 +1353,61 @@ def test_live_local_model_action_runs_only_when_enabled(
         pytest.skip("Set DEVFLOW_UI_LIVE_LOCAL_MODELS=1 for live local-model browser signoff.")
 
     pytest.skip("Launchpad browser signoff does not exercise live local-model execution yet.")
+
+
+def _write_fake_ollama(tmp_path: Path) -> Path:
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    script = fake_bin / "ollama"
+    script.write_text(
+        """#!/bin/sh
+set -eu
+if [ "${1:-}" = "list" ]; then
+  cat <<'EOF'
+NAME              ID       SIZE      MODIFIED
+qwopus:latest     aaa111   19 GB     1 day ago
+qwen3:14b         bbb222   9.3 GB    2 days ago
+EOF
+  exit 0
+fi
+if [ "${1:-}" = "show" ]; then
+  case "${2:-}" in
+    qwopus:latest)
+      cat <<'EOF'
+  Model
+    architecture        qwen2
+    parameters          32.0B
+    context length      32768
+    quantization        Q4_K_M
+  Capabilities
+    completion
+EOF
+      ;;
+    qwen3:14b)
+      cat <<'EOF'
+  Model
+    architecture        qwen3
+    parameters          14.0B
+    context length      40960
+    quantization        Q4_K_M
+  Capabilities
+    completion
+EOF
+      ;;
+    *)
+      echo "unknown model: ${2:-}" >&2
+      exit 1
+      ;;
+  esac
+  exit 0
+fi
+echo "unsupported ollama command: $*" >&2
+exit 1
+""",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return fake_bin
 
 
 def _run_devflow(cwd: Path, devflow_home: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:

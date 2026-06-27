@@ -115,6 +115,7 @@ INDEX_HTML = """<!doctype html>
               </summary>
               <div class="topbar-health-popover">
                 <div id="orchestrator-health-bars" class="health-bars"></div>
+                <div id="local-model-inventory" class="local-model-inventory"></div>
                 <div class="health-meta">
                   <div><span class="label">Freshness</span><output id="orchestrator-freshness">unknown</output></div>
                   <div><span class="label">Goal</span><output id="orchestrator-goal-id">none</output></div>

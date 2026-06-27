@@ -9,6 +9,7 @@ let userSelectedBrainstormSession = false;
 let brainstormMessage = '';
 let selectedTaskId = null;
 let availableAgents = [];
+let localModelInventory = {};
 let selectedProfileId = localStorage.getItem('devflow-brainstorm-profile') || null;
 const ACTION_APPROVAL_PHRASE = 'I approve this exact Dev-Flow command';
 const BRAINSTORM_DOD_PREFIX = 'devflow-brainstorm-definition-of-done:';
@@ -553,6 +554,7 @@ async function loadSnapshot(project) {
   try {
     const resp = await fetch(url);
     snapshot = await resp.json();
+    localModelInventory = snapshot.local_model_inventory || localModelInventory || {};
     adoptFirstViewportBrainstormSession(snapshot);
     render();
   } catch (e) {
@@ -709,29 +711,46 @@ async function loadAgents() {
     const resp = await fetch('/api/agents');
     const data = await resp.json();
     availableAgents = data.agents || [];
+    localModelInventory = data.local_model_inventory || {};
     renderModelDropdown();
+    populateBJModelSelectors();
   } catch(e) {
     availableAgents = [];
+    localModelInventory = {};
+    renderModelDropdown();
+    populateBJModelSelectors();
   }
 }
 
 function renderModelDropdown() {
   const dropdown = $('model-dropdown');
   if (!dropdown) return;
-  if (availableAgents.length === 0) {
+  const rows = Array.isArray(localModelInventory?.rows) ? localModelInventory.rows : [];
+  const selectableIds = new Set(selectableAgents().map(agent => agent.id));
+  const agentRows = selectableAgents().map(agent => ({
+    kind: 'agent',
+    id: agent.id,
+    label: agent.label || agent.id,
+    model: agent.model || '',
+    purpose: agent.purpose || '',
+    is_local: Boolean(agent.is_local),
+  }));
+  const installedRows = rows.filter(row => row.kind === 'unregistered_ollama_model');
+  const endpointRows = rows.filter(row => row.kind === 'local_endpoint_model' || row.kind === 'local_endpoint');
+  const unavailableRows = rows.filter(row =>
+    row.kind === 'registered_profile' && !selectableIds.has(row.selectable_profile_id || row.profile_id || '')
+  );
+  const sections = [];
+  if (agentRows.length) sections.push(renderModelDropdownSection('Available profiles', agentRows.map(renderSelectableModelRow)));
+  if (installedRows.length) sections.push(renderModelDropdownSection('Installed local models', installedRows.map(renderInventoryModelRow)));
+  if (endpointRows.length) sections.push(renderModelDropdownSection('Local endpoints', endpointRows.map(renderInventoryModelRow)));
+  if (unavailableRows.length) sections.push(renderModelDropdownSection('Unavailable', unavailableRows.map(renderInventoryModelRow)));
+  if (!sections.length) {
     dropdown.innerHTML = '<div class="model-dropdown-item"><div class="md-name">No agents available</div></div>';
     return;
   }
-  dropdown.innerHTML = availableAgents.map(agent => {
-    const isActive = agent.id === selectedProfileId;
-    const localityBadge = agent.is_local ? '<span style="font-size:9px;color:var(--accent);margin-left:4px;">LOCAL</span>' : '<span style="font-size:9px;color:var(--text-muted);margin-left:4px;">CLOUD</span>';
-    return `<div class="model-dropdown-item${isActive ? ' active' : ''}" data-agent-id="${esc(agent.id)}">
-      <div class="md-name">${esc(agent.label || agent.id)}${localityBadge}</div>
-      <div class="md-model">${esc(agent.model)}</div>
-      ${agent.purpose ? `<div class="md-purpose">${esc(agent.purpose)}</div>` : ''}
-    </div>`;
-  }).join('');
-  dropdown.querySelectorAll('.model-dropdown-item').forEach(item => {
+  dropdown.innerHTML = sections.join('');
+  dropdown.querySelectorAll('[data-agent-id]').forEach(item => {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       const agentId = item.dataset.agentId;
@@ -746,6 +765,63 @@ function renderModelDropdown() {
       }
     });
   });
+  dropdown.querySelectorAll('[data-local-model-command]').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const command = button.dataset.localModelCommand || '';
+      if (!command) return;
+      button.disabled = true;
+      try {
+        await runApprovedCommand(command, {});
+        await loadAgents();
+        await loadSnapshot(selectedProjectId);
+      } catch(err) {
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Onboarding failed', command });
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+function selectableAgents() {
+  return (availableAgents || []).filter(agent => agent && agent.id);
+}
+
+function renderModelDropdownSection(label, rowHtml) {
+  if (!rowHtml.length) return '';
+  return `<div class="model-dropdown-section">
+    <div class="model-dropdown-section-title">${esc(label)}</div>
+    ${rowHtml.join('')}
+  </div>`;
+}
+
+function renderSelectableModelRow(agent) {
+  const isActive = agent.id === selectedProfileId;
+  const localityBadge = agent.is_local
+    ? '<span class="md-badge local">LOCAL</span>'
+    : '<span class="md-badge cloud">CLOUD</span>';
+  return `<div class="model-dropdown-item${isActive ? ' active' : ''}" data-agent-id="${esc(agent.id)}">
+    <div class="md-name">${esc(agent.label)}${localityBadge}</div>
+    <div class="md-model">${esc(agent.model)}</div>
+    ${agent.purpose ? `<div class="md-purpose">${esc(agent.purpose)}</div>` : ''}
+  </div>`;
+}
+
+function renderInventoryModelRow(row) {
+  const action = row?.action || null;
+  const status = row?.status_label || sentenceCase(row?.status || '');
+  const actionHtml = action?.command
+    ? `<button type="button" class="local-model-action" data-local-model-command="${esc(action.command)}">${esc(action.label || 'Add profile')}</button>`
+    : '';
+  const detail = row?.detail || row?.machine_fit_reason || '';
+  return `<div class="model-dropdown-item model-dropdown-inventory-item">
+    <div class="md-name">${esc(row?.model || row?.provider_label || 'Local endpoint')}<span class="md-badge muted">${esc(status)}</span></div>
+    <div class="md-model">${esc(row?.provider_label || row?.provider_id || '')}${row?.adapter ? ` · ${esc(row.adapter)}` : ''}</div>
+    ${detail ? `<div class="md-purpose">${esc(detail)}</div>` : ''}
+    ${actionHtml}
+  </div>`;
 }
 
 function setupModelSelector() {
@@ -2523,7 +2599,7 @@ function renderTopbarHealth(snapHealth, agentCatalog, activeTaskCount) {
         </div>`;
       }).join('');
     }
-    health.innerHTML = healthHtml + localModelHealthHtml(agentCatalog || {});
+    health.innerHTML = healthHtml;
   }
   setText(
     'orchestrator-freshness',
@@ -2534,54 +2610,76 @@ function renderTopbarHealth(snapHealth, agentCatalog, activeTaskCount) {
   setText('orchestrator-goal-id', currentSnapshot.focus_goal_id || (activeTaskCount ? `${activeTaskCount} tasks` : 'none'));
 }
 
-function localModelHealthHtml(agentCatalog) {
-  const ollama = agentCatalog?.local_ollama || {};
-  const openaiLocal = agentCatalog?.local_openai_compatible || {};
-  const policy = agentCatalog?.local_model_policy || {};
-  const machine = policy.machine || {};
-  const concurrency = policy.local_model_concurrency || {};
-  const ollamaModels = Array.isArray(ollama.installed_models) ? ollama.installed_models : [];
-  const endpointProviders = Array.isArray(openaiLocal.providers) ? openaiLocal.providers : [];
-  const readyEndpoints = endpointProviders.filter(provider => provider?.status === 'ready');
-  const endpointModels = readyEndpoints.flatMap(provider => {
-    const advertised = Array.isArray(provider.advertised_models) ? provider.advertised_models : [];
-    const configured = Array.isArray(provider.configured_models) ? provider.configured_models : [];
-    const rows = advertised.length ? advertised : configured;
-    return rows.map(model => ({
-      provider: provider.name || provider.id || 'local',
-      id: model.id || model.model || model.name || '',
-      context: model.context_length || null,
-    })).filter(model => model.id);
-  });
-  const defaultModel = policy.default_model || '';
-  const machineText = machine.total_memory_gb
-    ? `${machine.total_memory_gb}GB ${machine.machine_class || 'machine'}`
-    : (machine.machine_class || 'machine unknown');
-  const concurrencyText = concurrency.mode === 'single_flight'
-    ? 'one local model at a time'
-    : (concurrency.mode || 'runtime guarded');
-  if (!ollamaModels.length && !endpointModels.length) {
-    return `<div class="health-row local-model-row"><span class="label">Local models</span><span class="health-local-models">none discovered${defaultModel ? ` · default ${esc(defaultModel)}` : ''}<em>${esc(machineText)} · ${esc(concurrencyText)}</em></span></div>`;
+function renderLocalModelInventory(inventory) {
+  const container = $('local-model-inventory');
+  if (!container) return;
+  const summary = inventory?.summary || {};
+  const rows = Array.isArray(inventory?.rows) ? inventory.rows : [];
+  const machine = summary.machine_label || 'machine unknown';
+  const concurrency = summary.concurrency_label || 'local model concurrency unknown';
+  if (!rows.length) {
+    container.innerHTML = `<div class="local-model-summary">
+      <strong>Local Models</strong>
+      <span>${esc(machine)} · ${esc(concurrency)}</span>
+      <em>No local models discovered.</em>
+    </div>`;
+    return;
   }
-  const shownModels = endpointModels.slice(0, 3).map(model => {
-    const context = model.context ? ` ${model.context} ctx` : '';
-    return `${model.provider}/${model.id}${context}`;
-  }).join(' | ');
-  const endpointSummaries = readyEndpoints.slice(0, 4).map(provider => {
-    const advertised = Array.isArray(provider.advertised_models) ? provider.advertised_models : [];
-    const configured = Array.isArray(provider.configured_models) ? provider.configured_models : [];
-    const model = (advertised.length ? advertised : configured)[0] || {};
-    const modelId = model.id || model.model || model.name || provider.configured_model || '';
-    const context = model.context_length ? ` ${model.context_length} ctx` : '';
-    return `${provider.name || provider.id}${modelId ? `/${modelId}${context}` : ''}`;
-  }).filter(Boolean).join(' | ');
-  const endpointText = endpointModels.length
-    ? `<span>Hermes/custom ${endpointModels.length}</span>${endpointSummaries ? `<em>${esc(shortCommand(endpointSummaries, 150))}</em>` : shownModels ? `<em>${esc(shortCommand(shownModels, 120))}</em>` : ''}`
-    : '<span>Hermes/custom 0</span>';
-  return `<div class="health-row local-model-row">
-    <span class="label">Local models</span>
-    <span class="health-local-models"><strong>${defaultModel ? `Default ${esc(defaultModel)}` : `Ollama ${ollamaModels.length}`}</strong><span>Ollama ${ollamaModels.length}</span>${endpointText}<em>${esc(machineText)} · ${esc(concurrencyText)}</em></span>
+  const shownRows = rows.slice(0, 10);
+  container.innerHTML = `<div class="local-model-summary">
+    <strong>Local Models</strong>
+    <span>${esc(machine)} · ${esc(concurrency)}</span>
+    <em>${esc(summary.available_profile_count || 0)} available profiles · ${esc(summary.unregistered_count || 0)} need onboarding</em>
+  </div>
+  <div class="local-model-list">
+    ${shownRows.map(renderLocalModelInventoryItem).join('')}
   </div>`;
+  attachLocalModelActionHandlers(container);
+}
+
+function renderLocalModelInventoryItem(row) {
+  const status = row?.status_label || sentenceCase(row?.status || '');
+  const model = row?.model || row?.provider_label || 'Local endpoint';
+  const provider = row?.provider_label || row?.provider_id || row?.source || '';
+  const meta = [
+    row?.adapter,
+    row?.context_length ? `${row.context_length} ctx` : '',
+    row?.weight_class || '',
+  ].filter(Boolean).join(' · ');
+  const action = row?.action || null;
+  const actionHtml = action?.command
+    ? `<button type="button" class="local-model-action" data-local-model-command="${esc(action.command)}">${esc(action.label || 'Add profile')}</button>`
+    : '';
+  return `<div class="local-model-item">
+    <div class="local-model-item-main">
+      <strong>${esc(model)}</strong>
+      <span>${esc(provider)}${meta ? ` · ${esc(meta)}` : ''}</span>
+      ${row?.detail ? `<em>${esc(row.detail)}</em>` : ''}
+    </div>
+    <span class="local-model-status">${esc(status)}</span>
+    ${actionHtml}
+  </div>`;
+}
+
+function attachLocalModelActionHandlers(root) {
+  root.querySelectorAll('[data-local-model-command]').forEach(button => {
+    button.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const command = button.dataset.localModelCommand || '';
+      if (!command) return;
+      button.disabled = true;
+      try {
+        await runApprovedCommand(command, {});
+        await loadAgents();
+        await loadSnapshot(selectedProjectId);
+      } catch(err) {
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Onboarding failed', command });
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function shouldUsePresentationPipeline(pipeline) {
@@ -3494,6 +3592,7 @@ function render() {
   // The first viewport consumes renderable presentation slices with snapshot fallbacks.
   renderIdeaGreenhouse(snapshot?.idea_greenhouse || null);
   renderFirstViewport(firstViewportPresentationFromSnapshot(snapshot));
+  renderLocalModelInventory(snapshot?.local_model_inventory || localModelInventory || {});
 }
 
 // === INIT ===
@@ -3513,25 +3612,30 @@ function populateBJModelSelectors() {
   const builderSel = $('bj-builder-model');
   const judgeSel = $('bj-judge-model');
   if (!builderSel || !judgeSel) return;
+  const previousBuilder = builderSel.value;
+  const previousJudge = judgeSel.value;
 
-  // Use availableAgents (populated from /api/agents)
-  const agents = availableAgents || [];
-  const advisoryAgents = agents.filter(a =>
-    a.adapter === 'openai_compatible' || a.adapter === 'ollama_chat'
-  );
+  // Use the same selectable agent set as the Brainstorm model selector.
+  const selectorAgents = selectableAgents();
 
-  const optionsHtml = advisoryAgents.length
-    ? advisoryAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
+  const optionsHtml = selectorAgents.length
+    ? selectorAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
     : '<option value="deepseek-v4-flash-free-brainstormer">DeepSeek V4 Flash Free</option>';
 
   builderSel.innerHTML = optionsHtml;
-  judgeSel.innerHTML = advisoryAgents.length
-    ? advisoryAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
+  judgeSel.innerHTML = selectorAgents.length
+    ? selectorAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
     : '<option value="glm-5-2-brainstormer">GLM 5.2</option>';
 
-  // Default selections
-  builderSel.value = 'deepseek-v4-flash-free-brainstormer';
-  judgeSel.value = 'glm-5-2-brainstormer';
+  const ids = selectorAgents.map(a => a.id);
+  if (ids.length) {
+    const selectedId = selectedProfileId && ids.includes(selectedProfileId) ? selectedProfileId : null;
+    builderSel.value = ids.includes(previousBuilder) ? previousBuilder : (selectedId || ids[0]);
+    judgeSel.value = ids.includes(previousJudge) ? previousJudge : (ids.find(id => id !== builderSel.value) || ids[0]);
+  } else {
+    builderSel.value = 'deepseek-v4-flash-free-brainstormer';
+    judgeSel.value = 'glm-5-2-brainstormer';
+  }
 }
 
 function setBJStatus(text, cls) {
