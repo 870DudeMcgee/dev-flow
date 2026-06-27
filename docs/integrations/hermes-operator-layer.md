@@ -12,7 +12,7 @@ Dev-Flow remains the durable engineering control room and source of truth for:
 - cleanup previews and apply gates
 - promotion readiness and promotion
 
-Codex, Qwopus, shell, Antigravity, and other local workers are replaceable execution engines. Josh remains the promotion authority. Hermes memory is convenience context only; Dev-Flow artifacts beat Hermes memory every time.
+Codex, Sonnet, Opus, Qwen, MiniMax, shell, and local models are replaceable execution engines. Josh remains the promotion authority. Hermes memory is convenience context only; Dev-Flow artifacts beat Hermes memory every time.
 
 ## Operator Flow
 
@@ -39,7 +39,7 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli task next-action <task-id> --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli task review <task-id> --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-gemma4-qat --dry-run --json
 ```
 
 ## Operating Rules
@@ -57,6 +57,55 @@ action: run_safe_command
 ```
 
 Dev-Flow discovers the active Hermes config and local OpenAI-compatible model endpoints at runtime. Operators should inspect `devflow agent catalog --json` instead of copying machine-specific model maps between Macs. The catalog exposes machine RAM/classification, the default local model, configured/discovered Hermes providers, model fit, and the local concurrency rule. On current Mac mini setup, `qwen35-9b-mtp` is the preferred local default. Gemma is not the default local model.
+
+## Profile Selection Guide
+
+The selectable Dev-Flow model surface is intentionally small: one profile per useful model, with three local profiles and six paid frontier profiles.
+
+| Use | Hermes profile | Alias | Provider | Model | Dev-Flow profile |
+|---|---|---|---|---|---|
+| Default coding worker | `dfcodex55` | `df-codex55` | `openai-codex` | `gpt-5.5` | `hermes-codex-gpt55` |
+| Balanced paid coding/review | `dfsonnet46` | `df-sonnet46` | `openrouter` | `anthropic/claude-sonnet-4.6` | `hermes-sonnet46` |
+| Deep architecture/judging | `dfopus48` | `df-opus48` | `openrouter` | `anthropic/claude-opus-4.8` | `hermes-opus48` |
+| Strong Qwen max | `dfqwen37max` | `df-qwen37max` | `openrouter` | `qwen/qwen3.7-max` | `hermes-qwen37max` |
+| Efficient Qwen plus | `dfqwen37plus` | `df-qwen37plus` | `openrouter` | `qwen/qwen3.7-plus` | `hermes-qwen37plus` |
+| Alternative coding model | `dfminimaxm3` | `df-minimaxm3` | `openrouter` | `minimax/minimax-m3` | `hermes-minimaxm3` |
+| Fast local operator | `dflocalfast` | `df-local-fast` | `qwen35-mtp` | `qwen35-9b-mtp` | `local-qwen35-mtp` |
+| Long-context local | `dflocallong` | `df-local-long` | `local` | `gemma4:12b-it-qat` | `local-gemma4-qat` |
+| Local code fallback | `dflocalcode` | `df-local-code` | `local` | `qwen2.5-coder:14b` | `local-qwen25-coder-14b` |
+
+Use `df-codex55` for default high-trust coding handoffs, `df-sonnet46` for daily paid review and implementation planning, `df-opus48` for the hardest architecture or judge pass, `df-qwen37plus` for default paid planning and brainstorm synthesis, `df-qwen37max` for deeper Qwen reasoning, and `df-minimaxm3` for a second implementation opinion. Use `df-local-fast` for short local operator/status work, `df-local-long` for local long-context and vision-adjacent review, and `df-local-code` as the installed code-tuned local fallback.
+
+Paid profiles use max thinking by default through `agent.reasoning_effort: xhigh`, keep `agent.verify_on_stop: auto`, and carry the `hermes-cli` and `devflow` toolsets cloned from the `mini` profile. Worker/model output is advisory evidence until Dev-Flow verification passes; it is never completion, merge readiness, promotion readiness, or permission to push.
+
+### Capabilities vs Execution Surfaces
+
+Profile names should identify the model or route, not box the model into one job. This applies to every normal model profile: paid, local, Hermes-backed, OpenRouter-backed, and Ollama-backed. A profile can be good for several activities: brainstorming, implementation planning, UI review, code review, architecture judgment, second-opinion debugging, or patch proposal evidence when an explicit patch surface asks for it. The registry should describe those fit signals with capability metadata: context size, `vision`, `thinking`, `code_focus`, `speed_class`, input modalities, tool access, and `tuned_for_archetypes`.
+
+Execution authority belongs to the command surface:
+
+| Surface | What It Means |
+|---|---|
+| `agent advise` | Advisory evidence from a selected model profile. |
+| `agent propose-patch` | A human-invoked patch proposal surface that writes proposal evidence only. |
+| `agent run` | Local WorkerEvidence profile run, still evidence until verified. |
+| `task run --worker shell` | Stable direct-edit worker runtime inside the isolated task workspace. |
+| Hermes profile handoff | Human-selected Hermes run using the profile's toolsets and Dev-Flow-safe instructions. |
+
+Do not make a real model profile name imply a single job like `patch-proposer`, `reviewer`, `planner`, `summarizer`, or `implementer` unless it is deliberately a separate execution-surface wrapper. `df-minimaxm3` means MiniMax M3 through Hermes/OpenRouter; `df-sonnet46` means Sonnet 4.6 through Hermes/OpenRouter; `df-local-long` means the local Gemma route. None of these normal profiles is permanently cornered into one job. If Dev-Flow needs a patch proposal, the operator should choose the `agent propose-patch` surface and Dev-Flow should record that surface as the gate.
+
+### UI And Browser Work
+
+UI work splits into two categories:
+
+| Need | Prefer | Why |
+|---|---|---|
+| Visual screenshot/mockup review | `df-sonnet46`, `df-opus48`, `df-local-long` | These profiles are marked vision/screenshot-capable or vision-adjacent. |
+| Browser-driven implementation/debugging | `df-codex55` or a shell/Codex worker lane | Browser access is a tool/runtime capability, not just a model capability. |
+| UI code review without screenshots | `df-sonnet46`, `df-qwen37max`, `df-minimaxm3`, `df-local-code` | Text/code capability is enough when evidence is source files and logs. |
+| Fast UI status or next-action planning | `df-local-fast`, `df-qwen37plus` | Low-latency planning without launching a heavy local model. |
+
+If a UI task requires visual evidence, capture the screenshot or browser findings as Dev-Flow evidence first, then pick a profile with `vision=true` or `screenshot` in `input_modalities`. If a task requires live browser interaction, choose a worker/runtime that actually has browser tooling; do not assume a raw OpenRouter model can browse just because it is strong.
 
 Only one local model may run at a time on a machine. Dev-Flow's local-model runtime lock is global across local providers/models, so a second local model run must wait or fail clearly instead of competing for RAM/Metal resources.
 
@@ -101,13 +150,13 @@ Bad Hermes use cases:
 
 ## Scheduled Briefs
 
-Hermes cron jobs are allowed only as bounded status/reporting loops unless Josh explicitly approves a separate mutation command. When remote advisory is explicitly enabled for a cron profile, the allowed provider call is one default Flash advisory run:
+Hermes cron jobs are allowed only as bounded status/reporting loops unless Josh explicitly approves a separate mutation command. When advisory is explicitly enabled for a cron profile, the default bounded planning call is one Qwen Plus evidence run:
 
 ```bash
-devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json
+devflow agent advise --profile hermes-qwen37plus --job gap-analysis --json
 ```
 
-The cron heartbeat should gather bounded evidence first: `devflow status --json`, `devflow supervisor packet --json`, `devflow git status`, the latest verification-ledger summary, and targeted stale-context search results. The advisory run may write recommendation evidence under `.devflow/reports/agent-advisory-runs/<run_id>/`, including an exact suggested `devflow task create ...` command, but Hermes must not execute that suggestion. Pro advisory runs require explicit job/profile selection, not automatic escalation. `devflow agent propose-patch` is human-direct patch evidence only; it is not Hermes-delegable and must never be run from unattended Hermes automation.
+The cron heartbeat should gather bounded evidence first: `devflow status --json`, `devflow supervisor packet --json`, `devflow git status`, the latest verification-ledger summary, and targeted stale-context search results. The advisory run may write recommendation evidence under `.devflow/reports/agent-advisory-runs/<run_id>/`, including an exact suggested `devflow task create ...` command, but Hermes must not execute that suggestion. Deep advisory runs require explicit job/profile selection, not automatic escalation. `devflow agent propose-patch` is human-direct patch evidence only; it is not Hermes-delegable and must never be run from unattended Hermes automation.
 
 ### Morning Dev-Flow Brief
 
@@ -183,12 +232,19 @@ The Hermes `~/.hermes/config.yaml` may have a `model_routing` section that route
 - `devflow agent catalog --json`
 - `devflow supervisor policy --json`
 
-The Mac mini default local route is:
+The current Dev-Flow routing surface is:
 
 | Role | Provider | Model | Notes |
 |---|---|---|---|
-| Local default / Telegram / read-only planning | `custom:qwen35-mtp` | `qwen35-9b-mtp` | Prompt-cache-enabled llama.cpp service. Preferred on the 16 GB Mac mini when the endpoint is ready. |
-| Heavy local reasoning | machine-specific | discovered model | Must be allowed by RAM/model-fit classification. Do not run on the Mac mini by copying Mac Studio config. |
+| Default coding handoff | `openai-codex` | `gpt-5.5` | `dfcodex55` / `df-codex55`; subscription profile, not OpenRouter. |
+| Daily paid review/planning | `openrouter` | `anthropic/claude-sonnet-4.6` | `dfsonnet46` / `df-sonnet46`; balanced paid reviewer/implementer. |
+| Deep judge/architecture | `openrouter` | `anthropic/claude-opus-4.8` | `dfopus48` / `df-opus48`; reserve for high-value design and review. |
+| Paid Qwen planning | `openrouter` | `qwen/qwen3.7-plus` | `dfqwen37plus` / `df-qwen37plus`; default paid brainstorm/planning. |
+| Paid Qwen depth | `openrouter` | `qwen/qwen3.7-max` | `dfqwen37max` / `df-qwen37max`; deeper Qwen coding/reasoning. |
+| Alternative paid coding opinion | `openrouter` | `minimax/minimax-m3` | `dfminimaxm3` / `df-minimaxm3`; second implementation lens. |
+| Local default / Telegram / read-only planning | `custom:qwen35-mtp` | `qwen35-9b-mtp` | `dflocalfast` / `df-local-fast`; prompt-cache-enabled local endpoint. |
+| Long-context local | `local` | `gemma4:12b-it-qat` | `dflocallong` / `df-local-long`; local long-context and vision-adjacent review. |
+| Local code fallback | `local` | `qwen2.5-coder:14b` | `dflocalcode` / `df-local-code`; installed code-tuned fallback. |
 
 ### Fallback behavior
 
@@ -205,14 +261,15 @@ Use Hermes slash commands to switch models without restarting:
 ```
 /model               # Interactive model picker
 /model qwen35-9b-mtp                       # Switch to local Qwen 3.5 MTP default
-/model deepseek/deepseek-v4-flash         # Switch to paid Flash
-/model deepseek/deepseek-v4-flash:free    # Switch to free Flash
-/model qwopus-32b:latest                  # Switch to local Qwopus
+/model qwen/qwen3.7-plus                  # Switch to paid Qwen Plus planning
+/model anthropic/claude-sonnet-4.6        # Switch to paid Sonnet daily review
+/model anthropic/claude-opus-4.8          # Switch to paid Opus deep judge
+/model gemma4:12b-it-qat                  # Switch to local long-context Gemma
 ```
 
 For vision tasks that fail because the chat model lacks vision:
 1. Attach the image with `/image /path/to/screenshot.png`
-2. Switch to a vision-capable model: `/model qwopus-32b:latest`
+2. Switch to the retained local vision-adjacent profile when available: `/model gemma4:12b-it-qat`
 3. Ask the question
 
 Or use the `vision_analyze` tool directly — it auto-routes to `google/gemini-2.5-flash` via the auxiliary vision config, regardless of the chat model.
@@ -242,12 +299,11 @@ hermes gateway restart
 
 Then test routing:
 ```bash
-hermes chat -q "Fix typo in docstring"        # → local-coder-fast
-hermes chat -q "Review this pull request"      # → local reviewer
-hermes chat -q "Design the auth architecture"  # → V4 Pro
-hermes chat -q "Implement login function"      # → V4 Flash free
+hermes -p dfqwen37plus chat -q "Draft a bounded implementation plan"
+hermes -p dfopus48 chat -q "Judge this architecture tradeoff"
+hermes -p dflocalfast chat -q "Summarize current Dev-Flow status"
 ```
 
 ## Non-Goals
 
-This integration does not add a Hermes worker adapter, provider-backed task-run execution, a dashboard server, a database, autonomous routing, hidden memory, or a competing orchestration loop. The OpenRouter/DeepSeek advisory lane is Dev-Flow-owned report evidence that Hermes may schedule only under the bounded cron rule above. Future non-shell worker runtime work must follow the registry and adapter sequence documented in the active architecture notes.
+This integration does not add a Hermes worker adapter, provider-backed task-run execution, a dashboard server, a database, autonomous routing, hidden memory, or a competing orchestration loop. OpenRouter and local advisory lanes are Dev-Flow-owned report evidence that Hermes may schedule only under the bounded cron rule above. Future non-shell worker runtime work must follow the registry and adapter sequence documented in the active architecture notes.

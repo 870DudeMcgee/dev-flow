@@ -100,7 +100,7 @@ def resolve_agent_runtime_definition(
             f"Agent '{agent.id}' is a Hermes/OpenAI subscription profile. "
             "Direct Dev-Flow provider execution is disabled so this profile cannot fall back to OpenRouter billing."
         )
-        next_command = "hermes -p mini chat -q <prompt>"
+        next_command = "hermes -p dfcodex55 chat -q <prompt>"
     elif is_remote_patch_proposal_agent(agent, provider=provider):
         execution_surface = "agent_propose_patch"
         task_run_allowed = False

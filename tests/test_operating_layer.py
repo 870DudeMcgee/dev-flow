@@ -828,17 +828,16 @@ def test_operating_layer_blocks_broad_agent_command_but_allows_exact_patch_propo
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     server, thread, host, port = _serve_operating_layer(tmp_path)
     try:
-        broad = "devflow agent run local-qwopus-inspector --prompt hello --json"
+        broad = "devflow agent run local-gemma4-qat --prompt hello --json"
         status, payload = _post_action(host, port, broad)
         assert status == 409, payload
         assert payload["executed"] is False
 
-        exact = "devflow agent propose-patch --task task-0001 --profile deepseek-v4-pro-patch-proposer --json"
+        exact = "devflow agent propose-patch --task task-0001 --profile test-patch-proposal-surface --json"
         status, payload = _post_action(host, port, exact)
         assert status == 200, payload
         assert payload["executed"] is True
         assert payload["exit_code"] != 0
-        assert "OPENROUTER_API_KEY" in payload["stdout"]
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -1170,14 +1169,14 @@ def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
     write_worker_evidence(
         root=tmp_path,
         worker_type="local_model",
-        profile_id="local-qwopus-inspector",
-        worker_id="local-qwopus-inspector",
+        profile_id="local-gemma4-qat",
+        worker_id="local-gemma4-qat",
         task_id="task-0001",
         run_id="run-1",
         packet_text="packet",
         raw_output="raw",
         response_text="response",
-        model="qwopus",
+        model="gemma4:12b-it-qat",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
@@ -1737,25 +1736,6 @@ def test_operating_layer_agents_marks_local_openai_compatible_profiles_as_local(
         ],
     )
     assert add_provider.exit_code == 0, add_provider.output
-    add_model = runner.invoke(
-        app,
-        [
-            "agent",
-            "add-model",
-            "--provider",
-            "qwen35-mtp",
-            "--model",
-            "qwen35-9b-mtp",
-            "--authority",
-            "advisory",
-            "--role",
-            "frontier_planner_architect_reviewer",
-            "--profile-id",
-            "local-qwen35-mtp",
-        ],
-    )
-    assert add_model.exit_code == 0, add_model.output
-
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockUrlopenResponse:
         if req.full_url != "http://127.0.0.1:8080/v1/models":
             raise urllib.error.URLError("endpoint unavailable in test")
@@ -2564,7 +2544,7 @@ def test_operating_layer_server_refuses_invalid_shell_worker_browser_runs(
             "devflow task run task-0001 --worker shell -- <command>",
             "devflow task run task-0001 --worker qwopus-implementer",
             "devflow task local task-0001 --worker qwen-planner",
-            "devflow agent run local-qwopus-inspector --prompt hello --json",
+            "devflow agent run local-gemma4-qat --prompt hello --json",
             "devflow task run task-0001 --worker shell -- ollama run qwen",
         ]
         for command in commands:
@@ -2801,9 +2781,33 @@ def test_operating_layer_js_uses_backend_pipeline_contract_not_boolean_pipeline_
 def test_operating_layer_js_pipeline_primary_action_contract() -> None:
     """Slice 4: pipeline should expose one canonical primary action button."""
     assert "data-pipeline-primary-action" in APP_JS, "Primary action button missing data attribute"
+    assert "pipeline-primary-context" in APP_JS, "Primary action context copy missing"
+    assert "pipeline-current-stage" in APP_JS, "Active stage copy missing"
+    assert "pipeline-next-action" in APP_JS, "Next action copy missing"
+    assert "pipeline-evidence-path" in APP_JS, "Evidence/artifact path copy missing"
     assert "getPrimaryActionLabel" in APP_JS, "label function not present"
     assert "getPipelinePrimaryStage" in APP_JS, "primary stage resolver not present"
     assert "getNextStageLabel" in APP_JS, "next-stage label helper not present"
     assert "useModelForBrainstormStage" in APP_JS, "model-backed stages should be explicit"
     assert "setupPipelineButtons(container)" in APP_JS, "dynamic pipeline controls should be rebound after render"
-    assert "document.querySelectorAll('#pipeline-stages-container [data-brainstorm-stage]')" in APP_JS
+    assert "runPipelinePrimaryStage(stage, btn)" in APP_JS, "primary button should execute the stage directly"
+    assert "document.querySelectorAll('#pipeline-stages-container [data-brainstorm-stage]')" not in APP_JS
+    assert "stageButton.click()" not in APP_JS
+
+
+def test_operating_layer_js_pipeline_stage_cards_are_status_summaries_not_duplicate_controls() -> None:
+    """Pipeline stage cards should not render duplicate enabled stage-advance buttons."""
+    pipeline_block = APP_JS[
+        APP_JS.index("function renderPipeline(input)") : APP_JS.index("// Write implementation context")
+    ]
+    assert "data-brainstorm-stage" not in pipeline_block
+    assert "Escalate to Spec" not in pipeline_block
+    assert "Generate Spec" not in pipeline_block
+    assert "Generate Plan" not in pipeline_block
+    assert "Create Task" not in pipeline_block
+
+
+def test_operating_layer_js_primary_pipeline_uses_adopted_backend_session() -> None:
+    """Brainstorm session adoption should keep using backend pipeline.session_id."""
+    assert "snap?.first_viewport?.pipeline?.session_id" in APP_JS
+    assert "setActiveBrainstormSession(pipeline.session_id" in APP_JS

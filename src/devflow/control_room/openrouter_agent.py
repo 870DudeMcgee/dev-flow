@@ -22,6 +22,7 @@ from devflow.control_room.agent_registry import (
     load_agent_registry,
     load_provider_registry,
 )
+from devflow.control_room.local_model_server import ensure_local_model_server_for_profile
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.patch_applier import (
     PatchApplicationError,
@@ -107,6 +108,7 @@ def run_advice(
     raw_response_path = evidence_dir / "response.raw.json"
     metadata_path = evidence_dir / "run.json"
     atomic_write_text(prompt_path, prompt)
+    local_model_server_lifecycle: dict[str, Any] | None = None
 
     api_key_env = provider.api_key_env or _default_api_key_env(provider)
     api_key = os.environ.get(api_key_env)
@@ -129,11 +131,19 @@ def run_advice(
             recommendations=[],
             error=error,
             will_call_provider=False,
+            local_model_server_lifecycle=local_model_server_lifecycle,
         )
         atomic_write_text(metadata_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
         return payload
 
     try:
+        if is_local_openai_compatible_provider(provider):
+            local_model_server_lifecycle = ensure_local_model_server_for_profile(
+                root=root,
+                provider=profile.provider,
+                model=profile.model,
+                base_url=provider.base_url,
+            )
         response_body = _chat_completion(
             provider=provider,
             model=profile.model,
@@ -164,6 +174,7 @@ def run_advice(
             recommendations=recommendations,
             error=None,
             will_call_provider=True,
+            local_model_server_lifecycle=local_model_server_lifecycle,
         )
     except Exception as exc:
         error = _redact(str(exc), api_key=api_key)
@@ -184,6 +195,7 @@ def run_advice(
             recommendations=[],
             error=error,
             will_call_provider=True,
+            local_model_server_lifecycle=local_model_server_lifecycle,
         )
     atomic_write_text(metadata_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return payload
@@ -954,6 +966,7 @@ def _advice_payload(
     recommendations: list[dict[str, str]],
     error: str | None,
     will_call_provider: bool,
+    local_model_server_lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     evidence_dir = metadata_path.parent
     payload = {
@@ -977,6 +990,7 @@ def _advice_payload(
         "usage": usage,
         "recommendations": recommendations,
         "will_call_provider": will_call_provider,
+        "local_model_server_lifecycle": local_model_server_lifecycle,
         "safety_flags": _safety_flags(),
     }
     if error:

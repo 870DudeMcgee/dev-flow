@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from http.client import HTTPConnection
 from pathlib import Path
+import re
 import threading
 import time
 
@@ -68,8 +69,8 @@ def _make_brainstorm_implementation(tmp_path: Path, session_id: str, title: str)
 
 def test_operating_layer_js_uses_active_brainstorm_session_for_atomic_bridge() -> None:
     """Regression: the browser bridge must use the active session variable."""
-    assert "createTaskFromBrainstorm(\n                  brainstormSessionId," in APP_JS
-    assert "createTaskFromBrainstorm(\n                  session_id," not in APP_JS
+    assert re.search(r"createTaskFromBrainstorm\(\s*brainstormSessionId,", APP_JS)
+    assert not re.search(r"createTaskFromBrainstorm\(\s*session_id,", APP_JS)
     assert "Brainstorm task bridge did not return a task id" in APP_JS
     assert "Implementation context target:" in APP_JS
     assert "Legacy Brainstorm payload fallback" in APP_JS

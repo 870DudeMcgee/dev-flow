@@ -37,13 +37,13 @@ Each job type has at most three default candidates. Candidate names are stable j
 
 | Job type | Candidate aliases | Current safe profiles |
 | --- | --- | --- |
-| `planning` | `local-planner`, `local-planner-64k`, `qwopus` | `local-gemma4-doc-reviewer`, `local-qwen36-inspector`, `local-qwopus-inspector` |
-| `small-code` | `local-coder-fast`, `local-coder-medium`, `gemma4-fast` | `local-qwen25-coder-7b-code-reviewer`, `local-qwen25-coder-14b-test-planner`, `local-gemma4-doc-reviewer` |
-| `hard-code` | `local-coder-medium`, `local-coder-heavy`, `qwopus` | `local-qwen25-coder-14b-test-planner`, `local-qwen25-coder-32b-code-reviewer`, `local-qwopus-inspector` |
-| `review-debug` | `local-reviewer-fast`, `local-reviewer-deep`, `local-qwen25-coder-32b-code-reviewer` | `local-qwen25-coder-7b-code-reviewer`, `local-gemma4-31b-dense-judge`, `local-qwen25-coder-32b-code-reviewer` |
-| `summary-status` | `local-worker-fast`, `local-gemma4-summarizer`, `local-coder-tiny` | `local-gemma4-doc-reviewer`, `local-gemma4-summarizer`, `local-qwen25-coder-15b-classifier` |
+| `planning` | `local-planner`, `local-planner-64k`, `local-fast` | `local-qwen35-mtp`, `local-gemma4-qat` |
+| `small-code` | `local-coder-medium`, `local-code-fallback` | `local-qwen25-coder-14b`, `local-gemma4-qat` |
+| `hard-code` | `local-coder-medium`, `local-long-reviewer` | `local-qwen25-coder-14b`, `local-gemma4-qat` |
+| `review-debug` | `local-reviewer-deep`, `local-code-reviewer` | `local-gemma4-qat`, `local-qwen25-coder-14b` |
+| `summary-status` | `local-worker-fast`, `local-long-summary` | `local-qwen35-mtp`, `local-gemma4-qat` |
 
-For operator-led review/debug work, current guidance is to prefer `local-gemma4-31b-dense-judge` when installed and when explicit local audition evidence supports the task shape. Treat `local-qwen25-coder-32b-code-reviewer` and `local-qwen25-coder-7b-code-reviewer` as fallbacks, not as automatic routing policy.
+For operator-led review/debug work, current guidance is to prefer `local-gemma4-qat` when long context, screenshot evidence, or broad review matters. Treat `local-qwen25-coder-14b` as the installed code-specialist fallback and `local-qwen35-mtp` as the fast text/status/planning endpoint, not as automatic routing policy.
 
 Eligibility requires:
 

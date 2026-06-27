@@ -15,6 +15,11 @@ from tests.helpers import setup_temp_git_repo
 
 
 runner = CliRunner()
+ADVISORY_PROFILE_ID = "hermes-qwen37plus"
+ADVISORY_MODEL = "qwen/qwen3.7-plus"
+REVIEW_PROFILE_ID = "hermes-sonnet46"
+PATCH_PROFILE_ID = "test-patch-proposal-surface"
+PATCH_MODEL = "minimax/minimax-m3"
 
 
 class MockResponse:
@@ -29,6 +34,82 @@ class MockResponse:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         return None
+
+
+def _write_test_patch_surface_profile(root: Path) -> None:
+    registry_path = root / ".devflow/agents/registry.yaml"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        f"""version: 1
+default_agent: devflow-manual-codex-worker
+agents:
+  {PATCH_PROFILE_ID}:
+    provider: openrouter
+    model: {PATCH_MODEL}
+    adapter: openai_compatible
+    role: implementation_worker
+    tier: frontier
+    default_mode: patch_proposal_only
+    execution_mode: automated
+    purpose: Test-only patch proposal execution surface; production model profiles stay capability identities.
+    model_role_name: test patch proposal surface
+    secondary_roles:
+      - patch-proposal-surface
+      - test-only
+    use_caution:
+      - Writes patch proposal evidence only; Dev-Flow review, dry-run, apply, verification, and promotion gates remain required.
+    workspace: isolated_task_workspace
+    can_see:
+      - task_packet
+      - assigned_workspace
+      - recent_events
+      - verification_plan
+    can_touch:
+      - <task>/agents/{PATCH_PROFILE_ID}/proposal.patch
+      - <task>/agents/{PATCH_PROFILE_ID}/raw_output.md
+      - <task>/agents/{PATCH_PROFILE_ID}/run.json
+      - <task>/agents/{PATCH_PROFILE_ID}/result.md
+    cannot_touch:
+      - <main_checkout>/**
+      - <workspace>/**
+      - <task>/task.yaml
+      - <task>/events.jsonl
+      - <task>/verification.json
+      - <task>/merge-readiness.json
+      - .git/**
+    allowed_reads:
+      - <task>/packet.json
+      - <task>/events.jsonl
+      - <task>/questions.jsonl
+      - <workspace>/**
+    allowed_writes:
+      - <task>/agents/{PATCH_PROFILE_ID}/proposal.patch
+      - <task>/agents/{PATCH_PROFILE_ID}/raw_output.md
+      - <task>/agents/{PATCH_PROFILE_ID}/run.json
+      - <task>/agents/{PATCH_PROFILE_ID}/result.md
+    forbidden_writes:
+      - <main_checkout>/**
+      - <workspace>/**
+      - <task>/task.yaml
+      - <task>/events.jsonl
+      - <task>/verification.json
+      - <task>/merge-readiness.json
+      - <task>/packet.json
+      - .git/**
+    required_outputs:
+      - Write proposal.patch, raw_output.md, run.json, and result.md under the task-local agent directory.
+      - Do not apply patches, verify, promote, commit, merge, or push.
+    completion_rules:
+      - Run only by explicit human-selected propose-patch command.
+      - Treat proposal.patch as evidence until review, dry-run, apply, verification, and promotion gates pass.
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    hermes_delegable: false
+    enabled: true
+""",
+        encoding="utf-8",
+    )
 
 
 def test_agent_advise_dry_run_does_not_call_openrouter_or_write_evidence(
@@ -49,7 +130,7 @@ def test_agent_advise_dry_run_does_not_call_openrouter_or_write_evidence(
             "agent",
             "advise",
             "--profile",
-            "deepseek-v4-flash-planner",
+            ADVISORY_PROFILE_ID,
             "--job",
             "gap-analysis",
             "--dry-run",
@@ -116,7 +197,7 @@ def test_agent_advise_writes_repo_scoped_openrouter_evidence_without_logging_sec
             "agent",
             "advise",
             "--profile",
-            "deepseek-v4-flash-planner",
+            ADVISORY_PROFILE_ID,
             "--job",
             "gap-analysis",
             "--json",
@@ -127,14 +208,14 @@ def test_agent_advise_writes_repo_scoped_openrouter_evidence_without_logging_sec
     payload = json.loads(result.output)
     assert payload["status"] == "success"
     assert payload["provider"] == "openrouter"
-    assert payload["model"] == "deepseek/deepseek-v4-flash"
+    assert payload["model"] == ADVISORY_MODEL
     assert payload["usage"]["total_tokens"] == 18
     assert payload["recommendations"][0]["next_safe_action"].startswith("devflow task create")
     assert payload["safety_flags"]["will_run_workers"] is False
     assert payload["safety_flags"]["will_commit"] is False
 
     assert captured_requests[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
-    assert captured_requests[0]["payload"]["model"] == "deepseek/deepseek-v4-flash"
+    assert captured_requests[0]["payload"]["model"] == ADVISORY_MODEL
 
     evidence_dir = tmp_path / payload["evidence_dir"]
     assert evidence_dir.is_dir()
@@ -143,6 +224,88 @@ def test_agent_advise_writes_repo_scoped_openrouter_evidence_without_logging_sec
     for evidence_file in evidence_dir.iterdir():
         if evidence_file.is_file():
             assert "sk-or-test-secret" not in evidence_file.read_text(encoding="utf-8")
+
+
+def test_agent_advise_local_qwen35_automatically_ensures_managed_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "qwen server lifecycle"]).exit_code == 0
+    captured_lifecycle: list[dict[str, Any]] = []
+    captured_requests: list[dict[str, Any]] = []
+
+    from devflow.control_room import openrouter_agent
+
+    def fake_ensure(**kwargs: Any) -> dict[str, Any]:
+        captured_lifecycle.append(kwargs)
+        return {
+            "status": "already_running",
+            "will_manage_local_server": True,
+            "profile": "qwen35-mtp",
+            "pid": 24842,
+        }
+
+    def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        captured_requests.append(
+            {
+                "url": req.full_url,
+                "payload": json.loads(req.data.decode("utf-8")),
+            }
+        )
+        return MockResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "summary": "Qwen advisory evidence.",
+                                    "recommendations": [
+                                        {
+                                            "title": "Review evidence",
+                                            "rationale": "The run is advisory only.",
+                                            "next_safe_action": "devflow task show task-0001",
+                                        }
+                                    ],
+                                    "highest_impact_next_safe_action": "devflow task show task-0001",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(openrouter_agent, "ensure_local_model_server_for_profile", fake_ensure)
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "advise",
+            "--profile",
+            "local-qwen35-mtp",
+            "--task",
+            "task-0001",
+            "--job",
+            "status",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert captured_lifecycle
+    assert captured_lifecycle[0]["provider"] == "qwen35-mtp"
+    assert captured_lifecycle[0]["model"] == "qwen35-9b-mtp"
+    assert captured_lifecycle[0]["base_url"] == "http://127.0.0.1:8080/v1"
+    assert captured_requests[0]["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+    assert payload["local_model_server_lifecycle"]["status"] == "already_running"
+    run_metadata = json.loads((tmp_path / payload["run_metadata_path"]).read_text(encoding="utf-8"))
+    assert run_metadata["local_model_server_lifecycle"]["profile"] == "qwen35-mtp"
 
 
 def test_task_scoped_agent_advise_missing_key_fails_safely_without_provider_call(
@@ -165,7 +328,7 @@ def test_task_scoped_agent_advise_missing_key_fails_safely_without_provider_call
             "agent",
             "advise",
             "--profile",
-            "deepseek-v4-pro-reviewer",
+            REVIEW_PROFILE_ID,
             "--task",
             "task-0001",
             "--job",
@@ -186,8 +349,7 @@ def test_task_scoped_agent_advise_missing_key_fails_safely_without_provider_call
 @pytest.mark.parametrize(
     ("profile_id", "model"),
     [
-        ("deepseek-v4-pro-patch-proposer", "deepseek/deepseek-v4-pro"),
-        ("deepseek-v4-flash-patch-proposer", "deepseek/deepseek-v4-flash"),
+        (PATCH_PROFILE_ID, PATCH_MODEL),
     ],
 )
 def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates_required(
@@ -205,6 +367,7 @@ def test_agent_propose_patch_writes_only_patch_proposal_evidence_and_keeps_gates
     subprocess.run(["git", "add", "docs/example.md"], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-m", "add docs example"], cwd=tmp_path, check=True)
     assert runner.invoke(app, ["task", "create", "patch proposal"]).exit_code == 0
+    _write_test_patch_surface_profile(tmp_path)
     diff = """diff --git a/docs/example.md b/docs/example.md
 --- a/docs/example.md
 +++ b/docs/example.md
@@ -298,6 +461,7 @@ def test_agent_propose_patch_normalizes_malformed_hunk_counts(
     subprocess.run(["git", "add", "docs/example.md"], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-m", "add docs example"], cwd=tmp_path, check=True)
     assert runner.invoke(app, ["task", "create", "patch proposal"]).exit_code == 0
+    _write_test_patch_surface_profile(tmp_path)
     malformed_diff = """diff --git a/docs/example.md b/docs/example.md
 --- a/docs/example.md
 +++ b/docs/example.md
@@ -339,14 +503,14 @@ def test_agent_propose_patch_normalizes_malformed_hunk_counts(
             "--task",
             "task-0001",
             "--profile",
-            "deepseek-v4-pro-patch-proposer",
+            PATCH_PROFILE_ID,
             "--json",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert len(prompts) == 1
-    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-pro-patch-proposer"
+    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents" / PATCH_PROFILE_ID
     assert (agent_dir / "proposal.patch").read_text(encoding="utf-8") == normalize_hunk_line_counts(malformed_diff)
     raw_output = (agent_dir / "raw_output.md").read_text(encoding="utf-8")
     assert "First attempt has malformed hunk counts" in raw_output
@@ -367,6 +531,7 @@ def test_agent_propose_patch_retries_patch_that_does_not_apply_to_workspace(
     subprocess.run(["git", "add", "docs/example.md"], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-m", "add docs example"], cwd=tmp_path, check=True)
     assert runner.invoke(app, ["task", "create", "patch proposal"]).exit_code == 0
+    _write_test_patch_surface_profile(tmp_path)
     wrong_context_diff = """diff --git a/docs/example.md b/docs/example.md
 --- a/docs/example.md
 +++ b/docs/example.md
@@ -429,7 +594,7 @@ def test_agent_propose_patch_retries_patch_that_does_not_apply_to_workspace(
             "--task",
             "task-0001",
             "--profile",
-            "deepseek-v4-pro-patch-proposer",
+            PATCH_PROFILE_ID,
             "--json",
         ],
     )
@@ -438,7 +603,7 @@ def test_agent_propose_patch_retries_patch_that_does_not_apply_to_workspace(
     assert len(prompts) == 2
     assert "Previous Patch Proposal Was Rejected" in prompts[1]
     assert "original context did not match" in prompts[1]
-    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-pro-patch-proposer"
+    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents" / PATCH_PROFILE_ID
     assert (agent_dir / "proposal.patch").read_text(encoding="utf-8") == corrected_diff
     raw_output = (agent_dir / "raw_output.md").read_text(encoding="utf-8")
     assert "## Attempt 1" in raw_output
@@ -460,6 +625,7 @@ def test_agent_propose_patch_prompt_includes_referenced_worker_context(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
     assert runner.invoke(app, ["task", "create", "patch docs/example.md documentation"]).exit_code == 0
+    _write_test_patch_surface_profile(tmp_path)
 
     captured_requests: list[dict[str, Any]] = []
 
@@ -500,7 +666,7 @@ def test_agent_propose_patch_prompt_includes_referenced_worker_context(
             "--task",
             "task-0001",
             "--profile",
-            "deepseek-v4-pro-patch-proposer",
+            PATCH_PROFILE_ID,
             "--json",
         ],
     )
@@ -533,6 +699,7 @@ def test_agent_propose_patch_minimal_prompt_uses_explicit_file_context_without_p
         ).exit_code
         == 0
     )
+    _write_test_patch_surface_profile(tmp_path)
     task_yaml = tmp_path / ".devflow/tasks/task-0001/task.yaml"
     task_yaml.write_text(
         task_yaml.read_text(encoding="utf-8")
@@ -584,7 +751,7 @@ def test_agent_propose_patch_minimal_prompt_uses_explicit_file_context_without_p
             "--task",
             "task-0001",
             "--profile",
-            "deepseek-v4-flash-patch-proposer",
+            PATCH_PROFILE_ID,
             "--max-prompt-chars",
             "6000",
             "--json",
@@ -609,7 +776,7 @@ def test_agent_propose_patch_minimal_prompt_uses_explicit_file_context_without_p
     assert "events.jsonl" not in prompt
     assert "task_created" not in prompt
 
-    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-flash-patch-proposer"
+    agent_dir = tmp_path / ".devflow/tasks/task-0001/agents" / PATCH_PROFILE_ID
     assert (agent_dir / "proposal.patch").exists()
     run_payload = json.loads((agent_dir / "run.json").read_text(encoding="utf-8"))
     assert run_payload["prompt_mode"] == "minimal"
@@ -625,6 +792,7 @@ def test_agent_propose_patch_invalid_prompt_mode_fails_before_openrouter(
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-patch-secret")
     monkeypatch.setenv("DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE", "bulky")
     assert runner.invoke(app, ["task", "create", "patch docs/example.md"]).exit_code == 0
+    _write_test_patch_surface_profile(tmp_path)
 
     def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
         raise AssertionError("invalid prompt mode must fail before OpenRouter")
@@ -639,11 +807,11 @@ def test_agent_propose_patch_invalid_prompt_mode_fails_before_openrouter(
             "--task",
             "task-0001",
             "--profile",
-            "deepseek-v4-flash-patch-proposer",
+            PATCH_PROFILE_ID,
             "--json",
         ],
     )
 
     assert result.exit_code != 0
     assert "DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE" in result.output
-    assert not (tmp_path / ".devflow/tasks/task-0001/agents/deepseek-v4-flash-patch-proposer/run.json").exists()
+    assert not (tmp_path / ".devflow/tasks/task-0001/agents" / PATCH_PROFILE_ID / "run.json").exists()

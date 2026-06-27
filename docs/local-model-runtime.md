@@ -39,6 +39,41 @@ Run the standard smoke test to verify connectivity:
 python scripts/local_model_smoke.py
 ```
 
+### Graceful Server Lifecycle
+
+Dev-Flow has two separate protections:
+
+- `local_model_runtime_lock` prevents two Dev-Flow local model calls from running at the same time.
+- `devflow local-model ...` manages resident local model server processes so a heavy server can be stopped before another one starts.
+
+When Dev-Flow runs a managed local OpenAI-compatible profile, it automatically ensures the resident server matches the selected model before calling it. For `qwen35-mtp/qwen35-9b-mtp`, Dev-Flow reuses an already matching server or starts it with `replace=true`, which stops any mismatched managed `llama-server` first. The lifecycle result is recorded in the run metadata as `local_model_server_lifecycle`.
+
+Use the lifecycle commands before switching large local profiles:
+
+```bash
+devflow local-model status
+devflow local-model stop --dry-run
+devflow local-model stop qwen35-mtp
+devflow local-model start qwen35-mtp --replace
+```
+
+The shortest stop-before-start path is:
+
+```bash
+devflow local-model restart qwen35-mtp
+```
+
+By default, Dev-Flow manages `llama-server` processes such as the Qwen 35 MTP endpoint on `127.0.0.1:8080`. Ollama can be included in status or stop output only when explicitly requested:
+
+```bash
+devflow local-model status --include-ollama
+devflow local-model stop --include-ollama --dry-run
+```
+
+Lifecycle evidence is written under `.devflow/local-model-servers/<profile>/server.json` with the command, PID, model, stop result, and log path. Worker output remains advisory evidence until Dev-Flow verification passes.
+
+Server lifecycle is not a role restriction. Local profiles should still be selected by capability metadata: use the fast Qwen MTP endpoint for text/status/planning loops, Gemma 4 QAT when long context or screenshot/vision evidence matters, and Qwen 2.5 Coder 14B when code-specialist local review is the better fit. Dev-Flow stops or replaces resident local servers to protect RAM; it does not decide that a model can only do one job based on its profile name.
+
 ### 2. Alternative Local Runtimes (Ollama, LM Studio, vLLM)
 
 If Qwopus (or another coding model) is served through Ollama, LM Studio, vLLM, or another OpenAI-compatible local server, only `LOCAL_MODEL_BASE_URL` and `LOCAL_MODEL_ID` need to change.
@@ -93,10 +128,10 @@ The practical worker-pool path uses registry profiles rather than environment-on
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-gemma4-qat --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-gemma4-qat --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-gemma4-qat --json
 ```
 
 Worker-pool profiles include model allocation metadata for Josh's heterogeneous local fleet:

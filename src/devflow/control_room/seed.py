@@ -313,6 +313,12 @@ base_url: https://chatgpt.com/backend-api/codex
 default_timeout_seconds: 900
 enabled: true
 """,
+    ".devflow/providers/qwen35-mtp.yaml": """id: qwen35-mtp
+provider: qwen35-mtp
+adapter: openai_compatible
+base_url: http://127.0.0.1:8080/v1
+enabled: true
+""",
     ".devflow/providers/openai_compatible.yaml": """id: openai_compatible
 provider: openai_compatible
 adapter: openai_compatible
@@ -474,7 +480,7 @@ agents:
     can_run_shell: false
     can_use_network: false
     can_promote: false
-    enabled: true
+    enabled: false
 
   devflow-ollama-worker:
     provider: ollama

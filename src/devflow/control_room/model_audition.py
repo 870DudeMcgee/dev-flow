@@ -40,33 +40,24 @@ class CandidateSpec:
 
 JOB_CANDIDATES: dict[str, tuple[CandidateSpec, ...]] = {
     "planning": (
-        CandidateSpec("local-planner", "local-gemma4-doc-reviewer", "fast bounded planning/review"),
-        CandidateSpec("local-planner-64k", "local-qwen36-inspector", "larger local planning context"),
-        CandidateSpec("qwopus", "local-qwopus-inspector", "heavy local planning/repo reasoning"),
+        CandidateSpec("local-long-context", "local-gemma4-qat", "local long-context planning/review"),
+        CandidateSpec("local-code-fallback", "local-qwen25-coder-14b", "local code-aware planning fallback"),
     ),
     "small-code": (
-        CandidateSpec("local-coder-fast", "local-qwen25-coder-7b-code-reviewer", "fast small-code review"),
-        CandidateSpec("local-coder-medium", "local-qwen25-coder-14b-test-planner", "medium coding/test planning"),
-        CandidateSpec("gemma4-fast", "local-gemma4-doc-reviewer", "fast Gemma review"),
+        CandidateSpec("local-code-fallback", "local-qwen25-coder-14b", "local code-tuned review/test planning"),
+        CandidateSpec("local-long-context", "local-gemma4-qat", "local long-context review fallback"),
     ),
     "hard-code": (
-        CandidateSpec("local-coder-medium", "local-qwen25-coder-14b-test-planner", "medium coding/test planning"),
-        CandidateSpec("local-coder-heavy", "local-qwen25-coder-32b-code-reviewer", "heavy local coding review"),
-        CandidateSpec("qwopus", "local-qwopus-inspector", "heavy local repo reasoning"),
+        CandidateSpec("local-code-fallback", "local-qwen25-coder-14b", "strongest retained local code fallback"),
+        CandidateSpec("local-long-context", "local-gemma4-qat", "long-context local reasoning fallback"),
     ),
     "review-debug": (
-        CandidateSpec("local-reviewer-fast", "local-qwen25-coder-7b-code-reviewer", "fast code review/debugging"),
-        CandidateSpec("local-reviewer-deep", "local-gemma4-31b-dense-judge", "deep local review/judgment"),
-        CandidateSpec(
-            "local-qwen25-coder-32b-code-reviewer",
-            "local-qwen25-coder-32b-code-reviewer",
-            "heavy local code review/debugging",
-        ),
+        CandidateSpec("local-long-context", "local-gemma4-qat", "long-context local review/judgment"),
+        CandidateSpec("local-code-fallback", "local-qwen25-coder-14b", "local code review/debugging fallback"),
     ),
     "summary-status": (
-        CandidateSpec("local-worker-fast", "local-gemma4-doc-reviewer", "fast evidence brief"),
-        CandidateSpec("local-gemma4-summarizer", "local-gemma4-summarizer", "grounded task status summary"),
-        CandidateSpec("local-coder-tiny", "local-qwen25-coder-15b-classifier", "tiny status classification"),
+        CandidateSpec("local-long-context", "local-gemma4-qat", "grounded task status summary"),
+        CandidateSpec("local-code-fallback", "local-qwen25-coder-14b", "code-aware status fallback"),
     ),
 }
 

@@ -152,14 +152,14 @@ devflow agent show devflow-shell-worker
 devflow agent show devflow-manual-codex-worker
 devflow agent list --json
 devflow agent show devflow-shell-worker --json
-devflow agent show local-qwopus-inspector --json
+devflow agent show local-gemma4-qat --json
 devflow agent policy --json
 devflow agent context-pack <task-id> qwopus-implementer --role implementation_worker --json
 devflow agent evidence <task-id> --json
 devflow agent discover-local --json
 devflow agent select-local <task-id> --role implementation_worker --json
-devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
-devflow agent run --task <task-id> --profile local-qwopus-inspector --json
+devflow agent run --task <task-id> --profile local-gemma4-qat --dry-run --json
+devflow agent run --task <task-id> --profile local-gemma4-qat --json
 devflow agent packet <task-id> devflow-shell-worker
 devflow agent packet <task-id> devflow-manual-codex-worker
 devflow task run <task-id> --worker devflow-shell-worker -- <command>
@@ -185,7 +185,7 @@ To guarantee execution safety and prevent automated agents from operating on uns
 - **Experimental-Manual**: Manual coordination and polling harnesses (e.g., `supervise`).
 - **Forbidden-Runtime**: Any command or background process that bypasses human review, routes models automatically, or mutates the main checkout autonomously. No such commands are allowed in the control room.
 
-Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable as a safe `local_patch_runtime` patch agent such as `qwopus-implementer` or `gemma4-12b-qat-implementer`, or as a read-only local worker-pool evidence profile such as `local-qwopus-inspector`: provider `ollama`, loopback base URL, no shell, no arbitrary network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
+Agent adapters also carry runtime maturity: `stable_runtime`, `local_patch_runtime`, `experimental_readonly`, or `planned_not_executable`. Only `shell` and `manual` are `stable_runtime` executable adapters in this milestone. `ollama_chat` is executable as a safe `local_patch_runtime` patch agent such as `qwopus-implementer` or `gemma4-12b-qat-implementer`, or as a read-only local worker-pool evidence profile such as `local-gemma4-qat` or `local-qwen25-coder-14b`: provider `ollama`, loopback base URL, no shell, no arbitrary network permission, and `can_promote: false`. Remote provider adapters may appear in registries or docs, but task execution must fail clearly if they are invoked.
 
 Experimental context, task pack, and the legacy `supervise` loop are hidden from `--help` by default and refuse execution unless the environment variable `DEVFLOW_EXPERIMENTAL=1` is explicitly set. The read-only `supervisor policy` and `supervisor packet` surfaces are visible because they are part of this stable milestone. The proof-agent registry commands are visible for the same reason.
 
@@ -207,7 +207,7 @@ Experimental context, task pack, and the legacy `supervise` loop are hidden from
 
 The task-fit/context-routing evidence form writes derived artifacts only. It classifies task fit, context size, scout signals, candidate eligibility, rejected candidates, unresolved roles, and post-run quality signals. It does not run workers, call remote providers, silently substitute models, verify, promote, commit, push, or create pull requests.
 
-`devflow agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json` previews the read-only local model worker-pool path without calling a model or writing evidence. `devflow agent run --task <task-id> --profile local-qwopus-inspector --json` is the first real WorkerEvidence slice: it builds a bounded task packet, calls the configured local OpenAI-compatible/Ollama endpoint through `local_model_client.py`, writes `.devflow/tasks/<task-id>/local-model-runs/<run-id>/run.json`, `packet.md`, `response.md`, `raw_output.txt`, and optional `error.txt`, then stops. Gemma summarizer profiles may use native Ollama `/api/chat` with explicit context and thinking disabled when the manifest/template requires it. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state.
+`devflow agent run --task <task-id> --profile local-gemma4-qat --dry-run --json` previews the read-only local model worker-pool path without calling a model or writing evidence. `devflow agent run --task <task-id> --profile local-gemma4-qat --json` is a real WorkerEvidence slice for long-context/vision-adjacent local review; use `local-qwen25-coder-14b` for code-specialist local review. It builds a bounded task packet, calls the configured local OpenAI-compatible/Ollama endpoint through `local_model_client.py`, writes `.devflow/tasks/<task-id>/local-model-runs/<run-id>/run.json`, `packet.md`, `response.md`, `raw_output.txt`, and optional `error.txt`, then stops. `local-gemma4-qat` may use native Ollama `/api/chat` with explicit context and thinking disabled when the manifest/template requires it. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state.
 
 `devflow task review-patch <task-id>` and `devflow task patch-dry-run <task-id>` operate on normalized local-model run proposal evidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. With `--project <project-id>`, they resolve the registered project root before reading agent proposal evidence or writing patch-review/dry-run evidence, and stored next-action commands remain project-scoped. The `--agent <agent-id>` form first normalizes that agent's `proposal.patch` into a matching local-model run evidence folder. Patch review writes `patch-review.json` and `patch-review.md`. Patch dry-run reads `proposal.patch` and `patch-review.json`, inspects the isolated task workspace, writes `patch-dry-run.json` and `patch-dry-run.md`, and does not apply patches, modify source/workspace files, verify, stage, commit, call models, call network APIs, or promote. `devflow task apply-patch` refuses mutation unless the selected patch has matching fresh acceptable patch review and dry-run evidence in the resolved project root. The full staged contract and gating mechanics are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md) and [docs/architecture/patch-application-and-readiness-gating.md](architecture/patch-application-and-readiness-gating.md).
 

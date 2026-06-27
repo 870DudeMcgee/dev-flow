@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from devflow.control_room.agent_onboarding import configured_hermes_agents
 from devflow.control_room.paths import relative_path, task_dir, workspace_path
 
 
@@ -78,6 +79,7 @@ def build_worker_options(
     _inject_routing_decision(task_path, ai_options, blocked, packet_contract=packet_contract)
     _inject_agent_selection(task_path, ai_options, blocked, packet_contract=packet_contract)
     _inject_local_worker_evidence(root, task_id, task_path, ai_options, blocked, packet_contract=packet_contract)
+    _inject_configured_hermes_agents(root, task_id, ai_options, blocked, packet_contract=packet_contract)
 
     # Always present fallback shell (right below AI workers in render order).
     shell_cmd = f"devflow task run {task_id} --worker shell -- <command>"
@@ -374,6 +376,62 @@ def _inject_local_worker_evidence(
 
 
 # ---------------------------------------------------------------------------
+# Source: configured Hermes agents -- packet-only task options
+# ---------------------------------------------------------------------------
+
+
+def _inject_configured_hermes_agents(
+    root: Path,
+    task_id: str,
+    ai_options: list[WorkerOption],
+    blocked: dict[str, WorkerOption],
+    *,
+    packet_contract: dict[str, list[str]],
+) -> None:
+    existing_ids = {option.worker_id for option in ai_options} | set(blocked)
+    for agent in configured_hermes_agents():
+        worker_id = str(agent.get("id") or "")
+        if not worker_id or worker_id in existing_ids:
+            continue
+        provider = _optional_text(agent.get("provider"))
+        model = _optional_text(agent.get("model"))
+        hermes_profile = _optional_text(agent.get("hermes_profile"))
+        if not provider or not model or not hermes_profile:
+            continue
+        status = str(agent.get("status") or "available")
+        is_local = _is_local_provider(provider) or _is_local_base_url(agent.get("base_url"))
+        if status != "available":
+            blocked[worker_id] = WorkerOption(
+                worker_id=worker_id,
+                label=str(agent.get("label") or _plain_worker_name(worker_id)),
+                source="hermes",
+                model=model,
+                provider=provider,
+                enabled=False,
+                is_local=is_local,
+                supervisor_may_auto_run=False,
+                blocked_reason=str(agent.get("blocked_reason") or "Hermes agent is not launch-ready."),
+                reason="Configured Hermes agent is not launch-ready.",
+            )
+            existing_ids.add(worker_id)
+            continue
+        ai_options.append(
+            _hermes_worker_option(
+                task_id=task_id,
+                worker_id=worker_id,
+                label=str(agent.get("label") or _plain_worker_name(worker_id)),
+                provider=provider,
+                model=model,
+                hermes_profile=hermes_profile,
+                is_local=is_local,
+                reason="Configured Hermes agent; create a bounded packet for Hermes profile launch.",
+                packet_contract=packet_contract,
+            )
+        )
+        existing_ids.add(worker_id)
+
+
+# ---------------------------------------------------------------------------
 # Packet input contract helpers
 # ---------------------------------------------------------------------------
 
@@ -509,6 +567,19 @@ def _is_local_worker(provider: Any, model: Any, worker_id: Any) -> bool:
     return any(token in value for token in ("ollama", "qwopus", "qwen", "local"))
 
 
+def _is_local_base_url(value: Any) -> bool:
+    text = _optional_text(value)
+    if not text:
+        return False
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(text)
+    except Exception:
+        return False
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
 def _option_label(payload: dict[str, Any], fallback: str) -> str:
     for key in ("label", "name", "display_name"):
         value = _optional_text(payload.get(key))
@@ -575,6 +646,48 @@ def _worker_option(
         recommended_allowed_files=recommended_allowed_files,
         recommended_verification_commands=recommended_verification_commands,
         needs_operator_inputs=needs_operator_inputs,
+    )
+
+
+def _hermes_worker_option(
+    *,
+    task_id: str,
+    worker_id: str,
+    label: str,
+    provider: str,
+    model: str,
+    hermes_profile: str,
+    is_local: bool,
+    reason: str,
+    packet_contract: dict[str, list[str]],
+) -> WorkerOption:
+    toolsets = ["file", "terminal"]
+    command = _serial_packet_command(
+        task_id=task_id,
+        worker_id=worker_id,
+        provider=provider,
+        model=model,
+        hermes_profile=hermes_profile,
+        toolsets=toolsets,
+    )
+    return WorkerOption(
+        worker_id=worker_id,
+        label=label,
+        command=command,
+        model=model,
+        provider=provider,
+        source="hermes",
+        enabled=True,
+        is_local=is_local,
+        supervisor_may_auto_run=False,
+        reason=reason,
+        action_kind="serial_packet",
+        runtime_kind="hermes-profile",
+        hermes_profile=hermes_profile,
+        toolsets=toolsets,
+        recommended_allowed_files=list(packet_contract.get("recommended_allowed_files", [])),
+        recommended_verification_commands=list(packet_contract.get("recommended_verification_commands", [])),
+        needs_operator_inputs=list(packet_contract.get("needs_operator_inputs", [])),
     )
 
 

@@ -21,8 +21,8 @@ from devflow.control_room.task_workbench import (
 )
 
 
-BRAINSTORM_MODEL_LABEL = "DeepSeek V4 Flash Free"
-BRAINSTORM_PROFILE_ID = "deepseek-v4-flash-free-brainstormer"
+BRAINSTORM_MODEL_LABEL = "Hermes Qwen 3.7 Plus"
+BRAINSTORM_PROFILE_ID = "hermes-qwen37plus"
 
 LANE_RANK: dict[str, int] = {
     "failed": 0,

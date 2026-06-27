@@ -57,8 +57,8 @@ MAX_DOD_LENGTH = 10_000
 MAX_STARTING_POINT_LENGTH = 20_000
 MAX_DRAFT_LENGTH = 50_000
 
-DEFAULT_BUILDER_PROFILE = "deepseek-v4-flash-free-brainstormer"
-DEFAULT_JUDGE_PROFILE = "glm-5-2-brainstormer"
+DEFAULT_BUILDER_PROFILE = "hermes-qwen37plus"
+DEFAULT_JUDGE_PROFILE = "hermes-opus48"
 
 LoopStatus = Literal[
     "running",

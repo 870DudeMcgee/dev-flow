@@ -10,18 +10,18 @@ def test_worker_evidence_writes_expected_structure_and_caps_raw_output(tmp_path:
     evidence = write_worker_evidence(
         root=tmp_path,
         worker_type="local_model_worker_pool",
-        profile_id="local-qwopus-inspector",
-        worker_id="local-qwopus-inspector",
+        profile_id="local-gemma4-qat",
+        worker_id="local-gemma4-qat",
         task_id="task-0001",
         run_id="run-1",
         packet_text="packet",
         raw_output="x" * 30,
         response_text="response",
-        model="qwopus:latest",
+        model="gemma4:12b-it-qat",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
-        hermes_delegable=True,
+        hermes_delegable=False,
         runtime="local_model_client",
         status="success",
         started_at="2026-06-03T00:00:00+00:00",
@@ -37,16 +37,16 @@ def test_worker_evidence_writes_expected_structure_and_caps_raw_output(tmp_path:
 
     metadata = json.loads(evidence.run_metadata_path.read_text(encoding="utf-8"))
     assert metadata["worker_type"] == "local_model_worker_pool"
-    assert metadata["profile_id"] == "local-qwopus-inspector"
-    assert metadata["worker_id"] == "local-qwopus-inspector"
+    assert metadata["profile_id"] == "local-gemma4-qat"
+    assert metadata["worker_id"] == "local-gemma4-qat"
     assert metadata["task_id"] == "task-0001"
     assert metadata["run_id"] == "run-1"
-    assert metadata["model"] == "qwopus:latest"
+    assert metadata["model"] == "gemma4:12b-it-qat"
     assert metadata["adapter"] == "ollama_chat"
     assert metadata["runtime"] == "local_model_client"
     assert metadata["adapter_maturity"] == "local_patch_runtime"
     assert metadata["permission_mode"] == "read_only"
-    assert metadata["hermes_delegable"] is True
+    assert metadata["hermes_delegable"] is False
     assert metadata["raw_output_capped"] is True
     assert metadata["quality_notes"] == "useful"
     assert metadata["quality_score"] == 0.75
@@ -56,18 +56,18 @@ def test_worker_evidence_failure_capture_writes_error(tmp_path: Path) -> None:
     evidence = write_worker_evidence(
         root=tmp_path,
         worker_type="local_model_worker_pool",
-        profile_id="local-qwopus-inspector",
-        worker_id="local-qwopus-inspector",
+        profile_id="local-gemma4-qat",
+        worker_id="local-gemma4-qat",
         task_id="task-0001",
         run_id="run-failed",
         packet_text="packet",
         raw_output="server failed",
         response_text="",
-        model="qwopus:latest",
+        model="gemma4:12b-it-qat",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
-        hermes_delegable=True,
+        hermes_delegable=False,
         runtime="local_model_client",
         status="failed",
         started_at="2026-06-03T00:00:00+00:00",

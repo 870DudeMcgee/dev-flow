@@ -1,6 +1,6 @@
 # Model Capability Taxonomy And Routing Engine
 
-Status: planning proposal — next step after milestone-closure checkpoint. This document defines the capability taxonomy, profile schema, routing decision tree, and implementation plan for matching tasks to the best model from a heterogeneous fleet.
+Status: active reference plus roadmap. Dev-Flow already records core capability fields in the agent registry and exposes them through `agent catalog --json`; richer scoring remains incremental. This document defines the capability taxonomy, profile schema, routing decision tree, and implementation plan for matching tasks to the best model from a heterogeneous fleet.
 
 This extends [agent-registry-and-adapter-runtime.md](agent-registry-and-adapter-runtime.md) and [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md). The existing evidence-only routing (`devflow task fit`, `devflow task route`, `devflow task scorecard`) remains the stable entry point. This doc defines the *routing intelligence* layer that makes those commands choose the right model for the job.
 
@@ -61,8 +61,10 @@ model_capability_profile:
   vision: true
   vision_quality: good                # none | basic | good | excellent
   audio: false
+  input_modalities: [text, image]      # text | image | screenshot | browser-context-when-supplied
   tools: true
   tool_quality: good                  # none | basic | good | excellent
+  tool_access: [devflow, browser]      # runtime/tool access, not raw model intelligence
   
   # Reasoning
   thinking: true                      # native chain-of-thought
@@ -278,6 +280,20 @@ archetype_catalog:
     preferred_speed: medium
     example: "Review the new settings panel screenshot for UX issues"
     good_for: gemma4-31b-review, qwopus, qwen3.6 (all have vision)
+
+  browser_ui_review:
+    archetype_family: review
+    min_context: 4000
+    max_context: 32000
+    requires_vision: false
+    requires_thinking: recommended
+    preferred_code_focus: any
+    edit_risk: none
+    max_cost: local_free
+    preferred_speed: medium
+    required_tool_access: browser-context
+    example: "Inspect the live settings panel in a browser and explain the broken layout"
+    good_for: Codex/browser worker or Hermes profile that receives captured browser evidence
 
   code_review:
     archetype_family: review

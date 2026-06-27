@@ -158,7 +158,7 @@ def test_embedded_safe_command_may_auto_run(tmp_path: Path) -> None:
 def test_embedded_agent_dry_run_command_may_auto_run(tmp_path: Path) -> None:
     decision = route_telegram_message(
         tmp_path,
-        "run devflow agent run --task task-0001 --profile local-gemma4-summarizer --dry-run --json",
+        "run devflow agent run --task task-0001 --profile local-gemma4-qat --dry-run --json",
     )
 
     assert decision["route"] == "devflow_read"

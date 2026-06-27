@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import yaml
@@ -181,3 +182,71 @@ def test_local_model_smoke_script_syntax_and_imports() -> None:
     )
     assert result.returncode == 1
     assert "Error: LOCAL_MODEL_ID environment variable is missing." in result.stderr
+
+
+def test_hermes_profile_smoke_script_dry_run_writes_evidence(tmp_path: Path) -> None:
+    smoke_path = Path("scripts/hermes_profile_smoke.py")
+    assert smoke_path.exists()
+
+    import py_compile
+    py_compile.compile(str(smoke_path), doraise=True)
+
+    import subprocess
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(smoke_path),
+            "--dry-run",
+            "--run-id",
+            "dry-run",
+            "--output-root",
+            str(tmp_path),
+            "--try-local-hermes",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    run_dir = tmp_path / "dry-run"
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["overall_status"] == "dry_run"
+    assert [check["id"] for check in manifest["checks"]] == [
+        "dfcodex55",
+        "qwen35-direct",
+        "dflocalfast",
+    ]
+    assert all(check["status"] == "dry_run" for check in manifest["checks"])
+    assert (run_dir / "dfcodex55.prompt.txt").exists()
+    assert (run_dir / "qwen35-direct.prompt.txt").exists()
+    assert (run_dir / "dflocalfast.prompt.txt").exists()
+    assert (run_dir / "summary.md").exists()
+
+
+def test_hermes_profile_smoke_script_records_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib.util
+
+    smoke_path = Path("scripts/hermes_profile_smoke.py")
+    spec = importlib.util.spec_from_file_location("hermes_profile_smoke", smoke_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("fake", timeout=0.01, output=b"started\n", stderr=b"waiting\n")
+
+    import subprocess
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    result = module._run_command(
+        ["fake"],
+        timeout_seconds=0.01,
+        output_path=tmp_path / "out.txt",
+        stderr_path=tmp_path / "err.txt",
+    )
+
+    assert result == {"returncode": 124, "timed_out": True}
+    assert (tmp_path / "out.txt").read_text(encoding="utf-8") == "started\n"
+    assert (tmp_path / "err.txt").read_text(encoding="utf-8") == "waiting\nTimed out.\n"

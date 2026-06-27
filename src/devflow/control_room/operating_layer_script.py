@@ -534,14 +534,25 @@ function firstViewportBrainstormSessionId(snap) {
     || ''
   ).trim();
 }
+function adoptFirstViewportPipeline(pipeline) {
+  if (!pipeline?.session_id) return false;
+  const adopted = setActiveBrainstormSession(pipeline.session_id);
+  if (adopted && Array.isArray(pipeline.stages)) {
+    pipelineState = pipeline;
+  }
+  return adopted;
+}
 function adoptFirstViewportBrainstormSession(snap) {
+  const presentationPipeline = snap?.first_viewport?.pipeline || snap?.pipeline || null;
   const sid = firstViewportBrainstormSessionId(snap);
   if (!sid) return false;
   if (userSelectedBrainstormSession && brainstormSessionId && brainstormSessionId !== sid) return false;
   const activePipelineSession = String(pipelineState?.session_id || '').trim();
   if (activePipelineSession && activePipelineSession !== sid && pipelineHasSessionEvidence(pipelineState)) return false;
+  if (presentationPipeline && String(presentationPipeline.session_id || '').trim() === sid) {
+    return adoptFirstViewportPipeline(presentationPipeline);
+  }
   if (!setActiveBrainstormSession(sid)) return false;
-  const presentationPipeline = snap?.first_viewport?.pipeline || snap?.pipeline || null;
   if (presentationPipeline && Array.isArray(presentationPipeline.stages)) {
     pipelineState = presentationPipeline;
   }
@@ -1331,6 +1342,70 @@ function getPrimaryActionLabel(state) {
   return taskExists ? 'View Tasks' : 'Review →';
 }
 
+function getPipelineStageById(state, stageId) {
+  return (state?.stages || []).find(stage => stage.id === stageId) || null;
+}
+
+function getPipelineCurrentStage(state) {
+  const primaryStageId = getPipelinePrimaryStage(state);
+  if (primaryStageId) return getPipelineStageById(state, primaryStageId);
+  const stages = state?.stages || [];
+  return stages.find(stage => !isPipelineStageComplete(stage)) || stages[stages.length - 1] || null;
+}
+
+function getPipelineStageEvidencePath(stage) {
+  if (!stage) return '';
+  if (stage.artifact_path) return stage.artifact_path;
+  if (Array.isArray(stage.evidence_paths) && stage.evidence_paths.length) return stage.evidence_paths[0];
+  return '';
+}
+
+function getPipelineNearestEvidencePath(state) {
+  const stages = state?.stages || [];
+  if (!stages.length) return '';
+  const activeStage = getPipelineCurrentStage(state);
+  const activeIndex = Math.max(0, stages.findIndex(stage => stage.id === activeStage?.id));
+  for (let idx = activeIndex; idx >= 0; idx -= 1) {
+    const path = getPipelineStageEvidencePath(stages[idx]);
+    if (path) return path;
+  }
+  for (const stage of stages) {
+    const path = getPipelineStageEvidencePath(stage);
+    if (path) return path;
+  }
+  return '';
+}
+
+function currentBrainstormProfileLabel() {
+  const selected = selectedProfileId
+    ? availableAgents.find(agent => agent.id === selectedProfileId)
+    : null;
+  return selected?.label || selected?.model || $('model-selector-label')?.textContent || 'DeepSeek V4 Flash Free';
+}
+
+function getPipelinePrimaryContext(state) {
+  const currentStage = getPipelineCurrentStage(state);
+  return {
+    session: state?.session_id || brainstormSessionId || 'New brainstorm',
+    profile: currentBrainstormProfileLabel(),
+    currentStage: currentStage?.label || sentenceCase(currentStage?.id || 'brainstorm'),
+    nextAction: getPrimaryActionLabel(state),
+    evidencePath: getPipelineNearestEvidencePath(state) || 'No artifact yet',
+  };
+}
+
+function appendPipelineContextItem(container, className, label, value) {
+  const item = document.createElement('div');
+  item.className = 'pipeline-context-item ' + className;
+  const labelEl = document.createElement('span');
+  labelEl.textContent = label;
+  const valueEl = document.createElement('strong');
+  valueEl.textContent = value;
+  item.appendChild(labelEl);
+  item.appendChild(valueEl);
+  container.appendChild(item);
+}
+
 function renderPipeline(input) {
   if (input && Array.isArray(input.stages)) {
     pipelineState = input;
@@ -1349,6 +1424,15 @@ function renderPipeline(input) {
   primaryBtn.textContent = getPrimaryActionLabel(pipelineState);
   if (!primaryStage) { primaryBtn.disabled = true; primaryBtn.classList.add('disabled'); }
   primaryAction.appendChild(primaryBtn);
+  const context = getPipelinePrimaryContext(pipelineState);
+  const contextEl = document.createElement('div');
+  contextEl.className = 'pipeline-primary-context';
+  appendPipelineContextItem(contextEl, 'pipeline-session', 'Active brainstorm session', context.session);
+  appendPipelineContextItem(contextEl, 'pipeline-profile', 'Model/profile', context.profile);
+  appendPipelineContextItem(contextEl, 'pipeline-current-stage', 'Current stage', context.currentStage);
+  appendPipelineContextItem(contextEl, 'pipeline-next-action', 'Next action', context.nextAction);
+  appendPipelineContextItem(contextEl, 'pipeline-evidence-path', 'Evidence/artifact', context.evidencePath);
+  primaryAction.appendChild(contextEl);
   container.appendChild(primaryAction);
 
   const firstIncompleteIndex = getPipelineFirstIncompleteIndex(pipelineState);
@@ -1356,7 +1440,6 @@ function renderPipeline(input) {
     const isComplete = isPipelineStageComplete(stage);
     const isActive = !isComplete && idx === firstIncompleteIndex;
     const isLocked = !isComplete && !isActive;
-    const actionEnabled = stage.id === primaryStage;
 
     const step = document.createElement('div');
     step.className = 'pipeline-step';
@@ -1432,78 +1515,13 @@ function renderPipeline(input) {
       content.appendChild(sourceEl);
     }
 
-    // Step action buttons
-    const action = document.createElement('p');
-    action.className = 'step-action';
-
-    if (stage.id === 'brainstorm') {
-      const btn1 = document.createElement('button');
-      btn1.type = 'button';
-      btn1.className = 'btn btn-sm btn-primary';
-      btn1.dataset.brainstormStage = 'spec';
-      btn1.textContent = 'Escalate to Spec →';
-      if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
-      action.appendChild(btn1);
-
-      if (isActive || isComplete) {
-        const btn2 = document.createElement('button');
-        btn2.type = 'button';
-        btn2.className = 'btn btn-sm btn-secondary';
-        btn2.dataset.bjQualityGate = 'spec';
-        btn2.title = 'Run builder-judge quality gate before escalating';
-        btn2.textContent = 'QC Gate';
-        if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
-        action.appendChild(btn2);
-      }
-    } else if (stage.id === 'spec') {
-      const btn1 = document.createElement('button');
-      btn1.type = 'button';
-      btn1.className = 'btn btn-sm btn-secondary';
-      btn1.dataset.brainstormStage = 'spec';
-      btn1.textContent = 'Generate Spec →';
-      if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
-      action.appendChild(btn1);
-
-      if (isActive || isComplete) {
-        const btn2 = document.createElement('button');
-        btn2.type = 'button';
-        btn2.className = 'btn btn-sm btn-secondary';
-        btn2.dataset.bjQualityGate = 'spec';
-        btn2.title = 'Run builder-judge quality gate before generating spec';
-        btn2.textContent = 'QC Gate';
-        if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
-        action.appendChild(btn2);
-      }
-    } else if (stage.id === 'plan') {
-      const btn1 = document.createElement('button');
-      btn1.type = 'button';
-      btn1.className = 'btn btn-sm btn-secondary';
-      btn1.dataset.brainstormStage = 'plan';
-      btn1.textContent = 'Generate Plan →';
-      if (!actionEnabled) { btn1.disabled = true; btn1.classList.add('disabled'); }
-      action.appendChild(btn1);
-
-      if (isActive || isComplete) {
-        const btn2 = document.createElement('button');
-        btn2.type = 'button';
-        btn2.className = 'btn btn-sm btn-secondary';
-        btn2.dataset.bjQualityGate = 'plan';
-        btn2.title = 'Run builder-judge quality gate before generating plan';
-        btn2.textContent = 'QC Gate';
-        if (!actionEnabled) { btn2.disabled = true; btn2.classList.add('disabled'); }
-        action.appendChild(btn2);
-      }
-    } else if (stage.id === 'implementation') {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn btn-sm btn-secondary';
-      btn.dataset.brainstormStage = 'implementation';
-      btn.textContent = 'Create Task →';
-      if (!actionEnabled) { btn.disabled = true; btn.classList.add('disabled'); }
-      action.appendChild(btn);
+    const evidencePath = getPipelineStageEvidencePath(stage);
+    if (evidencePath) {
+      const evidenceEl = document.createElement('p');
+      evidenceEl.className = 'step-evidence';
+      evidenceEl.textContent = 'Evidence: ' + evidencePath;
+      content.appendChild(evidenceEl);
     }
-
-    content.appendChild(action);
     step.appendChild(content);
     container.appendChild(step);
   });
@@ -1550,6 +1568,112 @@ function useModelForBrainstormStage(stage) {
   return stage === 'spec' || stage === 'plan';
 }
 
+async function runPipelinePrimaryStage(stage, control) {
+  if (!stage) return;
+  const btn = control || null;
+  const originalText = btn?.textContent || '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = stage === 'implementation' ? 'Creating task...' : 'Escalating...';
+  }
+  const useModel = useModelForBrainstormStage(stage);
+  if (useModel) {
+    const modelLabel = currentBrainstormProfileLabel();
+    appendBrainstormMsg('assistant', '', { thinking: true });
+    appendBrainstormMsg('system', `Generating ${stage} with ${modelLabel}...`, {});
+  }
+  try {
+    const payload = await escalateBrainstormStage(stage, useModel);
+    if (useModel) removeThinkingIndicator();
+    if (payload.status === 'ready') {
+      const stageLabel = payload.stage ? payload.stage.charAt(0).toUpperCase() + payload.stage.slice(1) : 'Stage';
+      const detail = pipelineDetailFromPayload(payload);
+      const taskAction = taskActionFromPipelinePayload(payload);
+      if (payload.stage === 'implementation' && taskAction) {
+        appendBrainstormMsg('system', detail.operator_summary || 'Creating implementation task...', {});
+        try {
+          // Prefer typed pipeline_detail: single bridge call creates the task and context evidence.
+          const implContext = implementationContextFromPipelinePayload(payload);
+          const typedTaskAction = detail.task_action || null;
+          let bridgePayload = null;
+          let createdTaskId = null;
+          let outLine = '';
+
+          if (typedTaskAction) {
+            const dodValue = currentBrainstormDefinitionOfDone();
+            bridgePayload = await createTaskFromBrainstorm(
+              brainstormSessionId,
+              taskAction.title,
+              { definition_of_done: dodValue || undefined }
+            );
+            if (!bridgePayload || !bridgePayload.task_id) {
+              throw new Error('Brainstorm task bridge did not return a task id');
+            }
+            createdTaskId = bridgePayload.task_id;
+            outLine = `Task ${createdTaskId}: ${taskAction.title}`;
+          } else {
+            // Legacy Brainstorm payload fallback: older payloads may only include top-level action.
+            const cmd = taskAction.command;
+            const actionResult = await runApprovedCommand(cmd, {});
+            if (actionResult.executed && actionResult.exit_code === 0) {
+              outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
+              createdTaskId = parseCreatedTaskId(actionResult.stdout);
+              if (!createdTaskId) {
+                throw new Error('Legacy task creation did not return a task id');
+              }
+            } else {
+              throw new Error(actionResult.message || actionResult.stderr || 'Legacy task creation failed');
+            }
+          }
+
+          if (createdTaskId && outLine) {
+            const contextTarget = implContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
+            const contextPath = bridgePayload?.context_path || contextTarget.replace('{task_id}', createdTaskId);
+            const launchpad = bridgePayload?.launchpad || {};
+            const postCreate = bridgePayload?.post_create_action || {};
+            const nextLabel = postCreate.label || launchpad.action_label || 'use the Next Task launchpad';
+            const nextMsg = `Task created: ${outLine}. Implementation context target: ${contextPath}. Next: ${nextLabel}.`;
+            appendBrainstormMsg('system', nextMsg, {});
+            await loadSnapshot(selectedProjectId);
+            selectTaskInLaunchpad(createdTaskId, { focusShell: launchpad.focus_shell !== false });
+          }
+        } catch(e2) {
+          appendBrainstormMsg('system', 'Task creation error: ' + (e2.message || 'unknown'), { kind: 'provider_error' });
+        }
+      } else {
+        let info = `Escalated to ${stageLabel}. `;
+        const modelDetail = detail.advisory_model || payload.model_info;
+        if (modelDetail && modelDetail.used_model) {
+          info += `Generated by ${modelDetail.model || modelDetail.profile_id}. Artifact: ${payload.artifact_path || detail.artifact_path || 'session dir'}`;
+          if (payload.model_info && payload.model_info.content) {
+            appendBrainstormMsg('system', info, {});
+            appendBrainstormMsg('assistant', payload.model_info.content, { time: shortTime(new Date().toISOString()) });
+            info = '';
+          }
+        } else if (modelDetail && modelDetail.error) {
+          info += `Model error: ${modelDetail.error}. Artifact: ${payload.artifact_path || detail.artifact_path || 'session dir'}`;
+        } else {
+          info += `Artifact written to ${payload.artifact_path || detail.artifact_path || 'session dir'}.`;
+        }
+        if (info) appendBrainstormMsg('system', info, {});
+      }
+    } else if (payload.error) {
+      appendBrainstormMsg('system', payload.error, { kind: 'provider_error' });
+    }
+    await loadSnapshot(selectedProjectId);
+    await refreshPipelineState();
+    await loadBrainstormSessions();
+  } catch(e) {
+    removeThinkingIndicator();
+    appendBrainstormMsg('system', 'Escalation failed: ' + (e.message || 'unknown error'), { kind: 'provider_error' });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
 function setupPipelineButtons(scope) {
   const root = scope || document;
 
@@ -1559,132 +1683,7 @@ function setupPipelineButtons(scope) {
     btn.addEventListener('click', async () => {
       const stage = getPipelinePrimaryStage(pipelineState);
       if (!stage) return;
-      const stageButton = Array.from(document.querySelectorAll('#pipeline-stages-container [data-brainstorm-stage]'))
-        .find(item => item.dataset.brainstormStage === stage && !item.disabled);
-      if (stageButton) {
-        stageButton.click();
-        return;
-      }
-      btn.disabled = true;
-      const originalText = btn.textContent;
-      btn.textContent = 'Escalating...';
-      try {
-        await escalateBrainstormStage(stage, useModelForBrainstormStage(stage));
-        await loadSnapshot(selectedProjectId);
-        await refreshPipelineState();
-        await loadBrainstormSessions();
-      } catch(e) {
-        appendBrainstormMsg('system', 'Escalation failed: ' + (e.message || 'unknown error'), { kind: 'provider_error' });
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
-    });
-  });
-
-  root.querySelectorAll('[data-brainstorm-stage]').forEach(btn => {
-    if (btn.dataset.pipelineBound === '1') return;
-    btn.dataset.pipelineBound = '1';
-    btn.addEventListener('click', async () => {
-      const stage = btn.dataset.brainstormStage;
-      if (!stage) return;
-      btn.disabled = true;
-      const originalText = btn.textContent;
-      btn.textContent = 'Escalating...';
-      const useModel = useModelForBrainstormStage(stage);
-      if (useModel) {
-        const modelLabel = selectedProfileId ? (availableAgents.find(a => a.id === selectedProfileId)?.label || 'selected model') : 'DeepSeek V4 Flash Free';
-        appendBrainstormMsg('assistant', '', { thinking: true });
-        appendBrainstormMsg('system', `Generating ${stage} with ${modelLabel}...`, {});
-      }
-      try {
-        const payload = await escalateBrainstormStage(stage, useModel);
-        if (useModel) removeThinkingIndicator();
-        if (payload.status === 'ready') {
-          const stageLabel = payload.stage ? payload.stage.charAt(0).toUpperCase() + payload.stage.slice(1) : 'Stage';
-          const detail = pipelineDetailFromPayload(payload);
-          const taskAction = taskActionFromPipelinePayload(payload);
-          if (payload.stage === 'implementation' && taskAction) {
-            appendBrainstormMsg('system', detail.operator_summary || 'Creating implementation task...', {});
-            try {
-              // Prefer typed pipeline_detail: single bridge call creates the task and context evidence.
-              const implContext = implementationContextFromPipelinePayload(payload);
-              const typedTaskAction = detail.task_action || null;
-              let bridgePayload = null;
-              let createdTaskId = null;
-              let outLine = '';
-
-              if (typedTaskAction) {
-                const dodValue = currentBrainstormDefinitionOfDone();
-                bridgePayload = await createTaskFromBrainstorm(
-                  brainstormSessionId,
-                  taskAction.title,
-                  { definition_of_done: dodValue || undefined }
-                );
-                if (!bridgePayload || !bridgePayload.task_id) {
-                  throw new Error('Brainstorm task bridge did not return a task id');
-                }
-                createdTaskId = bridgePayload.task_id;
-                outLine = `Task ${createdTaskId}: ${taskAction.title}`;
-              } else {
-                // Legacy Brainstorm payload fallback: older payloads may only include top-level action.
-                const cmd = taskAction.command;
-                const actionResult = await runApprovedCommand(cmd, {});
-                if (actionResult.executed && actionResult.exit_code === 0) {
-                  outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
-                  createdTaskId = parseCreatedTaskId(actionResult.stdout);
-                  if (!createdTaskId) {
-                    throw new Error('Legacy task creation did not return a task id');
-                  }
-                } else {
-                  throw new Error(actionResult.message || actionResult.stderr || 'Legacy task creation failed');
-                }
-              }
-
-              if (createdTaskId && outLine) {
-                const contextTarget = implContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
-                const contextPath = bridgePayload?.context_path || contextTarget.replace('{task_id}', createdTaskId);
-                const launchpad = bridgePayload?.launchpad || {};
-                const postCreate = bridgePayload?.post_create_action || {};
-                const nextLabel = postCreate.label || launchpad.action_label || 'use the Next Task launchpad';
-                const nextMsg = `Task created: ${outLine}. Implementation context target: ${contextPath}. Next: ${nextLabel}.`;
-                appendBrainstormMsg('system', nextMsg, {});
-                await loadSnapshot(selectedProjectId);
-                selectTaskInLaunchpad(createdTaskId, { focusShell: launchpad.focus_shell !== false });
-              }
-            } catch(e2) {
-              appendBrainstormMsg('system', 'Task creation error: ' + (e2.message || 'unknown'), { kind: 'provider_error' });
-            }
-          } else {
-            let info = `Escalated to ${stageLabel}. `;
-            const modelDetail = detail.advisory_model || payload.model_info;
-            if (modelDetail && modelDetail.used_model) {
-              info += `Generated by ${modelDetail.model || modelDetail.profile_id}. Artifact: ${payload.artifact_path || detail.artifact_path || 'session dir'}`;
-              if (payload.model_info && payload.model_info.content) {
-                appendBrainstormMsg('system', info, {});
-                appendBrainstormMsg('assistant', payload.model_info.content, { time: shortTime(new Date().toISOString()) });
-                info = '';
-              }
-            } else if (modelDetail && modelDetail.error) {
-              info += `Model error: ${modelDetail.error}. Artifact: ${payload.artifact_path || detail.artifact_path || 'session dir'}`;
-            } else {
-              info += `Artifact written to ${payload.artifact_path || detail.artifact_path || 'session dir'}.`;
-            }
-            if (info) appendBrainstormMsg('system', info, {});
-          }
-        } else if (payload.error) {
-          appendBrainstormMsg('system', payload.error, { kind: 'provider_error' });
-        }
-        await loadSnapshot(selectedProjectId);
-        await refreshPipelineState();
-        await loadBrainstormSessions();
-      } catch(e) {
-        removeThinkingIndicator();
-        appendBrainstormMsg('system', 'Escalation failed: ' + (e.message || 'unknown error'), { kind: 'provider_error' });
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
+      await runPipelinePrimaryStage(stage, btn);
     });
   });
 
@@ -3620,12 +3619,12 @@ function populateBJModelSelectors() {
 
   const optionsHtml = selectorAgents.length
     ? selectorAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
-    : '<option value="deepseek-v4-flash-free-brainstormer">DeepSeek V4 Flash Free</option>';
+    : '<option value="hermes-qwen37plus">Hermes Qwen 3.7 Plus</option>';
 
   builderSel.innerHTML = optionsHtml;
   judgeSel.innerHTML = selectorAgents.length
     ? selectorAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
-    : '<option value="glm-5-2-brainstormer">GLM 5.2</option>';
+    : '<option value="hermes-opus48">Hermes Opus 4.8</option>';
 
   const ids = selectorAgents.map(a => a.id);
   if (ids.length) {
@@ -3633,8 +3632,8 @@ function populateBJModelSelectors() {
     builderSel.value = ids.includes(previousBuilder) ? previousBuilder : (selectedId || ids[0]);
     judgeSel.value = ids.includes(previousJudge) ? previousJudge : (ids.find(id => id !== builderSel.value) || ids[0]);
   } else {
-    builderSel.value = 'deepseek-v4-flash-free-brainstormer';
-    judgeSel.value = 'glm-5-2-brainstormer';
+    builderSel.value = 'hermes-qwen37plus';
+    judgeSel.value = 'hermes-opus48';
   }
 }
 

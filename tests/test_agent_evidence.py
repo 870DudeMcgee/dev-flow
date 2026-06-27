@@ -19,14 +19,14 @@ def test_summarize_agent_evidence_reports_local_model_runs(tmp_path: Path) -> No
     write_worker_evidence(
         root=tmp_path,
         worker_type="local_model",
-        profile_id="local-qwopus-inspector",
-        worker_id="local-qwopus-inspector",
+        profile_id="local-gemma4-qat",
+        worker_id="local-gemma4-qat",
         task_id=task.id,
         run_id="run-1",
         packet_text="packet",
         raw_output="raw",
         response_text="response",
-        model="qwopus",
+        model="gemma4:12b-it-qat",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
@@ -40,7 +40,7 @@ def test_summarize_agent_evidence_reports_local_model_runs(tmp_path: Path) -> No
 
     assert summary.task_id == task.id
     assert summary.has_worker_evidence is True
-    assert summary.local_model_runs[0].worker_id == "local-qwopus-inspector"
+    assert summary.local_model_runs[0].worker_id == "local-gemma4-qat"
     assert summary.next_safe_action == "review worker evidence before verification or promotion"
 
 

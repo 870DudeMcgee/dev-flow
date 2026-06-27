@@ -23,6 +23,7 @@ from devflow.control_room.brainstorm_pipeline import (
     write_brainstorm_pipeline_detail,
 )
 from devflow.control_room.env_loader import resolve_api_key
+from devflow.control_room.local_model_server import ensure_local_model_server_for_profile
 from devflow.control_room.openrouter_agent import (
     OpenRouterAgentError,
     _assistant_content,
@@ -35,7 +36,7 @@ from devflow.control_room.persistence import atomic_write_text
 from devflow.control_room.stage_artifact import write_stage_artifact as save_stage_artifact
 
 
-BRAINSTORM_PROFILE_ID = "deepseek-v4-flash-free-brainstormer"
+BRAINSTORM_PROFILE_ID = "hermes-qwen37plus"
 BRAINSTORM_MAX_MESSAGE_CHARS = 100_000
 BRAINSTORM_MAX_HISTORY_MESSAGES = 16
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
@@ -253,6 +254,7 @@ def run_brainstorm_message(
     is_hermes_profile = is_hermes_subscription_agent(profile, provider=provider)
     is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
+    local_model_server_lifecycle: dict[str, Any] | None = None
     if is_hermes_profile:
         _append_transcript(
             transcript_path,
@@ -311,6 +313,13 @@ def run_brainstorm_message(
             return payload
 
     try:
+        if is_local_openai_compatible_provider(provider):
+            local_model_server_lifecycle = ensure_local_model_server_for_profile(
+                root=root,
+                provider=profile.provider,
+                model=profile.model,
+                base_url=provider.base_url,
+            )
         response_body = _chat_completion_for_profile(
             profile=profile,
             provider=provider,
@@ -346,6 +355,7 @@ def run_brainstorm_message(
             usage=response_body.get("usage") if isinstance(response_body.get("usage"), dict) else None,
             error=None,
             will_call_provider=True,
+            local_model_server_lifecycle=local_model_server_lifecycle,
         )
     except Exception as exc:
         error = _redact(str(exc), api_key=api_key or "") if api_key else str(exc)
@@ -371,6 +381,7 @@ def run_brainstorm_message(
             usage=None,
             error=error,
             will_call_provider=True,
+            local_model_server_lifecycle=local_model_server_lifecycle,
         )
     atomic_write_text(run_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return payload
@@ -696,6 +707,7 @@ def _run_payload(
     usage: dict[str, Any] | None,
     error: str | None,
     will_call_provider: bool,
+    local_model_server_lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": 1,
@@ -708,6 +720,7 @@ def _run_payload(
         "transcript_path": relative_path(root, transcript_path),
         "run_path": relative_path(root, run_path),
         "will_call_provider": will_call_provider,
+        "local_model_server_lifecycle": local_model_server_lifecycle,
         "created_at": _now(),
     }
     if raw_response_path is not None:

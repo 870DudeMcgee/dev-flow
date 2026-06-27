@@ -36,27 +36,27 @@ def test_resolve_builtin_shell_alias_is_task_run_runtime(tmp_path: Path) -> None
     assert "<task>/agents/devflow-shell-worker/logs/worker.log" in runtime.evidence_contract.required_outputs[1]
 
 
-def test_resolve_qwopus_implementer_is_local_patch_runtime(tmp_path: Path) -> None:
+def test_resolve_disabled_qwopus_implementer_is_blocked(tmp_path: Path) -> None:
     runtime = resolve_agent_runtime(tmp_path, "qwopus-implementer")
 
     assert runtime.adapter == "ollama_chat"
     assert runtime.adapter_maturity == "local_patch_runtime"
-    assert runtime.execution_surface == "task_run"
-    assert runtime.task_run_allowed is True
+    assert runtime.execution_surface == "blocked"
+    assert runtime.task_run_allowed is False
     assert runtime.agent_run_allowed is False
     assert runtime.remote_provider is False
-    assert runtime.next_command == "devflow task run <task-id> --worker qwopus-implementer"
-    assert "<task>/agents/qwopus-implementer/proposal.patch" in runtime.evidence_contract.required_outputs
+    assert runtime.next_command is None
+    assert "disabled" in runtime.refusal_reason
 
 
 def test_resolve_read_only_local_profile_uses_agent_run(tmp_path: Path) -> None:
-    runtime = resolve_agent_runtime(tmp_path, "local-qwopus-inspector")
+    runtime = resolve_agent_runtime(tmp_path, "local-gemma4-qat")
 
     assert runtime.execution_surface == "agent_run"
     assert runtime.task_run_allowed is False
     assert runtime.agent_run_allowed is True
     assert runtime.packet_allowed is True
-    assert runtime.next_command == "devflow agent run --task <task-id> --profile local-qwopus-inspector --json"
+    assert runtime.next_command == "devflow agent run --task <task-id> --profile local-gemma4-qat --json"
     assert "read-only local model worker-pool profile" in runtime.refusal_reason
 
 

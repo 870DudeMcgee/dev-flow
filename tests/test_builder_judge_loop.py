@@ -65,7 +65,7 @@ def _setup_mock_provider(
         req_body = json.loads(req.data.decode("utf-8"))
         model = req_body.get("model", "")
         # Route based on model in the request
-        if "deepseek" in model.lower() or "builder" in model.lower():
+        if "qwen/qwen3.7-plus" in model.lower() or "sonnet" in model.lower() or "minimax" in model.lower():
             if builder_queue:
                 return MockResponse(builder_queue.pop(0))
             return MockResponse(_make_builder_response())
@@ -88,8 +88,8 @@ def test_config_validation_same_builder_judge(tmp_path: Path) -> None:
     setup_temp_git_repo(tmp_path)
     config = BuilderJudgeConfig(
         definition_of_done="Write a cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="deepseek-v4-flash-free-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-qwen37plus",
     )
     with pytest.raises(BuilderJudgeConfigError, match="Builder and judge must be different"):
         run_builder_judge_loop(tmp_path, config)
@@ -110,7 +110,7 @@ def test_hermes_codex_profile_does_not_fall_back_to_openrouter(
     config = BuilderJudgeConfig(
         definition_of_done="Draft a concise operating-layer next step.",
         builder_profile_id="hermes-codex-gpt55",
-        judge_profile_id="glm-5-2-brainstormer",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=1,
     )
@@ -148,8 +148,8 @@ def test_loop_passes_on_first_round(
 
     config = BuilderJudgeConfig(
         definition_of_done="A 5-line cold email for agency owners with one CTA.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=3,
     )
@@ -184,8 +184,8 @@ def test_loop_iterates_then_passes(
 
     config = BuilderJudgeConfig(
         definition_of_done="A 5-line cold email with one CTA.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=5,
     )
@@ -224,8 +224,8 @@ def test_loop_max_rounds_escalates(
 
     config = BuilderJudgeConfig(
         definition_of_done="A perfect cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=3,
         escalate_on_max_rounds=True,
@@ -253,8 +253,8 @@ def test_loop_max_rounds_no_escalate(
 
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=1,
         escalate_on_max_rounds=False,
@@ -280,8 +280,8 @@ def test_evidence_persisted(
 
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=3,
     )
@@ -322,8 +322,8 @@ def test_list_and_get_run(
 
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=3,
     )
@@ -382,8 +382,8 @@ def test_starting_point_used(
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
         starting_point="Dear Sir, I am writing to...",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=3,
     )
@@ -413,8 +413,8 @@ def test_loop_failed_on_builder_error(
 
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=3,
     )
@@ -441,8 +441,8 @@ def test_escalation_creates_question(
 
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=1,
         escalate_on_max_rounds=True,
@@ -478,8 +478,8 @@ def test_no_escalation_does_not_create_question(
 
     config = BuilderJudgeConfig(
         definition_of_done="A cold email.",
-        builder_profile_id="deepseek-v4-flash-free-brainstormer",
-        judge_profile_id="glm-5-2-brainstormer",
+        builder_profile_id="hermes-qwen37plus",
+        judge_profile_id="hermes-opus48",
         pass_threshold=85,
         max_rounds=1,
         escalate_on_max_rounds=False,
@@ -585,7 +585,7 @@ def test_quality_gate_escalated_writes_stage_artifact_with_escalated_status(
     def capture_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
         req_body = json.loads(req.data.decode("utf-8"))
         model = req_body.get("model", "")
-        if "deepseek" in model.lower():
+        if "qwen/qwen3.7-plus" in model.lower():
             return MockResponse(_make_builder_response("Draft v1."))
         else:
             captured_q.append(True)

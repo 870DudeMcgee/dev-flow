@@ -89,7 +89,7 @@ Hermes must never do these:
 - create a hidden state layer or competing orchestration brain
 - bypass `devflow task promote-preview`
 - spawn unbounded parallel workers
-- execute `devflow agent propose-patch`; Hermes may quote the exact command for a human to run directly, but the patch-proposer profile is not Hermes-delegable
+- execute `devflow agent propose-patch`; Hermes may quote the exact command for a human to run directly, but the patch-proposal surface is not Hermes-delegable
 - let multiple writer agents edit one task/worktree
 - mix personal/factory/iMessage automation authority with Dev-Flow repo authority
 - expose secrets or message contents unnecessarily in logs

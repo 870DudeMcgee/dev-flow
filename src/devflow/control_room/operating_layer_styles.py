@@ -2002,6 +2002,40 @@ summary:focus-visible {
   padding: 5px 10px;
   width: 100%;
 }
+.pipeline-primary-context {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 8px;
+}
+.pipeline-context-item {
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  padding: 5px 7px;
+}
+.pipeline-context-item span {
+  color: var(--text-muted);
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+.pipeline-context-item strong {
+  color: var(--text);
+  display: block;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pipeline-step { display: flex; gap: 12px; position: relative; }
 #pipeline-spine .pipeline-step {
   align-items: center;
@@ -2066,6 +2100,16 @@ summary:focus-visible {
   overflow: hidden;
 }
 #pipeline-spine .step-source { display: none !important; }
+.step-evidence {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.25;
+  margin: 2px 0 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .step-action {
   display: flex;
   align-items: center;
@@ -2844,6 +2888,7 @@ summary:focus-visible {
   .idea-primary-action:not(:empty) { margin: 0 12px 10px; }
   .idea-greenhouse-lanes { grid-template-columns: 1fr; }
   .pipeline-stages { padding: 8px 12px; }
+  .pipeline-primary-context { grid-template-columns: 1fr; }
   .pipeline-step { gap: 8px; }
   .pipeline-step:not(:last-child) { padding-bottom: 4px; }
   .step-number { min-width: 24px; }

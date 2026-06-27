@@ -17,40 +17,31 @@ runner = CliRunner()
 
 
 OLLAMA_LIST_REVIEW = """NAME                              ID              SIZE      MODIFIED
-qwen2.5-coder:7b-instruct         aaa111          4.7 GB    1 day ago
-gemma4-review:latest              bbb222          18 GB     1 day ago
-qwen2.5-coder:32b-instruct        ccc333          19 GB     1 day ago
+gemma4:12b-it-qat                 bbb222          8.1 GB    1 day ago
+qwen2.5-coder:14b                 ccc333          9.0 GB    1 day ago
 """
 
 
 OLLAMA_LIST_UNSAFE = """NAME                              ID              SIZE      MODIFIED
-qwen2.5-coder:7b-instruct         aaa111          4.7 GB    1 day ago
+qwen2.5-coder:14b                 ccc333          9.0 GB    1 day ago
 """
 
 
 OLLAMA_SHOWS = {
-    "qwen2.5-coder:7b-instruct": """  Model
-    architecture        qwen2
-    parameters          7.6B
-    context length      32768
-    quantization        Q4_K_M
-
-  Capabilities
-    completion
-""",
-    "gemma4-review:latest": """  Model
+    "gemma4:12b-it-qat": """  Model
     architecture        gemma4
-    parameters          31B
-    context length      32768
-    quantization        Q4_K_M
+    parameters          11.9B
+    context length      262144
+    quantization        Q4_0
 
   Capabilities
     completion
     thinking
+    vision
 """,
-    "qwen2.5-coder:32b-instruct": """  Model
+    "qwen2.5-coder:14b": """  Model
     architecture        qwen2
-    parameters          32B
+    parameters          14B
     context length      32768
     quantization        Q4_K_M
 
@@ -85,9 +76,8 @@ def test_agent_audition_dry_run_writes_plan_without_model_calls(
     assert payload["job_type"] == "review-debug"
     assert payload["candidate_cap"] == 3
     assert [item["profile_id"] for item in payload["selected_candidates"]] == [
-        "local-qwen25-coder-7b-code-reviewer",
-        "local-gemma4-31b-dense-judge",
-        "local-qwen25-coder-32b-code-reviewer",
+        "local-gemma4-qat",
+        "local-qwen25-coder-14b",
     ]
     assert len(payload["selected_candidates"]) <= 3
 
@@ -135,7 +125,7 @@ def test_agent_audition_rejects_patch_capable_profile(tmp_path: Path, monkeypatc
         for item in payload["rejected_candidates"]
         if item.get("profile_id")
     }
-    assert "unsafe_profile" in rejected["local-qwen25-coder-7b-code-reviewer"]
+    assert "unsafe_profile" in rejected["local-qwen25-coder-14b"]
     assert payload["selected_candidates"] == []
     assert payload["status"] == "no_eligible_candidates"
 
@@ -208,9 +198,8 @@ def test_agent_audition_execute_runs_candidates_and_writes_score_artifacts(
     assert payload["status"] == "completed"
     assert payload["will_call_models"] is True
     assert calls == [
-        "local-qwen25-coder-7b-code-reviewer",
-        "local-gemma4-31b-dense-judge",
-        "local-qwen25-coder-32b-code-reviewer",
+        "local-gemma4-qat",
+        "local-qwen25-coder-14b",
     ]
     audition_dir = tmp_path / ".devflow/tasks/task-0001/model-auditions/execute-review-debug"
     assert (audition_dir / "plan.json").exists()
@@ -219,10 +208,11 @@ def test_agent_audition_execute_runs_candidates_and_writes_score_artifacts(
     assert (audition_dir / "report.md").exists()
     runs = json.loads((audition_dir / "runs.json").read_text(encoding="utf-8"))
     scorecard = json.loads((audition_dir / "scorecard.json").read_text(encoding="utf-8"))
-    assert len(runs["runs"]) == 3
-    assert scorecard["advisory_ranking"][0]["profile_id"] == "local-gemma4-31b-dense-judge"
+    assert len(runs["runs"]) == 2
+    assert scorecard["advisory_ranking"][0]["profile_id"] == "local-gemma4-qat"
     assert scorecard["advisory_ranking"][0]["estimated_human_rework"] == "low"
-    assert "false_claim" in scorecard["advisory_ranking"][2]["deductions"]
+    qwen_row = next(row for row in scorecard["advisory_ranking"] if row["profile_id"] == "local-qwen25-coder-14b")
+    assert "false_claim" in qwen_row["deductions"]
     assert not (tmp_path / ".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8").count("model_audition")
 
 
@@ -276,7 +266,7 @@ def _fake_ollama_run(list_output: str):
 
 
 def _audition_response(profile_id: str) -> str:
-    if profile_id == "local-gemma4-31b-dense-judge":
+    if profile_id == "local-gemma4-qat":
         return (
             "## Task Grounding\n"
             "- Task ID: task-0001\n"
@@ -288,7 +278,7 @@ def _audition_response(profile_id: str) -> str:
             "## Suggested Next Dev-Flow Action\n"
             "devflow task show task-0001\n"
         )
-    if profile_id == "local-qwen25-coder-32b-code-reviewer":
+    if profile_id == "local-qwen25-coder-14b":
         return (
             "## Task Grounding\nTask ID: task-0001\n\n"
             "## Summary\nI edited files and ran verification successfully.\n\n"
@@ -308,9 +298,9 @@ def _write_unsafe_fast_reviewer(root: Path) -> None:
     (agents_dir / "registry.yaml").write_text(
         """version: 1
 agents:
-  local-qwen25-coder-7b-code-reviewer:
+  local-qwen25-coder-14b:
     provider: ollama
-    model: qwen2.5-coder:7b-instruct
+    model: qwen2.5-coder:14b
     adapter: ollama_chat
     role: implementation_worker
     tier: fast_local
@@ -319,10 +309,10 @@ agents:
     workspace: isolated_task_workspace
     can_touch:
       - "<workspace>/**"
-      - "<task>/agents/local-qwen25-coder-7b-code-reviewer/proposal.patch"
+      - "<task>/agents/local-qwen25-coder-14b/proposal.patch"
     allowed_writes:
       - "<workspace>/**"
-      - "<task>/agents/local-qwen25-coder-7b-code-reviewer/proposal.patch"
+      - "<task>/agents/local-qwen25-coder-14b/proposal.patch"
     forbidden_writes:
       - "<main_checkout>/**"
       - ".git/**"

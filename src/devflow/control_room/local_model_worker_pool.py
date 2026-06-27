@@ -21,6 +21,10 @@ from devflow.control_room.local_model_client import (
     LocalModelClientError,
 )
 from devflow.control_room.local_model_runtime_lock import LocalModelRuntimeLockError, local_model_runtime_lock
+from devflow.control_room.local_model_server import (
+    LocalModelServerError,
+    ensure_local_model_server_for_profile,
+)
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import get_task, utc_now
 from devflow.control_room.task_packet import build_agent_packet, render_task_packet_text
@@ -29,7 +33,7 @@ from devflow.control_room.worker_evidence import expected_worker_evidence_output
 
 PROHIBITED_CHECKOUT_PATHS = ["/Users/jewelbait/Desktop/DevFlow"]
 LOCAL_MODEL_WORKER_TYPE = "local_model_worker_pool"
-GEMMA_NATIVE_PROFILE_IDS = {"local-gemma4-summarizer"}
+GEMMA_NATIVE_PROFILE_IDS = {"local-gemma4-qat"}
 GEMMA_NATIVE_NUM_CTX = DEFAULT_LOCAL_NUM_CTX
 GEMMA_NATIVE_NUM_PREDICT = 1536
 DEFAULT_LOCAL_PACKET_MAX_CHARS = 200_000
@@ -188,6 +192,7 @@ def run_local_model_profile(
     user_prompt = _user_prompt(packet_text, profile, task_id=task.id, task_title=task.title, task_status=task.status)
     runtime = "local_model_client"
     evidence_base_url = client.base_url
+    local_model_server_lifecycle: dict[str, Any] | None = None
 
     try:
         with local_model_runtime_lock(
@@ -198,6 +203,12 @@ def run_local_model_profile(
             worker_id=profile.id,
             operation=LOCAL_MODEL_WORKER_TYPE,
         ):
+            local_model_server_lifecycle = ensure_local_model_server_for_profile(
+                root=root,
+                provider=profile.provider,
+                model=profile.model,
+                base_url=client.base_url,
+            )
             if _uses_native_ollama_chat(profile):
                 result = client.native_chat_completion(
                     system_prompt=system_prompt,
@@ -219,7 +230,7 @@ def run_local_model_profile(
         quality_score, quality_notes = _response_quality(profile, task_id=task.id, response_text=response_text)
         if quality_score is not None and quality_score < 0.75:
             status = "low_quality"
-    except (LocalModelClientError, LocalModelWorkerPoolError, LocalModelRuntimeLockError, ValueError) as exc:
+    except (LocalModelClientError, LocalModelWorkerPoolError, LocalModelRuntimeLockError, LocalModelServerError, ValueError) as exc:
         raw_output = getattr(exc, "response_body", None) or str(exc)
         response_text = ""
         status = "failed"
@@ -251,6 +262,7 @@ def run_local_model_profile(
         status=status,
         started_at=started_at,
         base_url=evidence_base_url,
+        local_model_server_lifecycle=local_model_server_lifecycle,
         error_message=error_message,
         quality_notes=quality_notes,
         quality_score=quality_score,
@@ -284,6 +296,7 @@ def run_local_model_profile(
         "response_path": relative_path(root, evidence.response_path),
         "raw_output_path": relative_path(root, evidence.raw_output_path),
         "error_path": relative_path(root, evidence.error_path) if error_message else None,
+        "local_model_server_lifecycle": local_model_server_lifecycle,
         "will_write_source": False,
         "will_write_proposal_patch": False,
         "will_apply_patch": False,
@@ -476,7 +489,7 @@ def _user_prompt(
 
 
 def _response_quality(profile: AgentDefinition, *, task_id: str, response_text: str) -> tuple[float | None, str | None]:
-    if profile.id != "local-gemma4-summarizer":
+    if profile.id not in GEMMA_NATIVE_PROFILE_IDS:
         return None, None
 
     text = response_text.strip()

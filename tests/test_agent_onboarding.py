@@ -267,7 +267,7 @@ def test_agent_add_model_refuses_duplicate_builtin_model_profile(
             "--provider",
             "ollama",
             "--model",
-            "qwopus:latest",
+            "gemma4:12b-it-qat",
             "--authority",
             "read-only",
             "--role",
@@ -278,7 +278,7 @@ def test_agent_add_model_refuses_duplicate_builtin_model_profile(
 
     assert result.exit_code != 0
     assert "already registered" in result.output
-    assert "local-qwopus-inspector" in result.output
+    assert "local-gemma4-qat" in result.output
 
 
 def test_agent_catalog_reports_registered_and_unregistered_local_models(
@@ -344,6 +344,14 @@ def test_agent_catalog_reports_registered_and_unregistered_local_models(
     assert "llama3.2:latest" in payload["local_ollama"]["unregistered_models"]
     assert "registered:latest" not in payload["local_ollama"]["unregistered_models"]
     assert any(profile["model"] == "registered:latest" for profile in payload["profiles"])
+    profiles = {profile["id"]: profile for profile in payload["profiles"]}
+    gemma_capabilities = profiles["local-gemma4-qat"]["capabilities"]
+    assert gemma_capabilities["vision"] is True
+    assert "screenshot" in gemma_capabilities["input_modalities"]
+    assert "ui_visual_review" in gemma_capabilities["tuned_for_archetypes"]
+    minimax_capabilities = profiles["hermes-minimaxm3"]["capabilities"]
+    assert "second_opinion" in minimax_capabilities["tuned_for_archetypes"]
+    assert "patch-proposal" not in minimax_capabilities["secondary_roles"]
 
 
 def test_agent_catalog_marks_local_availability_and_discovers_hermes_custom_models(
@@ -441,8 +449,8 @@ def test_agent_catalog_marks_local_availability_and_discovers_hermes_custom_mode
     payload = json.loads(result.output)
     profiles = {profile["id"]: profile for profile in payload["profiles"]}
     assert profiles["gemma4-12b-qat-implementer"]["availability"]["status"] == "available"
-    assert profiles["qwopus-implementer"]["availability"]["status"] == "missing"
-    assert profiles["qwopus-implementer"]["availability"]["reason"] == "model_not_installed"
+    assert profiles["qwopus-implementer"]["availability"]["status"] == "disabled"
+    assert profiles["qwopus-implementer"]["availability"]["reason"] == "agent_disabled"
 
     local_endpoints = payload["local_openai_compatible"]
     assert local_endpoints["status"] == "ready"
@@ -460,6 +468,112 @@ def test_agent_catalog_marks_local_availability_and_discovers_hermes_custom_mode
             "source": "hermes",
         }
     ]
+
+
+def test_agent_catalog_discovers_configured_hermes_agents_without_leaking_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    hermes_dir = tmp_path / ".hermes"
+    for profile in ("mini", "dfqwen37plus", "dflocalfast", "dfcodex55"):
+        (hermes_dir / "profiles" / profile).mkdir(parents=True)
+    (hermes_dir / ".env").write_text("OPENROUTER_API_KEY=sk-or-test-secret\n", encoding="utf-8")
+    (hermes_dir / "config.yaml").write_text(
+        """model:
+  default: qwen/qwen3.7-plus
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+providers:
+  qwen35-mtp:
+    api: http://127.0.0.1:8080/v1
+    models:
+      qwen35-9b-mtp:
+        context_length: 65536
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "mini" / "config.yaml").write_text(
+        """model:
+  provider: openai-codex
+  default: gpt-5.5
+  base_url: https://chatgpt.com/backend-api/codex
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "dfqwen37plus" / "config.yaml").write_text(
+        """model:
+  default: qwen/qwen3.7-plus
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+providers:
+  mini-router:
+    api: http://127.0.0.1:11435/v1
+    models:
+      mini:qwen2.5-coder-7b: {}
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "dflocalfast" / "config.yaml").write_text(
+        """model:
+  default: qwen35-9b-mtp
+  provider: qwen35-mtp
+  base_url: http://127.0.0.1:8080/v1
+providers:
+  local:
+    api: http://127.0.0.1:11434/v1
+    models:
+      qwen3:14b: {}
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "dfcodex55" / "config.yaml").write_text(
+        """model:
+  provider: openai-codex
+  default: gpt-5.5
+  base_url: https://chatgpt.com/backend-api/codex
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["agent", "catalog", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert "sk-or-test-secret" not in result.output
+    payload = json.loads(result.output)
+    agents = {agent["id"]: agent for agent in payload["hermes_agents"]}
+
+    assert "hermes-default-openrouter-qwen-qwen3-7-plus" not in agents
+    assert "hermes-mini-openai-codex-gpt-5-5" not in agents
+    assert not any("mini-router" in agent["id"] for agent in payload["hermes_agents"])
+    assert not any(agent["model"] == "qwen3:14b" for agent in payload["hermes_agents"])
+
+    openrouter = agents["hermes-dfqwen37plus-openrouter-qwen-qwen3-7-plus"]
+    assert openrouter["label"] == "Hermes OpenRouter - qwen/qwen3.7-plus"
+    assert openrouter["provider"] == "openrouter"
+    assert openrouter["model"] == "qwen/qwen3.7-plus"
+    assert openrouter["hermes_profile"] == "dfqwen37plus"
+    assert openrouter["status"] == "available"
+    assert openrouter["key_status"] == "available"
+    assert openrouter["key_source"] == "hermes_env"
+    assert openrouter["adapter"] == "hermes_profile"
+    assert openrouter["runtime_contract"]["execution_surface"] == "hermes_profile_handoff"
+    assert openrouter["runtime_contract"]["task_run_allowed"] is False
+
+    local_model = agents["hermes-dflocalfast-qwen35-mtp-qwen35-9b-mtp"]
+    assert local_model["label"] == "Hermes qwen35-mtp - qwen35-9b-mtp"
+    assert local_model["provider"] == "qwen35-mtp"
+    assert local_model["model"] == "qwen35-9b-mtp"
+    assert local_model["base_url"] == "http://127.0.0.1:8080/v1"
+
+    codex = agents["hermes-dfcodex55-openai-codex-gpt-5-5"]
+    assert codex["label"] == "Hermes Codex - gpt-5.5"
+    assert codex["provider"] == "openai-codex"
+    assert codex["hermes_profile"] == "dfcodex55"
 
 
 def test_agent_catalog_prefers_qwen35_and_marks_heavy_models_unsafe_on_mac_mini(
@@ -524,27 +638,23 @@ custom_providers:
     payload = json.loads(result.output)
     policy = payload["local_model_policy"]
     assert policy["default_model"] == "qwen35-9b-mtp"
-    assert policy["default_provider_id"] == "hermes:qwen35-mtp"
+    assert policy["default_provider_id"] == "qwen35-mtp"
     assert policy["local_model_concurrency"]["mode"] == "single_flight"
     assert policy["machine"]["total_memory_gb"] == 16
     assert policy["machine"]["max_recommended_weight_class"] == "medium"
 
-    provider = next(item for item in payload["local_openai_compatible"]["providers"] if item["id"] == "hermes:qwen35-mtp")
-    qwen = next(item for item in provider["advertised_models"] if item["id"] == "qwen35-9b-mtp")
-    configured_qwen = next(item for item in provider["configured_models"] if item["id"] == "qwen35-9b-mtp")
-    heavy = next(item for item in provider["advertised_models"] if item["id"] == "qwen-heavy-32b")
+    provider = next(item for item in payload["local_openai_compatible"]["providers"] if item["id"] == "qwen35-mtp")
+    hermes_provider = next(item for item in payload["local_openai_compatible"]["providers"] if item["id"] == "hermes:qwen35-mtp")
+    assert provider["source"] == "devflow"
+    qwen = next(item for item in hermes_provider["advertised_models"] if item["id"] == "qwen35-9b-mtp")
+    configured_qwen = next(item for item in hermes_provider["configured_models"] if item["id"] == "qwen35-9b-mtp")
+    heavy = next(item for item in hermes_provider["advertised_models"] if item["id"] == "qwen-heavy-32b")
     assert qwen["machine_fit"]["status"] == "preferred"
     assert qwen["machine_fit"]["weight_class"] == "medium"
     assert configured_qwen["n_params"] == 9_000_000_000
     assert configured_qwen["machine_fit"]["weight_class"] == "medium"
     assert heavy["machine_fit"]["status"] == "not_recommended"
     assert "16 GB" in heavy["machine_fit"]["reason"]
-    commands = [action["command"] for action in payload["actions"]]
-    assert f"devflow agent add-provider qwen35-mtp --adapter openai_compatible --base-url http://127.0.0.1:{port}/v1" in commands
-    assert (
-        "devflow agent add-model --provider qwen35-mtp --model qwen35-9b-mtp "
-        "--authority advisory --role frontier_planner_architect_reviewer --profile-id local-qwen35-mtp"
-    ) in commands
 
 
 def test_local_model_inventory_builds_machine_summary_and_rows(
@@ -585,40 +695,15 @@ custom_providers:
 """,
         encoding="utf-8",
     )
-
-    add_provider = runner.invoke(
-        app,
-        [
-            "agent",
-            "add-provider",
-            "qwen35-mtp",
-            "--adapter",
-            "openai_compatible",
-            "--base-url",
-            f"http://127.0.0.1:{port}/v1",
-            "--json",
-        ],
+    (tmp_path / ".devflow" / "providers" / "qwen35-mtp.yaml").write_text(
+        f"""id: qwen35-mtp
+provider: qwen35-mtp
+adapter: openai_compatible
+base_url: http://127.0.0.1:{port}/v1
+enabled: true
+""",
+        encoding="utf-8",
     )
-    assert add_provider.exit_code == 0, add_provider.output
-    add_model = runner.invoke(
-        app,
-        [
-            "agent",
-            "add-model",
-            "--provider",
-            "qwen35-mtp",
-            "--model",
-            "qwen35-9b-mtp",
-            "--authority",
-            "advisory",
-            "--role",
-            "frontier_planner_architect_reviewer",
-            "--profile-id",
-            "local-qwen35-mtp",
-            "--json",
-        ],
-    )
-    assert add_model.exit_code == 0, add_model.output
 
     try:
         result = runner.invoke(app, ["agent", "catalog", "--json"])

@@ -36,6 +36,21 @@ def _create_hermes_packet(tmp_path: Path, run_id: str = "hermes-runtime"):
     )
 
 
+def _create_default_hermes_packet(tmp_path: Path, run_id: str = "default-hermes-runtime"):
+    return create_serial_local_agent_run(
+        tmp_path,
+        run_id=run_id,
+        phase="implementer",
+        provider="openrouter",
+        model="qwen/qwen3.7-plus",
+        allowed_files=["src/example.py"],
+        verification_commands=["pytest tests/test_example.py -q"],
+        runtime_kind="hermes-profile",
+        hermes_profile="default",
+        toolsets=["file", "terminal"],
+    )
+
+
 def _fake_hermes_executable(tmp_path: Path, *, exit_code: int = 0) -> Path:
     fake = tmp_path / "fake-hermes"
     fake.write_text(
@@ -87,6 +102,22 @@ def test_dry_run_previews_argv_without_invoking_hermes(tmp_path: Path) -> None:
     assert all(isinstance(part, str) for part in payload["command_preview"])
     assert "worker-packet.md" in payload["command_preview"][5]
     assert not (result.run_dir / "hermes-run.json").exists()
+
+
+def test_dry_run_uses_plain_hermes_chat_for_default_profile(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    _create_default_hermes_packet(tmp_path)
+
+    payload = dry_run_hermes_worker_runtime(
+        tmp_path,
+        run_id="default-hermes-runtime",
+        hermes_profile="default",
+    )
+
+    assert payload["hermes_profile"] == "default"
+    assert payload["command_preview"][:3] == ["hermes", "chat", "-q"]
+    assert "-p" not in payload["command_preview"]
+    assert "worker-packet.md" in payload["command_preview"][3]
 
 
 def test_dry_run_refuses_missing_run_and_missing_worker_packet(tmp_path: Path) -> None:

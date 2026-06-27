@@ -68,23 +68,17 @@ Identical Ollama IDs must be flagged as aliases or duplicate tags until `ollama 
 
 Current starter profiles are registry entries, not a second config file:
 
-- `local-qwopus-inspector`
-- `local-qwen36-inspector`
-- `local-qwen25-coder-32b-code-reviewer`
-- `local-qwen25-coder-32b-patch-proposer`
-- `local-qwen25-coder-14b-test-planner`
-- `local-qwen25-coder-7b-code-reviewer`
-- `local-qwen25-coder-15b-classifier`
-- `local-gemma4-summarizer`
-- `local-gemma4-doc-reviewer`
-- `local-gemma4-31b-dense-judge`
+- `local-qwen35-mtp`
+- `local-gemma4-qat`
+- `local-qwen25-coder-14b`
 
-The registry records model name, machine class, weight class, role name, secondary roles, caution notes, required verification command, and alias group when relevant. The editable operator surface remains the agent registry; do not add `config/local_workers.yaml` or a second registry.
+The registry records model name, capability metadata, machine class, weight class, role name, secondary roles, caution notes, required verification command, and alias group when relevant. The editable operator surface remains the agent registry; do not add `config/local_workers.yaml` or a second registry.
 
 Operator reviewer guidance:
 
-- Prefer `local-gemma4-31b-dense-judge` for explicit review/debug judge passes when `devflow agent audition <task-id> --job review-debug --execute --json` or equivalent local evidence is needed.
-- Use `local-qwen25-coder-32b-code-reviewer` as the heavier code-specialist fallback and `local-qwen25-coder-7b-code-reviewer` as the faster fallback.
+- Prefer `local-gemma4-qat` when long context, screenshot/vision evidence, or broad local review matters.
+- Use `local-qwen25-coder-14b` as the retained installed code-specialist fallback.
+- Use `local-qwen35-mtp` for fast text/status/planning/operator loops when the local OpenAI-compatible server is active.
 - Keep this as operator guidance only. It does not update routing policy, auto-select workers, apply patches, verify, promote, commit, merge, push, or bypass fresh audition evidence when model manifests or task shape change.
 
 Conservative defaults:
@@ -105,7 +99,7 @@ JSON surfaces for Hermes/supervisor use:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent list --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-qwopus-inspector --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent show local-gemma4-qat --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent policy --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent catalog --provider ollama --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent add-model --provider ollama --model <model-id> --authority read-only --role local_senior_worker --dry-run --json
@@ -114,13 +108,13 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli agent discover-local --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent select-local <task-id> --role implementation_worker --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent audition <task-id> --job review-debug --dry-run --json
 PYTHONPATH=src .venv/bin/python -m devflow.cli agent audition <task-id> --job review-debug --execute --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --dry-run --json
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwopus-inspector --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-gemma4-qat --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-gemma4-qat --json
 ```
 
 `agent catalog --provider ollama --json` is the read-only inventory surface for local model onboarding. It shows configured Ollama provider settings, registered profiles, runtime contracts, missing env vars, installed local Ollama models, manifests when `ollama show` is available, and unregistered installed models.
 
-`agent add-model --provider ollama ...` is the supported way to turn an installed local model into a registry profile. `--authority read-only` generates a WorkerEvidence-only profile for `agent run`; `--authority patch-proposer` generates a local `proposal.patch` evidence profile for the existing patch review/dry-run/apply gates. It writes/upserts `.devflow/agents/registry.yaml` from safe templates and refuses unknown roles, unsafe profile ids, duplicate conflicting profiles, and unsupported provider/authority combinations.
+`agent add-model --provider ollama ...` is the supported way to turn an installed local model into a registry profile. `--authority read-only` generates a WorkerEvidence-only profile for `agent run`; `--authority patch-proposer` generates a local `proposal.patch` evidence surface for the existing patch review/dry-run/apply gates. Normal model profiles should stay named after the model/capability route. It writes/upserts `.devflow/agents/registry.yaml` from safe templates and refuses unknown roles, unsafe profile ids, duplicate conflicting profiles, and unsupported provider/authority combinations.
 
 `agent discover-local` calls local Ollama only. It parses `ollama list`, calls `ollama show` for installed models, records manifest facts, and derives conservative capability profiles such as summarizer, reviewer, bounded worker, or patch-proposer candidate. Public model-name assumptions are advisory only; actual local manifests win.
 
@@ -132,9 +126,9 @@ Dry-run does not call the model and does not write evidence. It reports task id,
 
 `agent audition <task-id> --job <job-type> --execute --json` requires worker-safe Git state, reuses or creates the dry-run plan, runs selected profiles sequentially through `run_local_model_profile`, and writes derived audition `plan.json`, `runs.json`, `scorecard.json`, and `report.md` under `.devflow/tasks/<task-id>/model-auditions/execute-<job-type>/`. The underlying model outputs remain normal WorkerEvidence under `local-model-runs`.
 
-The real MVP vertical slice runs one safe local profile such as `local-qwopus-inspector`: it builds a bounded task packet, calls `LocalModelClient`, writes WorkerEvidence, caps raw output, captures failure, and stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
+The real MVP vertical slice runs one safe local profile such as `local-gemma4-qat` or `local-qwen25-coder-14b`: it builds a bounded task packet, calls `LocalModelClient`, writes WorkerEvidence, caps raw output, captures failure, and stops. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
 
-`local-gemma4-summarizer` uses a Gemma-specific native Ollama chat path because `gemma4:latest` has thinking capability and the OpenAI-compatible endpoint can cap or reshape full task packets in ways that hide the useful final content. That profile calls `/api/chat` with `think: false`, explicit `num_ctx`, and a compact evidence-summary packet. The quality gate still rejects missing task grounding, placeholder task ids, and generic readiness summaries.
+`local-gemma4-qat` uses a Gemma-specific native Ollama chat path because Gemma 4 has thinking and vision capability and the OpenAI-compatible endpoint can cap or reshape full task packets in ways that hide the useful final content. That profile calls `/api/chat` with `think: false`, explicit `num_ctx`, and a compact evidence-summary packet. The quality gate still rejects missing task grounding, placeholder task ids, and generic readiness summaries.
 
 `gemma4-12b-qat-implementer` is the first Gemma local patch runtime profile. It uses native Ollama `/api/chat` with thinking disabled and explicit bounded generation settings (`num_ctx 262144`, `num_predict 4096`) so patch proposal output is parseable JSON evidence without collapsing the input window to 8K. It still only writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, logs, questions, or worker failure evidence under the task-local agent directory; Dev-Flow still owns patch review, dry-run, application, verification, and promotion.
 

@@ -242,6 +242,19 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
     _write_local_qwen_profile(tmp_path, base_url="http://127.0.0.1:9191/v1")
     monkeypatch.delenv("QWEN35_MTP_API_KEY", raising=False)
     captured_requests: list[dict[str, Any]] = []
+    lifecycle_calls: list[dict[str, Any]] = []
+
+    import devflow.control_room.brainstorm as brainstorm_mod
+    import devflow.control_room.openrouter_agent as advisory_mod
+
+    def fake_ensure(**kwargs: Any) -> dict[str, Any]:
+        lifecycle_calls.append(kwargs)
+        return {
+            "status": "already_running",
+            "will_manage_local_server": True,
+            "profile": "qwen35-mtp",
+            "pid": 24842,
+        }
 
     def mock_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
         headers = {key.lower(): value for key, value in req.header_items()}
@@ -279,6 +292,8 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
             }
         )
 
+    monkeypatch.setattr(brainstorm_mod, "ensure_local_model_server_for_profile", fake_ensure)
+    monkeypatch.setattr(advisory_mod, "ensure_local_model_server_for_profile", fake_ensure)
     monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
 
     brainstorm_payload = run_brainstorm_message(
@@ -298,6 +313,12 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
     assert brainstorm_payload["provider"] == "qwen35-mtp"
     assert brainstorm_payload["model"] == "qwen35-9b-mtp"
     assert advice_payload["status"] == "success"
+    assert brainstorm_payload["local_model_server_lifecycle"]["status"] == "already_running"
+    assert advice_payload["local_model_server_lifecycle"]["status"] == "already_running"
+    assert [call["base_url"] for call in lifecycle_calls] == [
+        "http://127.0.0.1:9191/v1",
+        "http://127.0.0.1:9191/v1",
+    ]
     assert [request["url"] for request in captured_requests] == [
         "http://127.0.0.1:9191/v1/chat/completions",
         "http://127.0.0.1:9191/v1/chat/completions",

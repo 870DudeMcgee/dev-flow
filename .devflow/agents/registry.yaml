@@ -147,7 +147,7 @@ agents:
     can_run_shell: false
     can_use_network: false
     can_promote: false
-    enabled: true
+    enabled: false
   gemma4-12b-qat-implementer:
     provider: ollama
     model: gemma4:12b-it-qat
@@ -243,7 +243,7 @@ agents:
     can_run_shell: false
     can_use_network: false
     can_promote: false
-    enabled: true
+    enabled: false
   devflow-ollama-worker:
     provider: ollama
     model: qwen2.5-coder:14b
@@ -697,7 +697,23 @@ agents:
     manifest_notes:
     - Model slug was registered from a discovered local endpoint; confirm /v1/models
       before high-trust use.
-    tuned_for_archetypes: []
+    reliable_context_tokens: 65536
+    vision: false
+    thinking: true
+    code_focus: general_purpose
+    speed_class: fast
+    architecture_class: moe
+    fim_support: false
+    input_modalities:
+    - text
+    tool_access:
+    - devflow-context
+    - telegram
+    tuned_for_archetypes:
+    - status
+    - planning
+    - brainstorm
+    - operator_control
     workspace: isolated_task_workspace
     can_see:
     - supervisor_packet

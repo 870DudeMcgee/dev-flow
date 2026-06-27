@@ -300,9 +300,9 @@ def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
     agent = AgentDefinition(
-        id="local-qwopus-inspector",
+        id="local-gemma4-qat",
         provider="ollama",
-        model="qwopus:latest",
+        model="gemma4:12b-it-qat",
         adapter="ollama_chat",
         role="implementation_worker",
         tier="strong_local",
@@ -326,7 +326,7 @@ def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
 
     assert "worker" not in rd["selected"]
     assert any(
-        item["agent"] == "local-qwopus-inspector" and "read-only profile" in item["reason"]
+        item["agent"] == "local-gemma4-qat" and "read-only profile" in item["reason"]
         for item in rd["rejected"]
     )
 

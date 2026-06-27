@@ -8,6 +8,8 @@ Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents ar
 
 Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are not executable through normal `task run` worker lookup. The configured-provider exception is Dev-Flow-owned evidence generation: `agent advise` writes advisory reports and `agent propose-patch` writes explicit patch proposals for existing review/dry-run/apply gates. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
 
+Model profiles and execution surfaces are separate. A profile should name the model or route and record capabilities: reliable context, vision, thinking, code focus, speed, input modalities, tool access, and tuned archetypes such as `ui_visual_review` or `browser_ui_review`. A surface defines authority: advisory evidence, patch proposal evidence, local WorkerEvidence, shell execution, verification, apply, or promotion. Do not turn any normal model profile into a single-job identity like `patch-proposer`, `reviewer`, `planner`, `summarizer`, or `implementer` unless it is explicitly a separate wrapper profile for that surface.
+
 Milestone 16 implemented the model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Milestone 17 adds evidence-only task-fit/context routing: stable fit, scout, route, and scorecard commands write derived artifacts and recommended next commands. The configured-provider slice adds registry-visible remote advisory and explicit patch-proposal evidence without making those profiles `task run` workers. The onboarding slice adds `agent catalog`, `agent add-provider`, and `agent add-model` so providers and model profiles can be registered from safe templates instead of Python builtins or hand-authored repeated YAML. These surfaces are not autonomous routing and do not create tasks, run workers, apply patches, verify, promote, commit, push, or publish.
 
 Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, provider-backed task-run execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
@@ -46,7 +48,7 @@ A provider is how Dev-Flow talks to a backend. Provider configuration answers "w
 - `shell`
 - `manual`
 
-An agent is a named worker contract that binds a provider, model, role, adapter, and permission mode. Agent names are operational identifiers, not personalities. Examples:
+An agent is a named worker contract that binds a provider, model, role, adapter, capabilities, and permission mode. Agent names are operational identifiers, not personalities or single-job labels. Examples:
 
 - `qwen36-senior`
 - `qwen-coder-fast`
@@ -56,6 +58,8 @@ An agent is a named worker contract that binds a provider, model, role, adapter,
 - `gemini-large-context`
 - `grok-current-research`
 - `manual-frontier`
+
+For the simplified Hermes/local set, names such as `hermes-sonnet46`, `hermes-opus48`, `hermes-qwen37max`, `hermes-minimaxm3`, `local-gemma4-qat`, and `local-qwen25-coder-14b` are model or route identities. Their capability fields explain where they fit. Use-case labels and tuned archetypes are routing hints, not exclusive jobs.
 
 A role is what an agent is allowed and expected to do. Roles provide durable policy language that can outlive a specific provider or model. Examples:
 
@@ -136,6 +140,8 @@ Rules:
 - Remote or frontier models cannot directly mutate the repo.
 - Local models can write only inside isolated task workspaces.
 - Powerful models may see broader context, but that does not grant broader write access.
+- Capability metadata guides selection; permission modes and command surfaces grant or refuse actions.
+- Vision and browser use are separate dimensions: `vision=true` means the model can reason over images/screenshot evidence, while browser access must come from the runtime/tool surface that captured or exposes browser context.
 - Secrets and API keys must never be stored in repo files.
 - Provider configs reference environment variables only.
 - `task.yaml`, `events.jsonl`, `verification.json`, and raw logs remain Dev-Flow-owned evidence surfaces.
@@ -357,7 +363,7 @@ Current configured-provider evidence lifecycle:
 2. Refuse missing or literal secrets; provider files store only environment variable names, not keys.
 3. Build bounded repo or task context from supervisor packets, task packets, verification-ledger summaries, and targeted stale-context evidence.
 4. For `agent advise`, write prompt, response, raw response, `run.json`, usage when returned, recommendations, and false `will_*` mutation flags under repo-scope or task-scope advisory run directories.
-5. For `agent propose-patch`, write only `proposal.patch`, raw output, `run.json`, and summary evidence under the task's patch-proposer agent directory.
+5. For `agent propose-patch`, write only `proposal.patch`, raw output, `run.json`, and summary evidence under the selected task-local patch surface profile directory.
 6. Refuse `task run --worker <remote-profile>`; remote profiles are evidence surfaces, not task-run workers.
 7. Leave patch review, dry-run, application, verification, and promotion to separate Dev-Flow commands.
 
@@ -427,10 +433,10 @@ Implemented through Milestone 17:
 12. Evidence-only local scout signal capture through `devflow task scout`.
 13. Evidence-only candidate eligibility, rejection, unresolved-role, and next-command routing decisions through `devflow task route`.
 14. Evidence-only post-run routing-quality scorecards through `devflow task scorecard`.
-15. OpenRouter provider seed and registry-visible DeepSeek profiles for advisory and explicit patch-proposal evidence.
+15. OpenRouter provider seed and registry-visible simplified Hermes/OpenRouter/local profiles for advisory evidence, with patch proposal handled as an explicit command surface.
 16. `devflow agent catalog [--provider <id>] --json`, `devflow agent add-provider ...`, and `devflow agent add-model ...` for validated provider/profile onboarding.
 17. `devflow agent advise --profile <id> [--task <task_id>] --job <gap-analysis|review|status> --json`.
-18. `devflow agent propose-patch --task <task_id> --profile <patch-profile> --json`, still gated by existing patch review/dry-run/apply/verification/promotion commands.
+18. `devflow agent propose-patch --task <task_id> --profile <patch-surface-profile> --json`, still gated by existing patch review/dry-run/apply/verification/promotion commands.
 
 Deferred until future specs promote them:
 

@@ -240,6 +240,78 @@ def test_local_hermes_worker_option_prefills_known_packet_evidence_paths(tmp_roo
     assert not any("<" in value or ">" in value for value in entry.recommended_allowed_files)
 
 
+def test_configured_hermes_agents_appear_as_packet_only_worker_options(
+    tmp_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", tmp_root.as_posix())
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    hermes_dir = tmp_root / ".hermes"
+    for profile in ("dfqwen37plus", "dflocalfast"):
+        (hermes_dir / "profiles" / profile).mkdir(parents=True)
+    (hermes_dir / ".env").write_text("OPENROUTER_API_KEY=sk-or-worker-secret\n", encoding="utf-8")
+    (hermes_dir / "config.yaml").write_text(
+        """model:
+  default: qwen/qwen3.7-plus
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+providers:
+  qwen35-mtp:
+    api: http://127.0.0.1:8080/v1
+    models:
+      qwen35-9b-mtp: {}
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "dfqwen37plus" / "config.yaml").write_text(
+        """model:
+  default: qwen/qwen3.7-plus
+  provider: openrouter
+  base_url: https://openrouter.ai/api/v1
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "dflocalfast" / "config.yaml").write_text(
+        """model:
+  default: qwen35-9b-mtp
+  provider: qwen35-mtp
+  base_url: http://127.0.0.1:8080/v1
+""",
+        encoding="utf-8",
+    )
+
+    result = build_worker_options(tmp_root, "test-001")
+    options = {option.worker_id: option for option in result["ai_workers"]}
+
+    assert "hermes-default-openrouter-qwen-qwen3-7-plus" not in options
+
+    openrouter = options["hermes-dfqwen37plus-openrouter-qwen-qwen3-7-plus"]
+    assert openrouter.label == "Hermes OpenRouter - qwen/qwen3.7-plus"
+    assert openrouter.provider == "openrouter"
+    assert openrouter.model == "qwen/qwen3.7-plus"
+    assert openrouter.is_local is False
+    assert openrouter.runtime_kind == "hermes-profile"
+    assert openrouter.hermes_profile == "dfqwen37plus"
+    assert openrouter.action_kind == "serial_packet"
+    assert openrouter.command is not None
+    assert " --provider openrouter" in openrouter.command
+    assert " --model qwen/qwen3.7-plus" in openrouter.command
+    assert " --runtime hermes-profile" in openrouter.command
+    assert " --hermes-profile dfqwen37plus" in openrouter.command
+    assert "devflow agent hermes-run" not in openrouter.command
+    assert "devflow task run" not in openrouter.command
+    assert "sk-or-worker-secret" not in openrouter.command
+
+    local = options["hermes-dflocalfast-qwen35-mtp-qwen35-9b-mtp"]
+    assert local.label == "Hermes qwen35-mtp - qwen35-9b-mtp"
+    assert local.provider == "qwen35-mtp"
+    assert local.is_local is True
+    assert local.hermes_profile == "dflocalfast"
+    assert local.command is not None
+    assert " --provider qwen35-mtp" in local.command
+    assert " --model qwen35-9b-mtp" in local.command
+
+
 # ---------------------------------------------------------------------------
 # Source: local worker evidence (run.json / worker_failed.json)
 # ---------------------------------------------------------------------------

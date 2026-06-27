@@ -137,7 +137,7 @@ class TestClassifyAgentCommands:
     def test_agent_inventory_commands_are_read_only(self):
         for command in (
             "devflow agent list --json",
-            "devflow agent show local-gemma4-summarizer --json",
+            "devflow agent show local-gemma4-qat --json",
             "devflow agent policy --json",
             "devflow agent packet task-0001 devflow-manual-codex-worker",
         ):
@@ -153,7 +153,7 @@ class TestClassifyAgentCommands:
             [
                 "supervisor",
                 "classify",
-                "devflow agent run --task task-0001 --profile local-gemma4-summarizer --dry-run --json",
+                "devflow agent run --task task-0001 --profile local-gemma4-qat --dry-run --json",
                 "--json",
             ],
         )
@@ -166,7 +166,7 @@ class TestClassifyAgentCommands:
             [
                 "supervisor",
                 "classify",
-                "devflow agent run --task task-0001 --profile local-gemma4-summarizer --json",
+                "devflow agent run --task task-0001 --profile local-gemma4-qat --json",
                 "--json",
             ],
         )
@@ -207,7 +207,7 @@ class TestClassifyAgentCommands:
             [
                 "supervisor",
                 "classify",
-                "devflow agent propose-patch --task task-0001 --profile deepseek-v4-pro-patch-proposer --json",
+                "devflow agent propose-patch --task task-0001 --profile test-patch-proposal-surface --json",
                 "--json",
             ],
         )

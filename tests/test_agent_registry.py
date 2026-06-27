@@ -17,7 +17,35 @@ from devflow.control_room.service import create_task
 from devflow.control_room.task_packet import build_agent_packet
 
 
-STARTER_LOCAL_PROFILES = [
+LOCAL_ENDPOINT_PROFILES = [
+    "local-qwen35-mtp",
+]
+
+LOCAL_OLLAMA_PROFILES = [
+    "local-gemma4-qat",
+    "local-qwen25-coder-14b",
+]
+
+HERMES_SUBSCRIPTION_PROFILES = [
+    "hermes-codex-gpt55",
+]
+
+OPENROUTER_FRONTIER_PROFILES = [
+    "hermes-sonnet46",
+    "hermes-opus48",
+    "hermes-qwen37max",
+    "hermes-qwen37plus",
+    "hermes-minimaxm3",
+]
+
+SIMPLIFIED_PROFILE_SET = [
+    *HERMES_SUBSCRIPTION_PROFILES,
+    *OPENROUTER_FRONTIER_PROFILES,
+    *LOCAL_ENDPOINT_PROFILES,
+    *LOCAL_OLLAMA_PROFILES,
+]
+
+PRUNED_PROFILE_IDS = [
     "local-qwopus-inspector",
     "local-qwen36-inspector",
     "local-qwen25-coder-32b-code-reviewer",
@@ -28,22 +56,12 @@ STARTER_LOCAL_PROFILES = [
     "local-gemma4-summarizer",
     "local-gemma4-doc-reviewer",
     "local-gemma4-31b-dense-judge",
-]
-
-DEEPSEEK_OPENROUTER_PROFILES = [
     "deepseek-v4-flash-planner",
     "deepseek-v4-pro-reviewer",
     "deepseek-v4-flash-free-brainstormer",
     "deepseek-v4-pro-patch-proposer",
     "deepseek-v4-flash-patch-proposer",
-]
-
-OPENROUTER_ADVISORY_PROFILES = [
     "glm-5-2-brainstormer",
-]
-
-HERMES_SUBSCRIPTION_PROFILES = [
-    "hermes-codex-gpt55",
 ]
 
 
@@ -86,12 +104,8 @@ agents:
     assert sorted(registry.enabled_agent_ids()) == sorted([
         "local-shell",
         "devflow-shell-worker",
-        "qwopus-implementer",
         "devflow-manual-codex-worker",
-        *STARTER_LOCAL_PROFILES,
-        *DEEPSEEK_OPENROUTER_PROFILES,
-        *OPENROUTER_ADVISORY_PROFILES,
-        *HERMES_SUBSCRIPTION_PROFILES,
+        *SIMPLIFIED_PROFILE_SET,
     ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
@@ -140,13 +154,9 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
     seeded_registry = load_agent_registry(tmp_path)
     assert seeded_registry.default_agent().id == "devflow-manual-codex-worker"
     assert sorted(seeded_registry.enabled_agent_ids()) == sorted([
-        "qwopus-implementer",
         "devflow-shell-worker",
         "devflow-manual-codex-worker",
-        *STARTER_LOCAL_PROFILES,
-        *DEEPSEEK_OPENROUTER_PROFILES,
-        *OPENROUTER_ADVISORY_PROFILES,
-        *HERMES_SUBSCRIPTION_PROFILES,
+        *SIMPLIFIED_PROFILE_SET,
     ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -210,21 +220,14 @@ agents:
         "devflow-openai-reviewer",
         "disabled-local",
         "local-shell",
-        *STARTER_LOCAL_PROFILES,
-        *DEEPSEEK_OPENROUTER_PROFILES,
-        *OPENROUTER_ADVISORY_PROFILES,
-        *HERMES_SUBSCRIPTION_PROFILES,
+        *SIMPLIFIED_PROFILE_SET,
     ]
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
-        "qwopus-implementer",
         "devflow-shell-worker",
         "local-shell",
         "devflow-manual-codex-worker",
-        *STARTER_LOCAL_PROFILES,
-        *DEEPSEEK_OPENROUTER_PROFILES,
-        *OPENROUTER_ADVISORY_PROFILES,
-        *HERMES_SUBSCRIPTION_PROFILES,
+        *SIMPLIFIED_PROFILE_SET,
     ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
@@ -340,6 +343,7 @@ def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> Non
         "grok",
         "openrouter",
         "openai-codex",
+        "qwen35-mtp",
     ])
 
 
@@ -631,10 +635,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
         "devflow-openai-compatible-worker",
         "devflow-openai-planner",
         "devflow-openai-reviewer",
-        *STARTER_LOCAL_PROFILES,
-        *DEEPSEEK_OPENROUTER_PROFILES,
-        *OPENROUTER_ADVISORY_PROFILES,
-        *HERMES_SUBSCRIPTION_PROFILES,
+        *SIMPLIFIED_PROFILE_SET,
     ]
     
     for agent_id in expected_agents:
@@ -644,11 +645,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             agent_id in {
                 "devflow-manual-codex-worker",
                 "devflow-shell-worker",
-                "qwopus-implementer",
-                *STARTER_LOCAL_PROFILES,
-                *DEEPSEEK_OPENROUTER_PROFILES,
-                *OPENROUTER_ADVISORY_PROFILES,
-                *HERMES_SUBSCRIPTION_PROFILES,
+                *SIMPLIFIED_PROFILE_SET,
             }
         )
         assert agent.workspace == "isolated_task_workspace"
@@ -667,17 +664,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.can_use_network is False
             assert "<workspace>/**" in agent.allowed_writes
             assert "<task>/agents/devflow-shell-worker/logs/**" in agent.allowed_writes
-        elif agent_id == "qwopus-implementer":
-            assert agent.tier == "strong_local"
-            assert agent.execution_mode == "automated"
-            assert agent.role == "implementation_worker"
-            assert agent.provider == "ollama"
-            assert agent.model == "qwopus:latest"
-            assert agent.adapter == "ollama_chat"
-            assert agent.adapter_maturity == "local_patch_runtime"
-            assert agent.can_use_network is False
-            assert "<task>/agents/qwopus-implementer/proposal.patch" in agent.allowed_writes
-        elif agent_id in STARTER_LOCAL_PROFILES:
+        elif agent_id in LOCAL_OLLAMA_PROFILES:
             assert agent.provider == "ollama"
             assert agent.adapter == "ollama_chat"
             assert agent.adapter_maturity == "local_patch_runtime"
@@ -689,7 +676,16 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert not any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes)
             assert agent.machine_class in {"mac_mini", "mac_studio", "either"}
             assert agent.weight_class in {"tiny", "small", "medium", "heavy"}
-        elif agent_id in DEEPSEEK_OPENROUTER_PROFILES + OPENROUTER_ADVISORY_PROFILES:
+        elif agent_id in LOCAL_ENDPOINT_PROFILES:
+            assert agent.provider == "qwen35-mtp"
+            assert agent.model == "qwen35-9b-mtp"
+            assert agent.adapter == "openai_compatible"
+            assert agent.adapter_maturity == "experimental_readonly"
+            assert agent.default_mode == "frontier_read_only"
+            assert agent.can_use_network is False
+            assert agent.can_promote is False
+            assert agent.can_run_shell is False
+        elif agent_id in OPENROUTER_FRONTIER_PROFILES:
             assert agent.provider == "openrouter"
             assert agent.adapter == "openai_compatible"
             assert agent.adapter_maturity == "experimental_readonly"
@@ -708,6 +704,12 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.can_run_shell is False
             assert agent.model_role_name == "Hermes Codex GPT 5.5"
             assert agent.required_verification_command is None
+        elif agent_id == "qwopus-implementer":
+            assert agent.provider == "ollama"
+            assert agent.model == "qwopus:latest"
+            assert agent.adapter == "ollama_chat"
+            assert agent.enabled is False
+            assert agent.can_use_network is False
         elif agent_id in ("devflow-openai-planner", "devflow-openai-reviewer"):
             assert agent.tier == "frontier"
             assert agent.execution_mode == "automated"
@@ -787,79 +789,61 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
             assert prov.base_url == "https://chatgpt.com/backend-api/codex"
             assert prov.api_key_env is None
             assert prov.default_timeout_seconds == 900
+        elif prov_id == "qwen35-mtp":
+            assert prov.provider == "qwen35-mtp"
+            assert prov.adapter == "openai_compatible"
+            assert prov.base_url == "http://127.0.0.1:8080/v1"
+            assert prov.api_key_env is None
 
 
-def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_path: Path) -> None:
+def test_simplified_local_profiles_are_registry_visible_and_safe(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
 
     registry = load_agent_registry(tmp_path)
     manual = registry.require_agent("devflow-manual-codex-worker")
     qwopus_patch_worker = registry.require_agent("qwopus-implementer")
-    inspector = registry.require_agent("local-qwopus-inspector")
-    patch_proposer = registry.require_agent("local-qwen25-coder-32b-patch-proposer")
-    qwen_fast = registry.require_agent("local-qwen25-coder-7b-code-reviewer")
-    qwen_medium = registry.require_agent("local-qwen25-coder-14b-test-planner")
-    gemma_fast = registry.require_agent("local-gemma4-summarizer")
-    gemma_dense = registry.require_agent("local-gemma4-31b-dense-judge")
+    qwen35 = registry.require_agent("local-qwen35-mtp")
+    gemma_long = registry.require_agent("local-gemma4-qat")
+    qwen_code = registry.require_agent("local-qwen25-coder-14b")
 
     assert manual.hermes_delegable is False
+    assert qwopus_patch_worker.enabled is False
     assert qwopus_patch_worker.hermes_delegable is False
-    assert inspector.hermes_delegable is True
-    assert inspector.machine_class == "mac_studio"
-    assert inspector.weight_class == "heavy"
-    assert inspector.model_alias_group == "qwopus-qwen36-07d35212591f"
-    assert inspector.default_mode == "read_only"
-    assert not any("<workspace>" in path or "proposal.patch" in path for path in inspector.allowed_writes)
-    assert patch_proposer.hermes_delegable is False
-    assert qwen_fast.machine_class == "mac_mini"
-    assert qwen_fast.model_role_name == "qwen-coder-fast"
-    assert qwen_medium.machine_class == "either"
-    assert gemma_fast.model == "gemma4:latest"
-    assert gemma_fast.weight_class == "small"
-    assert "8.0B" in " ".join(gemma_fast.manifest_notes)
-    assert gemma_dense.model == "gemma4-review:latest"
-    assert gemma_dense.machine_class == "mac_studio"
-    assert gemma_dense.model_role_name == "gemma-dense-judge"
-    assert gemma_dense.required_verification_command == "ollama show gemma4-review:latest"
-    assert "num_ctx 262144" in " ".join(gemma_dense.manifest_notes)
+
+    assert qwen35.provider == "qwen35-mtp"
+    assert qwen35.model == "qwen35-9b-mtp"
+    assert qwen35.adapter == "openai_compatible"
+    assert qwen35.default_mode == "frontier_read_only"
+    assert qwen35.hermes_delegable is False
+
+    assert gemma_long.provider == "ollama"
+    assert gemma_long.model == "gemma4:12b-it-qat"
+    assert gemma_long.machine_class == "either"
+    assert gemma_long.weight_class == "medium"
+    assert gemma_long.default_mode == "read_only"
+    assert gemma_long.vision is True
+    assert gemma_long.thinking is True
+    assert "screenshot" in gemma_long.input_modalities
+    assert "ui_visual_review" in gemma_long.tuned_for_archetypes
+    assert not any("<workspace>" in path or "proposal.patch" in path for path in gemma_long.allowed_writes)
+
+    assert qwen_code.provider == "ollama"
+    assert qwen_code.model == "qwen2.5-coder:14b"
+    assert qwen_code.machine_class == "either"
+    assert qwen_code.model_role_name == "local-qwen25-coder-14b"
+    assert qwen_code.default_mode == "read_only"
+    assert qwen_code.vision is False
+    assert qwen_code.code_focus == "code_specialist"
+    assert not any("<workspace>" in path or "proposal.patch" in path for path in qwen_code.allowed_writes)
 
 
-def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_runtime(tmp_path: Path) -> None:
+def test_simplified_paid_profiles_are_registry_visible_and_safely_non_task_runtime(tmp_path: Path) -> None:
     from devflow.control_room.agent_runtime import agent_runtime_contract
 
     initialize_seed(tmp_path)
 
     registry = load_agent_registry(tmp_path)
-    planner = registry.require_agent("deepseek-v4-flash-planner")
-    reviewer = registry.require_agent("deepseek-v4-pro-reviewer")
-    brainstormer = registry.require_agent("deepseek-v4-flash-free-brainstormer")
     hermes_codex = registry.require_agent("hermes-codex-gpt55")
-    patch_proposer = registry.require_agent("deepseek-v4-pro-patch-proposer")
-    flash_patch_proposer = registry.require_agent("deepseek-v4-flash-patch-proposer")
-
-    assert planner.provider == "openrouter"
-    assert planner.model == "deepseek/deepseek-v4-flash"
-    assert planner.default_mode == "frontier_read_only"
-    assert planner.hermes_delegable is True
-    assert "gap-analysis" in planner.secondary_roles
-    assert agent_runtime_contract(tmp_path, planner)["execution_surface"] == "agent_advise"
-    assert agent_runtime_contract(tmp_path, planner)["task_run_allowed"] is False
-
-    assert reviewer.provider == "openrouter"
-    assert reviewer.model == "deepseek/deepseek-v4-pro"
-    assert reviewer.hermes_delegable is False
-    assert "high-risk-review" in reviewer.secondary_roles
-    assert agent_runtime_contract(tmp_path, reviewer)["next_command"].startswith("devflow agent advise")
-
-    assert brainstormer.provider == "openrouter"
-    assert brainstormer.model == "deepseek/deepseek-v4-flash:free"
-    assert brainstormer.default_mode == "frontier_read_only"
-    assert brainstormer.hermes_delegable is False
-    assert "brainstorm" in brainstormer.secondary_roles
-    assert any(path == "<brainstorms>/**" for path in brainstormer.allowed_writes)
-    brainstorm_contract = agent_runtime_contract(tmp_path, brainstormer)
-    assert brainstorm_contract["execution_surface"] == "agent_advise"
-    assert brainstorm_contract["task_run_allowed"] is False
 
     assert hermes_codex.provider == "openai-codex"
     assert hermes_codex.model == "gpt-5.5"
@@ -868,6 +852,8 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     assert hermes_codex.default_mode == "frontier_read_only"
     assert hermes_codex.hermes_delegable is False
     assert {"brainstorm", "builder", "judge", "codex"}.issubset(set(hermes_codex.secondary_roles))
+    assert "browser-context-when-supplied" in hermes_codex.tool_access
+    assert "browser_ui_review" in hermes_codex.tuned_for_archetypes
     hermes_codex_contract = agent_runtime_contract(tmp_path, hermes_codex)
     assert hermes_codex_contract["execution_surface"] == "hermes_profile_handoff"
     assert hermes_codex_contract["task_run_allowed"] is False
@@ -877,25 +863,57 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     assert "openrouter" not in hermes_codex_contract["next_command"].lower()
     assert "OPENROUTER_API_KEY" not in hermes_codex_contract["next_command"]
 
-    assert patch_proposer.provider == "openrouter"
-    assert patch_proposer.model == "deepseek/deepseek-v4-pro"
-    assert patch_proposer.default_mode == "patch_proposal_only"
-    assert patch_proposer.hermes_delegable is False
-    assert any(path.endswith("/proposal.patch") for path in patch_proposer.allowed_writes)
-    patch_contract = agent_runtime_contract(tmp_path, patch_proposer)
-    assert patch_contract["execution_surface"] == "agent_propose_patch"
-    assert patch_contract["task_run_allowed"] is False
-    assert "propose-patch" in patch_contract["next_command"]
+    expected_models = {
+        "hermes-sonnet46": "anthropic/claude-sonnet-4.6",
+        "hermes-opus48": "anthropic/claude-opus-4.8",
+        "hermes-qwen37max": "qwen/qwen3.7-max",
+        "hermes-qwen37plus": "qwen/qwen3.7-plus",
+        "hermes-minimaxm3": "minimax/minimax-m3",
+    }
+    for profile_id, model in expected_models.items():
+        profile = registry.require_agent(profile_id)
+        assert profile.provider == "openrouter"
+        assert profile.model == model
+        assert profile.adapter == "openai_compatible"
+        assert profile.default_mode == "frontier_read_only"
+        assert profile.hermes_delegable is False
+        assert profile.can_run_shell is False
+        assert profile.can_promote is False
+        assert profile.code_focus in {"frontier_general", "frontier_coder"}
+        assert profile.tool_access
+        assert not any("proposal.patch" in path for path in profile.allowed_writes)
+        contract = agent_runtime_contract(tmp_path, profile)
+        assert contract["execution_surface"] == "agent_advise"
+        assert contract["task_run_allowed"] is False
 
-    assert flash_patch_proposer.provider == "openrouter"
-    assert flash_patch_proposer.model == "deepseek/deepseek-v4-flash"
-    assert flash_patch_proposer.default_mode == "patch_proposal_only"
-    assert flash_patch_proposer.hermes_delegable is False
-    assert any(path.endswith("/proposal.patch") for path in flash_patch_proposer.allowed_writes)
-    flash_patch_contract = agent_runtime_contract(tmp_path, flash_patch_proposer)
-    assert flash_patch_contract["execution_surface"] == "agent_propose_patch"
-    assert flash_patch_contract["task_run_allowed"] is False
-    assert "propose-patch" in flash_patch_contract["next_command"]
+    sonnet = registry.require_agent("hermes-sonnet46")
+    assert sonnet.vision is True
+    assert "ui_visual_review" in sonnet.tuned_for_archetypes
+
+    minimax = registry.require_agent("hermes-minimaxm3")
+    assert minimax.default_mode == "frontier_read_only"
+    assert "patch-proposal" not in minimax.secondary_roles
+    assert "second_opinion" in minimax.tuned_for_archetypes
+
+
+def test_simplified_profiles_are_model_identities_not_single_job_wrappers(tmp_path: Path) -> None:
+    initialize_seed(tmp_path)
+
+    registry = load_agent_registry(tmp_path)
+    single_job_name_terms = {
+        "patch-proposer",
+        "planner",
+        "reviewer",
+        "summarizer",
+        "inspector",
+        "implementer",
+    }
+    for profile_id in SIMPLIFIED_PROFILE_SET:
+        profile = registry.require_agent(profile_id)
+        assert profile.default_mode != "patch_proposal_only"
+        assert not any(term in profile_id for term in single_job_name_terms)
+        assert profile.tuned_for_archetypes
+        assert profile.model
 
 
 def test_agent_registry_rejects_unsafe_hermes_delegation(tmp_path: Path) -> None:
@@ -952,7 +970,9 @@ def test_registry_json_includes_hermes_delegable_and_no_profile_points_to_quaran
     initialize_seed(tmp_path)
     payload = registry_json_payload(tmp_path)
 
-    assert any(agent["id"] == "local-qwopus-inspector" for agent in payload["agents"])
+    enabled_ids = {agent["id"] for agent in payload["agents"] if agent["enabled"]}
+    assert set(SIMPLIFIED_PROFILE_SET).issubset(enabled_ids)
+    assert not (set(PRUNED_PROFILE_IDS) & enabled_ids)
     for agent in payload["agents"]:
         assert "hermes_delegable" in agent
         encoded = json.dumps(agent, sort_keys=True)

@@ -15,6 +15,8 @@ from tests.helpers import setup_temp_git_repo
 
 
 runner = CliRunner()
+LOCAL_LONG_PROFILE = "local-gemma4-qat"
+LOCAL_CODE_PROFILE = "local-qwen25-coder-14b"
 
 
 class MockResponse:
@@ -39,11 +41,11 @@ def test_agent_list_show_policy_json_for_local_worker_pool(tmp_path: Path, monke
     list_result = runner.invoke(app, ["agent", "list", "--json"])
     assert list_result.exit_code == 0, list_result.output
     list_payload = json.loads(list_result.output)
-    profile = next(agent for agent in list_payload["agents"] if agent["id"] == "local-qwopus-inspector")
-    assert profile["hermes_delegable"] is True
+    profile = next(agent for agent in list_payload["agents"] if agent["id"] == LOCAL_LONG_PROFILE)
+    assert profile["hermes_delegable"] is False
     assert profile["default_mode"] == "read_only"
-    assert profile["machine_class"] == "mac_studio"
-    assert profile["model_alias_group"] == "qwopus-qwen36-07d35212591f"
+    assert profile["machine_class"] == "either"
+    assert profile["model_alias_group"] is None
     assert profile["runtime_contract"]["execution_surface"] == "agent_run"
     assert profile["runtime_contract"]["task_run_allowed"] is False
     assert profile["runtime_contract"]["agent_run_allowed"] is True
@@ -53,12 +55,12 @@ def test_agent_list_show_policy_json_for_local_worker_pool(tmp_path: Path, monke
     assert shell_profile["runtime_contract"]["task_run_allowed"] is True
     assert shell_profile["runtime_contract"]["next_command"] == "devflow task run <task-id> --worker devflow-shell-worker -- <command>"
 
-    show_result = runner.invoke(app, ["agent", "show", "local-qwopus-inspector", "--json"])
+    show_result = runner.invoke(app, ["agent", "show", LOCAL_LONG_PROFILE, "--json"])
     assert show_result.exit_code == 0, show_result.output
     show_payload = json.loads(show_result.output)
-    assert show_payload["model"] == "qwopus:latest"
+    assert show_payload["model"] == "gemma4:12b-it-qat"
     assert show_payload["local_model_worker_pool_runnable"] is True
-    assert show_payload["required_verification_command"] == "ollama show qwopus:latest"
+    assert show_payload["required_verification_command"] == "ollama show gemma4:12b-it-qat"
     assert show_payload["runtime_contract"]["packet_allowed"] is True
     assert "read-only local model worker-pool profile" in show_payload["runtime_contract"]["refusal_reason"]
 
@@ -86,7 +88,7 @@ def test_agent_run_dry_run_json_does_not_call_model_or_write_evidence(
 
     result = runner.invoke(
         app,
-        ["agent", "run", "--task", "task-0001", "--profile", "local-qwopus-inspector", "--dry-run", "--json"],
+        ["agent", "run", "--task", "task-0001", "--profile", LOCAL_LONG_PROFILE, "--dry-run", "--json"],
     )
 
     assert result.exit_code == 0, result.output
@@ -95,11 +97,11 @@ def test_agent_run_dry_run_json_does_not_call_model_or_write_evidence(
     assert payload["will_call_model"] is False
     assert payload["will_write_source"] is False
     assert payload["will_write_proposal_patch"] is False
-    assert payload["machine_class"] == "mac_studio"
-    assert payload["weight_class"] == "heavy"
+    assert payload["machine_class"] == "either"
+    assert payload["weight_class"] == "medium"
     expected_dir = tmp_path / payload["expected_evidence_outputs"]["evidence_dir"]
     assert not expected_dir.exists()
-    assert not (tmp_path / ".devflow/tasks/task-0001/agents/local-qwopus-inspector/proposal.patch").exists()
+    assert not (tmp_path / f".devflow/tasks/task-0001/agents/{LOCAL_LONG_PROFILE}/proposal.patch").exists()
     assert _git_status(tmp_path) == before_status
 
 
@@ -111,11 +113,11 @@ def test_task_run_read_only_local_profile_reports_agent_run_next_action(
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(app, ["task", "create", "Read-only profile misuse"]).exit_code == 0
 
-    result = runner.invoke(app, ["task", "run", "task-0001", "--worker", "local-qwopus-inspector"])
+    result = runner.invoke(app, ["task", "run", "task-0001", "--worker", LOCAL_LONG_PROFILE])
 
     assert result.exit_code != 0
     assert "read-only local model worker-pool profile" in result.output
-    assert "devflow agent run --task <task-id> --profile local-qwopus-inspector" in result.output
+    assert f"devflow agent run --task <task-id> --profile {LOCAL_LONG_PROFILE}" in result.output
 
 
 def test_task_run_remote_provider_agent_still_fails_closed(
@@ -152,7 +154,7 @@ def test_task_run_remote_provider_agent_still_fails_closed(
     assert "task worker execution is not allowed" in result.output
 
 
-def test_agent_run_local_patch_profile_reports_task_run_next_action(
+def test_agent_run_disabled_legacy_patch_profile_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -163,7 +165,8 @@ def test_agent_run_local_patch_profile_reports_task_run_next_action(
     result = runner.invoke(app, ["agent", "run", "--task", "task-0001", "--profile", "qwopus-implementer", "--dry-run"])
 
     assert result.exit_code != 0
-    assert "devflow task run <task-id> --worker qwopus-implementer" in result.output
+    assert "not approved for the local model worker pool" in result.output
+    assert "disabled" in result.output
 
 
 def test_agent_run_fake_local_worker_writes_worker_evidence_without_proposal_patch(
@@ -202,15 +205,15 @@ def test_agent_run_fake_local_worker_writes_worker_evidence_without_proposal_pat
 
     result = runner.invoke(
         app,
-        ["agent", "run", "--task", "task-0001", "--profile", "local-qwopus-inspector", "--json"],
+        ["agent", "run", "--task", "task-0001", "--profile", LOCAL_CODE_PROFILE, "--json"],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["status"] == "success"
-    assert payload["model"] == "qwopus:latest"
+    assert payload["model"] == "qwen2.5-coder:14b"
     assert captured_requests[0]["url"] == "http://127.0.0.1:11434/v1/chat/completions"
-    assert captured_requests[0]["payload"]["model"] == "qwopus:latest"
+    assert captured_requests[0]["payload"]["model"] == "qwen2.5-coder:14b"
 
     evidence_dir = tmp_path / payload["evidence_dir"]
     assert (evidence_dir / "run.json").exists()
@@ -218,16 +221,16 @@ def test_agent_run_fake_local_worker_writes_worker_evidence_without_proposal_pat
     assert (evidence_dir / "response.md").read_text(encoding="utf-8").startswith("## Summary")
     assert (evidence_dir / "raw_output.txt").exists()
     assert not (evidence_dir / "proposal.patch").exists()
-    assert not (tmp_path / ".devflow/tasks/task-0001/agents/local-qwopus-inspector/proposal.patch").exists()
+    assert not (tmp_path / f".devflow/tasks/task-0001/agents/{LOCAL_CODE_PROFILE}/proposal.patch").exists()
 
     run_metadata = json.loads((evidence_dir / "run.json").read_text(encoding="utf-8"))
-    assert run_metadata["profile_id"] == "local-qwopus-inspector"
+    assert run_metadata["profile_id"] == LOCAL_CODE_PROFILE
     assert run_metadata["worker_type"] == "local_model_worker_pool"
     assert run_metadata["adapter_maturity"] == "local_patch_runtime"
     assert run_metadata["permission_mode"] == "read_only"
-    assert run_metadata["hermes_delegable"] is True
-    assert run_metadata["machine_class"] == "mac_studio"
-    assert run_metadata["model_role_name"] == "qwopus-supervisor"
+    assert run_metadata["hermes_delegable"] is False
+    assert run_metadata["machine_class"] == "either"
+    assert run_metadata["model_role_name"] == LOCAL_CODE_PROFILE
 
     assert (tmp_path / ".devflow/tasks/task-0001/task.yaml").read_text(encoding="utf-8") == task_yaml_before
     assert _git_status(tmp_path) == git_status_before
@@ -255,7 +258,7 @@ def test_gemma_summarizer_prompt_requires_grounded_task_brief(
                     "- Task ID: task-0001\n"
                     "- Task Title: first approved evidence smoke\n"
                     "- Task Status: created\n"
-                    "- Worker/Profile: local-gemma4-summarizer\n"
+                    "- Worker/Profile: local-gemma4-qat\n"
                     "- Evidence Reviewed: bounded task packet\n\n"
                     "## Summary\nGrounded.\n\n"
                     "## Findings\n- Packet names task-0001.\n\n"
@@ -271,7 +274,7 @@ def test_gemma_summarizer_prompt_requires_grounded_task_brief(
 
     result = runner.invoke(
         app,
-        ["agent", "run", "--task", "task-0001", "--profile", "local-gemma4-summarizer", "--json"],
+        ["agent", "run", "--task", "task-0001", "--profile", LOCAL_LONG_PROFILE, "--json"],
     )
 
     assert result.exit_code == 0, result.output
@@ -322,7 +325,7 @@ def test_gemma_summarizer_low_quality_response_is_flagged(
 
     result = runner.invoke(
         app,
-        ["agent", "run", "--task", "task-0001", "--profile", "local-gemma4-summarizer", "--json"],
+        ["agent", "run", "--task", "task-0001", "--profile", LOCAL_LONG_PROFILE, "--json"],
     )
 
     assert result.exit_code == 1

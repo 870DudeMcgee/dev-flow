@@ -107,8 +107,8 @@ def scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchSta
     write_worker_evidence(
         root=root,
         worker_type="local_model_worker_pool",
-        profile_id="local-qwopus-inspector",
-        worker_id="local-qwopus-inspector",
+        profile_id="local-gemma4-qat",
+        worker_id="local-gemma4-qat",
         task_id="task-0004",
         run_id="run-1",
         packet_text="packet",
@@ -318,16 +318,16 @@ def test_local_model_inventory_and_dropdown_show_fake_ollama_models(
     expect(dropdown).to_be_visible()
     expect(dropdown).to_contain_text("Available profiles")
     expect(dropdown).to_contain_text("Installed local models")
-    expect(dropdown).to_contain_text("local-qwopus-inspector")
+    expect(dropdown).to_contain_text("local-gemma4-qat")
     expect(dropdown).to_contain_text("qwen3:14b")
-    expect(dropdown.locator("[data-agent-id='local-qwopus-inspector']")).to_be_visible()
+    expect(dropdown.locator("[data-agent-id='local-gemma4-qat']")).to_be_visible()
     expect(dropdown.locator("[data-local-model-command]", has_text="Add profile")).to_be_visible()
 
-    dropdown.locator("[data-agent-id='local-qwopus-inspector']").click()
-    expect(page.locator("#model-selector-label")).to_contain_text("local-qwopus-inspector")
+    dropdown.locator("[data-agent-id='local-gemma4-qat']").click()
+    expect(page.locator("#model-selector-label")).to_contain_text("local-gemma4-qat")
 
-    assert page.locator("#bj-builder-model option[value='local-qwopus-inspector']").count() == 1
-    assert page.locator("#bj-judge-model option[value='local-qwopus-inspector']").count() == 1
+    assert page.locator("#bj-builder-model option[value='local-gemma4-qat']").count() == 1
+    assert page.locator("#bj-judge-model option[value='local-gemma4-qat']").count() == 1
     assert console_errors == []
 
 
@@ -1143,9 +1143,7 @@ def test_brainstorm_message_refreshes_pipeline_without_reload(browser_page: tupl
     page.locator("#brainstorm-chat-form button[type='submit']").click()
 
     expect(page.locator("#brainstorm-transcript")).to_contain_text("HTTP Error 404", timeout=10_000)
-    expect(
-        page.locator('#pipeline-stages-container .pipeline-step[data-stage="spec"] [data-brainstorm-stage="spec"]')
-    ).to_be_enabled(timeout=10_000)
+    _expect_single_pipeline_primary_action(page, "Generate Spec")
     assert page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')") == session_id
 
 
@@ -1164,8 +1162,7 @@ def test_reloaded_browser_adopts_first_viewport_brainstorm_session(
     page.reload(wait_until="domcontentloaded")
     _wait_for_hydration(page)
 
-    spec_action = page.locator('#pipeline-stages-container .pipeline-step[data-stage="spec"] [data-brainstorm-stage="spec"]')
-    expect(spec_action).to_be_enabled(timeout=10_000)
+    spec_action = _expect_single_pipeline_primary_action(page, "Generate Spec")
     assert page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')") == session_id
 
     spec_action.click()
@@ -1189,22 +1186,17 @@ def test_brainstorm_pipeline_creates_task_from_browser(
     assert isinstance(session_id, str)
     assert session_id.startswith("browser-")
 
-    spec_action = page.locator('#pipeline-stages-container .pipeline-step[data-stage="spec"] [data-brainstorm-stage="spec"]')
-    expect(spec_action).to_be_enabled(timeout=10_000)
+    spec_action = _expect_single_pipeline_primary_action(page, "Generate Spec")
     spec_action.click()
     _wait_for_path(scratch_state.root / ".devflow" / "brainstorms" / session_id / "spec.md")
     expect(page.locator("#brainstorm-transcript")).to_contain_text("Model error:", timeout=10_000)
 
-    plan_action = page.locator('#pipeline-stages-container .pipeline-step[data-stage="plan"] [data-brainstorm-stage="plan"]')
-    expect(plan_action).to_be_enabled(timeout=10_000)
+    plan_action = _expect_single_pipeline_primary_action(page, "Generate Plan")
     plan_action.click()
     _wait_for_path(scratch_state.root / ".devflow" / "brainstorms" / session_id / "plan.md")
 
     page.locator("#brainstorm-definition-of-done").fill("ui-proof.txt exists and contains ui-proof.")
-    implementation_action = page.locator(
-        '#pipeline-stages-container .pipeline-step[data-stage="implementation"] [data-brainstorm-stage="implementation"]'
-    )
-    expect(implementation_action).to_be_enabled(timeout=10_000)
+    implementation_action = _expect_single_pipeline_primary_action(page, "Create Task")
     implementation_action.click()
 
     task_id = _wait_for_new_task(scratch_state.root, before_tasks)
@@ -1307,7 +1299,7 @@ def test_task_switcher_and_seeded_evidence_lane(browser_page: tuple[Page, list[s
     expect(page.locator("#guided-evidence-stream")).to_contain_text("task-0004")
     page.locator("#active-work-groups .worker-card", has_text="Local model evidence lane").locator("[data-select-task]").first.click()
     expect(page.locator("#orchestrator-goal-title")).to_contain_text("task-0004")
-    expect(page.locator("#next-task-meta")).to_contain_text("local-qwopus-inspector")
+    expect(page.locator("#next-task-meta")).to_contain_text("local-gemma4-qat")
     expect(page.locator("#next-task-latest-evidence")).to_contain_text("Latest Evidence")
     expect(page.locator("#orchestrator-agent-progress")).to_contain_text("task-0001")
     expect(page.locator("#orchestrator-agent-progress")).to_contain_text("task-0004")
@@ -1581,6 +1573,16 @@ def _write_brainstorm_transcript(root: Path, session_id: str, message: str) -> N
 def _task_dir_names(root: Path) -> set[str]:
     tasks_dir = root / ".devflow" / "tasks"
     return {path.name for path in tasks_dir.iterdir() if path.is_dir()} if tasks_dir.exists() else set()
+
+
+def _expect_single_pipeline_primary_action(page: Page, label: str):
+    primary = page.locator('#pipeline-stages-container [data-pipeline-primary-action="true"]')
+    expect(primary).to_have_count(1, timeout=10_000)
+    expect(primary).to_be_enabled(timeout=10_000)
+    expect(primary).to_contain_text(label, timeout=10_000)
+    duplicate_stage_actions = page.locator("#pipeline-spine [data-brainstorm-stage]:enabled")
+    expect(duplicate_stage_actions).to_have_count(0)
+    return primary
 
 
 def _wait_for_new_task(root: Path, before: set[str], timeout: float = 10.0) -> str:

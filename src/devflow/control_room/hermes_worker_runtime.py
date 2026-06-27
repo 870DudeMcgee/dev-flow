@@ -211,7 +211,10 @@ def _prepare_hermes_worker_runtime(
     manifest_rel = relative_path(repo_root, manifest_path)
     run_dir_rel = relative_path(repo_root, run_dir)
     prompt = _packet_prompt(packet_rel)
-    command_preview = [executable_value, "-p", profile_value, "chat", "-q", prompt]
+    if profile_value == "default":
+        command_preview = [executable_value, "chat", "-q", prompt]
+    else:
+        command_preview = [executable_value, "-p", profile_value, "chat", "-q", prompt]
 
     return {
         "repo_root": repo_root,

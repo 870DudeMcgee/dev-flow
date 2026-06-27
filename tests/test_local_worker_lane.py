@@ -76,18 +76,18 @@ def test_local_worker_lane_summary_reports_read_only_worker_pool_run(tmp_path: P
     write_worker_evidence(
         root=tmp_path,
         worker_type="local_model_worker_pool",
-        profile_id="local-qwopus-inspector",
-        worker_id="local-qwopus-inspector",
+        profile_id="local-gemma4-qat",
+        worker_id="local-gemma4-qat",
         task_id="task-0001",
         run_id="run-1",
         packet_text="packet",
         raw_output="raw",
         response_text="response",
-        model="qwopus:latest",
+        model="gemma4:12b-it-qat",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
-        hermes_delegable=True,
+        hermes_delegable=False,
         runtime="local_model_client",
         status="success",
         started_at="2026-06-14T00:00:00+00:00",
@@ -99,7 +99,7 @@ def test_local_worker_lane_summary_reports_read_only_worker_pool_run(tmp_path: P
 
     assert summary is not None
     assert summary["lane_type"] == "local-model-worker-pool"
-    assert summary["worker_id"] == "local-qwopus-inspector"
+    assert summary["worker_id"] == "local-gemma4-qat"
     assert summary["permission_mode"] == "read_only"
     assert summary["patch_candidate"] is False
     assert summary["readiness_status"] == "needs_review"
