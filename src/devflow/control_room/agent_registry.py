@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -44,6 +46,36 @@ PLANNED_NOT_EXECUTABLE_ADAPTERS = tuple(
     sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "planned_not_executable")
 )
 REMOTE_MODEL_ADAPTERS = {"openai_compatible", "openai_chat", "anthropic_messages", "gemini"}
+SAFE_AGENT_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{1,79}$")
+
+
+def slug_id_part(value: str) -> str:
+    value = value.lower().replace(":", "-").replace("/", "-").replace(".", "")
+    value = re.sub(r"[^a-z0-9_-]+", "-", value)
+    value = re.sub(r"[-_]{2,}", "-", value).strip("-_")
+    return value or "model"
+
+
+def derive_profile_id(provider_id: str, model_id: str, authority: str, role: str) -> str:
+    authority = authority.strip().lower().replace("_", "-")
+    raw = "-".join(
+        part
+        for part in (
+            slug_id_part(provider_id),
+            slug_id_part(model_id),
+            slug_id_part(authority),
+            slug_id_part(role),
+        )
+        if part
+    )
+    if len(raw) <= 80 and SAFE_AGENT_ID_PATTERN.match(raw):
+        return raw
+    digest = hashlib.sha1(f"{provider_id}|{model_id}|{authority}|{role}".encode("utf-8")).hexdigest()[:10]
+    prefix = raw[: 69].rstrip("-_") or "agent"
+    candidate = f"{prefix}-{digest}"
+    if not SAFE_AGENT_ID_PATTERN.match(candidate):
+        candidate = f"agent-{digest}"
+    return candidate
 
 
 def adapter_maturity(adapter: str) -> AdapterMaturity:

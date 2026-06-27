@@ -300,15 +300,10 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     question_snapshot = build_question_snapshot(root)
     task_workbench = build_task_workbench(root, project_id=project_id, projections=dashboard.tasks)
     warnings.extend(task_workbench.warnings)
-    tasks = task_workbench.tasks
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(question_snapshot, dashboard.tasks)
     inbox = _inbox_items(dashboard.tasks, freshness, question_snapshot=question_snapshot, project_id=project_id)
-    promotion_desk = task_workbench.promotion_candidates
-    evidence = task_workbench.evidence_stream
     goal_board = _goal_board(root, freshness, project_id=project_id)
-    gate_receipts = task_workbench.gate_receipts
-    focus_task_id = task_workbench.focus_task_id
     idea_greenhouse = build_idea_greenhouse(root, warnings)
 
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
@@ -323,27 +318,27 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         next_action=dashboard_next_action,
         goals=_goal_cards(root, freshness),
         focus_goal_id=focus_goal_id,
-        focus_task_id=focus_task_id,
+        focus_task_id=task_workbench.focus_task_id,
         lanes=task_workbench.lanes,
-        tasks=tasks,
+        tasks=task_workbench.tasks,
         first_viewport=build_first_viewport_presentation(task_workbench, root=root),
         questions=questions,
         inbox=inbox,
-        promotion_desk=promotion_desk,
-        evidence=evidence,
+        promotion_desk=task_workbench.promotion_candidates,
+        evidence=task_workbench.evidence_stream,
         freshness=_freshness_card(freshness),
         goal_board=goal_board,
         spec_board=_spec_board(root, freshness),
-        gate_receipts=gate_receipts,
+        gate_receipts=task_workbench.gate_receipts,
         multi_project=_multi_project_card(warnings),
         worker_activity=task_workbench.worker_activity,
         mission_feed=_mission_feed(
-            tasks,
+            task_workbench.tasks,
             inbox=inbox,
             questions=questions,
-            promotion_desk=promotion_desk,
-            gate_receipts=gate_receipts,
-            evidence=evidence,
+            promotion_desk=task_workbench.promotion_candidates,
+            gate_receipts=task_workbench.gate_receipts,
+            evidence=task_workbench.evidence_stream,
             goal_board=goal_board,
             focus_goal_id=focus_goal_id,
         ),

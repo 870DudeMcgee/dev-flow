@@ -3717,11 +3717,10 @@ def agent_catalog(
 ) -> None:
     """Show providers, profiles, runtime contracts, env readiness, and local model discovery."""
     from devflow.control_room.agent_catalog import build_agent_catalog
-    from devflow.control_room.agent_onboarding import AgentOnboardingError
 
     try:
         payload = build_agent_catalog(Path.cwd(), provider_id=provider)
-    except (AgentRegistryError, AgentOnboardingError) as exc:
+    except AgentRegistryError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -13,12 +11,15 @@ from devflow.control_room.agent_registry import (
     AgentDefinition,
     AgentRegistryError,
     ProviderDefinition,
+    SAFE_AGENT_ID_PATTERN as SAFE_ID_PATTERN,
     adapter_maturity,
+    derive_profile_id as _derive_profile_id,
     is_local_openai_compatible_provider,
     is_local_ollama_base_url,
     load_agent_registry,
     load_provider_registry,
     load_role_registry,
+    slug_id_part as _slug,
 )
 from devflow.control_room.agent_runtime import resolve_agent_runtime_definition, runtime_contract_payload
 from devflow.control_room.local_agent_discovery import (
@@ -32,7 +33,6 @@ Authority = Literal["read-only", "advisory", "patch-proposer", "disabled"]
 
 REMOTE_MODEL_ADAPTERS = {"openai_compatible", "openai_chat", "anthropic_messages", "gemini"}
 PROVIDER_ADAPTERS = {"ollama_chat", *REMOTE_MODEL_ADAPTERS}
-SAFE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{1,79}$")
 
 
 class AgentOnboardingError(ValueError):
@@ -80,24 +80,7 @@ class ModelUpsert:
 
 def derive_profile_id(provider_id: str, model_id: str, authority: str, role: str) -> str:
     authority = normalize_authority(authority)
-    raw = "-".join(
-        part
-        for part in (
-            _slug(provider_id),
-            _slug(model_id),
-            _slug(authority),
-            _slug(role),
-        )
-        if part
-    )
-    if len(raw) <= 80 and SAFE_ID_PATTERN.match(raw):
-        return raw
-    digest = hashlib.sha1(f"{provider_id}|{model_id}|{authority}|{role}".encode("utf-8")).hexdigest()[:10]
-    prefix = raw[: 69].rstrip("-_") or "agent"
-    candidate = f"{prefix}-{digest}"
-    if not SAFE_ID_PATTERN.match(candidate):
-        candidate = f"agent-{digest}"
-    return candidate
+    return _derive_profile_id(provider_id, model_id, authority, role)
 
 
 def normalize_authority(authority: str) -> Authority:
@@ -916,13 +899,6 @@ def _duplicate_profile_for(registry: Any, generated: dict[str, Any], profile_id:
 
 def _secondary_roles(primary_role: str, roles: list[str]) -> list[str]:
     return sorted({role for role in roles if role != primary_role})
-
-
-def _slug(value: str) -> str:
-    value = value.lower().replace(":", "-").replace("/", "-").replace(".", "")
-    value = re.sub(r"[^a-z0-9_-]+", "-", value)
-    value = re.sub(r"[-_]{2,}", "-", value).strip("-_")
-    return value or "model"
 
 
 def _relative(root: Path, path: Path) -> str:

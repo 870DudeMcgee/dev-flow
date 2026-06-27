@@ -11,17 +11,15 @@ from urllib.parse import urlparse
 
 import yaml
 
-from devflow.control_room.agent_onboarding import (
-    SAFE_ID_PATTERN,
-    AgentOnboardingError,
-    _slug,
-    derive_profile_id,
-)
 from devflow.control_room.agent_registry import (
     AgentDefinition,
+    AgentRegistryError,
     ProviderDefinition,
+    SAFE_AGENT_ID_PATTERN as SAFE_ID_PATTERN,
+    derive_profile_id,
     load_agent_registry,
     load_provider_registry,
+    slug_id_part as _slug,
 )
 from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.local_agent_discovery import discover_local_ollama_models
@@ -55,7 +53,7 @@ def build_agent_catalog(root: Path, *, provider_id: str | None = None) -> dict[s
     registry = load_agent_registry(root)
     provider_filter = provider_id.strip() if provider_id else None
     if provider_filter and provider_filter not in providers.providers:
-        raise AgentOnboardingError(f"Unknown provider '{provider_filter}'.")
+        raise AgentRegistryError(root / ".devflow" / "providers", [f"Unknown provider '{provider_filter}'."])
 
     provider_rows = []
     for provider in sorted(providers.providers.values(), key=lambda item: item.id):

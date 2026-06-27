@@ -6,7 +6,6 @@ let snapshot = null;
 let selectedProjectId = null;
 let brainstormSessionId = '';
 let userSelectedBrainstormSession = false;
-let brainstormMessage = '';
 let selectedTaskId = null;
 let availableAgents = [];
 let localModelInventory = {};
@@ -153,9 +152,6 @@ function taskCapabilityAny(task, intents) {
   }
   return null;
 }
-function taskAction(task, labelOrPrefix) {
-  return taskCapability(task, labelOrPrefix);
-}
 function primaryTaskCapability(task) {
   const capabilities = taskCapabilities(task).filter(cap => cap.enabled);
   const nextCommand = task?.next_action?.command || '';
@@ -279,10 +275,6 @@ function evidenceStatusInfo(kind, text) {
 
 function statusTone(lane) {
   return taskStatusInfo(lane).tone;
-}
-
-function laneColor(lane) {
-  return taskStatusInfo(lane).color;
 }
 
 function laneBadge(lane) {
@@ -3250,20 +3242,6 @@ async function executeAction(taskId, action) {
   } catch(e) {
     if (!e?.actionRendered) renderActionError({ message: e.message || 'Action failed', command });
   }
-}
-
-// === ACTION RESULT UTILITIES ===
-function rememberApprovedActionResult(result) {
-  const message = `Action done: ${result?.action || 'executed'} on ${result?.task_id || 'task'}`;
-  renderActionSurface({ executed: true, exit_code: 0, message }, result?.command || result?.action || 'approved action', 'succeeded');
-  setTimeout(() => {
-    const container = $('guided-action-result');
-    if (container) container.innerHTML = '';
-  }, 5000);
-}
-
-function refreshSnapshotAfterApprovedAction(action) {
-  setTimeout(() => loadSnapshot(selectedProjectId), 500);
 }
 
 // === GLOBAL FILTER ===

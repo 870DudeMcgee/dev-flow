@@ -26,6 +26,9 @@ def test_agent_catalog_import_surface_preserves_onboarding_compatibility() -> No
 
     assert callable(agent_catalog.build_agent_catalog)
     assert callable(compat_build_agent_catalog)
+    assert "agent_onboarding" not in (Path(__file__).resolve().parents[1] / "src/devflow/control_room/agent_catalog.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_agent_add_provider_dry_run_then_writes_structured_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

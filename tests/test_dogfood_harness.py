@@ -15,7 +15,11 @@ from devflow.control_room.dogfood import (
     run_dogfood_suite,
     validate_dogfood_case,
 )
-from devflow.control_room.dogfood_case_result import write_case_json_artifact, write_case_text_artifact
+from devflow.control_room.dogfood_case_result import (
+    CaseResultRecorder,
+    write_case_json_artifact,
+    write_case_text_artifact,
+)
 from devflow.control_room.persistence import list_tasks
 
 
@@ -66,6 +70,24 @@ def test_case_text_artifact_writer_records_relative_path(tmp_path: Path) -> None
     assert written == artifact_path
     assert artifact_path.read_text(encoding="utf-8") == "# Handoff\n"
     assert state["artifacts_created"] == ["case/artifacts/handoff.md"]
+
+
+def test_case_result_recorder_owns_scores_and_failures(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "tiny-deterministic-docs-task")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    result.award("B_pipeline_correctness", 4, True, "task reached verified state")
+    result.award("C_context_efficiency", 3, False, "task packet stayed bounded")
+    finalized = result.finalize()
+
+    assert finalized["status"] == "failed"
+    assert finalized["score"] == 4
+    assert finalized["category_scores"]["B_pipeline_correctness"] == 4
+    assert finalized["failure_reason"] == "task packet stayed bounded"
+    assert finalized["warnings"] == ["missed: task packet stayed bounded"]
+    assert finalized["lessons"] == ["task reached verified state"]
 
 
 def test_case_schema_and_suite_totals() -> None:

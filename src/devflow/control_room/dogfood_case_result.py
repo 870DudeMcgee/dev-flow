@@ -24,6 +24,24 @@ from devflow.control_room.persistence import atomic_write_text, utc_now
 SILVER_THRESHOLD = 82
 
 
+class CaseResultRecorder:
+    def __init__(self, root: Path, run_id: str, case: dict[str, Any], case_dir: Path) -> None:
+        self.root = root
+        self.case = case
+        self.state = start_case_result(root, run_id, case, case_dir)
+        self._scores: dict[str, int] = {}
+        self._failures: list[str] = []
+
+    def award(self, category: str, points: int, condition: bool, lesson: str) -> None:
+        award_case_points(self.state, self._scores, self._failures, category, points, condition, lesson)
+
+    def fail(self, lesson: str) -> None:
+        self._failures.append(lesson)
+
+    def finalize(self) -> dict[str, Any]:
+        return finalize_case_result(self.root, self.case, self.state, self._scores, self._failures)
+
+
 def start_case_result(root: Path, run_id: str, case: dict[str, Any], case_dir: Path) -> dict[str, Any]:
     (case_dir / "artifacts").mkdir(parents=True, exist_ok=True)
     return {

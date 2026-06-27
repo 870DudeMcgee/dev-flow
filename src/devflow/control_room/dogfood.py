@@ -79,11 +79,10 @@ from devflow.control_room.dogfood_case_scratch import (
     init_git_native_dogfood_repo as _init_git_native_dogfood_repo,
 )
 from devflow.control_room.dogfood_case_result import (
-    award_case_points as _award,
+    CaseResultRecorder as _CaseResult,
     build_dogfood_run_yaml as _build_run_yaml,
     build_dogfood_scorecard as _build_scorecard,
     failed_case_result as _failed_case_result,
-    finalize_case_result as _finalize_case,
     git_baseline as _git_baseline,
     git_short_status as _git_short_status,
     record_artifact as _record_artifact,
@@ -94,7 +93,6 @@ from devflow.control_room.dogfood_case_result import (
     render_dogfood_report as _render_report,
     set_cleanup_status as _set_cleanup_status,
     skipped_unknown_case_result as _skipped_unknown_case,
-    start_case_result as _new_case_state,
     write_case_result as _write_case_result,
     write_case_json_artifact as _write_case_json_artifact,
     write_case_summary_artifact as _write_case_summary_artifact,
@@ -268,7 +266,8 @@ def _close_new_dogfood_tasks(root: Path, before_ids: set[str], run_id: str, case
 def _case_tiny_docs(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Dogfood tiny docs task")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -304,20 +303,19 @@ def _case_tiny_docs(
     source_items = sources.get("sources", []) if isinstance(sources, dict) else []
     source_count = len(source_items) if isinstance(source_items, list) else 0
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(state, scores, failures, "B_pipeline_correctness", 4, reloaded.status == "verified", "task reached verified state")
-    _award(state, scores, failures, "C_context_efficiency", 4, state["context_packet_size"] <= 50000, "task packet stayed bounded")
-    _award(state, scores, failures, "C_context_efficiency", 3, source_count <= 12, "tiny task did not require whole-repo context")
-    _award(state, scores, failures, "G_performance_lightweight", 2, len(state["commands_run"]) <= 4, "docs-only case used a short command sequence")
+    case_result.award("B_pipeline_correctness", 4, reloaded.status == "verified", "task reached verified state")
+    case_result.award("C_context_efficiency", 4, state["context_packet_size"] <= 50000, "task packet stayed bounded")
+    case_result.award("C_context_efficiency", 3, source_count <= 12, "tiny task did not require whole-repo context")
+    case_result.award("G_performance_lightweight", 2, len(state["commands_run"]) <= 4, "docs-only case used a short command sequence")
 
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_cli_help(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Dogfood CLI help bounded task")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -338,43 +336,33 @@ def _case_cli_help(
     )
 
     help_text = help_path.read_text(encoding="utf-8")
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(state, scores, failures, "B_pipeline_correctness", 3, plan.get("mode") == "plan_only", "orchestration is plan-only evidence")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("B_pipeline_correctness", 3, plan.get("mode") == "plan_only", "orchestration is plan-only evidence")
+    case_result.award(
         "B_pipeline_correctness",
         3,
         plan.get("promotion", {}).get("allowed_by_workers") is False,
         "workers cannot promote from the plan",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "C_context_efficiency",
         3,
         len(help_text) < 20000 and "run" in help_text and "list" in help_text,
         "dogfood help is bounded and exposes core commands",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "G_performance_lightweight",
         2,
         help_result.returncode == 0 and _commands_have_no_provider_calls(state["commands_run"]),
         "CLI help check avoided provider calls",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_unsafe_worker_outcome(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     outcome_path = case_dir / "artifacts" / "unsafe-outcome.json"
     outcome = _worker_outcome(
         task_id=f"dogfood-{run_id}",
@@ -398,43 +386,33 @@ def _case_unsafe_worker_outcome(
     )
 
     errors_text = "\n".join(result["errors"])
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(state, scores, failures, "A_safety_git_discipline", 2, result["status"] == "failed", "unsafe outcome was rejected")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("A_safety_git_discipline", 2, result["status"] == "failed", "unsafe outcome was rejected")
+    case_result.award(
         "A_safety_git_discipline",
         1,
         "parent traversal is rejected" in errors_text and ".git paths are rejected" in errors_text,
         "path traversal and .git writes were blocked",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         1,
         "human_review_required must be true" in errors_text,
         "unsafe metadata requires human review",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         5,
         Path(root / result["output_path"]).exists(),
         "validation evidence artifact was written",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_git_native_worker_lane(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "git-native-lane-repo",
@@ -523,12 +501,7 @@ def _case_git_native_worker_lane(
 
     status_lanes = [task.get("worker_lane") for task in status["tasks"] if task.get("worker_lane")]
     operating_lanes = [task.get("worker_lane") for task in operating["tasks"] if task.get("worker_lane")]
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         2,
         all(ok for _, ok, _ in doctor_checks)
@@ -536,10 +509,7 @@ def _case_git_native_worker_lane(
         and len(branches_before) == 2,
         "strict doctor and owned resource inventory agreed before promotion",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         2,
         first_evidence.exists()
@@ -547,10 +517,7 @@ def _case_git_native_worker_lane(
         and any(action.get("action") == "archive_branch" and action.get("applied") for action in cleanup_apply),
         "cleanup preserved canonical task evidence",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         first_lane_ready.get("readiness_status") == "ready"
@@ -559,23 +526,21 @@ def _case_git_native_worker_lane(
         and len(operating_lanes) == 2,
         "two Git-native lanes reached verified preview state",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         2,
         second_lane_after_promotion.get("readiness_status") in {"stale", "blocked"}
         and second_lane_after_promotion.get("next_safe_action") == f"devflow task promote-preview {second.id}",
         "second lane reported stale recovery after first promotion",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_local_worker_lane(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "local-worker-lane-repo",
@@ -700,21 +665,13 @@ def _case_local_worker_lane(
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "route")
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         2,
         not before_apply_exists and after_apply_exists and not (scratch / "hello.txt").exists(),
         "workspace mutation waited for explicit apply-patch",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         review.review_status in {"low_risk_candidate", "review_required"}
@@ -722,10 +679,7 @@ def _case_local_worker_lane(
         and verified.verification_status == "passed",
         "local patch worker evidence reached apply/verify gates",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         3,
         read_lane.get("lane_type") == "local-model-worker-pool"
@@ -733,10 +687,7 @@ def _case_local_worker_lane(
         and read_lane.get("next_safe_action") == f"devflow agent evidence {read_only.id} --json",
         "read-only local worker evidence was summarized",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         3,
         patch_lane.get("readiness_status") in {"needs_promotion_preview", "ready"}
@@ -745,13 +696,14 @@ def _case_local_worker_lane(
         and not any(token in commands_text for token in forbidden_tokens),
         "no provider API calls or autonomous routing were introduced",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_registry_runtime_contract(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = case_dir / "artifacts" / "registry-runtime-contract-repo"
     scratch.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-b", "main"], cwd=scratch, check=True, capture_output=True, text=True, timeout=20)
@@ -892,21 +844,13 @@ agents:
         and remote_contract["task_run_allowed"] is False
         and remote_contract["execution_surface"] in {"agent_advise", "agent_propose_patch"}
     )
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         2,
         workspace_file.exists() and not root_file.exists() and not provider_ran_file.exists(),
         "shell alias mutated only the isolated workspace and provider run did not execute",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         3,
         runtime_fields.issubset(shell_contract)
@@ -916,10 +860,7 @@ agents:
         and remote_contract["packet_allowed"] is True,
         "list/show runtime contracts exposed run and packet eligibility",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         3,
         all(summary["shell_agent_evidence"].values())
@@ -927,10 +868,7 @@ agents:
         and all(summary["manual_packet_contracts"].values()),
         "shell and manual packets exposed evidence contracts",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         2,
         remote_refusal_matches_contract
@@ -938,13 +876,14 @@ agents:
         and not any(token in commands_text for token in forbidden_tokens),
         "remote/provider-backed agent refused before provider execution",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_model_audition_evidence(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "model-audition-repo",
@@ -1049,12 +988,7 @@ def _case_model_audition_evidence(
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "promote", "verify")
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         2,
         task_yaml_before == task_yaml_after
@@ -1063,10 +997,7 @@ def _case_model_audition_evidence(
         and not any(token in commands_text for token in forbidden_tokens),
         "model audition preserved task/source state and avoided promotion-adjacent commands",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         3,
         dry_run["status"] == "planned"
@@ -1075,10 +1006,7 @@ def _case_model_audition_evidence(
         and len(runs["runs"]) == len(dry_run["selected_candidates"]),
         "dry-run and execute produced bounded candidate/run evidence",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         4,
         report_exists
@@ -1088,13 +1016,14 @@ def _case_model_audition_evidence(
         and scorecard["will_update_routing_policy"] is False,
         "scorecard ranked grounded output first and flagged false claims",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_success_empty(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     empty = _worker_outcome(
         task_id=f"dogfood-empty-{run_id}",
         source_path="manual-empty-result",
@@ -1123,34 +1052,27 @@ def _case_success_empty(
     _record_command(state, "validate success_with_result outcome in-process", status="passed" if not useful_errors else "failed")
     _record_lesson(state, f"success_empty usefulness score {empty_score}; success_with_result score {useful_score}")
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(state, scores, failures, "B_pipeline_correctness", 2, not empty_errors and not useful_errors, "both outcome shapes validate")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("B_pipeline_correctness", 2, not empty_errors and not useful_errors, "both outcome shapes validate")
+    case_result.award(
         "D_worker_artifact_quality",
         2,
         empty["tool_results"][0]["status"] == "success_empty" and empty["outcome"] == "no_useful_result",
         "success_empty stayed no_useful_result",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         3,
         empty_score < useful_score,
         "empty result is scored below useful result",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_plan_only_unsafe_git(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Dogfood plan-only unsafe Git state")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -1173,34 +1095,27 @@ def _case_plan_only_unsafe_git(
             )
 
     active = {item["condition"] for item in plan.get("stop_conditions", []) if item.get("active")}
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(state, scores, failures, "A_safety_git_discipline", 3, "dirty_git_tree" in active, "dirty Git tree stop condition was active")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("A_safety_git_discipline", 3, "dirty_git_tree" in active, "dirty Git tree stop condition was active")
+    case_result.award(
         "A_safety_git_discipline",
         2,
         plan.get("parallelism_allowed") is False and plan.get("recommended_execution") in {"human_review_first", "sequential"},
         "unsafe Git state blocked worker parallelism",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         3,
         cleanup_status == "marker_removed" and not marker.exists(),
         "temporary dirty marker cleanup is visible",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_failed_verification(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Dogfood failed verification recovery")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -1228,34 +1143,27 @@ def _case_failed_verification(
         sort_keys=False,
     )
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         4,
         readiness_errors and verified.status == "verification_failed",
         "failed verification blocked promotion readiness",
     )
-    _award(state, scores, failures, "B_pipeline_correctness", 3, verified.verification_exit_code != 0, "failed verification was recorded")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("B_pipeline_correctness", 3, verified.verification_exit_code != 0, "failed verification was recorded")
+    case_result.award(
         "E_recovery_failure_handling",
         6,
         any("verification" in error for error in readiness_errors),
         "readiness errors explain the next safe action",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_knowledge_capture(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     validation_path = shared.get("unsafe_validation_path")
     if not validation_path or not (root / validation_path).exists():
         validation_path = _create_validation_failure(root, run_id, case_dir, state)
@@ -1265,43 +1173,33 @@ def _case_knowledge_capture(
     _record_command(state, "devflow knowledge search validation", status="passed", output=str(len(results)))
     _record_artifact(state, f".devflow/knowledge/{item['id']}/knowledge.json")
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         3,
         bool(item.get("linked_artifacts")) and validation_path in item.get("linked_artifacts", []),
         "validation source artifact was retained",
     )
-    _award(state, scores, failures, "F_knowledge_capture", 4, item["status"] == "proposed", "knowledge remains proposed")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("F_knowledge_capture", 4, item["status"] == "proposed", "knowledge remains proposed")
+    case_result.award(
         "F_knowledge_capture",
         3,
         any(found["id"] == item["id"] for found in results),
         "knowledge search finds the proposed item",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "F_knowledge_capture",
         3,
         item.get("promoted_at") is None and item.get("rejected_at") is None,
         "capture did not auto-promote or reject knowledge",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_handoff_resume(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Dogfood handoff resume")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
     run_shell_task(root, task.id, ["/bin/sh", "-c", "printf handoff > handoff.txt"], timeout_seconds=10)
@@ -1329,35 +1227,28 @@ def _case_handoff_resume(
     )
     _write_case_text_artifact(state, root, handoff_path, handoff)
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
     handoff_text = handoff_path.read_text(encoding="utf-8")
-    _award(state, scores, failures, "B_pipeline_correctness", 3, fresh.status == "verified", "fresh task load is verified")
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award("B_pipeline_correctness", 3, fresh.status == "verified", "fresh task load is verified")
+    case_result.award(
         "C_context_efficiency",
         2,
         "hidden_state_required: no" in handoff_text,
         "resume uses files instead of hidden state",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         2,
         all(token in handoff_text for token in ("task_id:", "task_artifacts:", "next_safe_action:")),
         "handoff includes task, artifacts, state, and next action",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_parallelism_docs_test(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Update docs and tests for dogfood split")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
     plan = create_orchestration_plan(root, task.id, plan_only=True)
@@ -1374,67 +1265,53 @@ def _case_parallelism_docs_test(
     devmode_required = all(role.get("devmode_skills_required") for role in roles if isinstance(role, dict))
     plan_only_note = any("no workers" in note and "providers" in note for note in plan.get("notes", []))
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "C_context_efficiency",
         3,
         len(context_layers) >= 3 and all_no_promote and devmode_required,
         "plan records conservative role layers with no promotion rights",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "G_performance_lightweight",
         1,
         plan_only_note,
         "plan-only orchestration did not execute providers or workers",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_central_schema_risk(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Rewrite whole repo migration and disable guardrail")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed")
     active = {item["condition"] for item in plan.get("stop_conditions", []) if item.get("active")}
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "A_safety_git_discipline",
         3,
         plan.get("risk_level") == "high" and plan.get("parallelism_allowed") is False,
         "high-risk central change refused unsafe parallelism",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         2,
         plan.get("recommended_execution") == "human_review_first"
         and {"expected_edits_overlap_heavily", "architectural_risk_escalates"} & active,
         "plan requires human review for central schema/refactor risk",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_simple_scheduler_parallel_coordination(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "simple-scheduler-repo",
@@ -1541,13 +1418,8 @@ task_slices:
         and retry_after.verification_command == "pytest tests/test_retry.py"
     )
     commands_clean = _commands_have_no_provider_calls(state["commands_run"])
-    scores: dict[str, int] = {}
-    failures: list[str] = []
     counts = snapshot_after.counts
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         counts.get("ready", 0) >= 2
@@ -1556,10 +1428,7 @@ task_slices:
         and counts.get("needs_retry", 0) >= 1,
         "scheduler exposed ready blocked stale and retry work",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         3,
         snapshot_after.batches
@@ -1567,10 +1436,7 @@ task_slices:
         and (scratch / retry.retry_request_path).exists(),
         "scheduler wrote reviewable batch and retry evidence",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         5,
         retry_preserved and commands_clean,
@@ -1579,14 +1445,15 @@ task_slices:
     if commands_clean:
         _record_lesson(state, "no background scheduler or provider calls were introduced")
     else:
-        failures.append("no background scheduler or provider calls were introduced")
-    return _finalize_case(root, case, state, scores, failures)
+        case_result.fail("no background scheduler or provider calls were introduced")
+    return case_result.finalize()
 
 
 def _case_question_blocker_resume_loop(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir, "question-resume-repo", state=state, root=root, evidence_label="question-resume"
     )
@@ -1646,12 +1513,7 @@ def _case_question_blocker_resume_loop(
     )
     events_text = (scratch / ".devflow" / "tasks" / task.id / "events.jsonl").read_text(encoding="utf-8")
     commands_clean = _commands_have_no_provider_calls(state["commands_run"])
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         question is not None
@@ -1660,10 +1522,7 @@ def _case_question_blocker_resume_loop(
         and bool(snapshot.warnings),
         "question list exposed deterministic open blocker",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         2,
         bool(answered)
@@ -1673,10 +1532,7 @@ def _case_question_blocker_resume_loop(
         and "question_answered" in events_text,
         "answer preserved source question evidence",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         4,
         scheduler.counts.get("blocked", 0) == 0
@@ -1685,13 +1541,14 @@ def _case_question_blocker_resume_loop(
         and commands_clean,
         "no worker resume or provider call was executed by question commands",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_operator_readiness_reconciliation(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir, "operator-readiness-repo", state=state, root=root, evidence_label="operator-readiness"
     )
@@ -1860,42 +1717,32 @@ def _case_operator_readiness_reconciliation(
     close_task(scratch, generated.id, outcome="evidence-only", reason="dogfood operator readiness evidence captured")
     close_task(scratch, descriptive.id, outcome="evidence-only", reason="dogfood operator readiness evidence captured")
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         surface_counts_agree and lifecycle_counts,
         "operator surfaces agreed on readiness counts",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         3,
         repair_priority and stale_warning,
         "lifecycle repair outranked stale dispatch guidance",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         2,
         plain_label and commands_clean,
         "plain descriptive task labels remained primary",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_intent_scaffold_approval_path(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "intent-scaffold-repo",
@@ -2050,60 +1897,44 @@ def _case_intent_scaffold_approval_path(
         and f"devflow goal create-task {created.created_id} TS-0001" in handoff
     )
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         scaffold_written,
         "intent scaffold wrote review evidence before goal creation",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "B_pipeline_correctness",
         2,
         goal_consumed_scaffold,
         "goal creation consumed scaffold task slices without running workers",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         2,
         artifacts_reviewable,
         "scaffold goal artifacts retained reviewable acceptance criteria",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "D_worker_artifact_quality",
         2,
         slices_reviewable and summary_path.exists(),
         "intent scaffold evidence remained inspectable",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "E_recovery_failure_handling",
         2,
         no_execution,
         "no provider calls, worker runs, verification, task promotion, commits, or pushes were performed",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
-    state = _new_case_state(root, run_id, case, case_dir)
+    case_result = _CaseResult(root, run_id, case, case_dir)
+    state = case_result.state
     task = create_task(root, "Dogfood operating layer visual QA")
     _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -2153,77 +1984,54 @@ def _case_operating_layer_visual_qa(
     }
     accepted_capture = capture_method in accepted_methods or capture_method.startswith("mixed:")
 
-    scores: dict[str, int] = {}
-    failures: list[str] = []
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         2,
         viewports == {"desktop", "mobile"} and artifact_viewports == {"desktop", "mobile"},
         "desktop and mobile visual QA paths were exercised",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         2,
         result.get("status") == "pass"
         and all(isinstance(path, str) and (root / path).exists() for path in artifact_paths),
         "current and baseline PNG/SVG/metadata artifacts exist",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         2,
         metadata_checks
         and all(bool(checks.get("no_horizontal_overflow")) for checks in metadata_checks),
         "visual metadata confirms no horizontal overflow",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         1,
         metadata_checks
         and all(bool(checks.get("guided_first_viewport")) for checks in metadata_checks),
         "visual metadata confirms guided first viewport",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         1,
         metadata_checks
         and all(bool(checks.get("active_work_cards")) for checks in metadata_checks),
         "visual metadata confirms active work cards",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         1,
         metadata_checks
         and all(bool(checks.get("approval_states")) for checks in metadata_checks),
         "visual metadata confirms approval states",
     )
-    _award(
-        state,
-        scores,
-        failures,
+    case_result.award(
         "H_operating_layer_visual_qa",
         1,
         accepted_capture,
         "visual QA accepted deterministic fallback, external/Appshot, or Playwright raster evidence",
     )
-    return _finalize_case(root, case, state, scores, failures)
+    return case_result.finalize()
 
 
 _RUNNERS: dict[str, CaseRunner] = {

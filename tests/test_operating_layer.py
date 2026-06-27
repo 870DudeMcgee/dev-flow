@@ -144,10 +144,11 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "serial-runtime-panel" in INDEX_HTML
     assert "serial-runtime-panel" in APP_CSS
     assert "first_viewport" in APP_JS
-    assert "rememberApprovedActionResult" in APP_JS
-    assert "refreshSnapshotAfterApprovedAction" in APP_JS
     assert "executeAction" in APP_JS
-    assert "rememberApprovedActionResult" in APP_JS
+    assert "rememberApprovedActionResult" not in APP_JS
+    assert "refreshSnapshotAfterApprovedAction" not in APP_JS
+    assert "brainstormMessage" not in APP_JS
+    assert "function taskAction(" not in APP_JS
     assert "renderWorkerLanes" in APP_JS
     assert "task-control-grid" in INDEX_HTML
 
@@ -578,6 +579,16 @@ def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields
         activity.model_dump() for activity in workbench.worker_activity
     ]
     assert snapshot.review_loop.model_dump() == workbench.review_loop.model_dump()
+    repo_root = Path(__file__).resolve().parents[1]
+    operating_layer_source = (repo_root / "src/devflow/control_room/operating_layer.py").read_text(encoding="utf-8")
+    for mirrored_assignment in (
+        "tasks = task_workbench.tasks",
+        "promotion_desk = task_workbench.promotion_candidates",
+        "evidence = task_workbench.evidence_stream",
+        "gate_receipts = task_workbench.gate_receipts",
+        "focus_task_id = task_workbench.focus_task_id",
+    ):
+        assert mirrored_assignment not in operating_layer_source
     for field in (
         "active_task_count",
         "total_task_count",
@@ -1678,8 +1689,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "closeFocus" in js
         assert "loadSnapshot" in js
         assert "executeAction" in js
-        assert "rememberApprovedActionResult" in js
-        assert "refreshSnapshotAfterApprovedAction" in js
+        assert "rememberApprovedActionResult" not in js
+        assert "refreshSnapshotAfterApprovedAction" not in js
         assert "setActiveNav" in js
         assert "aria-label" in INDEX_HTML
         assert "keydown" in js
@@ -1687,7 +1698,6 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "shortTime" in js
         assert "esc" in js
         assert "ago" in js
-        assert "refreshSnapshotAfterApprovedAction" in js
         assert "render" in js
         assert "loadSnapshot" in js
         assert "executeAction" in js
@@ -1718,7 +1728,6 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "refresh-button" in INDEX_HTML
         assert "/api/actions/run" in js
         assert "executeAction" in js
-        assert "refreshSnapshotAfterApprovedAction" in js
     finally:
         server.shutdown()
         server.server_close()
