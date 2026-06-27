@@ -16,6 +16,24 @@ class TestMVPBoundaries(unittest.TestCase):
         for fragment in forbidden_fragments:
             self.assertNotIn(fragment, cli_source)
 
+    def test_cli_uses_project_task_ref_without_private_wrapper(self):
+        cli_source = pathlib.Path("src/devflow/cli.py").read_text(encoding="utf-8")
+
+        self.assertFalse(
+            "def _task_ref(" in cli_source,
+            "src/devflow/cli.py should use project_task_ref() directly instead of a private pass-through wrapper.",
+        )
+        self.assertIn("project_task_ref(", cli_source)
+
+    def test_cli_uses_relative_path_without_private_wrapper(self):
+        cli_source = pathlib.Path("src/devflow/cli.py").read_text(encoding="utf-8")
+
+        self.assertFalse(
+            "def _relative(" in cli_source,
+            "src/devflow/cli.py should use relative_path() directly instead of a private pass-through wrapper.",
+        )
+        self.assertIn("relative_path(", cli_source)
+
     def test_only_shell_manual_and_local_ollama_patch_runtime_are_executable(self):
         """Contract test: remote provider adapters remain non-executable."""
         from devflow.control_room.agent_registry import (

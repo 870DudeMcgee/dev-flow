@@ -117,7 +117,6 @@ _KNOWN_BOUNDARY_TARGETS = {
 _EXPECTED_GRAPHIFY_ARTIFACTS = (
     Path("graphify-out/GRAPH_REPORT.md"),
     Path("graphify-out/graph.json"),
-    Path("graphify-out/dev-flow-callflow.html"),
     Path("graphify-out/GRAPH_TREE.html"),
 )
 
@@ -510,7 +509,19 @@ def _is_known_boundary_target(rel_path: str) -> bool:
 
 
 def _generated_artifact_paths(root: Path) -> list[str]:
-    return [path.as_posix() for path in _EXPECTED_GRAPHIFY_ARTIFACTS if (root / path).exists()]
+    paths: list[str] = []
+    for path in _EXPECTED_GRAPHIFY_ARTIFACTS[:2]:
+        if (root / path).exists():
+            paths.append(path.as_posix())
+    paths.extend(
+        path.relative_to(root).as_posix()
+        for path in sorted((root / "graphify-out").glob("*-callflow.html"))
+        if path.is_file()
+    )
+    for path in _EXPECTED_GRAPHIFY_ARTIFACTS[2:]:
+        if (root / path).exists():
+            paths.append(path.as_posix())
+    return paths
 
 
 def _format_metric(value: int | None) -> str:

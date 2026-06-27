@@ -14,7 +14,7 @@ Source evidence:
 
 - Report: `graphify-out/GRAPH_REPORT.md`
 - Graph data: `graphify-out/graph.json`
-- Visual call flow: `graphify-out/dev-flow-callflow.html`
+- Visual call flow: `graphify-out/Dev-Flow-callflow.html`
 - Tree view: `graphify-out/GRAPH_TREE.html`
 - Built from commit: `4e2d627e9b73f6456fe07216f1b2ae891d98eadf`
 

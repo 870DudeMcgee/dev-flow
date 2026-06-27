@@ -113,6 +113,20 @@ from devflow.control_room.task_scorecard_command import (
     render_task_scorecard_json,
     render_task_scorecard_lines,
 )
+from devflow.control_room.dogfood_command import (
+    DogfoodCommandError,
+    render_dogfood_list,
+    render_dogfood_report_for_run,
+    render_dogfood_score_for_run,
+    render_dogfood_show,
+    run_dogfood_command,
+)
+from devflow.control_room.agent_catalog_command import (
+    AgentCatalogCommandError,
+    build_agent_catalog_command_payload,
+    render_agent_catalog_json,
+    render_agent_catalog_lines,
+)
 from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import write_qwopus_escalation_packet
@@ -153,6 +167,7 @@ from devflow.control_room.project_registry import (
     resolve_project_root,
     update_project_remote_policy,
 )
+from devflow.control_room.paths import relative_path
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -1068,10 +1083,6 @@ def _resolve_task_project_root(project: str | None) -> ProjectRootResolution:
         raise typer.Exit(code=1) from exc
 
 
-def _task_ref(task_id: str, project_id: str | None) -> str:
-    return project_task_ref(task_id, project_id)
-
-
 @app.command("init")
 def init_command() -> None:
     """Initialize the local control-room runtime."""
@@ -1756,10 +1767,10 @@ def context_command(
         raise typer.Exit(code=1)
 
     plan = write_context_packet(Path.cwd(), task_description)
-    typer.echo(f"Wrote {_relative(plan.repo_root, plan.packet_path)}")
+    typer.echo(f"Wrote {relative_path(plan.repo_root, plan.packet_path)}")
     typer.echo(f"mode: {plan.context_mode}")
     typer.echo(f"recommended_tools: {', '.join(plan.recommended_tools)}")
-    typer.echo(f"events: {_relative(plan.repo_root, plan.events_path)}")
+    typer.echo(f"events: {relative_path(plan.repo_root, plan.events_path)}")
 
 
 @task_app.command("create")
@@ -1785,7 +1796,7 @@ def task_create(
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(f"Created {_task_ref(task.id, scope.project_id)}: {task.title}")
+    typer.echo(f"Created {project_task_ref(task.id, scope.project_id)}: {task.title}")
     if scope.project_id:
         typer.echo(f"project_root: {scope.root}")
     typer.echo(f"status: {task.status}")
@@ -1972,7 +1983,7 @@ def task_list(
     if not projections:
         typer.echo("No tasks found.")
         return
-    rows = [(_task_ref(projection.task.id, scope.project_id), projection) for projection in projections]
+    rows = [(project_task_ref(projection.task.id, scope.project_id), projection) for projection in projections]
     task_width = max(10, *(len(ref) for ref, _ in rows))
     typer.echo(f"{'Task':<{task_width}} {'Status':<20} {'Verify':<16} {'Updated':<25} Title")
     typer.echo("-" * (task_width + 87))
@@ -2054,7 +2065,7 @@ def task_capsule(
     typer.echo(capsule, nl=False)
     if export_md:
         export_path = export_review_capsule_markdown(root, task_id, capsule)
-        typer.echo(f"export_path: {_relative(root, export_path)}")
+        typer.echo(f"export_path: {relative_path(root, export_path)}")
 
 
 @task_app.command("review-ready")
@@ -2134,7 +2145,7 @@ def task_fit_command(
         return
 
     # Render a beautiful terminal breakdown
-    typer.echo(f"Estimated task-fit profile for task: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"Estimated task-fit profile for task: {project_task_ref(task_id, scope.project_id)}")
     typer.echo("-" * 50)
 
     tf = fit_data["task_fit"]
@@ -2225,7 +2236,7 @@ def task_scout_command(
 
         reports = run_scout_reports(root, task_id, role=role)
         artifact_paths = {
-            scout_role: _relative(root, save_scout_report(root, task_id, scout_role, data))
+            scout_role: relative_path(root, save_scout_report(root, task_id, scout_role, data))
             for scout_role, data in reports.items()
         }
     except Exception as exc:
@@ -2242,7 +2253,7 @@ def task_scout_command(
         return
 
     # Render beautiful breakdown
-    typer.echo(f"Executed scout evaluation for task: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"Executed scout evaluation for task: {project_task_ref(task_id, scope.project_id)}")
     for scout_role, data in reports.items():
         sr = data["scout_report"]
         typer.echo("-" * 50)
@@ -2334,7 +2345,7 @@ def task_packet(
     if save:
         written = save_task_packet(root, task_id, packet, text_md=text_md)
         for p in written:
-            rel_p = _relative(root, p)
+            rel_p = relative_path(root, p)
             typer.echo(f"Wrote {rel_p}")
     else:
         if text:
@@ -2509,10 +2520,10 @@ def task_local(
     typer.echo(f"  Model:             {result.model}")
     typer.echo(f"  Status:            {result.status}")
     typer.echo(f"  Run ID:            {result.run_id}")
-    typer.echo(f"  Evidence Dir:      {_relative(Path.cwd(), result.artifact_dir)}")
-    typer.echo(f"  Prompt evidence:   {_relative(Path.cwd(), result.prompt_path)}")
-    typer.echo(f"  Response evidence: {_relative(Path.cwd(), result.response_path)}")
-    typer.echo(f"  Run Metadata:      {_relative(Path.cwd(), result.run_json_path)}")
+    typer.echo(f"  Evidence Dir:      {relative_path(Path.cwd(), result.artifact_dir)}")
+    typer.echo(f"  Prompt evidence:   {relative_path(Path.cwd(), result.prompt_path)}")
+    typer.echo(f"  Response evidence: {relative_path(Path.cwd(), result.response_path)}")
+    typer.echo(f"  Run Metadata:      {relative_path(Path.cwd(), result.run_json_path)}")
     typer.echo("-" * 50)
 
     # Standard compatibility outputs
@@ -2522,12 +2533,12 @@ def task_local(
     typer.echo("local_worker_mode: legacy_advisory")
     typer.echo("canonical_implementation_command: devflow task run <task-id> --worker qwopus-implementer")
     typer.echo(f"run_id: {result.run_id}")
-    typer.echo(f"evidence_dir: {_relative(Path.cwd(), result.artifact_dir)}")
-    typer.echo(f"prompt_path: {_relative(Path.cwd(), result.prompt_path)}")
-    typer.echo(f"raw_response_path: {_relative(Path.cwd(), result.raw_response_path)}")
-    typer.echo(f"response_path: {_relative(Path.cwd(), result.response_path)}")
-    typer.echo(f"stderr_path: {_relative(Path.cwd(), result.stderr_path)}")
-    typer.echo(f"local_worker_run: {_relative(Path.cwd(), result.run_json_path)}")
+    typer.echo(f"evidence_dir: {relative_path(Path.cwd(), result.artifact_dir)}")
+    typer.echo(f"prompt_path: {relative_path(Path.cwd(), result.prompt_path)}")
+    typer.echo(f"raw_response_path: {relative_path(Path.cwd(), result.raw_response_path)}")
+    typer.echo(f"response_path: {relative_path(Path.cwd(), result.response_path)}")
+    typer.echo(f"stderr_path: {relative_path(Path.cwd(), result.stderr_path)}")
+    typer.echo(f"local_worker_run: {relative_path(Path.cwd(), result.run_json_path)}")
 
     if result.error_message:
         typer.echo(result.error_message)
@@ -2582,7 +2593,6 @@ def task_local_review(
 ) -> None:
     """Run an advisory local model packet review for a task."""
     from devflow.control_room.local_packet_worker import run_local_packet_review
-    from devflow.control_room.paths import relative_path
 
     try:
         result = run_local_packet_review(
@@ -2787,7 +2797,7 @@ def task_escalation_packet(
         raise typer.Exit(code=1) from exc
 
     packet_path = write_qwopus_escalation_packet(root, task, agent)
-    typer.echo(f"escalation_packet_path: {_relative(root, packet_path)}")
+    typer.echo(f"escalation_packet_path: {relative_path(root, packet_path)}")
     typer.echo("provider_calls: none")
 
 
@@ -2860,7 +2870,7 @@ def task_verify(
         typer.echo(str(exc))
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"{_task_ref(task.id, scope.project_id)}: verification {task.verification_status}")
+    typer.echo(f"{project_task_ref(task.id, scope.project_id)}: verification {task.verification_status}")
     if scope.project_id:
         typer.echo(f"project_root: {root}")
     typer.echo(f"verification_log_path: {task.verification_log_path}")
@@ -3075,13 +3085,6 @@ def _print_supervised_tasks(tasks: list[TaskRecord]) -> int:
     return exit_code
 
 
-def _relative(root: Path, path: Path) -> str:
-    try:
-        return str(path.resolve().relative_to(root.resolve()))
-    except ValueError:
-        return str(path)
-
-
 def _echo_review_capsule(
     root: Path,
     task_id: str,
@@ -3271,21 +3274,15 @@ def release_readiness_command(
 @dogfood_app.command("list")
 def dogfood_list() -> None:
     """List built-in dogfood production-readiness cases."""
-    from devflow.control_room.dogfood import materialize_dogfood_cases, production_readiness_cases, render_dogfood_case_list
-
-    materialize_dogfood_cases(Path.cwd())
-    typer.echo(render_dogfood_case_list(production_readiness_cases()), nl=False)
+    typer.echo(render_dogfood_list(Path.cwd()), nl=False)
 
 
 @dogfood_app.command("show")
 def dogfood_show(case_id: str) -> None:
     """Show a built-in dogfood case definition."""
     try:
-        from devflow.control_room.dogfood import materialize_dogfood_cases, render_dogfood_case
-
-        materialize_dogfood_cases(Path.cwd())
-        typer.echo(render_dogfood_case(case_id), nl=False)
-    except KeyError as exc:
+        typer.echo(render_dogfood_show(Path.cwd(), case_id), nl=False)
+    except DogfoodCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
@@ -3313,68 +3310,42 @@ def dogfood_run(
 ) -> None:
     """Run a deterministic local production-readiness dogfood suite."""
     try:
-        from devflow.control_room.dogfood import run_dogfood_suite
-
-        result = run_dogfood_suite(
+        output = run_dogfood_command(
             Path.cwd(),
             suite=suite,
             case_ids=case,
             write_root_runtime_evidence=write_root_runtime_evidence,
             keep_runs=keep_runs,
+            fail_below_silver=fail_below_silver,
         )
-    except Exception as exc:
+    except DogfoodCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    scorecard = result["scorecard"]
-    threshold = scorecard["threshold_result"]
-    typer.echo(f"dogfood_run_id: {result['run_id']}")
-    typer.echo(f"score: {scorecard['total_score']}/{scorecard['max_score']}")
-    typer.echo(f"threshold: {threshold['achieved']}")
-    typer.echo(f"silver_met: {'yes' if threshold['silver_met'] else 'no'}")
-    typer.echo(f"run_path: {result['run_path']}")
-    typer.echo(f"scorecard_path: {result['scorecard_path']}")
-    typer.echo(f"report_path: {result['report_path']}")
-    if result.get("pruned_runs"):
-        typer.echo("pruned_runs:")
-        for path in result["pruned_runs"]:
-            typer.echo(f"  - {path}")
-    if scorecard["failures"]:
-        typer.echo("failures:")
-        for failure in scorecard["failures"]:
-            typer.echo(f"  - {failure}")
-    if scorecard["warnings"]:
-        typer.echo("warnings:")
-        for warning in scorecard["warnings"]:
-            typer.echo(f"  - {warning}")
-    if fail_below_silver and not threshold["silver_met"]:
-        raise typer.Exit(code=1)
+    for line in output.lines:
+        typer.echo(line)
+    if output.exit_code:
+        raise typer.Exit(code=output.exit_code)
 
 
 @dogfood_app.command("score")
 def dogfood_score(run_id: str) -> None:
     """Show a dogfood scorecard summary for a run id, or 'latest'."""
     try:
-        from devflow.control_room.dogfood import load_dogfood_run, render_dogfood_score
-
-        loaded = load_dogfood_run(Path.cwd(), run_id)
-    except KeyError as exc:
+        typer.echo(render_dogfood_score_for_run(Path.cwd(), run_id), nl=False)
+    except DogfoodCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(render_dogfood_score(loaded["scorecard"]), nl=False)
 
 
 @dogfood_app.command("report")
 def dogfood_report(run_id: str) -> None:
     """Print a dogfood report for a run id, or 'latest'."""
     try:
-        from devflow.control_room.dogfood import load_dogfood_run
-
-        loaded = load_dogfood_run(Path.cwd(), run_id)
-    except KeyError as exc:
+        typer.echo(render_dogfood_report_for_run(Path.cwd(), run_id), nl=False)
+    except DogfoodCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    typer.echo(loaded["report"], nl=False)
 
 
 @knowledge_app.command("capture")
@@ -3716,60 +3687,18 @@ def agent_catalog(
     provider: str | None = typer.Option(None, "--provider", help="Filter catalog to one provider id."),
 ) -> None:
     """Show providers, profiles, runtime contracts, env readiness, and local model discovery."""
-    from devflow.control_room.agent_catalog import build_agent_catalog
-
     try:
-        payload = build_agent_catalog(Path.cwd(), provider_id=provider)
-    except AgentRegistryError as exc:
+        payload = build_agent_catalog_command_payload(Path.cwd(), provider_id=provider)
+    except AgentCatalogCommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     if json_output:
-        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        typer.echo(render_agent_catalog_json(payload))
         return
 
-    typer.echo("providers:")
-    for item in payload["providers"]:
-        missing = " missing-env" if item["api_key_env_missing"] else ""
-        typer.echo(f"- {item['id']} ({item['adapter']}){missing}")
-    typer.echo("profiles:")
-    for profile in payload["profiles"]:
-        contract = profile["runtime_contract"]
-        typer.echo(
-            f"- {profile['id']}: {profile['provider']}/{profile['model']} "
-            f"{profile['authority']} -> {contract['execution_surface']}"
-        )
-    hermes_agents = payload.get("hermes_agents", [])
-    if hermes_agents:
-        typer.echo("hermes_agents:")
-        for agent in hermes_agents:
-            blocked = f" blocked: {agent['blocked_reason']}" if agent.get("blocked_reason") else ""
-            typer.echo(
-                f"- {agent['id']}: {agent['provider']}/{agent['model']} "
-                f"profile={agent['hermes_profile']} status={agent['status']}{blocked}"
-            )
-    local = payload["local_ollama"]
-    typer.echo(f"local_ollama: {local['status']}")
-    if local.get("unregistered_models"):
-        typer.echo("unregistered_local_models:")
-        for model in local["unregistered_models"]:
-            typer.echo(f"- {model}")
-    local_openai = payload.get("local_openai_compatible", {})
-    typer.echo(f"local_openai_compatible: {local_openai.get('status', 'none')}")
-    local_policy = payload.get("local_model_policy", {})
-    if local_policy:
-        concurrency = local_policy.get("local_model_concurrency", {})
-        typer.echo(
-            f"local_model_default: {local_policy.get('default_provider_id', 'unknown')}/"
-            f"{local_policy.get('default_model', 'unknown')}"
-        )
-        typer.echo(f"local_model_concurrency: {concurrency.get('mode', 'unknown')}")
-    for provider_row in local_openai.get("providers", []):
-        model_count = len(provider_row.get("advertised_models") or provider_row.get("configured_models") or [])
-        typer.echo(
-            f"- {provider_row.get('id')}: {provider_row.get('status')} "
-            f"({model_count} models, {provider_row.get('base_url')})"
-        )
+    for line in render_agent_catalog_lines(payload):
+        typer.echo(line)
 
 
 @agent_app.command("add-provider")
@@ -4008,7 +3937,7 @@ def agent_serial_packet(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    run_dir = _relative(root, result.run_dir)
+    run_dir = relative_path(root, result.run_dir)
     artifacts = result.manifest["artifacts"]
     preflight = result.manifest["preflight"]
     runtime_payload = result.manifest.get("runtime") or {}
@@ -4165,9 +4094,9 @@ def agent_context_pack(
         "permission_mode": result.pack.permission_mode,
         "estimated_chars": result.pack.estimated_chars,
         "estimated_tokens": result.pack.estimated_tokens,
-        "json_path": _relative(root, result.json_path),
-        "markdown_path": _relative(root, result.markdown_path),
-        "packet_path": _relative(root, result.packet_path),
+        "json_path": relative_path(root, result.json_path),
+        "markdown_path": relative_path(root, result.markdown_path),
+        "packet_path": relative_path(root, result.packet_path),
     }
     if json_output:
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
@@ -4269,7 +4198,7 @@ def agent_select_local(
     if json_output:
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+        typer.echo(f"task_id: {project_task_ref(task_id, scope.project_id)}")
         if scope.project_id:
             typer.echo(f"project_root: {root}")
         typer.echo(f"role: {payload['role']}")
@@ -4324,7 +4253,7 @@ def agent_audition(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
 
-    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"task_id: {project_task_ref(task_id, scope.project_id)}")
     typer.echo(f"job_type: {payload['job_type']}")
     typer.echo(f"status: {payload['status']}")
     typer.echo(f"audition_id: {payload['audition_id']}")
@@ -4412,7 +4341,7 @@ def agent_hyperplane(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
 
-    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"task_id: {project_task_ref(task_id, scope.project_id)}")
     typer.echo(f"suite: {payload['suite']}")
     typer.echo(f"target: {payload['target']}")
     typer.echo(f"judge: {payload['judge']}")
@@ -4444,7 +4373,7 @@ def agent_hyperplane_list(
     if json_output:
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
-    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"task_id: {project_task_ref(task_id, scope.project_id)}")
     for run in payload["runs"]:
         typer.echo(f"- {run['run_id']}: {run.get('status', 'unknown')} ({run.get('suite') or 'unknown-suite'})")
 
@@ -4469,7 +4398,7 @@ def agent_hyperplane_show(
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
     summary = payload.get("summary") or {}
-    typer.echo(f"task_id: {_task_ref(task_id, scope.project_id)}")
+    typer.echo(f"task_id: {project_task_ref(task_id, scope.project_id)}")
     typer.echo(f"run_id: {run_id}")
     typer.echo(f"status: {summary.get('status', 'unknown')}")
     typer.echo(f"run_dir: {payload['run_dir']}")

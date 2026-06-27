@@ -41,7 +41,7 @@ class RecordingRunner:
             (report.parent / "graph.json").write_text("{}", encoding="utf-8")
             return subprocess.CompletedProcess(command, 0, "updated", "")
         if command[1:] == ["export", "callflow-html"]:
-            artifact = cwd / "graphify-out" / "dev-flow-callflow.html"
+            artifact = cwd / "graphify-out" / "Dev-Flow-callflow.html"
             artifact.parent.mkdir(parents=True, exist_ok=True)
             artifact.write_text("<html></html>", encoding="utf-8")
             return subprocess.CompletedProcess(command, 0, "exported", "")
@@ -250,6 +250,7 @@ def test_write_doc_renders_concise_checkpoint(tmp_path: Path) -> None:
     assert "Generated Graphify artifacts are local by default" in text
     assert "Recommended Cleanup Targets" in text
     assert "graphify-out/GRAPH_REPORT.md" in text
+    assert "graphify-out/Dev-Flow-callflow.html" in text
 
 
 def test_cli_architecture_audit_json_returns_stable_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

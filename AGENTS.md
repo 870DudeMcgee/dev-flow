@@ -95,7 +95,7 @@ Only expand into broader docs when the task actually needs them:
 
 Historical handoffs, milestone plans, archived specs, and old workflow notes are reference material. Do not treat them as process authority unless the user explicitly asks for that history.
 
-For major architecture cleanup, use Graphify as generated evidence. Start from `graphify-out/GRAPH_REPORT.md` and `graphify-out/dev-flow-callflow.html`, record metrics in a lightweight doc or handoff, and rerun Graphify after the cleanup milestone. Do not treat generated Graphify output as product authority or blindly commit the full `graphify-out/` directory.
+For major architecture cleanup, use Graphify as generated evidence. Start from `graphify-out/GRAPH_REPORT.md` and `graphify-out/Dev-Flow-callflow.html`, record metrics in a lightweight doc or handoff, and rerun Graphify after the cleanup milestone. Do not treat generated Graphify output as product authority or blindly commit the full `graphify-out/` directory.
 
 ## Git And Worktree Safety
 
