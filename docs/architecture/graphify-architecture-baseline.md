@@ -96,24 +96,49 @@ For each major cleanup milestone, compare:
 Architecture is improving when the graph shows clearer harness clusters, not
 merely when line count falls.
 
-## Update Procedure
+## Dev-Flow-Owned Audit Workflow
 
-After each major cleanup milestone:
+Use the Dev-Flow command as the normal entrypoint for fresh architecture
+evidence:
 
 ```bash
-.venv/bin/graphify update .
-.venv/bin/graphify export callflow-html
-.venv/bin/graphify tree --label Dev-Flow
+devflow architecture audit
+devflow architecture audit --install-graphify
+devflow architecture audit --write-doc
+devflow architecture audit --json
 ```
 
-Then update this document or the milestone handoff with:
+Default mode is read-only. If Graphify is not available in the active Python
+environment, the command fails with install guidance and does not mutate the
+environment. Use `--install-graphify` when the operator explicitly wants
+Dev-Flow to install `graphifyy>=0.8.50,<0.9` before running the audit.
+
+The command runs the bounded evidence sequence:
+
+```bash
+graphify update .
+graphify export callflow-html
+graphify tree --label Dev-Flow
+graphify diagnose multigraph --json
+```
+
+`--write-doc` writes the tracked checkpoint at
+`docs/architecture/control-room-architecture-audit.md`. `--json` emits the same
+structured result for later release gates or dashboards.
+
+Graphify is evidence, not authority. Generated graph files are local by default
+under ignored `graphify-out/`; do not blindly commit the generated graph, HTML,
+or cache files unless a later task explicitly selects specific outputs for
+versioning.
+
+Cleanup targets should be selected from:
 
 - commit or worktree state used for the new graph
-- metrics delta from the baseline
+- metric deltas from the baseline
 - changed high-degree nodes or mixed communities
-- Graphify commands run
-- links to generated local artifacts
+- module size, definition count, and local import fan-in
+- boundary clarity for CLI, operating-layer, task/evidence, loop, and worker
+  modules
 
-Do not blindly commit full `graphify-out/` output. Keep the generated graph,
-HTML, and cache files as local/generated evidence unless a later decision
-selects specific generated artifacts for versioning.
+Actual refactors should become follow-up Dev-Flow tasks chosen from the fresh
+checkpoint evidence.
