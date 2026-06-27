@@ -440,6 +440,23 @@ def test_task_next_action_json_covers_patch_gate_and_closed_states(tmp_path: Pat
     assert payload["allowed_commands"] == []
 
 
+def test_task_next_action_text_explains_worker_command_placeholder(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    task = create_task(tmp_path, "empty active task")
+    result = _invoke_read_only(tmp_path, ["task", "next-action", task.id])
+
+    assert (
+        "next_safe_action: Choose the exact shell command the worker should run in this task workspace."
+        in result.output
+    )
+    assert (
+        "recommended_command_template: devflow task run task-0001 --worker shell -- <your-command>"
+        in result.output
+    )
+    assert "command_template_note: Replace <your-command> with the real command you approve." in result.output
+
+
 def test_task_review_json_cites_evidence_paths_and_tolerates_missing_artifacts(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     task = create_task(tmp_path, "review me")

@@ -210,7 +210,7 @@ def test_manual_agent_display_status_and_suggested_next_action(
     # Initially, before running manual worker, task status is created and no manual evidence
     proj = build_task_status_projection(tmp_path, task.id)
     assert proj.display_status == "created"
-    assert "Run the task" in proj.suggested_next_action
+    assert "Choose the exact shell command" in proj.suggested_next_action
 
     # 1. Run the manual worker -> state is awaiting_human
     runner.invoke(app, ["task", "run", task.id, "--worker", "devflow-manual-codex-worker"])

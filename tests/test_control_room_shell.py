@@ -1360,7 +1360,10 @@ def test_task_show_verification_and_next_action() -> None:
             assert show_initial.exit_code == 0, show_initial.output
             assert "verification_status: not_run" in show_initial.output
             assert "verification_log_path: .devflow/tasks/task-0001/logs/verify.log" in show_initial.output
-            assert "suggested_next_action: Run the task using 'devflow task run task-0001 --worker shell -- <command>'" in show_initial.output
+            assert (
+                "suggested_next_action: Choose the exact shell command the worker should run in the task workspace, "
+                "then run 'devflow task run task-0001 --worker shell -- <your-command>'."
+            ) in show_initial.output
 
             # Capture file state of task before show to prove show is read-only
             initial_files = {}

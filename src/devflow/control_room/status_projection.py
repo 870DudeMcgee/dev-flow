@@ -429,7 +429,10 @@ def _suggest_next_action(
     if status == "closed":
         return closed_next_action or "none"
     if status == "created":
-        return f"Run the task using 'devflow task run {task_id} --worker shell -- <command>'"
+        return (
+            "Choose the exact shell command the worker should run in the task workspace, "
+            f"then run 'devflow task run {task_id} --worker shell -- <your-command>'."
+        )
     if status == "running":
         return "Monitor the execution or wait for the task to complete."
     if status == "complete":

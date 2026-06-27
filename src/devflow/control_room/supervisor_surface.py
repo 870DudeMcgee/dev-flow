@@ -540,7 +540,7 @@ def render_task_next_action(root: Path, task_id: str, *, json_output: bool, proj
     lines = [
         f"task: {action['task_ref']}",
         f"status: {action['status']}",
-        f"next_safe_action: {action['next_safe_action']}",
+        f"next_safe_action: {action.get('plain_language_next_safe_action') or action['next_safe_action']}",
         f"recommended_action: {action['recommended_action']}",
         f"recommended_command: {action['recommended_command'] or 'none'}",
         f"safety_class: {action['safety_class']}",
@@ -549,6 +549,10 @@ def render_task_next_action(root: Path, task_id: str, *, json_output: bool, proj
     ]
     if project_id:
         lines.insert(1, f"project_root: {root}")
+    if action.get("recommended_command_template"):
+        lines.append(f"recommended_command_template: {action['recommended_command_template']}")
+    if action.get("command_template_note"):
+        lines.append(f"command_template_note: {action['command_template_note']}")
     if action["why_not_auto_runnable"]:
         lines.append(f"why_not_auto_runnable: {action['why_not_auto_runnable']}")
     if action["allowed_commands"]:
@@ -1158,6 +1162,7 @@ def _action(
     approval_commands = _dedupe_preserve_order(approval_commands)
     return {
         "next_safe_action": next_safe_action,
+        **_plain_language_command_help(recommended_command),
         "recommended_action": recommended_action,
         "recommended_command": recommended_command,
         "safety_class": safety_class,
@@ -1179,6 +1184,20 @@ def _human_approval_next_action(command: str, safety_class: str) -> str:
     return f"request human approval before running {command}"
 
 
+def _plain_language_command_help(command: str | None) -> dict[str, str]:
+    if not command:
+        return {}
+    if " task run " in command and "-- <command>" in command:
+        return {
+            "plain_language_next_safe_action": (
+                "Choose the exact shell command the worker should run in this task workspace."
+            ),
+            "recommended_command_template": command.replace("<command>", "<your-command>"),
+            "command_template_note": "Replace <your-command> with the real command you approve.",
+        }
+    return {}
+
+
 def _scope_task_action_commands(action: dict[str, Any], project_id: str) -> dict[str, Any]:
     scoped = dict(action)
     replacements: dict[str, str] = {}
@@ -1188,6 +1207,9 @@ def _scope_task_action_commands(action: dict[str, Any], project_id: str) -> dict
         scoped_recommended = _scope_task_command(recommended, project_id)
         replacements[recommended] = scoped_recommended
         scoped["recommended_command"] = scoped_recommended
+        template = scoped.get("recommended_command_template")
+        if isinstance(template, str):
+            scoped["recommended_command_template"] = _scope_task_command(template, project_id)
         classification = classify_supervisor_command(scoped_recommended)
         scoped["safety_class"] = classification["safety_class"]
         scoped["why_not_auto_runnable"] = classification["why_not_auto_runnable"]
