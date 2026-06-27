@@ -13,7 +13,13 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.browser_action_policy import get_browser_allowed_mutations
+from devflow.control_room.browser_action_policy import (
+    ACTION_APPROVAL_PHRASE,
+    _approved_idea_classify_command_args,
+    _approved_idea_evidence_command_args,
+    get_browser_allowed_mutations,
+    resolve_browser_action_command,
+)
 from devflow.control_room.idea_foundry import capture_idea, classify_idea, park_idea
 from devflow.control_room.goal_lifecycle import ensure_goal_lifecycle
 from devflow.control_room.local_model_runtime_lock import local_model_runtime_lock
@@ -25,8 +31,6 @@ from devflow.control_room.operating_layer_script import APP_JS as SPLIT_APP_JS
 from devflow.control_room.operating_layer_server import (
     OperatingLayerHTTPServer,
     OperatingLayerRequestHandler,
-    _approved_idea_classify_command_args,
-    _approved_idea_evidence_command_args,
 )
 from devflow.control_room.operating_layer_styles import APP_CSS as SPLIT_APP_CSS
 from devflow.control_room.persistence import get_task, save_task, utc_now
@@ -554,9 +558,17 @@ def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields
     assert [(lane.name, lane.task_ids) for lane in snapshot.lanes] == [
         (lane.name, lane.task_ids) for lane in workbench.lanes
     ]
-    assert [(task.id, task.lane) for task in snapshot.tasks] == [
-        (task.id, task.lane) for task in workbench.tasks
-    ]
+    workbench_tasks = [task.model_dump(mode="json") for task in workbench.tasks]
+    assert [task.model_dump(mode="json") for task in snapshot.tasks] == workbench_tasks
+    browser_tasks = []
+    for task in workbench_tasks:
+        browser_task = dict(task)
+        for internal_field in ("worker_model_label", "next_safe_action", "evidence_paths"):
+            browser_task.pop(internal_field, None)
+        browser_tasks.append(browser_task)
+    snapshot_payload = snapshot.model_dump(mode="json")
+    assert snapshot_payload["tasks"] == browser_tasks
+    assert all("worker_model_label" not in task for task in snapshot_payload["tasks"])
     assert [candidate.model_dump() for candidate in snapshot.promotion_desk] == [
         candidate.model_dump() for candidate in workbench.promotion_candidates
     ]
@@ -2242,6 +2254,28 @@ def test_operating_layer_server_runs_approved_task_creation(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_browser_action_policy_resolves_exact_approval_payload() -> None:
+    command = 'devflow task create --definition-of-done "Done means visible evidence." "browser task"'
+    classification = {
+        "safety_class": "approval_required_task_state",
+        "requires_human_approval": True,
+    }
+    payload = {
+        "command": command,
+        "human_approved": True,
+        "approval_phrase": ACTION_APPROVAL_PHRASE,
+        "approved_command": command,
+    }
+
+    resolved = resolve_browser_action_command(payload, command, classification)
+
+    assert resolved is not None
+    assert resolved.args[-5:] == ["task", "create", "--definition-of-done", "Done means visible evidence.", "browser task"]
+    assert resolved.writes_promotion_context is False
+    mismatched_payload = dict(payload, approved_command="devflow task list")
+    assert resolve_browser_action_command(mismatched_payload, command, classification) is None
 
 
 def test_operating_layer_server_runs_approved_task_close(

@@ -153,7 +153,7 @@ def test_greenhouse_lane_projection_uses_existing_status_and_maturity(tmp_path: 
 
 def test_operating_layer_idea_projection_exposes_brainstorm_lineage(tmp_path: Path) -> None:
     from devflow.control_room.brainstorm import start_brainstorm_from_idea
-    from devflow.control_room.operating_layer import _idea_card
+    from devflow.control_room.idea_greenhouse_projection import _idea_card
 
     idea = capture_idea(tmp_path, "Project this brainstorm link.", title="Projected lineage")
     session = start_brainstorm_from_idea(tmp_path, idea["id"])["session_id"]

@@ -15,6 +15,7 @@ from devflow.control_room.dogfood import (
     run_dogfood_suite,
     validate_dogfood_case,
 )
+from devflow.control_room.dogfood_case_result import write_case_json_artifact
 from devflow.control_room.persistence import list_tasks
 
 
@@ -36,6 +37,23 @@ def _init_dogfood_repo(root: Path) -> None:
     skill.write_text("name: using-devmode\n", encoding="utf-8")
     _git(root, "add", ".")
     _git(root, "commit", "-m", "baseline")
+
+
+def test_case_json_artifact_writer_records_relative_path(tmp_path: Path) -> None:
+    state = {"artifacts_created": []}
+    artifact_path = tmp_path / "case" / "artifacts" / "summary.json"
+    artifact_path.parent.mkdir(parents=True)
+
+    written = write_case_json_artifact(
+        state,
+        tmp_path,
+        artifact_path,
+        {"z": 1, "a": {"b": 2}},
+    )
+
+    assert written == artifact_path
+    assert artifact_path.read_text(encoding="utf-8") == '{\n  "a": {\n    "b": 2\n  },\n  "z": 1\n}\n'
+    assert state["artifacts_created"] == ["case/artifacts/summary.json"]
 
 
 def test_case_schema_and_suite_totals() -> None:

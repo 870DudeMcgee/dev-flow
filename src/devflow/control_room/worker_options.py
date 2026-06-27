@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from devflow.control_room.agent_onboarding import configured_hermes_agents
+from devflow.control_room.agent_catalog import configured_hermes_agents
 from devflow.control_room.paths import relative_path, task_dir, workspace_path
 
 

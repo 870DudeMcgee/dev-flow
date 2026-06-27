@@ -20,6 +20,14 @@ from tests.helpers import setup_temp_git_repo
 runner = CliRunner()
 
 
+def test_agent_catalog_import_surface_preserves_onboarding_compatibility() -> None:
+    from devflow.control_room import agent_catalog
+    from devflow.control_room.agent_onboarding import build_agent_catalog as compat_build_agent_catalog
+
+    assert callable(agent_catalog.build_agent_catalog)
+    assert callable(compat_build_agent_catalog)
+
+
 def test_agent_add_provider_dry_run_then_writes_structured_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.chdir(tmp_path)

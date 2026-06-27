@@ -1,6 +1,6 @@
 ---
 name: improve-codebase-architecture
-description: Use when you want to find codebase refactoring and deepening opportunities, consolidate tightly-coupled modules, or improve testability and AI-navigability.
+description: Use when finding architecture refactoring and deepening opportunities, especially with Graphify evidence, tightly-coupled modules, testability gaps, or AI-navigability problems.
 ---
 
 # Improve Codebase Architecture
@@ -28,13 +28,47 @@ Key principles (see [LANGUAGE.md](LANGUAGE.md) for the full list):
 
 This skill is _informed_ by the project's domain model. The domain language gives names to good seams; ADRs record decisions the skill should not re-litigate.
 
+## Dev-Flow Graphify Rule
+
+For Dev-Flow, start architecture reviews from fresh Graphify evidence unless the user explicitly asks for a purely local code read. Graphify is evidence, not authority: use it to choose where to inspect, then verify claims against source, tests, and Dev-Flow behavior before calling anything an improvement.
+
+Do not commit generated `graphify-out/` files. Commit only lightweight checkpoint docs or skill/source changes selected by the task.
+
 ## Process
 
-### 1. Explore
+### 1. Refresh Graphify evidence
 
 Read the project's domain glossary and any ADRs in the area you're touching first.
 
-Then use the Agent tool with `subagent_type=Explore` to walk the codebase. Don't follow rigid heuristics — explore organically and note where you experience friction:
+In Dev-Flow, run the owned audit command from `<repo-root>`:
+
+```bash
+env PYTHONPATH=src:. .venv/bin/python -m devflow.cli architecture audit --write-doc
+```
+
+If the `devflow` console script is installed, `devflow architecture audit --write-doc` is equivalent. If Graphify is missing and the user has approved installation, use `--install-graphify`; otherwise stop with the install guidance.
+
+After the run:
+
+- Compare `git rev-parse --short HEAD` with the "Built from commit" line in `graphify-out/GRAPH_REPORT.md`.
+- Read `docs/architecture/control-room-architecture-audit.md` for metrics, hotspots, diagnostic status, and recommended cleanup targets.
+- Treat diagnostic issues as evidence to inspect, not automatic refactor directives.
+
+### 2. Probe graph and source
+
+Use Graphify to narrow the review before opening broad source files. Start with the audit targets, then run focused probes:
+
+```bash
+.venv/bin/graphify diagnose multigraph --json --graph graphify-out/graph.json
+.venv/bin/graphify explain "control_room_service" --graph graphify-out/graph.json
+.venv/bin/graphify path "devflow_cli" "control_room_service" --graph graphify-out/graph.json
+.venv/bin/graphify affected "control_room_task_next_gate" --graph graphify-out/graph.json
+.venv/bin/graphify query "Which modules mix operating-layer UI projection with task execution policy?" --graph graphify-out/graph.json --budget 2000
+```
+
+Change node names to match the area under review. If a query result becomes part of the decision trail, save useful or corrected results with `graphify save-result`; when memory accumulates, run `graphify reflect` and inspect the lessons before repeating old conclusions.
+
+Then inspect source and tests around the graph-selected modules. Don't follow rigid heuristics; note where understanding one concept requires bouncing between many modules:
 
 - Where does understanding one concept require bouncing between many small modules?
 - Where are modules **shallow** — interface nearly as complex as the implementation?
@@ -42,9 +76,9 @@ Then use the Agent tool with `subagent_type=Explore` to walk the codebase. Don't
 - Where do tightly-coupled modules leak across their seams?
 - Which parts of the codebase are untested, or hard to test through their current interface?
 
-Apply the **deletion test** to anything you suspect is shallow: would deleting it concentrate complexity, or just move it? A "yes, concentrates" is the signal you want.
+Apply the **deletion test** to anything you suspect is shallow: would deleting it concentrate complexity, or just move it? A "yes, concentrates" is the signal you want. A candidate is not ready unless it cites both graph evidence and source evidence.
 
-### 2. Present candidates as an HTML report
+### 3. Present candidates as an HTML report
 
 Write a self-contained HTML file to the OS temp directory so nothing lands in the repo. Resolve the temp dir from `$TMPDIR`, falling back to `/tmp` (or `%TEMP%` on Windows), and write to `<tmpdir>/architecture-review-<timestamp>.html` so each run gets a fresh file. Open it for the user — `xdg-open <path>` on Linux, `open <path>` on macOS, `start <path>` on Windows — and tell them the absolute path.
 
@@ -53,13 +87,14 @@ The report uses **Tailwind via CDN** for layout and styling, and **Mermaid via C
 For each candidate, the same template as before, but rendered as a card:
 
 - **Files** — which files/modules are involved
+- **Graphify evidence** — audit target, graph node IDs, key `explain`/`path`/`affected`/`query` findings, and whether diagnostics were clean or relevant
 - **Problem** — why the current architecture is causing friction
 - **Solution** — plain English description of what would change
 - **Benefits** — explained in terms of locality and leverage, and how tests would improve
 - **Before / After diagram** — side-by-side, custom-drawn, illustrating the shallowness and the deepening
 - **Recommendation strength** — one of `Strong`, `Worth exploring`, `Speculative`, rendered as a badge
 
-End the report with a **Top recommendation** section: which candidate you'd tackle first and why.
+End the report with a **Top recommendation** section: which candidate you'd tackle first and why. Prefer candidates where Graphify, source inspection, and test pain all point at the same shallow module cluster. Do not propose interfaces yet.
 
 **Use CONTEXT.md vocabulary for the domain, and [LANGUAGE.md](LANGUAGE.md) vocabulary for the architecture.** If `CONTEXT.md` defines "Order," talk about "the Order intake module" — not "the FooBarHandler," and not "the Order service."
 
@@ -67,9 +102,9 @@ End the report with a **Top recommendation** section: which candidate you'd tack
 
 See [HTML-REPORT.md](HTML-REPORT.md) for the full HTML scaffold, diagram patterns, and styling guidance.
 
-Do NOT propose interfaces yet. After the file is written, ask the user: "Which of these would you like to explore?"
+After the file is written, ask the user: "Which of these would you like to explore?"
 
-### 3. Grilling loop
+### 4. Grilling loop
 
 Once the user picks a candidate, drop into a grilling conversation. Walk the design tree with them — constraints, dependencies, the shape of the deepened module, what sits behind the seam, what tests survive.
 

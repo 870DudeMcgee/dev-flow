@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -140,6 +141,29 @@ def record_artifact(state: dict[str, Any], path: str | Path, *, root: Path | Non
 
 def record_artifacts(state: dict[str, Any], paths: Iterable[str | Path], *, root: Path | None = None) -> list[str]:
     return [record_artifact(state, path, root=root) for path in paths]
+
+
+def write_case_json_artifact(
+    state: dict[str, Any],
+    root: Path,
+    path: Path,
+    payload: Any,
+    *,
+    sort_keys: bool = True,
+) -> Path:
+    atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=sort_keys) + "\n")
+    record_artifact(state, path, root=root)
+    return path
+
+
+def write_case_summary_artifact(
+    state: dict[str, Any],
+    root: Path,
+    case_dir: Path,
+    filename: str,
+    summary: dict[str, Any],
+) -> Path:
+    return write_case_json_artifact(state, root, case_dir / "artifacts" / filename, summary)
 
 
 def record_warning(state: dict[str, Any], warning: str) -> None:

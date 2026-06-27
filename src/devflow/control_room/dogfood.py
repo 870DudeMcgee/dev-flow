@@ -74,6 +74,10 @@ from devflow.control_room.dogfood_case_catalog import (
     render_dogfood_case_list,
     validate_dogfood_case,
 )
+from devflow.control_room.dogfood_case_scratch import (
+    create_recorded_git_native_case_scratch_repo as _create_recorded_git_native_case_scratch_repo,
+    init_git_native_dogfood_repo as _init_git_native_dogfood_repo,
+)
 from devflow.control_room.dogfood_case_result import (
     award_case_points as _award,
     build_dogfood_run_yaml as _build_run_yaml,
@@ -92,6 +96,8 @@ from devflow.control_room.dogfood_case_result import (
     skipped_unknown_case_result as _skipped_unknown_case,
     start_case_result as _new_case_state,
     write_case_result as _write_case_result,
+    write_case_json_artifact as _write_case_json_artifact,
+    write_case_summary_artifact as _write_case_summary_artifact,
 )
 
 __all__ = [
@@ -380,8 +386,7 @@ def _case_unsafe_worker_outcome(
         human_review_required=False,
         notes=["intentionally invalid unsafe worker outcome"],
     )
-    atomic_write_text(outcome_path, json.dumps(outcome, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, outcome_path, root=root)
+    _write_case_json_artifact(state, root, outcome_path, outcome)
     result = validate_worker_outcome_file(root, outcome_path)
     _record_artifact(state, result["output_path"])
     shared["unsafe_validation_path"] = result["output_path"]
@@ -431,12 +436,13 @@ def _case_git_native_worker_lane(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "git-native-lane-repo"
-    _init_git_native_dogfood_repo(scratch)
-    _record_artifact(state, scratch, root=root)
-    _record_command(state, "git init scratch Git-native dogfood repo", status="passed", output=relative_path(root, scratch))
-
-    init_control_room(scratch)
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir,
+        "git-native-lane-repo",
+        state=state,
+        root=root,
+        evidence_label="Git-native",
+    )
     first = create_task(scratch, "Dogfood Git lane one", git_worktree=True)
     second = create_task(scratch, "Dogfood Git lane two", git_worktree=True)
     _record_command(state, "devflow task create --git-worktree 'Dogfood Git lane one' (scratch)", status="passed", output=first.id)
@@ -514,9 +520,7 @@ def _case_git_native_worker_lane(
             "worktree_exists": first_worktree.exists(),
         },
     }
-    summary_path = case_dir / "artifacts" / "git-native-lane-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    _write_case_summary_artifact(state, root, case_dir, "git-native-lane-summary.json", summary)
 
     status_lanes = [task.get("worker_lane") for task in status["tasks"] if task.get("worker_lane")]
     operating_lanes = [task.get("worker_lane") for task in operating["tasks"] if task.get("worker_lane")]
@@ -573,11 +577,13 @@ def _case_local_worker_lane(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "local-worker-lane-repo"
-    _init_git_native_dogfood_repo(scratch)
-    init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
-    _record_command(state, "git init scratch local-worker-lane dogfood repo", status="passed", output=relative_path(root, scratch))
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir,
+        "local-worker-lane-repo",
+        state=state,
+        root=root,
+        evidence_label="local-worker-lane",
+    )
 
     read_only = create_task(scratch, "Dogfood read-only local worker evidence")
     patch_task = create_task(scratch, "Dogfood local patch worker evidence")
@@ -691,9 +697,7 @@ def _case_local_worker_lane(
         "dry_run_status": dry_run.dry_run_status,
         "verification_status": verified.verification_status,
     }
-    summary_path = case_dir / "artifacts" / "local-worker-lane-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    _write_case_summary_artifact(state, root, case_dir, "local-worker-lane-summary.json", summary)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "route")
@@ -878,9 +882,7 @@ agents:
         "auto_verification_used": False,
         "auto_promotion_used": False,
     }
-    summary_path = case_dir / "artifacts" / "registry-runtime-contract-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    _write_case_summary_artifact(state, root, case_dir, "registry-runtime-contract-summary.json", summary)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("push-main", "promote", "verify", "route", "agent run")
@@ -944,11 +946,13 @@ def _case_model_audition_evidence(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "model-audition-repo"
-    _init_git_native_dogfood_repo(scratch)
-    init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
-    _record_command(state, "git init scratch model-audition dogfood repo", status="passed", output=relative_path(root, scratch))
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir,
+        "model-audition-repo",
+        state=state,
+        root=root,
+        evidence_label="model-audition",
+    )
 
     task = create_task(scratch, "Dogfood model audition evidence")
     task_yaml_before = (scratch / ".devflow" / "tasks" / task.id / "task.yaml").read_text(encoding="utf-8")
@@ -1042,9 +1046,7 @@ def _case_model_audition_evidence(
         "git_dirty": git_state.dirty,
         "proposal_patches": proposal_patches,
     }
-    summary_path = case_dir / "artifacts" / "model-audition-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    _write_case_summary_artifact(state, root, case_dir, "model-audition-summary.json", summary)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "promote", "verify")
@@ -1116,16 +1118,8 @@ def _case_success_empty(
     useful_errors = validate_worker_outcome(root, useful)
     empty_score = _worker_usefulness_score(empty)
     useful_score = _worker_usefulness_score(useful)
-    atomic_write_text(case_dir / "artifacts" / "empty-outcome.json", json.dumps(empty, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(case_dir / "artifacts" / "useful-outcome.json", json.dumps(useful, indent=2, sort_keys=True) + "\n")
-    _record_artifacts(
-        state,
-        [
-            case_dir / "artifacts" / "empty-outcome.json",
-            case_dir / "artifacts" / "useful-outcome.json",
-        ],
-        root=root,
-    )
+    _write_case_json_artifact(state, root, case_dir / "artifacts" / "empty-outcome.json", empty)
+    _write_case_json_artifact(state, root, case_dir / "artifacts" / "useful-outcome.json", useful)
     _record_command(state, "validate success_empty outcome in-process", status="passed" if not empty_errors else "failed")
     _record_command(state, "validate success_with_result outcome in-process", status="passed" if not useful_errors else "failed")
     _record_lesson(state, f"success_empty usefulness score {empty_score}; success_with_result score {useful_score}")
@@ -1227,11 +1221,13 @@ def _case_failed_verification(
         exit_code=verified.verification_exit_code,
     )
     readiness_errors = promotion_readiness_errors(verified, root / ".devflow" / "tasks" / task.id)
-    atomic_write_text(
+    _write_case_json_artifact(
+        state,
+        root,
         case_dir / "artifacts" / "promotion-readiness-errors.json",
-        json.dumps(readiness_errors, indent=2) + "\n",
+        readiness_errors,
+        sort_keys=False,
     )
-    _record_artifact(state, case_dir / "artifacts" / "promotion-readiness-errors.json", root=root)
 
     scores: dict[str, int] = {}
     failures: list[str] = []
@@ -1441,15 +1437,12 @@ def _case_simple_scheduler_parallel_coordination(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "simple-scheduler-repo"
-    _init_git_native_dogfood_repo(scratch)
-    init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
-    _record_command(
-        state,
-        "git init scratch simple-scheduler dogfood repo",
-        status="passed",
-        output=relative_path(root, scratch),
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir,
+        "simple-scheduler-repo",
+        state=state,
+        root=root,
+        evidence_label="simple-scheduler",
     )
 
     goal_path = scratch / ".devflow" / "goals" / "G-0001"
@@ -1530,9 +1523,7 @@ task_slices:
         "retry": retry.model_dump(mode="json"),
         "after": snapshot_after.model_dump(mode="json"),
     }
-    summary_path = case_dir / "artifacts" / "simple-scheduler-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    summary_path = _write_case_summary_artifact(state, root, case_dir, "simple-scheduler-summary.json", summary)
     _record_command(
         state,
         "devflow scheduler status --json (fixture)",
@@ -1631,9 +1622,7 @@ def _case_question_blocker_resume_loop(
         "scheduler": scheduler.model_dump(mode="json"),
         "source_preserved": before_source == after_source,
     }
-    summary_path = case_dir / "artifacts" / "question-resume-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    summary_path = _write_case_summary_artifact(state, root, case_dir, "question-resume-summary.json", summary)
     if answered and answered.answer_path:
         _record_artifact(state, scratch / answered.answer_path, root=scratch)
     _record_command(
@@ -1837,9 +1826,7 @@ def _case_operator_readiness_reconciliation(
         "status_tasks": surfaces["status"]["tasks"],
         "warnings": surfaces["status"]["warnings"],
     }
-    summary_path = case_dir / "artifacts" / "operator-readiness-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    summary_path = _write_case_summary_artifact(state, root, case_dir, "operator-readiness-summary.json", summary)
     _record_command(state, "devflow status --json (fixture)", status="passed", output=relative_path(root, summary_path))
     _record_command(state, "devflow scheduler status --json (fixture)", status="passed")
     _record_command(state, "devflow supervisor packet --json (fixture)", status="passed")
@@ -1913,15 +1900,12 @@ def _case_intent_scaffold_approval_path(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     state = _new_case_state(root, run_id, case, case_dir)
-    scratch = case_dir / "artifacts" / "intent-scaffold-repo"
-    _init_git_native_dogfood_repo(scratch)
-    init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
-    _record_command(
-        state,
-        "git init scratch intent-scaffold dogfood repo",
-        status="passed",
-        output=relative_path(root, scratch),
+    scratch = _create_recorded_git_native_case_scratch_repo(
+        case_dir,
+        "intent-scaffold-repo",
+        state=state,
+        root=root,
+        evidence_label="intent-scaffold",
     )
 
     commit_count_before = _git_commit_count(scratch)
@@ -2039,9 +2023,7 @@ def _case_intent_scaffold_approval_path(
         "tracked_git_status": tracked_status,
         "source_scaffold_path": link.get("source_scaffold_path"),
     }
-    summary_path = case_dir / "artifacts" / "intent-scaffold-summary.json"
-    atomic_write_text(summary_path, json.dumps(summary, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, summary_path, root=root)
+    summary_path = _write_case_summary_artifact(state, root, case_dir, "intent-scaffold-summary.json", summary)
 
     scaffold_written = (
         preview.get("status") == "ready_for_review"
@@ -2139,9 +2121,8 @@ def _case_operating_layer_visual_qa(
     result = write_visual_qa_image_fallbacks(root, update_baseline=True)
     plan_path = case_dir / "artifacts" / "visual-qa-plan.json"
     result_path = case_dir / "artifacts" / "visual-qa-result.json"
-    atomic_write_text(plan_path, json.dumps(plan, indent=2, sort_keys=True) + "\n")
-    atomic_write_text(result_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
-    _record_artifacts(state, [plan_path, result_path], root=root)
+    _write_case_json_artifact(state, root, plan_path, plan)
+    _write_case_json_artifact(state, root, result_path, result)
     _record_command(
         state,
         "devflow operating-layer visual-qa --write-current --update-baseline --json",
@@ -2337,17 +2318,6 @@ def _prune_old_dogfood_runs(root: Path, *, keep_runs: int) -> list[str]:
     return pruned
 
 
-def _init_git_native_dogfood_repo(root: Path) -> None:
-    root.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
-    subprocess.run(["git", "config", "user.email", "dogfood@example.com"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
-    subprocess.run(["git", "config", "user.name", "Dogfood Test"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
-    (root / ".gitignore").write_text(".devflow/\n", encoding="utf-8")
-    (root / "README.md").write_text("# Git-native Dogfood Repo\n", encoding="utf-8")
-    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True, text=True, timeout=20)
-    subprocess.run(["git", "commit", "-m", "baseline"], cwd=root, check=True, capture_output=True, text=True, timeout=20)
-
-
 def _dogfood_audition_discovery_report() -> LocalDiscoveryReport:
     installed = parse_ollama_list(
         """NAME                              ID              SIZE      MODIFIED
@@ -2450,8 +2420,7 @@ def _create_validation_failure(root: Path, run_id: str, case_dir: Path, state: d
         human_review_required=False,
         notes=["validation failure source for knowledge capture"],
     )
-    atomic_write_text(outcome_path, json.dumps(outcome, indent=2, sort_keys=True) + "\n")
-    _record_artifact(state, outcome_path, root=root)
+    _write_case_json_artifact(state, root, outcome_path, outcome)
     validation = validate_worker_outcome_file(root, outcome_path)
     _record_artifact(state, validation["output_path"])
     _record_command(

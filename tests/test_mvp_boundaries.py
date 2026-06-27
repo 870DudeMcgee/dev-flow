@@ -39,6 +39,7 @@ class TestMVPBoundaries(unittest.TestCase):
                 "anthropic_messages": "experimental_readonly",
                 "gemini": "experimental_readonly",
                 "openai_chat": "experimental_readonly",
+                "hermes_profile": "planned_not_executable",
             },
         )
         self.assertEqual(adapter_maturity("unlisted-future-provider"), "planned_not_executable")
@@ -54,7 +55,7 @@ class TestMVPBoundaries(unittest.TestCase):
             set(EXPERIMENTAL_READONLY_ADAPTERS),
             {"manual_packet", "openai_compatible", "anthropic_messages", "gemini", "openai_chat"},
         )
-        self.assertEqual(set(PLANNED_NOT_EXECUTABLE_ADAPTERS), {"openai_responses"})
+        self.assertEqual(set(PLANNED_NOT_EXECUTABLE_ADAPTERS), {"hermes_profile", "openai_responses"})
 
         provider_adapters = {
             "ollama_chat", "openai_compatible", "anthropic_messages", "gemini", "openai_chat"
@@ -68,8 +69,8 @@ class TestMVPBoundaries(unittest.TestCase):
             )
 
     def test_remote_provider_builtin_agents_are_disabled(self):
-        """Contract test: only the local Qwopus patch worker is enabled by default."""
-        from devflow.control_room.agent_registry import _builtin_agents, is_local_patch_runtime_agent
+        """Contract test: provider-backed workers stay disabled by default."""
+        from devflow.control_room.agent_registry import _builtin_agents
 
         provider_agent_ids = {
             "devflow-openai-worker",
@@ -82,8 +83,9 @@ class TestMVPBoundaries(unittest.TestCase):
         agents = _builtin_agents()
         qwopus = agents.get("qwopus-implementer")
         self.assertIsNotNone(qwopus)
-        self.assertTrue(qwopus.enabled)
-        self.assertTrue(is_local_patch_runtime_agent(qwopus))
+        self.assertFalse(qwopus.enabled)
+        self.assertEqual(qwopus.adapter, "ollama_chat")
+        self.assertEqual(qwopus.adapter_maturity, "local_patch_runtime")
         self.assertFalse(agents["devflow-ollama-worker"].enabled)
         for agent_id in provider_agent_ids:
             agent = agents.get(agent_id)
@@ -106,6 +108,7 @@ class TestMVPBoundaries(unittest.TestCase):
             "anthropic_messages",
             "gemini",
             "openai_compatible",
+            "hermes_profile",
         ]
         for adapter_name in non_stable:
             with self.assertRaises(UnsupportedWorkerAdapter, msg=f"Expected rejection of '{adapter_name}'"):

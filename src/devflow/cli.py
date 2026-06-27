@@ -3716,7 +3716,8 @@ def agent_catalog(
     provider: str | None = typer.Option(None, "--provider", help="Filter catalog to one provider id."),
 ) -> None:
     """Show providers, profiles, runtime contracts, env readiness, and local model discovery."""
-    from devflow.control_room.agent_onboarding import AgentOnboardingError, build_agent_catalog
+    from devflow.control_room.agent_catalog import build_agent_catalog
+    from devflow.control_room.agent_onboarding import AgentOnboardingError
 
     try:
         payload = build_agent_catalog(Path.cwd(), provider_id=provider)

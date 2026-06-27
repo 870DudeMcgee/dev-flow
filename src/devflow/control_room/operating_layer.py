@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from devflow.control_room.browser_task_capabilities import (
     build_browser_task_capability,
@@ -19,13 +19,14 @@ from devflow.control_room.dashboard import (
     collect_dashboard_state,
     collect_multi_project_dashboard_state,
 )
-from devflow.control_room.agent_onboarding import build_agent_catalog
-from devflow.control_room.evidence_review_detail import EvidenceReviewDetail
+from devflow.control_room.agent_catalog import build_agent_catalog
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
-from devflow.control_room.idea_foundry import IdeaFoundryError, greenhouse_lane_for_idea, list_ideas
+from devflow.control_room.idea_greenhouse_projection import (
+    OperatingLayerIdeaGreenhouse,
+    build_idea_greenhouse,
+)
 from devflow.control_room.local_model_inventory import build_local_model_inventory
 from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
-from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
 from devflow.control_room.paths import goals_dir, relative_path
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
@@ -33,34 +34,24 @@ from devflow.control_room.question_resume import QuestionSnapshot, build_questio
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
 from devflow.control_room.serial_local_agent_run import serial_local_agent_run_snapshot
 from devflow.control_room.status_projection import TaskStatusProjection
-from devflow.control_room.supervisor_surface import classify_supervisor_command
 from devflow.control_room.operating_layer_first_viewport import (
     FirstViewportPresentation,
     build_first_viewport_presentation,
 )
-from devflow.control_room.task_workbench import TaskWorkbenchReviewLoop, build_task_workbench
+from devflow.control_room.task_workbench import (
+    TaskWorkbenchEvidencePointer,
+    TaskWorkbenchGateReceipt,
+    TaskWorkbenchLane,
+    TaskWorkbenchPromotionCandidate,
+    TaskWorkbenchReviewLoop,
+    TaskWorkbenchTask,
+    TaskWorkbenchWorkerActivity,
+    build_task_workbench,
+)
 
 
 OPERATING_LAYER_SCHEMA_VERSION = 1
 DECISION_INBOX_KINDS = {"question", "blocked_task", "task_attention", "human_decision"}
-IDEA_LANE_ORDER = ["raw", "clarify", "candidate", "promoted", "parked", "archived"]
-IDEA_LANE_LABELS = {
-    "raw": "Raw",
-    "clarify": "Clarify",
-    "candidate": "Candidate",
-    "promoted": "Promoted",
-    "parked": "Parked",
-    "archived": "Archived",
-}
-IDEA_LANE_TONES = {
-    "raw": "muted",
-    "clarify": "purple",
-    "candidate": "blue",
-    "promoted": "green",
-    "parked": "slate",
-    "archived": "dark",
-}
-IDEA_LANE_CARD_LIMIT = 5
 
 
 class OperatingLayerProject(BaseModel):
@@ -83,19 +74,6 @@ class OperatingLayerAction(BaseModel):
     reason: str | None = None
 
 
-class OperatingLayerTaskControl(BaseModel):
-    intent: str
-    label: str
-    command: str
-    scope: str = "task"
-    enabled: bool = True
-    safety_class: str
-    requires_human_approval: bool
-    supervisor_may_auto_run: bool
-    required_inputs: list[str] = Field(default_factory=list)
-    reason: str | None = None
-
-
 class OperatingLayerGoal(BaseModel):
     goal_id: str
     title: str
@@ -112,118 +90,6 @@ class OperatingLayerGoal(BaseModel):
     ready_verification_batch_count: int
     blocked_lane_count: int
     next_action: str
-
-
-class OperatingLayerLane(BaseModel):
-    name: str
-    label: str
-    task_ids: list[str] = Field(default_factory=list)
-
-
-class OperatingLayerTaskEvent(BaseModel):
-    timestamp: str | None = None
-    event: str
-    summary: str = ""
-
-
-class OperatingLayerTaskVerification(BaseModel):
-    status: str
-    task_status: str | None = None
-    exit_code: int | None = None
-    log_path: str | None = None
-
-
-class OperatingLayerReviewItem(BaseModel):
-    label: str
-    value: str
-
-
-class OperatingLayerTaskDetail(BaseModel):
-    events_path: str
-    verification_path: str
-    recent_events: list[OperatingLayerTaskEvent] = Field(default_factory=list)
-    verification: OperatingLayerTaskVerification | None = None
-    evidence_paths: list[str] = Field(default_factory=list)
-    review_summary: list[OperatingLayerReviewItem] = Field(default_factory=list)
-    latest_worker_line: str | None = None
-    latest_verification_line: str | None = None
-    result_preview: str | None = None
-    notes: list[str] = Field(default_factory=list)
-
-
-class OperatingLayerWorkerLane(BaseModel):
-    workspace_mode: str
-    worker_id: str
-    worker_branch: str
-    worktree_path: str
-    base_branch: str | None = None
-    base_commit: str | None = None
-    base_current_commit: str | None = None
-    base_stale: bool = False
-    origin_base_commit: str | None = None
-    origin_base_stale: bool = False
-    head_commit: str | None = None
-    dirty: bool = False
-    verification_status: str = "missing"
-    verified_commit: str | None = None
-    head_matches_verified: bool = False
-    promotion_readiness: str = "unknown"
-    conflict_prediction: str = "unknown"
-    changed_files: list[str] = Field(default_factory=list)
-    readiness_status: str
-    readiness_errors: list[str] = Field(default_factory=list)
-    readiness_warnings: list[str] = Field(default_factory=list)
-    evidence_paths: list[str] = Field(default_factory=list)
-    next_safe_action: str
-
-
-class OperatingLayerLocalWorkerLane(BaseModel):
-    lane_type: str
-    worker_id: str
-    profile_id: str | None = None
-    model: str | None = None
-    adapter: str | None = None
-    permission_mode: str | None = None
-    latest_run_id: str | None = None
-    latest_status: str | None = None
-    patch_candidate: bool = False
-    readiness_status: str
-    next_safe_action: str
-    evidence_paths: list[str] = Field(default_factory=list)
-
-
-class OperatingLayerTask(BaseModel):
-    id: str
-    title: str
-    definition_of_done: str | None = None
-    status: str
-    display_status: str
-    lane: str
-    worker: str
-    workspace: str
-    verification_status: str
-    verification_exit_code: int | None = None
-    merge_ready: bool | None = None
-    promotion_ready: bool = False
-    promotion_blockers: list[str] = Field(default_factory=list)
-    latest: str = ""
-    log_path: str | None = None
-    result_path: str | None = None
-    verification_log_path: str | None = None
-    next_action: DashboardNextAction
-    review_state: str = "not_ready"
-    review_score: int = 0
-    review_blockers: list[str] = Field(default_factory=list)
-    review_next_command: str | None = None
-    review_evidence: list[str] = Field(default_factory=list)
-    agent_evidence_summary: dict[str, Any] = Field(default_factory=dict)
-    worker_lane: OperatingLayerWorkerLane | None = None
-    local_worker_lane: OperatingLayerLocalWorkerLane | None = None
-    actions: list[OperatingLayerAction] = Field(default_factory=list)
-    controls: list[OperatingLayerTaskControl] = Field(default_factory=list)
-    review_detail: EvidenceReviewDetail | None = None
-    detail: OperatingLayerTaskDetail
-    worker_options: list[dict[str, object]] = Field(default_factory=list)
 
 
 class OperatingLayerQuestion(BaseModel):
@@ -246,27 +112,6 @@ class OperatingLayerInboxItem(BaseModel):
     path: str | None = None
     command: str | None = None
     action: OperatingLayerAction | None = None
-
-
-class OperatingLayerPromotionCandidate(BaseModel):
-    task_id: str
-    title: str
-    command: str
-    merge_ready: bool | None
-    blockers: list[str] = Field(default_factory=list)
-
-
-class OperatingLayerEvidencePointer(BaseModel):
-    task_id: str
-    log_path: str | None = None
-    result_path: str | None = None
-    verification_log_path: str | None = None
-    verification_command: str | None = None
-    kind: str = "evidence"
-    text: str = ""
-    path: str | None = None
-    command: str | None = None
-    timestamp: str | None = None
 
 
 class OperatingLayerFreshness(BaseModel):
@@ -358,17 +203,6 @@ class OperatingLayerGoalBoardGoal(BaseModel):
     verification_batches: list[OperatingLayerGoalBoardBatch] = Field(default_factory=list)
 
 
-class OperatingLayerGateReceipt(BaseModel):
-    task_id: str
-    intake: bool
-    worker_evidence: bool
-    verification: bool
-    promotion_readiness: bool
-    human_decision: bool
-    next_gate: str
-    command: str | None = None
-
-
 class OperatingLayerProjectSummary(BaseModel):
     project_id: str
     name: str
@@ -399,21 +233,6 @@ class OperatingLayerMultiProject(BaseModel):
     projects: list[OperatingLayerProjectSummary] = Field(default_factory=list)
 
 
-class OperatingLayerWorkerActivity(BaseModel):
-    worker: str
-    code: str
-    name: str
-    description: str
-    state: str
-    state_class: str
-    tone: str
-    task_count: int
-    verified_percent: int
-    recent_output_count: int
-    latest: str
-    first_task_id: str | None = None
-
-
 class OperatingLayerMissionFeedItem(BaseModel):
     id: str
     tone: str
@@ -426,19 +245,6 @@ class OperatingLayerMissionFeedItem(BaseModel):
     timestamp: str | None = None
 
 
-class OperatingLayerReviewLoop(BaseModel):
-    status: str
-    headline: str
-    next_safe_action: str
-    browser_allowed_mutations: list[str] = Field(default_factory=list)
-    browser_blocked_mutations: list[str] = Field(default_factory=list)
-    needs_verification_count: int = 0
-    ready_to_promote_count: int = 0
-    blocked_decision_count: int = 0
-    last_result_retention: str = "browser-session"
-    evidence_summary: str = ""
-
-
 class OperatingLayerScheduler(BaseModel):
     status: str
     counts: dict[str, int] = Field(default_factory=dict)
@@ -447,43 +253,6 @@ class OperatingLayerScheduler(BaseModel):
     stale_tasks: list[str] = Field(default_factory=list)
     retry_candidates: list[str] = Field(default_factory=list)
     batch_count: int = 0
-
-
-class OperatingLayerIdeaAction(BaseModel):
-    label: str
-    command: str | None = None
-    safety_class: str = "read_only"
-    requires_human_approval: bool = False
-
-
-class OperatingLayerIdeaCard(BaseModel):
-    id: str
-    title: str
-    lane: str
-    status: str
-    maturity: str
-    tags: list[str] = Field(default_factory=list)
-    source: str | None = None
-    updated_at: str | None = None
-    summary: str = ""
-    evidence_paths: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    primary_action: OperatingLayerIdeaAction | None = None
-
-
-class OperatingLayerIdeaLane(BaseModel):
-    id: str
-    label: str
-    tone: str
-    count: int
-    cards: list[OperatingLayerIdeaCard] = Field(default_factory=list)
-
-
-class OperatingLayerIdeaGreenhouse(BaseModel):
-    headline: str
-    counts: dict[str, int] = Field(default_factory=dict)
-    lanes: list[OperatingLayerIdeaLane] = Field(default_factory=list)
-    primary_next_action: OperatingLayerIdeaAction | None = None
 
 
 class OperatingLayerSnapshot(BaseModel):
@@ -495,21 +264,21 @@ class OperatingLayerSnapshot(BaseModel):
     goals: list[OperatingLayerGoal] = Field(default_factory=list)
     focus_goal_id: str | None = None
     focus_task_id: str | None = None
-    lanes: list[OperatingLayerLane] = Field(default_factory=list)
-    tasks: list[OperatingLayerTask] = Field(default_factory=list)
+    lanes: list[TaskWorkbenchLane] = Field(default_factory=list)
+    tasks: list[TaskWorkbenchTask] = Field(default_factory=list)
     first_viewport: FirstViewportPresentation
     questions: list[OperatingLayerQuestion] = Field(default_factory=list)
     inbox: list[OperatingLayerInboxItem] = Field(default_factory=list)
-    promotion_desk: list[OperatingLayerPromotionCandidate] = Field(default_factory=list)
-    evidence: list[OperatingLayerEvidencePointer] = Field(default_factory=list)
+    promotion_desk: list[TaskWorkbenchPromotionCandidate] = Field(default_factory=list)
+    evidence: list[TaskWorkbenchEvidencePointer] = Field(default_factory=list)
     freshness: OperatingLayerFreshness | None = None
     goal_board: list[OperatingLayerGoalBoardGoal] = Field(default_factory=list)
     spec_board: list[OperatingLayerSpecBoardGoal] = Field(default_factory=list)
-    gate_receipts: list[OperatingLayerGateReceipt] = Field(default_factory=list)
+    gate_receipts: list[TaskWorkbenchGateReceipt] = Field(default_factory=list)
     multi_project: OperatingLayerMultiProject | None = None
-    worker_activity: list[OperatingLayerWorkerActivity] = Field(default_factory=list)
+    worker_activity: list[TaskWorkbenchWorkerActivity] = Field(default_factory=list)
     mission_feed: list[OperatingLayerMissionFeedItem] = Field(default_factory=list)
-    review_loop: OperatingLayerReviewLoop
+    review_loop: TaskWorkbenchReviewLoop
     scheduler: OperatingLayerScheduler | None = None
     idea_greenhouse: OperatingLayerIdeaGreenhouse | None = None
     operator_readiness: OperatorReadinessSnapshot | None = None
@@ -519,6 +288,11 @@ class OperatingLayerSnapshot(BaseModel):
     serial_local_agent_run: dict[str, Any] = Field(default_factory=dict)
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+    @field_serializer("tasks")
+    def _serialize_tasks(self, tasks: list[TaskWorkbenchTask], info: Any) -> list[dict[str, Any]]:
+        mode = getattr(info, "mode", "python")
+        return [_browser_task_payload(task, mode=mode) for task in tasks]
 
 
 def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id: str | None = None) -> OperatingLayerSnapshot:
@@ -531,25 +305,16 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     question_snapshot = build_question_snapshot(root)
     task_workbench = build_task_workbench(root, project_id=project_id, projections=dashboard.tasks)
     warnings.extend(task_workbench.warnings)
-    tasks = [_operating_task_from_workbench(task) for task in task_workbench.tasks]
+    tasks = task_workbench.tasks
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(question_snapshot, dashboard.tasks)
     inbox = _inbox_items(dashboard.tasks, freshness, question_snapshot=question_snapshot, project_id=project_id)
-    promotion_desk = [
-        OperatingLayerPromotionCandidate(**candidate.model_dump())
-        for candidate in task_workbench.promotion_candidates
-    ]
-    evidence = [
-        OperatingLayerEvidencePointer(**pointer.model_dump())
-        for pointer in task_workbench.evidence_stream
-    ]
+    promotion_desk = task_workbench.promotion_candidates
+    evidence = task_workbench.evidence_stream
     goal_board = _goal_board(root, freshness, project_id=project_id)
-    gate_receipts = [
-        OperatingLayerGateReceipt(**receipt.model_dump())
-        for receipt in task_workbench.gate_receipts
-    ]
+    gate_receipts = task_workbench.gate_receipts
     focus_task_id = task_workbench.focus_task_id
-    idea_greenhouse = _idea_greenhouse(root, warnings)
+    idea_greenhouse = build_idea_greenhouse(root, warnings)
 
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
     if dashboard_next_action.command:
@@ -564,10 +329,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         goals=_goal_cards(root, freshness),
         focus_goal_id=focus_goal_id,
         focus_task_id=focus_task_id,
-        lanes=[
-            OperatingLayerLane(**lane.model_dump())
-            for lane in task_workbench.lanes
-        ],
+        lanes=task_workbench.lanes,
         tasks=tasks,
         first_viewport=build_first_viewport_presentation(task_workbench, root=root),
         questions=questions,
@@ -579,10 +341,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         spec_board=_spec_board(root, freshness),
         gate_receipts=gate_receipts,
         multi_project=_multi_project_card(warnings),
-        worker_activity=[
-            OperatingLayerWorkerActivity(**activity.model_dump())
-            for activity in task_workbench.worker_activity
-        ],
+        worker_activity=task_workbench.worker_activity,
         mission_feed=_mission_feed(
             tasks,
             inbox=inbox,
@@ -593,7 +352,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
             goal_board=goal_board,
             focus_goal_id=focus_goal_id,
         ),
-        review_loop=_operating_review_loop_from_workbench(task_workbench.review_loop, inbox=inbox),
+        review_loop=_review_loop_with_inbox_pressure(task_workbench.review_loop, inbox=inbox),
         scheduler=_scheduler_card(scheduler),
         idea_greenhouse=idea_greenhouse,
         operator_readiness=dashboard.operator_readiness,
@@ -611,18 +370,18 @@ def render_operating_layer_snapshot_json(repo_root: Path | None = None, *, proje
     return json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
 
 
-def _operating_task_from_workbench(task: Any) -> OperatingLayerTask:
-    payload = task.model_dump()
+def _browser_task_payload(task: TaskWorkbenchTask, *, mode: str) -> dict[str, Any]:
+    payload = task.model_dump(mode=mode)
     for internal_field in ("worker_model_label", "next_safe_action", "evidence_paths"):
         payload.pop(internal_field, None)
-    return OperatingLayerTask(**payload)
+    return payload
 
 
-def _operating_review_loop_from_workbench(
+def _review_loop_with_inbox_pressure(
     review_loop: TaskWorkbenchReviewLoop,
     *,
     inbox: list[OperatingLayerInboxItem],
-) -> OperatingLayerReviewLoop:
+) -> TaskWorkbenchReviewLoop:
     payload = review_loop.model_dump()
     blocked_decisions = [item for item in inbox if item.kind in DECISION_INBOX_KINDS]
     if blocked_decisions:
@@ -638,7 +397,7 @@ def _operating_review_loop_from_workbench(
         command = next((item.command for item in blocked_decisions if item.command), None)
         if command:
             payload["next_safe_action"] = command
-    return OperatingLayerReviewLoop(**payload)
+    return TaskWorkbenchReviewLoop(**payload)
 
 
 def _try_freshness(root: Path, warnings: list[str]) -> FreshnessReport | None:
@@ -669,267 +428,6 @@ def _scheduler_card(snapshot: SchedulerSnapshot | None) -> OperatingLayerSchedul
         retry_candidates=snapshot.retry_candidates,
         batch_count=len(snapshot.batches),
     )
-
-
-def _idea_greenhouse(root: Path, warnings: list[str]) -> OperatingLayerIdeaGreenhouse:
-    counts = {lane_id: 0 for lane_id in IDEA_LANE_ORDER}
-    cards_by_lane: dict[str, list[OperatingLayerIdeaCard]] = {lane_id: [] for lane_id in IDEA_LANE_ORDER}
-    try:
-        items = list_ideas(root)
-    except IdeaFoundryError as exc:
-        warnings.append(f"idea greenhouse unavailable: {exc}")
-        return _empty_idea_greenhouse()
-    except Exception as exc:  # pragma: no cover - defensive projection boundary
-        warnings.append(f"idea greenhouse unavailable: {exc}")
-        return _empty_idea_greenhouse()
-
-    for item in sorted(items, key=_idea_recent_sort_key, reverse=True):
-        try:
-            lane_id = greenhouse_lane_for_idea(item)
-            if lane_id not in counts:
-                lane_id = "raw"
-            card = _idea_card(item, lane_id)
-        except Exception as exc:
-            idea_id = str(item.get("id") or "unknown") if isinstance(item, dict) else "unknown"
-            warnings.append(f"idea greenhouse skipped malformed idea {idea_id}: {exc}")
-            continue
-        counts[lane_id] += 1
-        if len(cards_by_lane[lane_id]) < IDEA_LANE_CARD_LIMIT:
-            cards_by_lane[lane_id].append(card)
-
-    lanes = [
-        OperatingLayerIdeaLane(
-            id=lane_id,
-            label=IDEA_LANE_LABELS[lane_id],
-            tone=IDEA_LANE_TONES[lane_id],
-            count=counts[lane_id],
-            cards=cards_by_lane[lane_id],
-        )
-        for lane_id in IDEA_LANE_ORDER
-    ]
-    return OperatingLayerIdeaGreenhouse(
-        headline=_idea_greenhouse_headline(sum(counts.values())),
-        counts=counts,
-        lanes=lanes,
-        primary_next_action=_idea_greenhouse_primary_action(lanes),
-    )
-
-
-def _empty_idea_greenhouse() -> OperatingLayerIdeaGreenhouse:
-    return OperatingLayerIdeaGreenhouse(
-        headline="No captured ideas yet",
-        counts={lane_id: 0 for lane_id in IDEA_LANE_ORDER},
-        lanes=[
-            OperatingLayerIdeaLane(
-                id=lane_id,
-                label=IDEA_LANE_LABELS[lane_id],
-                tone=IDEA_LANE_TONES[lane_id],
-                count=0,
-                cards=[],
-            )
-            for lane_id in IDEA_LANE_ORDER
-        ],
-        primary_next_action=_idea_hint_action(
-            "Capture idea",
-            'devflow idea capture "<idea>" --source operating-layer',
-        ),
-    )
-
-
-def _idea_card(metadata: dict[str, Any], lane_id: str) -> OperatingLayerIdeaCard:
-    idea_id = str(metadata.get("id") or "").strip()
-    if not idea_id:
-        raise ValueError("missing idea id")
-    return OperatingLayerIdeaCard(
-        id=idea_id,
-        title=_idea_title(metadata),
-        lane=lane_id,
-        status=str(metadata.get("status") or "unknown"),
-        maturity=str(metadata.get("maturity") or "unknown"),
-        tags=_idea_tags(metadata),
-        source=str(metadata.get("source")) if metadata.get("source") is not None else None,
-        updated_at=_idea_timestamp(metadata, "updated_at") or _idea_timestamp(metadata, "created_at"),
-        summary=_idea_summary(metadata, lane_id),
-        evidence_paths=_idea_evidence_paths(metadata),
-        metadata=_idea_detail_metadata(metadata, lane_id),
-        primary_action=_idea_primary_action(metadata, lane_id),
-    )
-
-
-def _idea_evidence_paths(metadata: dict[str, Any]) -> list[str]:
-    idea_id = str(metadata.get("id") or "").strip()
-    paths = [f".devflow/ideas/{idea_id}/idea.json"] if idea_id else []
-    for key in (
-        "raw_path",
-        "classification_path",
-        "promotion_path",
-        "created_goal_path",
-        "created_task_path",
-        "latest_brainstorm_session_path",
-    ):
-        value = str(metadata.get(key) or "").strip()
-        if value:
-            paths.append(value)
-    brainstorm_paths = metadata.get("brainstorm_session_paths")
-    if isinstance(brainstorm_paths, list):
-        for value in brainstorm_paths:
-            path = str(value or "").strip()
-            if path:
-                paths.append(path)
-    if idea_id:
-        paths.append(f".devflow/ideas/{idea_id}/events.jsonl")
-    deduped: list[str] = []
-    for path in paths:
-        if path not in deduped:
-            deduped.append(path)
-    return deduped
-
-
-def _idea_detail_metadata(metadata: dict[str, Any], lane_id: str) -> dict[str, Any]:
-    payload = json.loads(json.dumps(metadata, default=str))
-    payload["greenhouse_lane"] = lane_id
-    payload["evidence_paths"] = _idea_evidence_paths(metadata)
-    payload["lineage"] = _idea_lineage(metadata)
-    return payload
-
-
-def _idea_lineage(metadata: dict[str, Any]) -> dict[str, Any]:
-    idea_id = str(metadata.get("id") or "").strip()
-    lineage: dict[str, Any] = {
-        "schema_version": 1,
-        "source_idea_id": idea_id,
-        "idea_path": f".devflow/ideas/{idea_id}" if idea_id else None,
-    }
-    latest_session = str(metadata.get("latest_brainstorm_session_id") or "").strip()
-    latest_path = str(metadata.get("latest_brainstorm_session_path") or "").strip()
-    if latest_session:
-        lineage["latest_brainstorm_session_id"] = latest_session
-    if latest_path:
-        lineage["latest_brainstorm_session_path"] = latest_path
-    sessions = metadata.get("brainstorm_session_ids")
-    if isinstance(sessions, list) and sessions:
-        lineage["brainstorm_session_ids"] = [str(item) for item in sessions if str(item).strip()]
-    return {key: value for key, value in lineage.items() if value}
-
-
-def _idea_primary_action(metadata: dict[str, Any], lane_id: str) -> OperatingLayerIdeaAction:
-    idea_id = str(metadata["id"])
-    maturity = str(metadata.get("maturity") or "")
-    promotion_target = str(metadata.get("promotion_target") or "")
-    if lane_id == "raw":
-        return _idea_hint_action(
-            "Classify raw idea",
-            f'devflow idea classify {idea_id} --maturity concept --note "<note>"',
-        )
-    if lane_id == "clarify":
-        return _idea_hint_action(
-            "Clarify idea",
-            f'devflow idea classify {idea_id} --maturity candidate --note "<note>"',
-        )
-    if lane_id == "candidate" and maturity == "goal_ready":
-        return _idea_hint_action(
-            "Promote to goal",
-            f'devflow idea promote {idea_id} --to goal --rationale "<rationale>"',
-        )
-    if lane_id == "candidate" and maturity == "task_ready":
-        return _idea_hint_action(
-            "Promote to task",
-            f'devflow idea promote {idea_id} --to task --rationale "<rationale>"',
-        )
-    if lane_id == "candidate":
-        return _idea_hint_action(
-            "Promote readiness",
-            f'devflow idea classify {idea_id} --maturity task_ready --note "<note>"',
-        )
-    if lane_id == "promoted" and promotion_target == "goal":
-        return _idea_concrete_action("Preview goal creation", f"devflow idea create-goal {idea_id} --dry-run")
-    if lane_id == "promoted" and promotion_target == "task":
-        return _idea_concrete_action("Preview task creation", f"devflow idea create-task {idea_id} --dry-run")
-    if lane_id == "promoted":
-        return _idea_concrete_action("Inspect promoted idea", f"devflow idea show {idea_id}")
-    if lane_id == "parked":
-        return _idea_concrete_action("Inspect parked idea", f"devflow idea show {idea_id}")
-    if lane_id == "archived":
-        return _idea_concrete_action("Inspect archived idea", f"devflow idea show {idea_id}")
-    return _idea_concrete_action("Inspect idea", f"devflow idea show {idea_id}")
-
-
-def _idea_hint_action(label: str, command: str) -> OperatingLayerIdeaAction:
-    return OperatingLayerIdeaAction(
-        label=label,
-        command=command,
-        safety_class="requires_input",
-        requires_human_approval=False,
-    )
-
-
-def _idea_concrete_action(label: str, command: str) -> OperatingLayerIdeaAction:
-    classification = classify_supervisor_command(command)
-    return OperatingLayerIdeaAction(
-        label=label,
-        command=command,
-        safety_class=str(classification["safety_class"]),
-        requires_human_approval=bool(classification["requires_human_approval"]),
-    )
-
-
-def _idea_greenhouse_primary_action(
-    lanes: list[OperatingLayerIdeaLane],
-) -> OperatingLayerIdeaAction:
-    for lane_id in IDEA_LANE_ORDER:
-        lane = next((candidate for candidate in lanes if candidate.id == lane_id), None)
-        if lane and lane.cards and lane.cards[0].primary_action:
-            return lane.cards[0].primary_action
-    return _idea_hint_action("Capture idea", 'devflow idea capture "<idea>" --source operating-layer')
-
-
-def _idea_greenhouse_headline(total: int) -> str:
-    if total == 0:
-        return "No captured ideas yet"
-    return f"{total} idea{'s' if total != 1 else ''} in greenhouse"
-
-
-def _idea_title(metadata: dict[str, Any]) -> str:
-    title = str(metadata.get("title") or "").strip()
-    return sanitize_log_line(title, max_chars=96) if title else str(metadata.get("id") or "Untitled idea")
-
-
-def _idea_tags(metadata: dict[str, Any]) -> list[str]:
-    tags = metadata.get("tags")
-    if not isinstance(tags, list):
-        return []
-    return [tag for tag in (str(tag).strip() for tag in tags) if tag]
-
-
-def _idea_summary(metadata: dict[str, Any], lane_id: str) -> str:
-    if lane_id == "parked":
-        reason = str(metadata.get("park_reason") or "").strip()
-        return sanitize_log_line(f"Parked: {reason}", max_chars=140) if reason else "Parked for later."
-    if lane_id == "promoted":
-        target = str(metadata.get("promotion_target") or "").strip()
-        if target:
-            created_id = metadata.get("created_goal_id") if target == "goal" else metadata.get("created_task_id")
-            if created_id:
-                return sanitize_log_line(f"Promoted to {target}; created {created_id}.", max_chars=140)
-            return f"Promoted to {target}; creation is still explicit."
-        return "Promotion decision recorded."
-    source = str(metadata.get("source") or "").strip()
-    tags = _idea_tags(metadata)
-    parts = [str(metadata.get("maturity") or "unknown")]
-    if source:
-        parts.append(f"source: {source}")
-    if tags:
-        parts.append("tags: " + ", ".join(tags[:3]))
-    return sanitize_log_line(" | ".join(parts), max_chars=140)
-
-
-def _idea_timestamp(metadata: dict[str, Any], key: str) -> str | None:
-    value = metadata.get(key)
-    return str(value) if value else None
-
-
-def _idea_recent_sort_key(metadata: dict[str, Any]) -> str:
-    return _idea_timestamp(metadata, "updated_at") or _idea_timestamp(metadata, "created_at") or ""
 
 
 def _agent_catalog_card(root: Path, warnings: list[str]) -> dict[str, Any]:
@@ -996,13 +494,13 @@ def _goal_cards(root: Path, freshness: FreshnessReport | None) -> list[Operating
 
 
 def _mission_feed(
-    tasks: list[OperatingLayerTask],
+    tasks: list[TaskWorkbenchTask],
     *,
     inbox: list[OperatingLayerInboxItem],
     questions: list[OperatingLayerQuestion],
-    promotion_desk: list[OperatingLayerPromotionCandidate],
-    gate_receipts: list[OperatingLayerGateReceipt],
-    evidence: list[OperatingLayerEvidencePointer],
+    promotion_desk: list[TaskWorkbenchPromotionCandidate],
+    gate_receipts: list[TaskWorkbenchGateReceipt],
+    evidence: list[TaskWorkbenchEvidencePointer],
     goal_board: list[OperatingLayerGoalBoardGoal],
     focus_goal_id: str | None,
 ) -> list[OperatingLayerMissionFeedItem]:
