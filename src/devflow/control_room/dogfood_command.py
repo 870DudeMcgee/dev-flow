@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+import typer
+
 from devflow.control_room.dogfood import (
     load_dogfood_run,
     materialize_dogfood_cases,
@@ -23,6 +25,9 @@ class DogfoodCommandError(RuntimeError):
 class DogfoodRunCommandResult:
     lines: tuple[str, ...]
     exit_code: int
+
+
+dogfood_app = typer.Typer(help="Run deterministic Dev-Flow production-readiness dogfood suites")
 
 
 def render_dogfood_list(root: Path) -> str:
@@ -124,3 +129,80 @@ def render_dogfood_report_for_run(root: Path, run_id: str) -> str:
     except KeyError as exc:
         raise DogfoodCommandError(str(exc)) from exc
     return loaded["report"]
+
+
+@dogfood_app.command("list")
+def dogfood_list() -> None:
+    """List built-in dogfood production-readiness cases."""
+    typer.echo(render_dogfood_list(Path.cwd()), nl=False)
+
+
+@dogfood_app.command("show")
+def dogfood_show(case_id: str) -> None:
+    """Show a built-in dogfood case definition."""
+    try:
+        typer.echo(render_dogfood_show(Path.cwd(), case_id), nl=False)
+    except DogfoodCommandError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@dogfood_app.command("run")
+def dogfood_run(
+    suite: str = typer.Option("production-readiness", "--suite"),
+    case: list[str] | None = typer.Option(None, "--case", help="Run only the selected case id. Repeatable."),
+    write_root_runtime_evidence: bool = typer.Option(
+        False,
+        "--write-root-runtime-evidence",
+        help="Unsafe/noisy: write dogfood-created tasks and runtime evidence into this repo instead of a temp scratch project.",
+    ),
+    fail_below_silver: bool = typer.Option(
+        True,
+        "--fail-below-silver/--no-fail-below-silver",
+        help="Exit non-zero when the run does not satisfy the Silver threshold.",
+    ),
+    keep_runs: int = typer.Option(
+        1,
+        "--keep-runs",
+        min=1,
+        help="How many dogfood run reports to retain under .devflow/dogfood/runs.",
+    ),
+) -> None:
+    """Run a deterministic local production-readiness dogfood suite."""
+    try:
+        output = run_dogfood_command(
+            Path.cwd(),
+            suite=suite,
+            case_ids=case,
+            write_root_runtime_evidence=write_root_runtime_evidence,
+            keep_runs=keep_runs,
+            fail_below_silver=fail_below_silver,
+        )
+    except DogfoodCommandError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    for line in output.lines:
+        typer.echo(line)
+    if output.exit_code:
+        raise typer.Exit(code=output.exit_code)
+
+
+@dogfood_app.command("score")
+def dogfood_score(run_id: str) -> None:
+    """Show a dogfood scorecard summary for a run id, or 'latest'."""
+    try:
+        typer.echo(render_dogfood_score_for_run(Path.cwd(), run_id), nl=False)
+    except DogfoodCommandError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@dogfood_app.command("report")
+def dogfood_report(run_id: str) -> None:
+    """Print a dogfood report for a run id, or 'latest'."""
+    try:
+        typer.echo(render_dogfood_report_for_run(Path.cwd(), run_id), nl=False)
+    except DogfoodCommandError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc

@@ -85,18 +85,9 @@ from devflow.control_room.dogfood_case_result import (
     failed_case_result as _failed_case_result,
     git_baseline as _git_baseline,
     git_short_status as _git_short_status,
-    record_artifact as _record_artifact,
-    record_artifacts as _record_artifacts,
-    record_command as _record_command,
-    record_lesson as _record_lesson,
-    record_warning as _record_warning,
     render_dogfood_report as _render_report,
-    set_cleanup_status as _set_cleanup_status,
     skipped_unknown_case_result as _skipped_unknown_case,
     write_case_result as _write_case_result,
-    write_case_json_artifact as _write_case_json_artifact,
-    write_case_summary_artifact as _write_case_summary_artifact,
-    write_case_text_artifact as _write_case_text_artifact,
 )
 
 __all__ = [
@@ -269,7 +260,7 @@ def _case_tiny_docs(
     case_result = _CaseResult(root, run_id, case, case_dir)
     state = case_result.state
     task = create_task(root, "Dogfood tiny docs task")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
     packet = build_task_packet(
         task.id,
@@ -278,9 +269,9 @@ def _case_tiny_docs(
     )
     packet_json = packet.model_dump_json(indent=2)
     packet_path = case_dir / "artifacts" / "task-packet.json"
-    _write_case_text_artifact(state, root, packet_path, packet_json + "\n")
+    case_result.write_text_artifact(packet_path, packet_json + "\n")
     state["context_packet_size"] = len(packet_json)
-    _record_command(state, f"devflow task packet {task.id}", status="passed", output=relative_path(root, packet_path))
+    case_result.record_command(f"devflow task packet {task.id}", status="passed", output=relative_path(root, packet_path))
 
     run_shell_task(
         root,
@@ -288,7 +279,7 @@ def _case_tiny_docs(
         ["/bin/sh", "-c", "mkdir -p docs && printf 'dogfood tiny docs note\n' > docs/dogfood-tiny-note.md"],
         timeout_seconds=10,
     )
-    _record_command(state, f"devflow task run {task.id} --worker shell -- tiny docs write", status="passed")
+    case_result.record_command(f"devflow task run {task.id} --worker shell -- tiny docs write", status="passed")
 
     verified = verify_task(
         root,
@@ -296,7 +287,7 @@ def _case_tiny_docs(
         ["/bin/sh", "-c", "test -s docs/dogfood-tiny-note.md"],
         timeout_seconds=10,
     )
-    _record_command(state, f"devflow task verify {task.id} --shell docs check", status=verified.verification_status)
+    case_result.record_command(f"devflow task verify {task.id} --shell docs check", status=verified.verification_status)
 
     reloaded = get_task(root, task.id)
     sources = packet.bounded_sources or {}
@@ -317,19 +308,17 @@ def _case_cli_help(
     case_result = _CaseResult(root, run_id, case, case_dir)
     state = case_result.state
     task = create_task(root, "Dogfood CLI help bounded task")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     plan_path = root / ".devflow" / "tasks" / task.id / "orchestration-plan.yaml"
-    _record_artifact(state, plan_path, root=root)
-    _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed", output=relative_path(root, plan_path))
+    case_result.record_artifact(plan_path, root=root)
+    case_result.record_command(f"devflow task orchestrate {task.id} --plan-only", status="passed", output=relative_path(root, plan_path))
 
     help_result = _run_devflow_help(root, ["dogfood", "--help"])
     help_path = case_dir / "artifacts" / "dogfood-help.txt"
-    _write_case_text_artifact(state, root, help_path, help_result.stdout + help_result.stderr)
-    _record_command(
-        state,
-        "devflow dogfood --help",
+    case_result.write_text_artifact(help_path, help_result.stdout + help_result.stderr)
+    case_result.record_command("devflow dogfood --help",
         status="passed" if help_result.returncode == 0 else "failed",
         exit_code=help_result.returncode,
         output=relative_path(root, help_path),
@@ -362,7 +351,6 @@ def _case_unsafe_worker_outcome(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     outcome_path = case_dir / "artifacts" / "unsafe-outcome.json"
     outcome = _worker_outcome(
         task_id=f"dogfood-{run_id}",
@@ -373,13 +361,11 @@ def _case_unsafe_worker_outcome(
         human_review_required=False,
         notes=["intentionally invalid unsafe worker outcome"],
     )
-    _write_case_json_artifact(state, root, outcome_path, outcome)
+    case_result.write_json_artifact(outcome_path, outcome)
     result = validate_worker_outcome_file(root, outcome_path)
-    _record_artifact(state, result["output_path"])
+    case_result.record_artifact(result["output_path"])
     shared["unsafe_validation_path"] = result["output_path"]
-    _record_command(
-        state,
-        f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
+    case_result.record_command(f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
         status=result["status"],
         exit_code=0 if result["status"] == "passed" else 1,
         output=result["output_path"],
@@ -422,8 +408,8 @@ def _case_git_native_worker_lane(
     )
     first = create_task(scratch, "Dogfood Git lane one", git_worktree=True)
     second = create_task(scratch, "Dogfood Git lane two", git_worktree=True)
-    _record_command(state, "devflow task create --git-worktree 'Dogfood Git lane one' (scratch)", status="passed", output=first.id)
-    _record_command(state, "devflow task create --git-worktree 'Dogfood Git lane two' (scratch)", status="passed", output=second.id)
+    case_result.record_command("devflow task create --git-worktree 'Dogfood Git lane one' (scratch)", status="passed", output=first.id)
+    case_result.record_command("devflow task create --git-worktree 'Dogfood Git lane two' (scratch)", status="passed", output=second.id)
 
     run_shell_task(
         scratch,
@@ -431,24 +417,24 @@ def _case_git_native_worker_lane(
         ["/bin/sh", "-c", "printf 'lane one\n' > lane-one.txt && git add lane-one.txt && git commit -m lane-one"],
         timeout_seconds=20,
     )
-    _record_command(state, f"devflow task run {first.id} --worker shell -- commit lane-one.txt (scratch)", status="passed")
+    case_result.record_command(f"devflow task run {first.id} --worker shell -- commit lane-one.txt (scratch)", status="passed")
     run_shell_task(
         scratch,
         second.id,
         ["/bin/sh", "-c", "printf 'lane two\n' > lane-two.txt && git add lane-two.txt && git commit -m lane-two"],
         timeout_seconds=20,
     )
-    _record_command(state, f"devflow task run {second.id} --worker shell -- commit lane-two.txt (scratch)", status="passed")
+    case_result.record_command(f"devflow task run {second.id} --worker shell -- commit lane-two.txt (scratch)", status="passed")
 
     first_verified = verify_task(scratch, first.id, ["/bin/sh", "-c", "test -f lane-one.txt"], timeout_seconds=20)
     second_verified = verify_task(scratch, second.id, ["/bin/sh", "-c", "test -f lane-two.txt"], timeout_seconds=20)
-    _record_command(state, f"devflow task verify {first.id} --shell lane-one check (scratch)", status=first_verified.verification_status)
-    _record_command(state, f"devflow task verify {second.id} --shell lane-two check (scratch)", status=second_verified.verification_status)
+    case_result.record_command(f"devflow task verify {first.id} --shell lane-one check (scratch)", status=first_verified.verification_status)
+    case_result.record_command(f"devflow task verify {second.id} --shell lane-two check (scratch)", status=second_verified.verification_status)
 
     first_preview = preview_task_promotion(scratch, first.id)
     second_preview = preview_task_promotion(scratch, second.id)
-    _record_command(state, f"devflow task promote-preview {first.id} (scratch)", status=first_preview["git"]["promotion_readiness"])
-    _record_command(state, f"devflow task promote-preview {second.id} (scratch)", status=second_preview["git"]["promotion_readiness"])
+    case_result.record_command(f"devflow task promote-preview {first.id} (scratch)", status=first_preview["git"]["promotion_readiness"])
+    case_result.record_command(f"devflow task promote-preview {second.id} (scratch)", status=second_preview["git"]["promotion_readiness"])
 
     first_lane_ready = git_worker_lane_summary(scratch, get_task(scratch, first.id)) or {}
     second_lane_ready = git_worker_lane_summary(scratch, get_task(scratch, second.id)) or {}
@@ -459,13 +445,13 @@ def _case_git_native_worker_lane(
     branches_before = list_devflow_branches(scratch)
 
     promote_task(scratch, first.id)
-    _record_command(state, f"devflow task promote {first.id} (scratch approval-gated dogfood)", status="passed")
+    case_result.record_command(f"devflow task promote {first.id} (scratch approval-gated dogfood)", status="passed")
     second_lane_after_promotion = git_worker_lane_summary(scratch, get_task(scratch, second.id)) or {}
 
     cleanup_dry_run = cleanup_task_git_resources(scratch, first.id, dry_run=True)
-    _record_command(state, f"devflow task cleanup {first.id} --dry-run (scratch)", status="passed")
+    case_result.record_command(f"devflow task cleanup {first.id} --dry-run (scratch)", status="passed")
     cleanup_apply = cleanup_task_git_resources(scratch, first.id, dry_run=False)
-    _record_command(state, f"devflow task cleanup {first.id} --apply (scratch)", status="passed")
+    case_result.record_command(f"devflow task cleanup {first.id} --apply (scratch)", status="passed")
 
     first_evidence = scratch / ".devflow" / "tasks" / first.id
     first_worktree = scratch / ".devflow" / "worktrees" / first.id / "shell"
@@ -497,7 +483,7 @@ def _case_git_native_worker_lane(
             "worktree_exists": first_worktree.exists(),
         },
     }
-    _write_case_summary_artifact(state, root, case_dir, "git-native-lane-summary.json", summary)
+    case_result.write_summary_artifact("git-native-lane-summary.json", summary)
 
     status_lanes = [task.get("worker_lane") for task in status["tasks"] if task.get("worker_lane")]
     operating_lanes = [task.get("worker_lane") for task in operating["tasks"] if task.get("worker_lane")]
@@ -551,8 +537,8 @@ def _case_local_worker_lane(
 
     read_only = create_task(scratch, "Dogfood read-only local worker evidence")
     patch_task = create_task(scratch, "Dogfood local patch worker evidence")
-    _record_command(state, "devflow task create 'Dogfood read-only local worker evidence' (scratch)", status="passed", output=read_only.id)
-    _record_command(state, "devflow task create 'Dogfood local patch worker evidence' (scratch)", status="passed", output=patch_task.id)
+    case_result.record_command("devflow task create 'Dogfood read-only local worker evidence' (scratch)", status="passed", output=read_only.id)
+    case_result.record_command("devflow task create 'Dogfood local patch worker evidence' (scratch)", status="passed", output=patch_task.id)
 
     write_worker_evidence(
         root=scratch,
@@ -575,7 +561,7 @@ def _case_local_worker_lane(
         quality_notes="dogfood fixture",
         quality_score=0.9,
     )
-    _record_command(state, f"write deterministic read-only WorkerEvidence for {read_only.id}", status="passed")
+    case_result.record_command(f"write deterministic read-only WorkerEvidence for {read_only.id}", status="passed")
 
     patch_workspace_file = scratch / ".devflow" / "workspaces" / patch_task.id / "hello.txt"
     patch_agent_dir = scratch / ".devflow" / "tasks" / patch_task.id / "agents" / "qwopus-implementer"
@@ -611,34 +597,26 @@ def _case_local_worker_lane(
         + "\n",
     )
     before_apply_exists = patch_workspace_file.exists()
-    _record_command(state, f"write deterministic local patch worker evidence for {patch_task.id}", status="passed")
+    case_result.record_command(f"write deterministic local patch worker evidence for {patch_task.id}", status="passed")
 
     normalized_run_id = normalize_agent_patch_candidate(scratch, patch_task.id, "qwopus-implementer")
     review = review_patch_candidate(scratch, patch_task.id, run_id=normalized_run_id)
-    _record_command(
-        state,
-        f"devflow task review-patch {patch_task.id} --agent qwopus-implementer (scratch)",
+    case_result.record_command(f"devflow task review-patch {patch_task.id} --agent qwopus-implementer (scratch)",
         status=review.review_status,
     )
     dry_run = preview_patch_dry_run(scratch, patch_task.id, run_id=normalized_run_id)
-    _record_command(
-        state,
-        f"devflow task patch-dry-run {patch_task.id} --agent qwopus-implementer (scratch)",
+    case_result.record_command(f"devflow task patch-dry-run {patch_task.id} --agent qwopus-implementer (scratch)",
         status=dry_run.dry_run_status,
     )
     apply_task_patch(scratch, patch_task.id, run_id=normalized_run_id)
     after_apply_exists = patch_workspace_file.exists()
-    _record_command(state, f"devflow task apply-patch {patch_task.id} --agent qwopus-implementer (scratch)", status="passed")
+    case_result.record_command(f"devflow task apply-patch {patch_task.id} --agent qwopus-implementer (scratch)", status="passed")
     verified = verify_task(scratch, patch_task.id, ["/bin/sh", "-c", "test -f hello.txt"], timeout_seconds=20)
-    _record_command(
-        state,
-        f"devflow task verify {patch_task.id} --shell 'test -f hello.txt' (scratch)",
+    case_result.record_command(f"devflow task verify {patch_task.id} --shell 'test -f hello.txt' (scratch)",
         status=verified.verification_status,
     )
     preview = preview_task_promotion(scratch, patch_task.id)
-    _record_command(
-        state,
-        f"devflow task promote-preview {patch_task.id} (scratch)",
+    case_result.record_command(f"devflow task promote-preview {patch_task.id} (scratch)",
         status=preview.get("promotion_readiness") or preview.get("status") or "previewed",
     )
 
@@ -661,7 +639,7 @@ def _case_local_worker_lane(
         "dry_run_status": dry_run.dry_run_status,
         "verification_status": verified.verification_status,
     }
-    _write_case_summary_artifact(state, root, case_dir, "local-worker-lane-summary.json", summary)
+    case_result.write_summary_artifact("local-worker-lane-summary.json", summary)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "route")
@@ -708,8 +686,8 @@ def _case_registry_runtime_contract(
     scratch.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-b", "main"], cwd=scratch, check=True, capture_output=True, text=True, timeout=20)
     init_control_room(scratch)
-    _record_artifact(state, scratch, root=root)
-    _record_command(state, "devflow init (scratch registry-runtime-contract repo)", status="passed", output=relative_path(root, scratch))
+    case_result.record_artifact(scratch, root=root)
+    case_result.record_command("devflow init (scratch registry-runtime-contract repo)", status="passed", output=relative_path(root, scratch))
 
     registry_path = scratch / ".devflow/agents/registry.yaml"
     atomic_write_text(
@@ -743,24 +721,24 @@ agents:
     enabled: true
 """,
     )
-    _record_command(state, "write enabled remote-provider-worker registry fixture", status="passed")
+    case_result.record_command("write enabled remote-provider-worker registry fixture", status="passed")
 
     task = create_task(scratch, "Dogfood registry runtime contract")
-    _record_command(state, "devflow task create 'Dogfood registry runtime contract' (scratch)", status="passed", output=task.id)
+    case_result.record_command("devflow task create 'Dogfood registry runtime contract' (scratch)", status="passed", output=task.id)
 
     list_payload = registry_json_payload(scratch)
     shell_show = agent_json_payload(scratch, "devflow-shell-worker")
     manual_show = agent_json_payload(scratch, "devflow-manual-codex-worker")
     remote_show = agent_json_payload(scratch, "remote-provider-worker")
-    _record_command(state, "devflow agent list --json (scratch)", status="passed")
-    _record_command(state, "devflow agent show devflow-shell-worker --json (scratch)", status="passed")
-    _record_command(state, "devflow agent show remote-provider-worker --json (scratch)", status="passed")
+    case_result.record_command("devflow agent list --json (scratch)", status="passed")
+    case_result.record_command("devflow agent show devflow-shell-worker --json (scratch)", status="passed")
+    case_result.record_command("devflow agent show remote-provider-worker --json (scratch)", status="passed")
 
     registry = load_agent_registry(scratch)
     shell_packet = build_agent_packet(task.id, registry.require_agent("devflow-shell-worker"), root=scratch).model_dump(mode="json")
     manual_packet = build_agent_packet(task.id, registry.require_agent("devflow-manual-codex-worker"), root=scratch).model_dump(mode="json")
-    _record_command(state, f"devflow agent packet {task.id} devflow-shell-worker (scratch)", status="passed")
-    _record_command(state, f"devflow agent packet {task.id} devflow-manual-codex-worker (scratch)", status="passed")
+    case_result.record_command(f"devflow agent packet {task.id} devflow-shell-worker (scratch)", status="passed")
+    case_result.record_command(f"devflow agent packet {task.id} devflow-manual-codex-worker (scratch)", status="passed")
 
     shell_result = run_shell_task(
         scratch,
@@ -769,9 +747,7 @@ agents:
         worker_adapter="devflow-shell-worker",
         timeout_seconds=20,
     )
-    _record_command(
-        state,
-        f"devflow task run {task.id} --worker devflow-shell-worker -- /bin/sh -c 'printf ...' (scratch)",
+    case_result.record_command(f"devflow task run {task.id} --worker devflow-shell-worker -- /bin/sh -c 'printf ...' (scratch)",
         status=shell_result.status,
     )
 
@@ -786,9 +762,7 @@ agents:
         )
     except ValueError as exc:
         remote_refusal = str(exc)
-    _record_command(
-        state,
-        f"devflow task run {task.id} --worker remote-provider-worker (scratch)",
+    case_result.record_command(f"devflow task run {task.id} --worker remote-provider-worker (scratch)",
         status="refused" if remote_refusal else "unexpected_success",
         output=remote_refusal,
     )
@@ -833,7 +807,7 @@ agents:
         "auto_verification_used": False,
         "auto_promotion_used": False,
     }
-    _write_case_summary_artifact(state, root, case_dir, "registry-runtime-contract-summary.json", summary)
+    case_result.write_summary_artifact("registry-runtime-contract-summary.json", summary)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("push-main", "promote", "verify", "route", "agent run")
@@ -901,9 +875,7 @@ def _case_model_audition_evidence(
         "review-debug",
         discovery_report=discovery,
     )
-    _record_command(
-        state,
-        f"devflow agent audition {task.id} --job review-debug --dry-run --json (fixture)",
+    case_result.record_command(f"devflow agent audition {task.id} --job review-debug --dry-run --json (fixture)",
         status=dry_run["status"],
         output=dry_run["plan_path"],
     )
@@ -952,9 +924,7 @@ def _case_model_audition_evidence(
         discovery_report=discovery,
         run_profile=fixture_run_profile,
     )
-    _record_command(
-        state,
-        f"devflow agent audition {task.id} --job review-debug --execute --json (fixture)",
+    case_result.record_command(f"devflow agent audition {task.id} --job review-debug --execute --json (fixture)",
         status=execute["status"],
         output=execute["report_path"],
     )
@@ -984,7 +954,7 @@ def _case_model_audition_evidence(
         "git_dirty": git_state.dirty,
         "proposal_patches": proposal_patches,
     }
-    _write_case_summary_artifact(state, root, case_dir, "model-audition-summary.json", summary)
+    case_result.write_summary_artifact("model-audition-summary.json", summary)
 
     commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "promote", "verify")
@@ -1023,7 +993,6 @@ def _case_success_empty(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     empty = _worker_outcome(
         task_id=f"dogfood-empty-{run_id}",
         source_path="manual-empty-result",
@@ -1046,11 +1015,11 @@ def _case_success_empty(
     useful_errors = validate_worker_outcome(root, useful)
     empty_score = _worker_usefulness_score(empty)
     useful_score = _worker_usefulness_score(useful)
-    _write_case_json_artifact(state, root, case_dir / "artifacts" / "empty-outcome.json", empty)
-    _write_case_json_artifact(state, root, case_dir / "artifacts" / "useful-outcome.json", useful)
-    _record_command(state, "validate success_empty outcome in-process", status="passed" if not empty_errors else "failed")
-    _record_command(state, "validate success_with_result outcome in-process", status="passed" if not useful_errors else "failed")
-    _record_lesson(state, f"success_empty usefulness score {empty_score}; success_with_result score {useful_score}")
+    case_result.write_json_artifact(case_dir / "artifacts" / "empty-outcome.json", empty)
+    case_result.write_json_artifact(case_dir / "artifacts" / "useful-outcome.json", useful)
+    case_result.record_command("validate success_empty outcome in-process", status="passed" if not empty_errors else "failed")
+    case_result.record_command("validate success_with_result outcome in-process", status="passed" if not useful_errors else "failed")
+    case_result.record_lesson(f"success_empty usefulness score {empty_score}; success_with_result score {useful_score}")
 
     case_result.award("B_pipeline_correctness", 2, not empty_errors and not useful_errors, "both outcome shapes validate")
     case_result.award(
@@ -1072,9 +1041,8 @@ def _case_plan_only_unsafe_git(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Dogfood plan-only unsafe Git state")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
     marker = root / f".dogfood-dirty-marker-{run_id}"
     marker_created = False
@@ -1082,15 +1050,13 @@ def _case_plan_only_unsafe_git(
     try:
         marker.write_text("temporary dogfood dirty marker\n", encoding="utf-8")
         marker_created = True
-        _record_command(state, f"create {marker.name}", status="passed")
+        case_result.record_command(f"create {marker.name}", status="passed")
         plan = create_orchestration_plan(root, task.id, plan_only=True)
-        _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed")
+        case_result.record_command(f"devflow task orchestrate {task.id} --plan-only", status="passed")
     finally:
         if marker_created:
             cleanup_ok, cleanup_warning = _cleanup_file(marker)
-            cleanup_status = _set_cleanup_status(
-                state,
-                "marker_removed" if cleanup_ok else f"cleanup_failed: {marker.name}",
+            cleanup_status = case_result.set_cleanup_status("marker_removed" if cleanup_ok else f"cleanup_failed: {marker.name}",
                 warning=cleanup_warning,
             )
 
@@ -1115,12 +1081,11 @@ def _case_failed_verification(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Dogfood failed verification recovery")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
     run_shell_task(root, task.id, ["/bin/sh", "-c", "printf actual > recovery.txt"], timeout_seconds=10)
-    _record_command(state, f"devflow task run {task.id} --worker shell -- write recovery fixture", status="passed")
+    case_result.record_command(f"devflow task run {task.id} --worker shell -- write recovery fixture", status="passed")
 
     verified = verify_task(
         root,
@@ -1128,17 +1093,12 @@ def _case_failed_verification(
         ["/bin/sh", "-c", 'test "$(cat recovery.txt)" = expected'],
         timeout_seconds=10,
     )
-    _record_command(
-        state,
-        f"devflow task verify {task.id} --shell failing check",
+    case_result.record_command(f"devflow task verify {task.id} --shell failing check",
         status=verified.verification_status,
         exit_code=verified.verification_exit_code,
     )
     readiness_errors = promotion_readiness_errors(verified, root / ".devflow" / "tasks" / task.id)
-    _write_case_json_artifact(
-        state,
-        root,
-        case_dir / "artifacts" / "promotion-readiness-errors.json",
+    case_result.write_json_artifact(case_dir / "artifacts" / "promotion-readiness-errors.json",
         readiness_errors,
         sort_keys=False,
     )
@@ -1163,15 +1123,14 @@ def _case_knowledge_capture(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     validation_path = shared.get("unsafe_validation_path")
     if not validation_path or not (root / validation_path).exists():
-        validation_path = _create_validation_failure(root, run_id, case_dir, state)
+        validation_path = _create_validation_failure(root, run_id, case_dir, case_result)
     item = capture_from_validation(root, root / validation_path)
-    _record_command(state, f"devflow knowledge capture --from-validation {validation_path}", status="passed", output=item["id"])
+    case_result.record_command(f"devflow knowledge capture --from-validation {validation_path}", status="passed", output=item["id"])
     results = search_knowledge(root, "validation")
-    _record_command(state, "devflow knowledge search validation", status="passed", output=str(len(results)))
-    _record_artifact(state, f".devflow/knowledge/{item['id']}/knowledge.json")
+    case_result.record_command("devflow knowledge search validation", status="passed", output=str(len(results)))
+    case_result.record_artifact(f".devflow/knowledge/{item['id']}/knowledge.json")
 
     case_result.award(
         "D_worker_artifact_quality",
@@ -1199,13 +1158,12 @@ def _case_handoff_resume(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Dogfood handoff resume")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
     run_shell_task(root, task.id, ["/bin/sh", "-c", "printf handoff > handoff.txt"], timeout_seconds=10)
-    _record_command(state, f"devflow task run {task.id} --worker shell -- write handoff fixture", status="passed")
+    case_result.record_command(f"devflow task run {task.id} --worker shell -- write handoff fixture", status="passed")
     verified = verify_task(root, task.id, ["/bin/sh", "-c", "test -s handoff.txt"], timeout_seconds=10)
-    _record_command(state, f"devflow task verify {task.id} --shell handoff check", status=verified.verification_status)
+    case_result.record_command(f"devflow task verify {task.id} --shell handoff check", status=verified.verification_status)
 
     fresh = get_task(root, task.id)
     task_path = root / ".devflow" / "tasks" / task.id
@@ -1225,7 +1183,7 @@ def _case_handoff_resume(
             "",
         ]
     )
-    _write_case_text_artifact(state, root, handoff_path, handoff)
+    case_result.write_text_artifact(handoff_path, handoff)
 
     handoff_text = handoff_path.read_text(encoding="utf-8")
     case_result.award("B_pipeline_correctness", 3, fresh.status == "verified", "fresh task load is verified")
@@ -1248,15 +1206,12 @@ def _case_parallelism_docs_test(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Update docs and tests for dogfood split")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
     plan = create_orchestration_plan(root, task.id, plan_only=True)
-    _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed")
+    case_result.record_command(f"devflow task orchestrate {task.id} --plan-only", status="passed")
     if plan.get("parallelism_allowed") is not True:
-        _record_warning(
-            state,
-            "parallelism was conservatively blocked by current repo guardrails; role/context checks still ran"
+        case_result.record_warning("parallelism was conservatively blocked by current repo guardrails; role/context checks still ran"
         )
 
     roles = plan.get("roles") if isinstance(plan.get("roles"), list) else []
@@ -1284,11 +1239,10 @@ def _case_central_schema_risk(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Rewrite whole repo migration and disable guardrail")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
     plan = create_orchestration_plan(root, task.id, plan_only=True)
-    _record_command(state, f"devflow task orchestrate {task.id} --plan-only", status="passed")
+    case_result.record_command(f"devflow task orchestrate {task.id} --plan-only", status="passed")
     active = {item["condition"] for item in plan.get("stop_conditions", []) if item.get("active")}
 
     case_result.award(
@@ -1398,16 +1352,12 @@ task_slices:
         "retry": retry.model_dump(mode="json"),
         "after": snapshot_after.model_dump(mode="json"),
     }
-    summary_path = _write_case_summary_artifact(state, root, case_dir, "simple-scheduler-summary.json", summary)
-    _record_command(
-        state,
-        "devflow scheduler status --json (fixture)",
+    summary_path = case_result.write_summary_artifact("simple-scheduler-summary.json", summary)
+    case_result.record_command("devflow scheduler status --json (fixture)",
         status="passed",
         output=relative_path(root, summary_path),
     )
-    _record_command(
-        state,
-        "devflow scheduler retry <task-id> --reason 'dogfood retry evidence' --json",
+    case_result.record_command("devflow scheduler retry <task-id> --reason 'dogfood retry evidence' --json",
         status="passed",
     )
 
@@ -1443,7 +1393,7 @@ task_slices:
         "retry request preserved prior task evidence",
     )
     if commands_clean:
-        _record_lesson(state, "no background scheduler or provider calls were introduced")
+        case_result.record_lesson("no background scheduler or provider calls were introduced")
     else:
         case_result.fail("no background scheduler or provider calls were introduced")
     return case_result.finalize()
@@ -1486,23 +1436,17 @@ def _case_question_blocker_resume_loop(
         "scheduler": scheduler.model_dump(mode="json"),
         "source_preserved": before_source == after_source,
     }
-    summary_path = _write_case_summary_artifact(state, root, case_dir, "question-resume-summary.json", summary)
+    summary_path = case_result.write_summary_artifact("question-resume-summary.json", summary)
     if answered and answered.answer_path:
-        _record_artifact(state, scratch / answered.answer_path, root=scratch)
-    _record_command(
-        state,
-        "devflow question list --json (fixture)",
+        case_result.record_artifact(scratch / answered.answer_path, root=scratch)
+    case_result.record_command("devflow question list --json (fixture)",
         status="passed",
         output=relative_path(root, summary_path),
     )
-    _record_command(
-        state,
-        "devflow question answer <question-id> --answer '<answer>' --json",
+    case_result.record_command("devflow question answer <question-id> --answer '<answer>' --json",
         status="passed" if answered else "failed",
     )
-    _record_command(
-        state,
-        "devflow scheduler status --json (fixture)",
+    case_result.record_command("devflow scheduler status --json (fixture)",
         status="passed",
     )
 
@@ -1679,11 +1623,11 @@ def _case_operator_readiness_reconciliation(
         "status_tasks": surfaces["status"]["tasks"],
         "warnings": surfaces["status"]["warnings"],
     }
-    summary_path = _write_case_summary_artifact(state, root, case_dir, "operator-readiness-summary.json", summary)
-    _record_command(state, "devflow status --json (fixture)", status="passed", output=relative_path(root, summary_path))
-    _record_command(state, "devflow scheduler status --json (fixture)", status="passed")
-    _record_command(state, "devflow supervisor packet --json (fixture)", status="passed")
-    _record_command(state, "devflow operating-layer snapshot --json (fixture)", status="passed")
+    summary_path = case_result.write_summary_artifact("operator-readiness-summary.json", summary)
+    case_result.record_command("devflow status --json (fixture)", status="passed", output=relative_path(root, summary_path))
+    case_result.record_command("devflow scheduler status --json (fixture)", status="passed")
+    case_result.record_command("devflow supervisor packet --json (fixture)", status="passed")
+    case_result.record_command("devflow operating-layer snapshot --json (fixture)", status="passed")
 
     surface_counts_agree = len({json.dumps(payload["counts"], sort_keys=True) for payload in surfaces.values()}) == 1
     lifecycle_counts = all(
@@ -1759,25 +1703,21 @@ def _case_intent_scaffold_approval_path(
         source="dogfood",
         tags=["intent"],
     )
-    _record_command(state, "devflow idea capture 'build a search plugin'", status="passed", output=idea["id"])
+    case_result.record_command("devflow idea capture 'build a search plugin'", status="passed", output=idea["id"])
 
     before_preview = _intent_scaffold_file_snapshot(scratch)
     preview = preview_scaffold_from_idea(scratch, idea["id"])
     after_preview = _intent_scaffold_file_snapshot(scratch)
     dry_run_changed = sorted(set(after_preview) - set(before_preview))
-    _record_command(
-        state,
-        f"devflow idea scaffold-goal {idea['id']} --dry-run",
+    case_result.record_command(f"devflow idea scaffold-goal {idea['id']} --dry-run",
         status=preview["status"],
     )
 
     written = write_scaffold_from_idea(scratch, idea["id"])
     scaffold_json = scratch / ".devflow" / "ideas" / idea["id"] / "scaffold-goal.json"
     scaffold_md = scratch / ".devflow" / "ideas" / idea["id"] / "scaffold-goal.md"
-    _record_artifacts(state, [scaffold_json, scaffold_md], root=root)
-    _record_command(
-        state,
-        f"devflow idea scaffold-goal {idea['id']}",
+    case_result.record_artifacts([scaffold_json, scaffold_md], root=root)
+    case_result.record_command(f"devflow idea scaffold-goal {idea['id']}",
         status=written["status"],
         output=relative_path(root, scaffold_json),
     )
@@ -1789,9 +1729,7 @@ def _case_intent_scaffold_approval_path(
         note="Dogfood scaffold reviewed.",
         tags=["intent"],
     )
-    _record_command(
-        state,
-        f"devflow idea classify {idea['id']} --maturity goal_ready",
+    case_result.record_command(f"devflow idea classify {idea['id']} --maturity goal_ready",
         status="passed",
     )
     promote_idea(
@@ -1800,26 +1738,20 @@ def _case_intent_scaffold_approval_path(
         target="goal",
         rationale="Human reviewed scaffold evidence.",
     )
-    _record_command(
-        state,
-        f"devflow idea promote {idea['id']} --to goal",
+    case_result.record_command(f"devflow idea promote {idea['id']} --to goal",
         status="passed",
     )
 
     created = create_goal_from_idea(scratch, idea["id"])
     goal_path = scratch / created.created_path
-    _record_artifact(state, goal_path, root=root)
-    _record_command(
-        state,
-        f"devflow idea create-goal {idea['id']}",
+    case_result.record_artifact(goal_path, root=root)
+    case_result.record_command(f"devflow idea create-goal {idea['id']}",
         status="passed",
         output=created.created_id,
     )
 
     slices = load_goal_task_slices(scratch, created.created_id)
-    _record_command(
-        state,
-        f"devflow goal slices {created.created_id}",
+    case_result.record_command(f"devflow goal slices {created.created_id}",
         status="passed",
         output=f"{len(slices)} slices",
     )
@@ -1866,7 +1798,7 @@ def _case_intent_scaffold_approval_path(
         "tracked_git_status": tracked_status,
         "source_scaffold_path": link.get("source_scaffold_path"),
     }
-    summary_path = _write_case_summary_artifact(state, root, case_dir, "intent-scaffold-summary.json", summary)
+    summary_path = case_result.write_summary_artifact("intent-scaffold-summary.json", summary)
 
     scaffold_written = (
         preview.get("status") == "ready_for_review"
@@ -1934,25 +1866,22 @@ def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Dogfood operating layer visual QA")
-    _record_command(state, f"devflow task create {task.title!r}", status="passed", output=task.id)
+    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
     run_shell_task(root, task.id, ["/bin/sh", "-c", "printf visual > visual.txt"], timeout_seconds=10)
-    _record_command(state, f"devflow task run {task.id} --worker shell -- write visual fixture", status="passed")
+    case_result.record_command(f"devflow task run {task.id} --worker shell -- write visual fixture", status="passed")
 
     verified = verify_task(root, task.id, ["/bin/sh", "-c", "test -s visual.txt"], timeout_seconds=10)
-    _record_command(state, f"devflow task verify {task.id} --shell visual check", status=verified.verification_status)
+    case_result.record_command(f"devflow task verify {task.id} --shell visual check", status=verified.verification_status)
 
     plan = build_visual_qa_plan(root)
     result = write_visual_qa_image_fallbacks(root, update_baseline=True)
     plan_path = case_dir / "artifacts" / "visual-qa-plan.json"
     result_path = case_dir / "artifacts" / "visual-qa-result.json"
-    _write_case_json_artifact(state, root, plan_path, plan)
-    _write_case_json_artifact(state, root, result_path, result)
-    _record_command(
-        state,
-        "devflow operating-layer visual-qa --write-current --update-baseline --json",
+    case_result.write_json_artifact(plan_path, plan)
+    case_result.write_json_artifact(result_path, result)
+    case_result.record_command("devflow operating-layer visual-qa --write-current --update-baseline --json",
         status=result["status"],
         output=relative_path(root, result_path),
     )
@@ -2213,7 +2142,7 @@ def _worker_usefulness_score(outcome: dict[str, Any]) -> int:
     return 0
 
 
-def _create_validation_failure(root: Path, run_id: str, case_dir: Path, state: dict[str, Any]) -> str:
+def _create_validation_failure(root: Path, run_id: str, case_dir: Path, case_result: _CaseResult) -> str:
     outcome_path = case_dir / "artifacts" / "knowledge-source-invalid-outcome.json"
     outcome = _worker_outcome(
         task_id=f"dogfood-knowledge-{run_id}",
@@ -2224,12 +2153,10 @@ def _create_validation_failure(root: Path, run_id: str, case_dir: Path, state: d
         human_review_required=False,
         notes=["validation failure source for knowledge capture"],
     )
-    _write_case_json_artifact(state, root, outcome_path, outcome)
+    case_result.write_json_artifact(outcome_path, outcome)
     validation = validate_worker_outcome_file(root, outcome_path)
-    _record_artifact(state, validation["output_path"])
-    _record_command(
-        state,
-        f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
+    case_result.record_artifact(validation["output_path"])
+    case_result.record_command(f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
         status=validation["status"],
         exit_code=0 if validation["status"] == "passed" else 1,
         output=validation["output_path"],

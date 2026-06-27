@@ -90,6 +90,45 @@ def test_case_result_recorder_owns_scores_and_failures(tmp_path: Path) -> None:
     assert finalized["lessons"] == ["task reached verified state"]
 
 
+def test_case_result_recorder_owns_recording_helpers(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "tiny-deterministic-docs-task")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    text_path = result.write_text_artifact(case_dir / "artifacts" / "note.txt", "hello\n")
+    json_path = result.write_json_artifact(case_dir / "artifacts" / "summary.json", {"ok": True})
+    summary_path = result.write_summary_artifact("case-summary.json", {"score": 1})
+    result.record_artifact(tmp_path / "README.md")
+    result.record_command("devflow dogfood fixture", status="passed", output="README.md")
+    result.record_warning("fixture warning")
+    result.record_lesson("fixture lesson")
+    result.set_cleanup_status("marker_removed")
+
+    finalized = result.finalize()
+
+    assert text_path == case_dir / "artifacts" / "note.txt"
+    assert json_path == case_dir / "artifacts" / "summary.json"
+    assert summary_path == case_dir / "artifacts" / "case-summary.json"
+    assert finalized["artifacts_created"] == [
+        ".devflow/dogfood/runs/dogfood-test/cases/tiny-deterministic-docs-task/artifacts/note.txt",
+        ".devflow/dogfood/runs/dogfood-test/cases/tiny-deterministic-docs-task/artifacts/summary.json",
+        ".devflow/dogfood/runs/dogfood-test/cases/tiny-deterministic-docs-task/artifacts/case-summary.json",
+        "README.md",
+    ]
+    assert finalized["commands_run"] == [
+        {
+            "command": "devflow dogfood fixture",
+            "status": "passed",
+            "exit_code": None,
+            "output": "README.md",
+        }
+    ]
+    assert finalized["warnings"] == ["fixture warning"]
+    assert finalized["lessons"] == ["fixture lesson"]
+    assert finalized["cleanup_status"] == "marker_removed"
+
+
 def test_case_schema_and_suite_totals() -> None:
     cases = production_readiness_cases()
 
@@ -476,6 +515,18 @@ def test_cli_commands_and_report_lookup(tmp_path: Path) -> None:
     assert report.exit_code == 0, report.output
     assert "Boundary Confirmation" in report.output
     assert "devflow release readiness" in report.output
+
+
+def test_dogfood_command_module_owns_typer_registration() -> None:
+    from devflow.control_room.dogfood_command import dogfood_app
+
+    assert {command.name for command in dogfood_app.registered_commands} >= {
+        "list",
+        "show",
+        "run",
+        "score",
+        "report",
+    }
 
 
 def test_harness_avoids_forbidden_surfaces(tmp_path: Path) -> None:

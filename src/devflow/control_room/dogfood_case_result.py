@@ -28,6 +28,7 @@ class CaseResultRecorder:
     def __init__(self, root: Path, run_id: str, case: dict[str, Any], case_dir: Path) -> None:
         self.root = root
         self.case = case
+        self.case_dir = case_dir
         self.state = start_case_result(root, run_id, case, case_dir)
         self._scores: dict[str, int] = {}
         self._failures: list[str] = []
@@ -37,6 +38,40 @@ class CaseResultRecorder:
 
     def fail(self, lesson: str) -> None:
         self._failures.append(lesson)
+
+    def record_command(
+        self,
+        command: str,
+        *,
+        status: str,
+        exit_code: int | None = None,
+        output: str | None = None,
+    ) -> None:
+        record_command(self.state, command, status=status, exit_code=exit_code, output=output)
+
+    def record_artifact(self, path: str | Path, *, root: Path | None = None) -> str:
+        return record_artifact(self.state, path, root=self.root if root is None else root)
+
+    def record_artifacts(self, paths: Iterable[str | Path], *, root: Path | None = None) -> list[str]:
+        return record_artifacts(self.state, paths, root=self.root if root is None else root)
+
+    def write_json_artifact(self, path: Path, payload: Any, *, sort_keys: bool = True) -> Path:
+        return write_case_json_artifact(self.state, self.root, path, payload, sort_keys=sort_keys)
+
+    def write_text_artifact(self, path: Path, text: str) -> Path:
+        return write_case_text_artifact(self.state, self.root, path, text)
+
+    def write_summary_artifact(self, filename: str, summary: dict[str, Any]) -> Path:
+        return write_case_summary_artifact(self.state, self.root, self.case_dir, filename, summary)
+
+    def record_warning(self, warning: str) -> None:
+        record_warning(self.state, warning)
+
+    def record_lesson(self, lesson: str) -> None:
+        record_lesson(self.state, lesson)
+
+    def set_cleanup_status(self, status: str, *, warning: str | None = None) -> str:
+        return set_cleanup_status(self.state, status, warning=warning)
 
     def finalize(self) -> dict[str, Any]:
         return finalize_case_result(self.root, self.case, self.state, self._scores, self._failures)
