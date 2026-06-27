@@ -11,6 +11,7 @@ from typing import Any
 from devflow.control_room.agent_registry import (
     AgentDefinition,
     ProviderDefinition,
+    is_hermes_subscription_agent,
     is_local_openai_compatible_provider,
     is_remote_advisory_agent,
     load_agent_registry,
@@ -41,6 +42,11 @@ SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
 _OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434"
 _OLLAMA_DEFAULT_TIMEOUT = 300
+HERMES_PROFILE_HANDOFF_ERROR = (
+    "Hermes/OpenAI subscription profile is visible in model pickers, but direct "
+    "Dev-Flow execution is disabled until a safe Hermes runtime adapter exists; "
+    "this profile cannot fall back to OpenRouter billing."
+)
 
 
 class BrainstormError(ValueError):
@@ -167,6 +173,8 @@ def _chat_completion_for_profile(
     api_key: str | None = None,
 ) -> dict[str, Any]:
     """Route to OpenRouter or Ollama depending on the provider."""
+    if is_hermes_subscription_agent(profile, provider=provider):
+        raise OpenRouterAgentError(HERMES_PROFILE_HANDOFF_ERROR)
     if _is_ollama_provider(provider):
         return _ollama_chat_completion(
             provider=provider,
@@ -242,8 +250,35 @@ def run_brainstorm_message(
         },
     )
 
+    is_hermes_profile = is_hermes_subscription_agent(profile, provider=provider)
     is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
+    if is_hermes_profile:
+        _append_transcript(
+            transcript_path,
+            {
+                "created_at": _now(),
+                "role": "system",
+                "kind": "provider_error",
+                "content": HERMES_PROFILE_HANDOFF_ERROR,
+            },
+        )
+        payload = _run_payload(
+            root=root,
+            status="failed",
+            session_id=session,
+            profile=profile,
+            provider=provider,
+            transcript_path=transcript_path,
+            run_path=run_path,
+            raw_response_path=None,
+            assistant_message=None,
+            usage=None,
+            error=HERMES_PROFILE_HANDOFF_ERROR,
+            will_call_provider=False,
+        )
+        atomic_write_text(run_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        return payload
     if not is_local_provider:
         api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
         api_key = resolve_api_key(api_key_env)
@@ -457,6 +492,13 @@ def _generate_stage_with_model(
 ) -> dict[str, Any]:
     """Call a model to produce a structured spec/plan from the brainstorm transcript."""
     profile, provider = _load_brainstorm_profile(root, profile_id=profile_id)
+    if is_hermes_subscription_agent(profile, provider=provider):
+        return {
+            "used_model": False,
+            "error": HERMES_PROFILE_HANDOFF_ERROR,
+            "profile_id": profile.id,
+            "model": profile.model,
+        }
     is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
     if not is_local_provider:
@@ -583,7 +625,8 @@ def _load_brainstorm_profile(root: Path, *, profile_id: str | None = None) -> tu
     provider = load_provider_registry(root).require_provider(profile.provider)
     is_ollama = _is_ollama_provider(provider)
     is_local_openai = is_local_openai_compatible_provider(provider)
-    if not is_ollama and not is_local_openai and not is_remote_advisory_agent(profile, provider=provider):
+    is_hermes_profile = is_hermes_subscription_agent(profile, provider=provider)
+    if not is_ollama and not is_local_openai and not is_hermes_profile and not is_remote_advisory_agent(profile, provider=provider):
         raise OpenRouterAgentError(f"Profile '{profile.id}' is not an approved advisory model profile.")
     return profile, provider
 

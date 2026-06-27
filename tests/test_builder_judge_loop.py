@@ -95,6 +95,35 @@ def test_config_validation_same_builder_judge(tmp_path: Path) -> None:
         run_builder_judge_loop(tmp_path, config)
 
 
+def test_hermes_codex_profile_does_not_fall_back_to_openrouter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        raise AssertionError("Hermes subscription profile must not call OpenRouter-compatible HTTP APIs")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    config = BuilderJudgeConfig(
+        definition_of_done="Draft a concise operating-layer next step.",
+        builder_profile_id="hermes-codex-gpt55",
+        judge_profile_id="glm-5-2-brainstormer",
+        pass_threshold=85,
+        max_rounds=1,
+    )
+
+    run = run_builder_judge_loop(tmp_path, config)
+
+    assert run.status == "failed"
+    assert run.rounds[0].builder_profile_id == "hermes-codex-gpt55"
+    assert "Hermes/OpenAI subscription profile" in (run.rounds[0].error or "")
+    assert "OPENROUTER_API_KEY" not in (run.rounds[0].error or "")
+    assert run.rounds[0].builder_model == "gpt-5.5"
+
+
 def test_config_validation_threshold_bounds(tmp_path: Path) -> None:
     setup_temp_git_repo(tmp_path)
     config = BuilderJudgeConfig(

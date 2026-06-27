@@ -306,6 +306,13 @@ api_key_env: OPENROUTER_API_KEY
 default_timeout_seconds: 300
 enabled: true
 """,
+    ".devflow/providers/openai-codex.yaml": """id: openai-codex
+provider: openai-codex
+adapter: hermes_profile
+base_url: https://chatgpt.com/backend-api/codex
+default_timeout_seconds: 900
+enabled: true
+""",
     ".devflow/providers/openai_compatible.yaml": """id: openai_compatible
 provider: openai_compatible
 adapter: openai_compatible

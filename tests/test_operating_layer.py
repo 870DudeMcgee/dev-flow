@@ -118,8 +118,8 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert INDEX_HTML is SPLIT_INDEX_HTML
     assert APP_CSS is SPLIT_APP_CSS
     assert APP_JS is SPLIT_APP_JS
-    assert '<link rel="stylesheet" href="/app.css?v=layout-compact-20260626">' in INDEX_HTML
-    assert '<script src="/app.js?v=layout-compact-20260626"></script>' in INDEX_HTML
+    assert '<link rel="stylesheet" href="/app.css?v=model-pickers-20260626">' in INDEX_HTML
+    assert '<script src="/app.js?v=model-pickers-20260626"></script>' in INDEX_HTML
     assert ".focus-overlay" in APP_CSS
     assert "pipeline-section" in INDEX_HTML
     assert ".panel" in APP_CSS
@@ -322,6 +322,34 @@ def test_operating_layer_js_model_selectors_share_all_available_agents_contract(
     assert "selectorAgents.map(a =>" in APP_JS
     assert "const ids = selectorAgents.map(a => a.id);" in APP_JS
     assert "a.adapter === 'openai_compatible' || a.adapter === 'ollama_chat'" not in APP_JS
+
+
+def test_operating_layer_css_prevents_right_rail_brainstorm_controls_from_overlapping_transcript() -> None:
+    header_rules = APP_CSS[
+        APP_CSS.index(".right-column .brainstorm-section .panel-header {") :
+        APP_CSS.index(".right-column .brainstorm-section .panel-header-controls {")
+    ]
+    controls_rules = APP_CSS[
+        APP_CSS.index(".right-column .brainstorm-section .panel-header-controls {") :
+        APP_CSS.index(".right-column .brainstorm-section .model-selector-wrap {")
+    ]
+    selector_rules = APP_CSS[
+        APP_CSS.index(".right-column .brainstorm-section .model-selector {") :
+        APP_CSS.index(".right-column .brainstorm-section .model-dropdown {")
+    ]
+    label_rules = APP_CSS[
+        APP_CSS.index(".right-column .brainstorm-section #model-selector-label {") :
+        APP_CSS.index(".right-column .brainstorm-section .model-dropdown {")
+    ]
+
+    assert "min-height: auto;" in header_rules
+    assert "overflow: visible;" in header_rules
+    assert "display: grid;" in controls_rules
+    assert "grid-template-columns: minmax(0, 1fr);" in controls_rules
+    assert "align-self: stretch;" in selector_rules
+    assert "overflow: hidden;" in label_rules
+    assert "text-overflow: ellipsis;" in label_rules
+    assert "white-space: nowrap;" in label_rules
 
 
 def test_operating_layer_css_includes_park_archive_form_tokens() -> None:
@@ -1766,6 +1794,42 @@ def test_operating_layer_agents_marks_local_openai_compatible_profiles_as_local(
             row["row_id"] == "profile:local-qwen35-mtp"
             for row in payload["local_model_inventory"]["rows"]
         )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_agents_exposes_hermes_codex_gpt55_to_shared_model_pickers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        connection = HTTPConnection(host, port, timeout=5)
+        connection.request("GET", "/api/agents")
+        response = connection.getresponse()
+        payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == HTTPStatus.OK
+
+        codex = next(agent for agent in payload["agents"] if agent["id"] == "hermes-codex-gpt55")
+        assert codex["model"] == "gpt-5.5"
+        assert codex["label"] == "Hermes Codex GPT 5.5"
+        assert codex["provider"] == "openai-codex"
+        assert codex["adapter"] == "hermes_profile"
+        assert codex["role"] == "frontier_planner_architect_reviewer"
+        assert codex["authority"] == "advisory"
+        assert codex["is_local"] is False
+        assert codex["availability"]["status"] == "not_checked"
+        assert codex["runtime_contract"]["execution_surface"] == "hermes_profile_handoff"
+        assert codex["runtime_contract"]["task_run_allowed"] is False
+        assert codex["runtime_contract"]["agent_run_allowed"] is False
+        assert "hermes" in codex["runtime_contract"]["next_command"]
+        assert "openrouter" not in codex["runtime_contract"]["next_command"].lower()
+        assert "OPENROUTER_API_KEY" not in codex["runtime_contract"]["next_command"]
     finally:
         server.shutdown()
         server.server_close()

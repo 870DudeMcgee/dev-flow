@@ -374,21 +374,36 @@ body {
   align-items: flex-start;
   flex-direction: column;
   gap: 8px;
+  min-height: auto;
+  overflow: visible;
 }
 .right-column .brainstorm-section .panel-header-controls {
+  display: grid;
   align-items: stretch;
-  flex-wrap: wrap;
   gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
   width: 100%;
+}
+.right-column .brainstorm-section .panel-header-controls > .btn {
+  justify-self: start;
 }
 .right-column .brainstorm-section .model-selector-wrap {
   flex: 1 1 100%;
   min-width: 0;
 }
 .right-column .brainstorm-section .model-selector {
+  align-self: stretch;
   justify-content: space-between;
   max-width: 100%;
+  min-width: 0;
   width: 100%;
+}
+.right-column .brainstorm-section #model-selector-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .right-column .brainstorm-section .model-dropdown {
   left: 0;

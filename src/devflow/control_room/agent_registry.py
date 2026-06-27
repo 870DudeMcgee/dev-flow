@@ -31,6 +31,7 @@ ADAPTER_MATURITY: dict[str, AdapterMaturity] = {
     "anthropic_messages": "experimental_readonly",
     "gemini": "experimental_readonly",
     "openai_chat": "experimental_readonly",
+    "hermes_profile": "planned_not_executable",
 }
 STABLE_RUNTIME_ADAPTERS = tuple(sorted(adapter for adapter, maturity in ADAPTER_MATURITY.items() if maturity == "stable_runtime"))
 LOCAL_PATCH_RUNTIME_ADAPTERS = tuple(
@@ -270,6 +271,22 @@ def is_remote_advisory_agent(agent: AgentDefinition, provider: ProviderDefinitio
     if provider is None:
         return True
     return provider.enabled and provider.adapter == agent.adapter and provider.provider not in {"ollama", "shell", "manual", "local"}
+
+
+def is_hermes_subscription_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
+    if not agent.enabled:
+        return False
+    if agent.provider != "openai-codex" or agent.adapter != "hermes_profile":
+        return False
+    if agent.default_mode not in {"read_only", "frontier_read_only", "docs_only"}:
+        return False
+    if agent.hermes_delegable or agent.can_promote or agent.can_run_shell:
+        return False
+    if any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes):
+        return False
+    if provider is None:
+        return True
+    return provider.enabled and provider.provider == "openai-codex" and provider.adapter == "hermes_profile"
 
 
 def is_remote_patch_proposal_agent(agent: AgentDefinition, provider: ProviderDefinition | None = None) -> bool:
@@ -1214,6 +1231,84 @@ def _builtin_agents() -> dict[str, AgentDefinition]:
             hermes_delegable=bool(profile["hermes_delegable"]),
             enabled=True,
         )
+
+    agents["hermes-codex-gpt55"] = AgentDefinition(
+        id="hermes-codex-gpt55",
+        provider="openai-codex",
+        model="gpt-5.5",
+        adapter="hermes_profile",
+        adapter_maturity=adapter_maturity("hermes_profile"),
+        role="frontier_planner_architect_reviewer",
+        tier="frontier",
+        default_mode="frontier_read_only",
+        execution_mode="automated",
+        purpose=(
+            "Human-selected Hermes Codex GPT 5.5 advisory profile for Brainstorm, "
+            "Builder, and Judge model pickers."
+        ),
+        model_role_name="Hermes Codex GPT 5.5",
+        secondary_roles=["brainstorm", "builder", "judge", "codex", "architecture-review"],
+        use_caution=[
+            "Hermes/OpenAI subscription profile only; do not route through OpenRouter or provider API keys.",
+            "Advisory evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, or push.",
+        ],
+        manifest_notes=[
+            "Uses the Hermes openai-codex subscription profile instead of OpenRouter billing.",
+            "Direct Dev-Flow provider execution is intentionally disabled until a Hermes runtime adapter is implemented.",
+        ],
+        workspace="isolated_task_workspace",
+        can_see=[
+            "supervisor_packet",
+            "task_packet",
+            "status_projection",
+            "verification_ledger_summary",
+        ],
+        can_touch=[
+            "<brainstorms>/**",
+        ],
+        cannot_touch=[
+            "<main_checkout>/**",
+            "<workspace>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            "<task>/agents/**/proposal.patch",
+            ".git/**",
+        ],
+        allowed_reads=[
+            "<repo>/docs/verification-ledger.md",
+            "<brainstorms>/**",
+        ],
+        allowed_writes=[
+            "<brainstorms>/**",
+        ],
+        forbidden_writes=[
+            "<main_checkout>/**",
+            "<workspace>/**",
+            "<task>/task.yaml",
+            "<task>/events.jsonl",
+            "<task>/verification.json",
+            "<task>/merge-readiness.json",
+            "<task>/packet.json",
+            "<task>/agents/**/proposal.patch",
+            ".git/**",
+        ],
+        required_outputs=[
+            "Record advisory prompt, response, model identity, and subscription-profile handoff metadata under brainstorm evidence.",
+            "Treat all recommendations as evidence only; Dev-Flow and the human operator own task creation, worker execution, verification, promotion, commit, and push.",
+        ],
+        completion_rules=[
+            "Use bounded Dev-Flow state only; do not scan the full repository blindly.",
+            "Do not create tasks, run workers, apply patches, verify, promote, commit, push, or mutate canonical state.",
+            "Do not route this profile through OpenRouter or OPENROUTER_API_KEY.",
+        ],
+        can_run_shell=False,
+        can_use_network=False,
+        can_promote=False,
+        hermes_delegable=False,
+        enabled=True,
+    )
 
     patch_profiles = [
         {

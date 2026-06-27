@@ -7,7 +7,7 @@ INDEX_HTML = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Dev-Flow Operating Layer — control room">
   <title>Dev-Flow Operating Layer</title>
-  <link rel="stylesheet" href="/app.css?v=layout-compact-20260626">
+  <link rel="stylesheet" href="/app.css?v=model-pickers-20260626">
 </head>
 <body>
   <div class="app-shell">
@@ -418,7 +418,7 @@ INDEX_HTML = """<!doctype html>
 
     </main>
   </div>
-  <script src="/app.js?v=layout-compact-20260626"></script>
+  <script src="/app.js?v=model-pickers-20260626"></script>
 </body>
 </html>
 """

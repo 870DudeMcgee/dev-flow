@@ -42,6 +42,10 @@ OPENROUTER_ADVISORY_PROFILES = [
     "glm-5-2-brainstormer",
 ]
 
+HERMES_SUBSCRIPTION_PROFILES = [
+    "hermes-codex-gpt55",
+]
+
 
 def test_valid_agent_registry_loads_enabled_default_agent(tmp_path: Path) -> None:
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -87,6 +91,7 @@ agents:
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
         *OPENROUTER_ADVISORY_PROFILES,
+        *HERMES_SUBSCRIPTION_PROFILES,
     ])
     agent = registry.require_agent("local-shell")
     assert agent.adapter == "shell"
@@ -141,6 +146,7 @@ def test_disabled_agents_are_loaded_but_not_available_and_seed_is_empty(tmp_path
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
         *OPENROUTER_ADVISORY_PROFILES,
+        *HERMES_SUBSCRIPTION_PROFILES,
     ])
 
     registry_path = tmp_path / ".devflow/agents/registry.yaml"
@@ -207,6 +213,7 @@ agents:
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
         *OPENROUTER_ADVISORY_PROFILES,
+        *HERMES_SUBSCRIPTION_PROFILES,
     ]
     assert sorted(registry.agents) == sorted(expected_agents)
     assert sorted(registry.enabled_agent_ids()) == sorted([
@@ -217,6 +224,7 @@ agents:
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
         *OPENROUTER_ADVISORY_PROFILES,
+        *HERMES_SUBSCRIPTION_PROFILES,
     ])
     assert registry.default_agent().id == "local-shell"
     assert registry.require_agent("disabled-local").enabled is False
@@ -331,6 +339,7 @@ def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> Non
         "xai",
         "grok",
         "openrouter",
+        "openai-codex",
     ])
 
 
@@ -625,6 +634,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
         *STARTER_LOCAL_PROFILES,
         *DEEPSEEK_OPENROUTER_PROFILES,
         *OPENROUTER_ADVISORY_PROFILES,
+        *HERMES_SUBSCRIPTION_PROFILES,
     ]
     
     for agent_id in expected_agents:
@@ -638,6 +648,7 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
                 *STARTER_LOCAL_PROFILES,
                 *DEEPSEEK_OPENROUTER_PROFILES,
                 *OPENROUTER_ADVISORY_PROFILES,
+                *HERMES_SUBSCRIPTION_PROFILES,
             }
         )
         assert agent.workspace == "isolated_task_workspace"
@@ -687,6 +698,16 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.can_run_shell is False
             assert agent.model_role_name
             assert agent.required_verification_command is None
+        elif agent_id in HERMES_SUBSCRIPTION_PROFILES:
+            assert agent.provider == "openai-codex"
+            assert agent.model == "gpt-5.5"
+            assert agent.adapter == "hermes_profile"
+            assert agent.adapter_maturity == "planned_not_executable"
+            assert agent.can_use_network is False
+            assert agent.can_promote is False
+            assert agent.can_run_shell is False
+            assert agent.model_role_name == "Hermes Codex GPT 5.5"
+            assert agent.required_verification_command is None
         elif agent_id in ("devflow-openai-planner", "devflow-openai-reviewer"):
             assert agent.tier == "frontier"
             assert agent.execution_mode == "automated"
@@ -715,6 +736,7 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
         "xai",
         "grok",
         "openrouter",
+        "openai-codex",
     ]
     
     for prov_id in expected_providers:
@@ -759,6 +781,12 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
             assert prov.base_url == "https://openrouter.ai/api/v1"
             assert prov.api_key_env == "OPENROUTER_API_KEY"
             assert prov.default_timeout_seconds == 300
+        elif prov_id == "openai-codex":
+            assert prov.provider == "openai-codex"
+            assert prov.adapter == "hermes_profile"
+            assert prov.base_url == "https://chatgpt.com/backend-api/codex"
+            assert prov.api_key_env is None
+            assert prov.default_timeout_seconds == 900
 
 
 def test_hermes_delegable_defaults_false_and_starter_profiles_opt_in_safely(tmp_path: Path) -> None:
@@ -805,6 +833,7 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     planner = registry.require_agent("deepseek-v4-flash-planner")
     reviewer = registry.require_agent("deepseek-v4-pro-reviewer")
     brainstormer = registry.require_agent("deepseek-v4-flash-free-brainstormer")
+    hermes_codex = registry.require_agent("hermes-codex-gpt55")
     patch_proposer = registry.require_agent("deepseek-v4-pro-patch-proposer")
     flash_patch_proposer = registry.require_agent("deepseek-v4-flash-patch-proposer")
 
@@ -831,6 +860,22 @@ def test_openrouter_deepseek_profiles_are_registry_visible_and_safely_non_task_r
     brainstorm_contract = agent_runtime_contract(tmp_path, brainstormer)
     assert brainstorm_contract["execution_surface"] == "agent_advise"
     assert brainstorm_contract["task_run_allowed"] is False
+
+    assert hermes_codex.provider == "openai-codex"
+    assert hermes_codex.model == "gpt-5.5"
+    assert hermes_codex.adapter == "hermes_profile"
+    assert hermes_codex.model_role_name == "Hermes Codex GPT 5.5"
+    assert hermes_codex.default_mode == "frontier_read_only"
+    assert hermes_codex.hermes_delegable is False
+    assert {"brainstorm", "builder", "judge", "codex"}.issubset(set(hermes_codex.secondary_roles))
+    hermes_codex_contract = agent_runtime_contract(tmp_path, hermes_codex)
+    assert hermes_codex_contract["execution_surface"] == "hermes_profile_handoff"
+    assert hermes_codex_contract["task_run_allowed"] is False
+    assert hermes_codex_contract["agent_run_allowed"] is False
+    assert hermes_codex_contract["next_command"] is not None
+    assert "hermes" in hermes_codex_contract["next_command"]
+    assert "openrouter" not in hermes_codex_contract["next_command"].lower()
+    assert "OPENROUTER_API_KEY" not in hermes_codex_contract["next_command"]
 
     assert patch_proposer.provider == "openrouter"
     assert patch_proposer.model == "deepseek/deepseek-v4-pro"

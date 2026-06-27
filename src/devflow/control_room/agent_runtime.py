@@ -10,6 +10,7 @@ from devflow.control_room.agent_registry import (
     adapter_execution_refusal,
     adapter_maturity,
     is_executable_agent_runtime,
+    is_hermes_subscription_agent,
     is_local_openai_compatible_provider,
     is_local_model_worker_pool_agent,
     is_remote_advisory_agent,
@@ -90,6 +91,16 @@ def resolve_agent_runtime_definition(
             "Use `devflow agent advise` for bounded recommendation evidence; task worker execution is not allowed."
         )
         next_command = f"devflow agent advise --profile {agent.id} --job {default_job} --json"
+    elif is_hermes_subscription_agent(agent, provider=provider):
+        execution_surface = "hermes_profile_handoff"
+        task_run_allowed = False
+        agent_run_allowed = False
+        packet_allowed = True
+        refusal_reason = (
+            f"Agent '{agent.id}' is a Hermes/OpenAI subscription profile. "
+            "Direct Dev-Flow provider execution is disabled so this profile cannot fall back to OpenRouter billing."
+        )
+        next_command = "hermes -p mini chat -q <prompt>"
     elif is_remote_patch_proposal_agent(agent, provider=provider):
         execution_surface = "agent_propose_patch"
         task_run_allowed = False

@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from devflow.control_room.agent_registry import (
     AgentDefinition,
     ProviderDefinition,
+    is_hermes_subscription_agent,
     is_remote_advisory_agent,
     load_agent_registry,
     load_provider_registry,
@@ -406,7 +407,8 @@ def _load_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, Provide
     agent = load_agent_registry(root).require_agent(profile_id)
     provider = load_provider_registry(root).require_provider(agent.provider)
     is_ollama = _is_ollama_provider(provider)
-    if not is_ollama and not is_remote_advisory_agent(agent, provider=provider):
+    is_hermes_profile = is_hermes_subscription_agent(agent, provider=provider)
+    if not is_ollama and not is_hermes_profile and not is_remote_advisory_agent(agent, provider=provider):
         raise BuilderJudgeConfigError(
             f"Profile '{profile_id}' is not an advisory or Ollama profile "
             f"and cannot be used for builder-judge loops."
@@ -415,7 +417,7 @@ def _load_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, Provide
 
 
 def _resolve_api_key(provider: ProviderDefinition) -> str | None:
-    if _is_ollama_provider(provider):
+    if _is_ollama_provider(provider) or provider.adapter == "hermes_profile":
         return None
     api_key_env = provider.api_key_env or "OPENROUTER_API_KEY"
     return resolve_api_key(api_key_env)

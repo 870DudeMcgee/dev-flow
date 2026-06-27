@@ -432,6 +432,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             root = self.server.repo_root
             from devflow.control_room.agent_onboarding import build_agent_catalog
             from devflow.control_room.agent_registry import (
+                is_hermes_subscription_agent,
                 is_local_openai_compatible_provider,
                 is_remote_advisory_agent,
                 load_agent_registry,
@@ -457,10 +458,11 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 if not provider:
                     continue
                 is_remote = is_remote_advisory_agent(agent, provider=provider)
+                is_hermes_subscription = is_hermes_subscription_agent(agent, provider=provider)
                 is_ollama = provider.provider == "ollama" or agent.adapter == "ollama_chat"
                 is_local_endpoint = is_local_openai_compatible_provider(provider)
                 is_local = is_ollama or is_local_endpoint
-                if not is_remote and not is_local:
+                if not is_remote and not is_local and not is_hermes_subscription:
                     continue
                 availability = availability_by_profile.get(agent.id, {})
                 if is_local and availability.get("status") in {"missing", "unavailable"}:

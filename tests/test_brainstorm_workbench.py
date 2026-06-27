@@ -201,6 +201,39 @@ def test_brainstorm_message_calls_deepseek_free_and_appends_transcript(
     assert "sk-or-...cret" not in (tmp_path / payload["run_path"]).read_text(encoding="utf-8")
 
 
+def test_brainstorm_hermes_codex_profile_does_not_fall_back_to_openrouter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        raise AssertionError("Hermes subscription profile must not call OpenRouter-compatible HTTP APIs")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    payload = run_brainstorm_message(
+        root=tmp_path,
+        message="Use the subscription-backed Codex profile.",
+        session_id="session-hermes",
+        profile_id="hermes-codex-gpt55",
+    )
+
+    assert payload["status"] == "failed"
+    assert "Hermes/OpenAI subscription profile" in payload["error"]
+    assert "OPENROUTER_API_KEY" not in payload["error"]
+    assert payload["will_call_provider"] is False
+    assert payload["provider"] == "openai-codex"
+    assert payload["model"] == "gpt-5.5"
+    records = [
+        json.loads(line)
+        for line in (tmp_path / payload["transcript_path"]).read_text(encoding="utf-8").splitlines()
+    ]
+    assert records[-1]["kind"] == "provider_error"
+    assert "OPENROUTER_API_KEY" not in records[-1]["content"]
+
+
 def test_local_qwen_openai_compatible_profile_runs_without_api_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
