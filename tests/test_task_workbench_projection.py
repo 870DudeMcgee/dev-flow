@@ -38,6 +38,21 @@ def _controls_by_intent(task) -> dict[str, object]:
     return {control.intent: control for control in task.controls}
 
 
+def test_task_workbench_review_models_are_reexported_for_existing_callers() -> None:
+    from devflow.control_room import task_workbench as workbench_module
+    from devflow.control_room.task_workbench_review import (
+        TaskWorkbenchGateReceipt,
+        TaskWorkbenchReviewLoop,
+        TaskWorkbenchReviewQueueItem,
+        TaskWorkbenchWorkerActivity,
+    )
+
+    assert workbench_module.TaskWorkbenchGateReceipt is TaskWorkbenchGateReceipt
+    assert workbench_module.TaskWorkbenchReviewLoop is TaskWorkbenchReviewLoop
+    assert workbench_module.TaskWorkbenchReviewQueueItem is TaskWorkbenchReviewQueueItem
+    assert workbench_module.TaskWorkbenchWorkerActivity is TaskWorkbenchWorkerActivity
+
+
 def test_task_workbench_projects_task_lanes_focus_controls_and_evidence(
     tmp_path: Path,
     monkeypatch,
