@@ -3652,6 +3652,8 @@ function refactorStatusMeta(status) {
   const value = String(status || 'unknown').toLowerCase();
   if (value === 'completed') return { label: 'Completed', cls: 'good' };
   if (value === 'running') return { label: 'Running', cls: 'warn' };
+  if (value === 'paused') return { label: 'Paused', cls: 'warn' };
+  if (value === 'stopped_needs_review') return { label: 'Stopped - Needs Review', cls: 'warn' };
   if (value === 'blocked' || value === 'failed') return { label: sentenceCase(value), cls: 'bad' };
   if (value === 'idle') return { label: 'Idle', cls: 'neutral' };
   return { label: 'Unknown', cls: 'neutral' };
@@ -3692,6 +3694,49 @@ function refactorArtifactsHtml(artifacts) {
   </div>`;
 }
 
+function refactorTailCard(title, evidence, emptyText) {
+  const lines = Array.isArray(evidence?.tail) ? evidence.tail : [];
+  const path = evidence?.path || '';
+  const tone = lines.length ? 'good' : 'muted';
+  return `<div class="refactor-evidence-card ${tone}">
+    <strong>${esc(title)}</strong>
+    ${path ? `<code>${esc(path)}</code>` : ''}
+    ${lines.length ? `<pre class="refactor-log-tail">${esc(lines.join('\\n'))}</pre>` : `<span>${esc(emptyText || 'No evidence recorded yet.')}</span>`}
+  </div>`;
+}
+
+function refactorCommandEvidenceCard(title, evidence) {
+  const stdout = evidence?.stdout || '';
+  const stderr = evidence?.stderr || '';
+  const returncode = evidence?.returncode;
+  if (!stdout && !stderr && (returncode == null || returncode === '')) {
+    return `<div class="refactor-evidence-card muted"><strong>${esc(title)}</strong><span>No command evidence recorded yet.</span></div>`;
+  }
+  const parts = [];
+  if (returncode != null && returncode !== '') parts.push(`<span><b>returncode</b>: ${esc(returncode)}</span>`);
+  if (stdout) parts.push(`<pre class="refactor-log-tail">${esc(stdout)}</pre>`);
+  if (stderr) parts.push(`<pre class="refactor-log-tail">${esc(stderr)}</pre>`);
+  return `<div class="refactor-evidence-card ${stderr ? 'warn' : 'good'}"><strong>${esc(title)}</strong>${parts.join('')}</div>`;
+}
+
+function refactorScorecardCard(scorecard) {
+  if (!scorecard || typeof scorecard !== 'object') {
+    return '<div class="refactor-evidence-card muted"><strong>Latest Scorecard</strong><span>No scorecard snapshot recorded yet.</span></div>';
+  }
+  const rows = [
+    scorecard.verdict ? `Verdict: ${scorecard.verdict}` : '',
+    scorecard.generated_at ? `Generated: ${scorecard.generated_at}` : '',
+    scorecard.nodes != null ? `Nodes: ${scorecard.nodes}` : '',
+    scorecard.edges != null ? `Edges: ${scorecard.edges}` : '',
+    scorecard.communities != null ? `Communities: ${scorecard.communities}` : '',
+    scorecard.path ? `Path: ${scorecard.path}` : '',
+  ].filter(Boolean);
+  return `<div class="refactor-evidence-card ${scorecard.verdict === 'pass' ? 'good' : 'warn'}">
+    <strong>Latest Scorecard</strong>
+    ${rows.map(row => `<span>${esc(row)}</span>`).join('')}
+  </div>`;
+}
+
 function refactorLogTailHtml(lines) {
   const rows = Array.isArray(lines) ? lines : [];
   if (!rows.length) return '<div class="refactor-empty">No worker log output recorded yet.</div>';
@@ -3720,6 +3765,12 @@ function renderRefactorWorkView(data) {
   const plannerProfile = data?.planner_profile || 'not configured';
   const judgeProfile = data?.judge_profile || 'not configured';
   const logPath = data?.loop_log || 'No log path recorded';
+  const statusReason = data?.status_reason || 'No status reason recorded.';
+  const statusSource = data?.status_source || 'projection';
+  const loopEvidence = data?.loop_evidence || {};
+  const plannerEvidence = data?.planner_evidence || {};
+  const handoffEvidence = data?.handoff_evidence || {};
+  const judgeEvidence = data?.judge_evidence || {};
   content.innerHTML = `<div class="refactor-work-view">
     <div class="focus-task-head refactor-work-head">
       <span class="focus-task-id">${esc(data?.run_id || 'refactor')}</span>
@@ -3739,6 +3790,10 @@ function renderRefactorWorkView(data) {
       <p>Dev-Flow shows prompts, plans, outputs, judge feedback, logs, and artifact paths recorded by the loop. Hidden model reasoning is not exposed.</p>
       ${command ? `<code>${esc(command)}</code><button class="btn btn-sm btn-secondary" type="button" data-copy-command="${esc(command)}">Copy command</button>` : ''}
     </div>
+    <div class="task-command-box">
+      <label>Status reason</label>
+      <p>${esc(statusSource)}: ${esc(statusReason)}</p>
+    </div>
     ${refactorPhaseList(data?.phases || [])}
     ${refactorWorkTabs(refactorActiveTab)}
     <div class="refactor-tab-panels">
@@ -3748,23 +3803,30 @@ function renderRefactorWorkView(data) {
           ${refactorPreflightCard('Worker preflight', data?.preflight)}
           ${refactorPreflightCard('Planner preflight', data?.planner_preflight)}
           ${refactorPreflightCard('Judge preflight', data?.judge_preflight)}
+          ${refactorCommandEvidenceCard('Loop Status', loopEvidence?.loop_status)}
+          ${refactorCommandEvidenceCard('Loop Watch', loopEvidence?.watch)}
+          ${refactorScorecardCard(loopEvidence?.latest_scorecard)}
         </div>
         <div class="task-command-box"><label>Next safe action</label><p>${esc(data?.next_safe_action || 'Refresh the work view for the latest state.')}</p></div>
       </section>
       <section data-refactor-panel="planner">
-        <h3>Planner Rationale</h3>
+        <h3>Worker Plan</h3>
         <p class="refactor-panel-note">Planner profile: ${esc(plannerProfile)}${data?.planner_toolsets ? ' · toolsets: ' + esc(data.planner_toolsets) : ''}</p>
         ${refactorPreflightCard('Planner evidence', data?.planner_preflight)}
+        ${refactorTailCard('Worker Plan Evidence', plannerEvidence, 'No worker-plan artifact recorded yet.')}
       </section>
       <section data-refactor-panel="worker">
         <h3>Worker Output</h3>
         <p class="refactor-panel-note">Worker profile: ${esc(workerProfile)} · log: ${esc(logPath)}</p>
         ${refactorLogTailHtml(data?.log_tail || [])}
+        ${refactorCommandEvidenceCard('Loop Status', loopEvidence?.loop_status)}
       </section>
       <section data-refactor-panel="judge">
-        <h3>Judge Feedback</h3>
+        <h3>Handoff Evidence</h3>
         <p class="refactor-panel-note">Judge profile: ${esc(judgeProfile)}</p>
         ${refactorPreflightCard('Judge evidence', data?.judge_preflight)}
+        ${judgeEvidence?.reason ? `<div class="task-command-box"><label>Judge / blocker signal</label><p>${esc(judgeEvidence.reason)}</p></div>` : ''}
+        ${refactorTailCard('Handoff Evidence', handoffEvidence, 'No handoff artifact recorded yet.')}
       </section>
       <section data-refactor-panel="files">
         <h3>Evidence Files</h3>

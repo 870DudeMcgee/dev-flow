@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
@@ -21,6 +22,8 @@ REFACTOR_RUN_SCHEMA_VERSION = 1
 REFACTOR_RUN_ID_RE = re.compile(r"^refactor-[0-9TZ]+-[a-z0-9-]+$")
 REFACTOR_LOOP_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$")
 REFACTOR_LOG_TAIL_LINES = 80
+REFACTOR_TEXT_TAIL_LINES = 80
+REFACTOR_COMMAND_TIMEOUT_SECONDS = 2
 
 
 class RefactorLoopError(ValueError):
@@ -172,18 +175,52 @@ def _project_refactor_run_status(root: Path, record: dict[str, Any]) -> dict[str
     log_tail = _read_log_tail(log_path)
     latest_line = log_tail[-1] if log_tail else ""
     pid_state = _pid_state(pid_path)
-    status = _refactor_status(record, latest_line, pid_state)
-    artifacts = _refactor_artifacts(root, record)
+    loop_evidence = _collect_loop_status_snapshot(root, record)
+    planner_evidence = _planner_evidence(record)
+    handoff_evidence = _handoff_evidence(record, loop_evidence)
+    judge_evidence = _judge_evidence(record, log_tail, handoff_evidence)
+    status_info = _refactor_status(
+        record,
+        latest_line,
+        pid_state,
+        log_tail=log_tail,
+        loop_evidence=loop_evidence,
+        planner_evidence=planner_evidence,
+        handoff_evidence=handoff_evidence,
+        judge_evidence=judge_evidence,
+    )
+    status = status_info["status"]
+    artifacts = _refactor_artifacts(
+        root,
+        record,
+        planner_evidence=planner_evidence,
+        handoff_evidence=handoff_evidence,
+        loop_evidence=loop_evidence,
+    )
     return {
         **record,
         "status": status,
         "status_label": _status_label(status),
+        "status_reason": status_info["reason"],
+        "status_source": status_info["source"],
         "pid_state": pid_state,
         "log_tail": log_tail,
         "latest_log_line": latest_line,
+        "loop_evidence": loop_evidence,
+        "planner_evidence": planner_evidence,
+        "handoff_evidence": handoff_evidence,
+        "judge_evidence": judge_evidence,
         "artifacts": artifacts,
-        "phases": _refactor_phases(record, status, artifacts, log_tail),
-        "next_safe_action": _next_safe_action(record, status),
+        "phases": _refactor_phases(
+            record,
+            status,
+            artifacts,
+            log_tail,
+            planner_evidence=planner_evidence,
+            handoff_evidence=handoff_evidence,
+            judge_evidence=judge_evidence,
+        ),
+        "next_safe_action": _next_safe_action(record, status, handoff_evidence, status_info["reason"]),
     }
 
 
@@ -337,6 +374,242 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return False
 
 
+def _record_loop_slug(record: dict[str, Any]) -> str | None:
+    raw = record.get("loop_slug")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    value = raw.strip()
+    return value if REFACTOR_LOOP_SLUG_RE.match(value) else None
+
+
+def _collect_loop_status_snapshot(root: Path, record: dict[str, Any]) -> dict[str, Any]:
+    slug = _record_loop_slug(record)
+    try:
+        module = _load_rehab_script(root, "rehab_loop_status.py")
+    except RefactorLoopError as exc:
+        return _loop_snapshot_unavailable(str(exc))
+    try:
+        raw = module.collect_status(root, slug=slug, runner=_run_loop_status_command)
+    except Exception as exc:  # pragma: no cover - defensive boundary for external script drift.
+        return _loop_snapshot_unavailable(str(exc))
+    return _normalize_loop_status_snapshot(raw)
+
+
+def _run_loop_status_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=REFACTOR_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(command, 124, exc.stdout or "", exc.stderr or "command timed out")
+    except OSError as exc:
+        return subprocess.CompletedProcess(command, 127, "", str(exc))
+
+
+def _loop_snapshot_unavailable(error: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "error": sanitize_log_line(error, max_chars=300),
+        "loop_status": _command_evidence(None),
+        "watch": _command_evidence(None),
+        "latest_scorecard": None,
+        "latest_handoff": None,
+    }
+
+
+def _normalize_loop_status_snapshot(raw: object) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return _loop_snapshot_unavailable("Loop status collector returned no object.")
+    return {
+        "available": True,
+        "error": sanitize_log_line(raw.get("error"), max_chars=300),
+        "loop_status": _command_evidence(raw.get("loop_status")),
+        "watch": _command_evidence(raw.get("watch")),
+        "latest_scorecard": _scorecard_evidence(raw.get("latest_scorecard")),
+        "latest_handoff": _collector_handoff_evidence(raw.get("latest_handoff")),
+    }
+
+
+def _command_evidence(raw: object) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {"returncode": None, "stdout": "", "stderr": ""}
+    return {
+        "returncode": raw.get("returncode"),
+        "stdout": _sanitize_multiline(raw.get("stdout"), line_limit=50, max_chars=360),
+        "stderr": _sanitize_multiline(raw.get("stderr"), line_limit=20, max_chars=360),
+    }
+
+
+def _scorecard_evidence(raw: object) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+    deltas = data.get("deltas") if isinstance(data.get("deltas"), dict) else {}
+    return {
+        "path": raw.get("path"),
+        "verdict": data.get("verdict"),
+        "generated_at": data.get("generated_at"),
+        "nodes": metrics.get("nodes") or metrics.get("graph_json_nodes"),
+        "edges": metrics.get("edges") or metrics.get("graph_json_edges"),
+        "communities": metrics.get("communities"),
+        "deltas": deltas,
+    }
+
+
+def _collector_handoff_evidence(raw: object) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    return {
+        "path": raw.get("path"),
+        "tail": _sanitize_text_tail(raw.get("tail"), limit=REFACTOR_TEXT_TAIL_LINES),
+    }
+
+
+def _sanitize_multiline(value: object, *, line_limit: int, max_chars: int) -> str:
+    lines = _sanitize_text_tail(value, limit=line_limit, max_chars=max_chars)
+    return "\n".join(lines)
+
+
+def _sanitize_text_tail(
+    value: object,
+    *,
+    limit: int = REFACTOR_TEXT_TAIL_LINES,
+    max_chars: int = 360,
+) -> list[str]:
+    if value is None:
+        return []
+    text = value if isinstance(value, str) else str(value)
+    lines = [sanitize_log_line(line, max_chars=max_chars) for line in text.splitlines()]
+    visible = [line for line in lines if line]
+    return visible[-limit:]
+
+
+def _read_text_tail(path: Path | None, *, limit: int = REFACTOR_TEXT_TAIL_LINES) -> list[str]:
+    if path is None or not path.exists() or not path.is_file():
+        return []
+    try:
+        return _sanitize_text_tail(path.read_text(encoding="utf-8", errors="replace"), limit=limit)
+    except OSError:
+        return []
+
+
+def _hermes_sessions_dir() -> Path:
+    hermes_home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).expanduser()
+    return hermes_home / "sessions"
+
+
+def _latest_hermes_artifact(slug: str | None, patterns: list[str]) -> Path | None:
+    if not slug:
+        return None
+    sessions = _hermes_sessions_dir()
+    if not sessions.exists():
+        return None
+    candidates: list[Path] = []
+    for pattern in patterns:
+        candidates.extend(path for path in sessions.glob(pattern) if path.is_file())
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda path: (path.stat().st_mtime, path.name))[-1]
+
+
+def _planner_evidence(record: dict[str, Any]) -> dict[str, Any]:
+    slug = _record_loop_slug(record)
+    path = _latest_hermes_artifact(slug, [f"worker-plan-{slug}-*.md"] if slug else [])
+    return _text_artifact_evidence(path, "planner", extra={"profile": _string_or_none(record.get("planner_profile"))})
+
+
+def _handoff_evidence(record: dict[str, Any], loop_evidence: dict[str, Any]) -> dict[str, Any]:
+    slug = _record_loop_slug(record)
+    path = _latest_hermes_artifact(slug, [f"handoff-*{slug}*.md"] if slug else [])
+    evidence = _text_artifact_evidence(path, "handoff")
+    if not evidence["exists"] and isinstance(loop_evidence.get("latest_handoff"), dict):
+        latest = loop_evidence["latest_handoff"]
+        evidence = {
+            "kind": "handoff",
+            "exists": bool(latest.get("tail")),
+            "path": latest.get("path"),
+            "tail": latest.get("tail") if isinstance(latest.get("tail"), list) else [],
+        }
+    sections = _markdown_sections(evidence.get("tail") if isinstance(evidence.get("tail"), list) else [])
+    evidence.update(
+        {
+            "blocker": _section_first_line(sections, "blockers / decisions"),
+            "error": _section_first_line(sections, "errors"),
+            "next_action": _section_first_line(sections, "next action"),
+            "summary": _section_first_line(sections, "summary"),
+        }
+    )
+    return evidence
+
+
+def _text_artifact_evidence(path: Path | None, kind: str, *, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    evidence: dict[str, Any] = {
+        "kind": kind,
+        "exists": bool(path and path.exists()),
+        "path": path.as_posix() if path else None,
+        "tail": _read_text_tail(path),
+    }
+    if extra:
+        evidence.update(extra)
+    return evidence
+
+
+def _markdown_sections(lines: list[str]) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in lines:
+        if line.startswith("## "):
+            current = line[3:].strip().lower()
+            sections.setdefault(current, [])
+            continue
+        if current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def _section_first_line(sections: dict[str, list[str]], name: str) -> str | None:
+    for line in sections.get(name, []):
+        value = line.strip().removeprefix("-").strip()
+        if _meaningful_text(value):
+            return value
+    return None
+
+
+def _meaningful_text(value: str | None) -> bool:
+    if not value:
+        return False
+    lowered = value.strip().lower()
+    return lowered not in {"none", "(none)", "(none yet)", "n/a", "not applicable"}
+
+
+def _judge_evidence(
+    record: dict[str, Any],
+    log_tail: list[str],
+    handoff_evidence: dict[str, Any],
+) -> dict[str, Any]:
+    judge_line = ""
+    for line in reversed(log_tail):
+        if "judge:" in line.lower() or "judge feedback" in line.lower():
+            judge_line = line
+            break
+    blocker = _string_or_none(handoff_evidence.get("blocker"))
+    error = _string_or_none(handoff_evidence.get("error"))
+    reason = blocker or error or judge_line
+    return {
+        "profile": _string_or_none(record.get("judge_profile")),
+        "blocker": blocker,
+        "error": error,
+        "reason": reason,
+        "latest": judge_line,
+        "tail": handoff_evidence.get("tail") if isinstance(handoff_evidence.get("tail"), list) else [],
+    }
+
+
 def _read_log_tail(path: Path | None, *, limit: int = REFACTOR_LOG_TAIL_LINES) -> list[str]:
     if path is None or not path.exists() or not path.is_file():
         return []
@@ -367,21 +640,139 @@ def _pid_state(path: Path | None) -> str:
     return "running"
 
 
-def _refactor_status(record: dict[str, Any], latest_line: str, pid_state: str) -> str:
+def _refactor_status(
+    record: dict[str, Any],
+    latest_line: str,
+    pid_state: str,
+    *,
+    log_tail: list[str],
+    loop_evidence: dict[str, Any],
+    planner_evidence: dict[str, Any],
+    handoff_evidence: dict[str, Any],
+    judge_evidence: dict[str, Any],
+) -> dict[str, str]:
     if record.get("error"):
-        return "blocked"
+        return _status_info("blocked", "preflight", str(record.get("error")))
     if record.get("issue_count") == 0:
-        return "idle"
+        return _status_info("idle", "audit", "Graphify reported no refactor issues.")
     if not record.get("started"):
-        return "blocked"
+        return _status_info("blocked", "start", str(record.get("message") or "Refactor loop did not start."))
     if pid_state == "running":
-        return "running"
+        return _status_info("running", "pid", "PID file points to a running process.")
+
+    handoff_blocker = _string_or_none(handoff_evidence.get("blocker"))
+    handoff_error = _string_or_none(handoff_evidence.get("error"))
+    handoff_next = _string_or_none(handoff_evidence.get("next_action"))
+    slug = _record_loop_slug(record)
+    relevant_loop_line = _line_matching(_loop_stdout(loop_evidence), slug) if slug else None
+    combined_log = "\n".join(log_tail)
+    combined_text = "\n".join(
+        [
+            combined_log,
+            "\n".join(planner_evidence.get("tail") if isinstance(planner_evidence.get("tail"), list) else []),
+            "\n".join(handoff_evidence.get("tail") if isinstance(handoff_evidence.get("tail"), list) else []),
+            relevant_loop_line or "",
+        ]
+    )
+    lowered = combined_text.lower()
+
+    if _has_pause_marker(handoff_blocker) or _has_pause_marker(handoff_error) or _has_pause_marker(combined_log):
+        return _status_info("paused", "handoff" if handoff_blocker or handoff_error else "log", handoff_blocker or handoff_error or "Loop was paused or shut down.")
+
+    blocker_reason = handoff_blocker or handoff_error or _blocking_reason_from_text(combined_text)
+    if blocker_reason:
+        source = "handoff" if handoff_blocker or handoff_error else "log"
+        return _status_info("blocked", source, blocker_reason)
+
     line = latest_line.lower()
     if any(marker in line for marker in ("completed", "complete", "handoff", "next safe action")):
-        return "completed"
+        return _status_info("completed", "log", latest_line)
+    if handoff_next and any(marker in handoff_next.lower() for marker in ("no further", "complete", "review")):
+        return _status_info("completed", "handoff", handoff_next)
     if any(marker in line for marker in ("failed", "traceback", "error")):
-        return "failed"
-    return "unknown"
+        return _status_info("failed", "log", latest_line)
+
+    loop_state = _status_from_loop_evidence(loop_evidence, slug)
+    if loop_state:
+        return loop_state
+    if "completed" in lowered and "handoff" in lowered:
+        return _status_info("completed", "handoff", "Handoff evidence indicates completion.")
+    return _status_info("unknown", "projection", "No reliable terminal status marker was found.")
+
+
+def _status_info(status: str, source: str, reason: str) -> dict[str, str]:
+    return {
+        "status": status,
+        "source": source,
+        "reason": sanitize_log_line(reason, max_chars=360) or _status_label(status),
+    }
+
+
+def _loop_stdout(loop_evidence: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("loop_status", "watch"):
+        value = loop_evidence.get(key)
+        if isinstance(value, dict):
+            parts.extend(str(value.get(field) or "") for field in ("stdout", "stderr"))
+    return "\n".join(parts)
+
+
+def _has_pause_marker(value: str | None) -> bool:
+    if not value:
+        return False
+    lowered = value.lower()
+    return any(marker in lowered for marker in ("shutdown", "resume:", "paused", "interrupted"))
+
+
+def _blocking_reason_from_text(text: str) -> str | None:
+    for line in _sanitize_text_tail(text, limit=120):
+        lowered = line.lower()
+        if any(
+            marker in lowered
+            for marker in (
+                "no worker plan",
+                "provider error",
+                "traceback",
+                "blocked",
+                "failed",
+                "returned no",
+                "error:",
+            )
+        ):
+            return line
+        if "judge:" in lowered and '"blocked": true' in lowered:
+            return line
+    return None
+
+
+def _status_from_loop_evidence(loop_evidence: dict[str, Any], slug: str | None) -> dict[str, str] | None:
+    text = _loop_stdout(loop_evidence)
+    if not text:
+        return None
+    lowered = text.lower()
+    if "no loop found" in lowered and not any(marker in lowered for marker in ("running", "stopped")):
+        return None
+    if slug:
+        line = _line_matching(text, slug)
+        if line:
+            line_lower = line.lower()
+            if any(marker in line_lower for marker in ("running", "active")):
+                return _status_info("running", "loop_status", line)
+            if "stopped" in line_lower:
+                return _status_info("stopped_needs_review", "loop_status", line)
+    if any(marker in lowered for marker in ("running", "active")):
+        return _status_info("running", "loop_status", "Loop status reports an active run.")
+    if "stopped" in lowered:
+        return _status_info("stopped_needs_review", "loop_status", "Loop status reports a stopped run.")
+    return None
+
+
+def _line_matching(text: str, needle: str) -> str | None:
+    needle_lower = needle.lower()
+    for line in text.splitlines():
+        if needle_lower in line.lower():
+            return sanitize_log_line(line, max_chars=360)
+    return None
 
 
 def _status_label(status: str) -> str:
@@ -390,12 +781,21 @@ def _status_label(status: str) -> str:
         "completed": "Completed",
         "failed": "Failed",
         "idle": "Idle",
+        "paused": "Paused",
         "running": "Running",
+        "stopped_needs_review": "Stopped - Needs Review",
         "unknown": "Unknown",
     }.get(status, status.title())
 
 
-def _refactor_artifacts(root: Path, record: dict[str, Any]) -> list[dict[str, Any]]:
+def _refactor_artifacts(
+    root: Path,
+    record: dict[str, Any],
+    *,
+    planner_evidence: dict[str, Any],
+    handoff_evidence: dict[str, Any],
+    loop_evidence: dict[str, Any],
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for label, key, kind in (
         ("Goal file", "goal_file", "goal"),
@@ -414,6 +814,27 @@ def _refactor_artifacts(root: Path, record: dict[str, Any]) -> list[dict[str, An
                 "kind": kind,
                 "path": raw,
                 "exists": bool(path and path.exists()),
+            }
+        )
+    for label, evidence in (("Worker Plan", planner_evidence), ("Handoff Evidence", handoff_evidence)):
+        raw_path = evidence.get("path")
+        if isinstance(raw_path, str) and raw_path.strip():
+            rows.append(
+                {
+                    "label": label,
+                    "kind": str(evidence.get("kind") or "artifact"),
+                    "path": raw_path,
+                    "exists": bool(evidence.get("exists")),
+                }
+            )
+    scorecard = loop_evidence.get("latest_scorecard")
+    if isinstance(scorecard, dict) and isinstance(scorecard.get("path"), str):
+        rows.append(
+            {
+                "label": "Latest scorecard",
+                "kind": "scorecard",
+                "path": scorecard["path"],
+                "exists": True,
             }
         )
     rows.extend(_discovered_architecture_artifacts(root, rows))
@@ -461,6 +882,10 @@ def _refactor_phases(
     status: str,
     artifacts: list[dict[str, Any]],
     log_tail: list[str],
+    *,
+    planner_evidence: dict[str, Any],
+    handoff_evidence: dict[str, Any],
+    judge_evidence: dict[str, Any],
 ) -> list[dict[str, str]]:
     artifact_kinds = {str(item.get("kind")) for item in artifacts if item.get("exists")}
     log_text = "\n".join(log_tail).lower()
@@ -468,10 +893,22 @@ def _refactor_phases(
         _phase("Graphify audit", "done" if record.get("audit") else "pending", "Graphify diagnostic captured."),
         _phase("Scorecard", "done" if "scorecard" in artifact_kinds else "pending", "Before scorecard is linked."),
         _phase("Goal file", "done" if "goal" in artifact_kinds else "pending", "Loop goal file is linked."),
-        _phase("Planner", _phase_state(bool(record.get("planner_profile")), "planner" in log_text), "Planner profile and plan evidence."),
+        _phase(
+            "Planner",
+            _phase_state(bool(record.get("planner_profile")), bool(planner_evidence.get("exists")) or "planner" in log_text),
+            "Planner profile and plan evidence.",
+        ),
         _phase("Worker", _phase_state(bool(record.get("profile") or record.get("worker")), "worker" in log_text), "Worker output evidence."),
-        _phase("Judge", _phase_state(bool(record.get("judge_profile")), "judge" in log_text), "Judge feedback evidence."),
-        _phase("Handoff", "done" if status == "completed" else "pending", "Handoff and next safe action."),
+        _phase(
+            "Judge",
+            _phase_state(bool(record.get("judge_profile")), bool(judge_evidence.get("reason")) or "judge" in log_text),
+            "Judge feedback evidence.",
+        ),
+        _phase(
+            "Handoff",
+            "done" if status == "completed" or handoff_evidence.get("exists") else "pending",
+            "Handoff and next safe action.",
+        ),
     ]
 
 
@@ -487,13 +924,25 @@ def _phase_state(configured: bool, seen_in_log: bool) -> str:
     return "pending"
 
 
-def _next_safe_action(record: dict[str, Any], status: str) -> str:
+def _next_safe_action(
+    record: dict[str, Any],
+    status: str,
+    handoff_evidence: dict[str, Any],
+    status_reason: str,
+) -> str:
+    handoff_next = _string_or_none(handoff_evidence.get("next_action"))
+    if handoff_next:
+        return handoff_next
     if status == "completed":
         return "Review the handoff, focused tests, and graph delta evidence before deciding the next slice."
     if status == "running":
         return "Let the refactor loop continue; inspect the log and judge feedback for blockers."
     if status == "idle":
         return "No refactor loop is needed until Graphify reports issues."
+    if status == "paused":
+        return status_reason or "Resume or close the paused loop after inspecting the handoff."
+    if status == "stopped_needs_review":
+        return status_reason or "Inspect the stopped loop handoff and decide whether to resume, retry, or close."
     if status == "blocked":
         return str(record.get("message") or record.get("error") or "Fix the blocked preflight or audit result, then retry.")
     return "Refresh the work view and inspect the log path for the latest loop state."

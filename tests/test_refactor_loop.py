@@ -45,6 +45,14 @@ def _approval(worker: str = "codex55") -> dict[str, object]:
     }
 
 
+def _hermes_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "home"
+    sessions = home / ".hermes" / "sessions"
+    sessions.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", home.as_posix())
+    return sessions
+
+
 def test_refactor_loop_starts_with_exact_issue_count_and_selected_worker(tmp_path: Path) -> None:
     calls: dict[str, Any] = {}
     scorecard = tmp_path / ".devflow" / "architecture-rehab" / "scorecards" / "score.json"
@@ -152,6 +160,155 @@ def test_refactor_run_status_projects_profiles_artifacts_and_sanitized_log_tail(
         "Handoff",
     ]
     assert any(item["path"] == scorecard.as_posix() and item["exists"] for item in status["artifacts"])
+
+
+def test_refactor_run_status_projects_handoff_plan_and_paused_resume_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions = _hermes_sessions(tmp_path, monkeypatch)
+    slug = "graphify-rehab-loop"
+    (sessions / f"worker-plan-{slug}-iter-1.md").write_text(
+        "# Worker Plan\n\nCurrent Small Fix: keep one safe architecture slice.\n",
+        encoding="utf-8",
+    )
+    (sessions / f"handoff-{slug}.md").write_text(
+        "## Blockers / Decisions\nShutdown by signal.\n\n"
+        "## Next Action\nResume: loop resume graphify-rehab-loop\n",
+        encoding="utf-8",
+    )
+    log_path = tmp_path / ".devflow" / "architecture-rehab" / "logs" / "loop.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("Shutdown requested during session\nLoop ended\n", encoding="utf-8")
+    result = persist_refactor_run_result(
+        tmp_path,
+        {
+            "started": True,
+            "issue_count": 2,
+            "worker": "codex55",
+            "profile": "dfcodex55",
+            "planner_profile": "dfcodex55",
+            "judge_profile": "dfcodex55",
+            "loop_slug": slug,
+            "loop_log": log_path.as_posix(),
+        },
+    )
+
+    status = load_refactor_run_status(tmp_path, run_id=result["run_id"])
+
+    assert status["status"] == "paused"
+    assert status["status_source"] == "handoff"
+    assert "Shutdown by signal" in status["status_reason"]
+    assert status["planner_evidence"]["path"].endswith(f"worker-plan-{slug}-iter-1.md")
+    assert "Current Small Fix" in "\n".join(status["planner_evidence"]["tail"])
+    assert status["handoff_evidence"]["next_action"] == "Resume: loop resume graphify-rehab-loop"
+    artifact_kinds = {item["kind"] for item in status["artifacts"]}
+    assert {"planner", "handoff"} <= artifact_kinds
+
+
+def test_refactor_run_status_blocks_on_planner_failure_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions = _hermes_sessions(tmp_path, monkeypatch)
+    slug = "planner-blocked-loop"
+    (sessions / f"handoff-{slug}.md").write_text(
+        "## Blockers / Decisions\nplanner profile dfcodex55 returned no worker plan\n\n"
+        "## Errors\nplanner profile dfcodex55 returned no worker plan\n\n"
+        "## Next Action\nFix planner/profile output; do not start worker without a plan.\n",
+        encoding="utf-8",
+    )
+    result = persist_refactor_run_result(
+        tmp_path,
+        {
+            "started": True,
+            "issue_count": 1,
+            "worker": "codex55",
+            "profile": "dfcodex55",
+            "planner_profile": "dfcodex55",
+            "judge_profile": "dfcodex55",
+            "loop_slug": slug,
+        },
+    )
+
+    status = load_refactor_run_status(tmp_path, run_id=result["run_id"])
+
+    assert status["status"] == "blocked"
+    assert status["status_source"] == "handoff"
+    assert "no worker plan" in status["status_reason"]
+    assert status["judge_evidence"]["blocker"] == "planner profile dfcodex55 returned no worker plan"
+    assert status["next_safe_action"] == "Fix planner/profile output; do not start worker without a plan."
+
+
+def test_refactor_run_status_uses_loop_status_for_stopped_needs_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slug = "needs-review-loop"
+    monkeypatch.setattr(
+        "devflow.control_room.refactor_loop._collect_loop_status_snapshot",
+        lambda root, record: {
+            "loop_status": {
+                "returncode": 0,
+                "stdout": "SLUG ITER STATUS NEXT ACTION\nneeds-review-loop 1 stopped Inspect the latest handoff",
+                "stderr": "",
+            },
+            "watch": {"returncode": 0, "stdout": "needs-review-loop stopped", "stderr": ""},
+        },
+        raising=False,
+    )
+    result = persist_refactor_run_result(
+        tmp_path,
+        {
+            "started": True,
+            "issue_count": 1,
+            "worker": "local-fast",
+            "profile": "dflocalfast",
+            "loop_slug": slug,
+        },
+    )
+
+    status = load_refactor_run_status(tmp_path, run_id=result["run_id"])
+
+    assert status["status"] == "stopped_needs_review"
+    assert status["status_source"] == "loop_status"
+    assert "Inspect the latest handoff" in status["status_reason"]
+    assert "needs-review-loop" in status["loop_evidence"]["loop_status"]["stdout"]
+
+
+def test_refactor_run_status_keeps_completed_when_watch_has_no_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slug = "completed-loop"
+    monkeypatch.setattr(
+        "devflow.control_room.refactor_loop._collect_loop_status_snapshot",
+        lambda root, record: {
+            "loop_status": {
+                "returncode": 0,
+                "stdout": "SLUG ITER STATUS NEXT ACTION\nother-loop 1 stopped Resolve the worker/provider error shown",
+                "stderr": "",
+            },
+            "watch": {"returncode": 0, "stdout": "No loop found matching 'completed-loop'", "stderr": ""},
+        },
+        raising=False,
+    )
+    log_path = tmp_path / ".devflow" / "architecture-rehab" / "logs" / "loop.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("Worker output\nCompleted handoff with next safe action\n", encoding="utf-8")
+    result = persist_refactor_run_result(
+        tmp_path,
+        {
+            "started": True,
+            "issue_count": 1,
+            "worker": "codex55",
+            "profile": "dfcodex55",
+            "loop_slug": slug,
+            "loop_log": log_path.as_posix(),
+        },
+    )
+
+    status = load_refactor_run_status(tmp_path, run_id=result["run_id"])
+
+    assert status["status"] == "completed"
+    assert status["status_source"] == "log"
+    assert "No loop found" in status["loop_evidence"]["watch"]["stdout"]
 
 
 def test_refactor_run_status_rejects_invalid_run_id(tmp_path: Path) -> None:
@@ -298,6 +455,11 @@ def test_operating_layer_refactor_status_endpoint_reads_persisted_run(
         assert payload["run_id"] == result["run_id"]
         assert payload["status"] == "completed"
         assert payload["log_tail"][-1] == "Completed handoff"
+        assert payload["status_reason"]
+        assert "loop_evidence" in payload
+        assert "planner_evidence" in payload
+        assert "handoff_evidence" in payload
+        assert "judge_evidence" in payload
 
         conn = HTTPConnection(host, port, timeout=5)
         conn.request("GET", "/api/refactor/status?run_id=../secret")
@@ -320,6 +482,10 @@ def test_operating_layer_refactor_ui_has_worker_selector_and_endpoint() -> None:
     assert "renderRefactorWorkView" in APP_JS
     assert "data-refactor-tab" in APP_JS
     assert "Rationale" in APP_JS
+    assert "Status reason" in APP_JS
+    assert "Worker Plan" in APP_JS
+    assert "Loop Status" in APP_JS
+    assert "Handoff Evidence" in APP_JS
     assert "Worker thinking" not in APP_JS
     assert "REFACTOR_APPROVAL_ACTION" in APP_JS
     assert "setupRefactorLoop();" in APP_JS

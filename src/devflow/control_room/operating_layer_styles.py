@@ -3043,6 +3043,11 @@ summary:focus-visible {
 .refactor-evidence-card.warn { border-left-color: var(--orange); }
 .refactor-evidence-card.muted { border-left-color: var(--text-muted); }
 .refactor-evidence-card strong { color: var(--text); font-size: 12px; }
+.refactor-evidence-card code {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
 .refactor-evidence-card span,
 .refactor-panel-note,
 .refactor-empty {
