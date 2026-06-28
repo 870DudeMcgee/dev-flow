@@ -637,43 +637,34 @@ def _handle_promotion_candidate(
     *,
     allow_promote: bool,
 ) -> tuple[_StopSignal, LoopPromotionPreviewResult | None, LoopPromotionResult | None]:
+    loop_config_action = f"Edit {loop_config_path(root, definition.loop_id)}"
+    preview_action = f"devflow task promote-preview {candidate.task_id}"
+
+    def blocked(
+        reason: str,
+        next_safe_action: str,
+        preview_result: LoopPromotionPreviewResult | None = None,
+        promotion_result: LoopPromotionResult | None = None,
+    ) -> tuple[_StopSignal, LoopPromotionPreviewResult | None, LoopPromotionResult | None]:
+        return _signal("promotion_blocked", reason, next_safe_action), preview_result, promotion_result
+
     if "promotion_preview" not in definition.actions or "promote" not in definition.actions:
-        return (
-            _signal("promotion_blocked", "promotion_action_not_enabled", f"Edit {loop_config_path(root, definition.loop_id)}"),
-            None,
-            None,
-        )
+        return blocked("promotion_action_not_enabled", loop_config_action)
     if not definition.policy.allow_promotion:
-        return (
-            _signal("promotion_blocked", "promotion_not_allowed_by_loop_config", f"Edit {loop_config_path(root, definition.loop_id)}"),
-            None,
-            None,
-        )
+        return blocked("promotion_not_allowed_by_loop_config", loop_config_action)
     if not allow_promote:
-        return (
-            _signal("promotion_blocked", "allow_promote_flag_required", f"devflow loop run {definition.loop_id} --allow-promote"),
-            None,
-            None,
-        )
+        return blocked("allow_promote_flag_required", f"devflow loop run {definition.loop_id} --allow-promote")
     if not candidate.promotion_allowed:
-        return (
-            _signal("promotion_blocked", "task_promotion_not_allowed", f"devflow task promote-preview {candidate.task_id}"),
-            None,
-            None,
-        )
+        return blocked("task_promotion_not_allowed", preview_action)
     if candidate.high_risk and not definition.policy.allow_high_risk:
-        return (
-            _signal("promotion_blocked", "high_risk_promotion_blocked", f"devflow task promote-preview {candidate.task_id}"),
-            None,
-            None,
-        )
+        return blocked("high_risk_promotion_blocked", preview_action)
 
     try:
         preview = preview_task_promotion(root, candidate.task_id)
     except Exception as exc:
         preview_result = LoopPromotionPreviewResult(task_id=candidate.task_id, status="failed", reason=str(exc))
         return (
-            _signal("promotion_preview_failed", "promotion_preview_failed", f"devflow task promote-preview {candidate.task_id}"),
+            _signal("promotion_preview_failed", "promotion_preview_failed", preview_action),
             preview_result,
             None,
         )
@@ -689,17 +680,14 @@ def _handle_promotion_candidate(
     if refusal:
         preview_result.status = "blocked"
         preview_result.reason = refusal
-        return (
-            _signal("promotion_blocked", refusal, f"devflow task promote-preview {candidate.task_id}"),
-            preview_result,
-            None,
-        )
+        return blocked(refusal, preview_action, preview_result)
 
     try:
         promote_task(root, candidate.task_id)
     except Exception as exc:
-        return (
-            _signal("promotion_blocked", "promotion_failed", f"devflow task promote-preview {candidate.task_id}"),
+        return blocked(
+            "promotion_failed",
+            preview_action,
             preview_result,
             LoopPromotionResult(task_id=candidate.task_id, status="failed", reason=str(exc)),
         )

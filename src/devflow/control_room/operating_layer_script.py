@@ -1744,7 +1744,7 @@ function renderWorkerLanes(input) {
   const count = $('active-work-count');
   if (count) count.textContent = (presentation.active_task_count ?? all.length) + ' active / ' + totalCount + ' total';
   if (all.length === 0) {
-    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">No active tasks — all ' + totalCount + ' tasks are closed</div>';
+    container.innerHTML = '<div class="empty-panel-note">No active tasks — all ' + totalCount + ' tasks are closed</div>';
     return;
   }
   container.innerHTML = all.map(item => {
@@ -1828,7 +1828,7 @@ function renderEvidenceStream(evidence, tasks) {
   const count = $('evidence-stream-count');
   if (count) count.textContent = items.length + ' items';
   if (items.length === 0) {
-    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:12px;">No evidence yet</div>';
+    container.innerHTML = '<div class="empty-panel-note">No evidence yet</div>';
     return;
   }
   container.innerHTML = items.slice(0, 20).map(item => {
@@ -1872,7 +1872,7 @@ function renderMissionFeed(feedItems) {
   const count = $('mission-feed-count');
   if (count) count.textContent = String(items.length);
   if (items.length === 0) {
-    container.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;">No recent activity</div>';
+    container.innerHTML = '<div class="empty-panel-note">No recent activity</div>';
     return;
   }
   container.innerHTML = items.slice(0, 20).map(item => {

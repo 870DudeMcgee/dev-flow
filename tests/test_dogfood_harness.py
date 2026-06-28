@@ -275,6 +275,8 @@ def test_run_creates_artifacts_scorecard_and_report(tmp_path: Path) -> None:
     assert result["scorecard"]["total_score"] >= 82
     assert result["scorecard"]["threshold_result"]["silver_met"] is True
     assert result["scorecard"]["threshold_result"]["no_category_below_70"] is True
+    assert "git_baseline" in result["run"]
+    assert "git_baseline" not in result["scorecard"]
     assert len(result["run"]["cases_run"]) == 19
     assert list_tasks(tmp_path) == []
 

@@ -287,7 +287,7 @@ def _artifact_path(path: str | Path, *, root: Path | None = None) -> str:
 def build_dogfood_scorecard(
     run_id: str,
     suite: str,
-    baseline: dict[str, Any],
+    _baseline: dict[str, Any],
     requested: list[str],
     results: list[dict[str, Any]],
     duration: float,
@@ -327,7 +327,6 @@ def build_dogfood_scorecard(
         "run_id": run_id,
         "suite": suite,
         "created_at": utc_now().isoformat(),
-        "git_baseline": baseline,
         "total_score": total,
         "max_score": max_score,
         "category_scores": category_scores,

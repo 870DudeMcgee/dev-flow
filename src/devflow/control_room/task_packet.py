@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 from typing import Any
 import yaml
@@ -32,6 +32,26 @@ DOCS_POLISH_ANTI_PLACEHOLDER_INSTRUCTION = (
 MAX_INCLUDED_SOURCE_CHARS = 64_000
 MAX_OUT_OF_SCOPE_CHARS = 32_000
 MAX_TOTAL_INCLUDED_SOURCE_CHARS = 200_000
+_EXCLUDED_GENERATED_NAME_FRAGMENTS = {
+    "raw_output.md",
+    "run.json",
+    "proposal.patch",
+    "proposal.md",
+    "proposal.json",
+    "patch-review.md",
+    "patch-review.json",
+    "patch-dry-run.md",
+    "patch-dry-run.json",
+    "prompt.md",
+    "response.md",
+    "request.json",
+    "response.json",
+}
+_GOAL_LINK_OPERATOR_WARNINGS = [
+    "Do not load the entire repo by default.",
+    "Do not load archived context unless explicitly requested.",
+    "Promotion remains human-controlled.",
+]
 
 
 class TaskPacketLimits(BaseModel):
@@ -158,43 +178,16 @@ def load_context_pointers(goal_dir: Path, warnings: list[str]) -> dict[str, Any]
 
 def is_path_excluded(path_str: str) -> bool:
     normalized = path_str.replace("\\", "/").lower()
-    
-    # Exclude .devflow/workspaces/**
-    if ".devflow/workspaces/" in normalized:
-        return True
-        
-    # Exclude packet.json and packet.md
-    if "/packet.json" in normalized or normalized.endswith("packet.json") or "/packet.md" in normalized or normalized.endswith("packet.md"):
-        return True
-        
-    # Exclude local-model-runs/**
-    if "local-model-runs/" in normalized:
-        return True
-        
-    # Exclude logs/**
-    if "/logs/" in normalized or normalized.startswith("logs/"):
-        return True
-        
-    # Exclude generated proposal/review artifacts.
-    generated_names = {
-        "raw_output.md",
-        "run.json",
-        "proposal.patch",
-        "proposal.md",
-        "proposal.json",
-        "patch-review.md",
-        "patch-review.json",
-        "patch-dry-run.md",
-        "patch-dry-run.json",
-    }
-    if any(name in normalized for name in generated_names):
-        return True
-        
-    # Exclude prompt.md, response.md, request.json, response.json, run.json
-    if "prompt.md" in normalized or "response.md" in normalized or "request.json" in normalized or "response.json" in normalized:
-        return True
-        
-    return False
+    return (
+        ".devflow/workspaces/" in normalized
+        or "local-model-runs/" in normalized
+        or "/logs/" in normalized
+        or normalized.startswith("logs/")
+        or "/packet.json" in normalized
+        or "/packet.md" in normalized
+        or normalized.endswith(("packet.json", "packet.md"))
+        or any(name in normalized for name in _EXCLUDED_GENERATED_NAME_FRAGMENTS)
+    )
 
 
 def build_bounded_sources(
@@ -560,91 +553,8 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
         for p in _allowed_artifacts(repo_root, task_path)
     ]
 
-    goal_link_yaml = task_path / "goal-link.yaml"
-    goal_context = None
-    task_slice = None
-    context_budget = None
-    verification_policy = None
-    bounded_sources = None
-    parsed_op_warnings = []
-    operator_warnings = []
-    next_action = None
-
-    if goal_link_yaml.exists():
-        try:
-            link_data = yaml.safe_load(goal_link_yaml.read_text(encoding="utf-8")) or {}
-            goal_id = link_data.get("goal_id")
-            slice_id = link_data.get("slice_id")
-            goal_path_str = link_data.get("goal_path") or f".devflow/goals/{goal_id}"
-            goal_path = repo_root / goal_path_str
-            
-            goal_context = {
-                "linked": True,
-                "goal_id": goal_id,
-                "slice_id": slice_id,
-                "goal_path": goal_path_str,
-                "slice_source_path": link_data.get("slice_source_path") or f".devflow/goals/{goal_id}/task-slices.yaml",
-                "execution_mode": link_data.get("execution_mode") or "HITL",
-                "human_checkpoint_required": link_data.get("human_checkpoint_required") if link_data.get("human_checkpoint_required") is not None else True,
-                "checkpoint_reason": link_data.get("checkpoint_reason") or "",
-                "promotion_allowed": link_data.get("promotion_allowed") or False,
-                "risk": link_data.get("risk") or "medium"
-            }
-            
-            slice_data = load_slice_from_goal(goal_path, slice_id, parsed_op_warnings) or {}
-            task_slice = {
-                "title": slice_data.get("title") or task.title or "",
-                "summary": slice_data.get("summary") or "",
-                "acceptance_criteria": slice_data.get("acceptance_criteria") or [],
-                "required_artifacts": slice_data.get("required_artifacts") or [],
-                "shared_files": slice_data.get("shared_files") or [],
-                "blocked_by": slice_data.get("blocked_by") or [],
-                "blocks": slice_data.get("blocks") or [],
-                "parallel_safe": slice_data.get("parallel_safe") or False,
-                "workspace_isolation_required": slice_data.get("workspace_isolation_required") or False
-            }
-            
-            context_budget = load_context_pointers(goal_path, parsed_op_warnings)
-            
-            vp = slice_data.get("verification_policy") or {}
-            if isinstance(vp, str):
-                vp_dict = {"policy_type": vp}
-            elif isinstance(vp, dict):
-                vp_dict = vp
-            else:
-                vp_dict = {}
-            verification_policy = {
-                "test_first_required": vp_dict.get("test_first_required", True),
-                "red_green_required": vp_dict.get("red_green_required", True),
-                "required_evidence": vp_dict.get("required_evidence") or []
-            }
-            
-            bounded_sources = build_bounded_sources(
-                repo_root,
-                goal_path,
-                task_path,
-                context_budget,
-                parsed_op_warnings,
-                parsed_op_warnings
-            )
-            
-            operator_warnings = [
-                "Do not load the entire repo by default.",
-                "Do not load archived context unless explicitly requested.",
-                "Promotion remains human-controlled."
-            ] + parsed_op_warnings + (context_budget.get("warnings") or [])
-            
-            next_action = {
-                "label": "Review packet, then run task explicitly",
-                "command": f"devflow task run {task_id} --worker shell -- <command>"
-            }
-        except Exception as exc:
-            parsed_op_warnings.append(f"warning: failed to process goal link context: {exc}")
-            operator_warnings = [
-                "Do not load the entire repo by default.",
-                "Do not load archived context unless explicitly requested.",
-                "Promotion remains human-controlled."
-            ] + parsed_op_warnings
+    goal_link_fields = _goal_link_packet_fields(repo_root, task_path, task, task_id)
+    operator_warnings = goal_link_fields["operator_warnings"]
 
     try:
         from devflow.control_room.context_pack import build_context_pack
@@ -687,17 +597,101 @@ def build_task_packet(task_id: str, limits: TaskPacketLimits | None = None, *, r
             },
             truncation_notes=notes,
             schema_version=1,
-            goal_context=goal_context,
-            task_slice=task_slice,
-            context_budget=context_budget,
-            verification_policy=verification_policy,
-            bounded_sources=bounded_sources,
+            goal_context=goal_link_fields["goal_context"],
+            task_slice=goal_link_fields["task_slice"],
+            context_budget=goal_link_fields["context_budget"],
+            verification_policy=goal_link_fields["verification_policy"],
+            bounded_sources=goal_link_fields["bounded_sources"],
             code_map_excerpt=code_map_excerpt,
             operator_warnings=operator_warnings,
-            next_action=next_action,
+            next_action=goal_link_fields["next_action"],
             devmode_discipline=devmode_discipline_lines(repo_root),
         )
     )
+
+
+def _goal_link_packet_fields(repo_root: Path, task_path: Path, task: TaskRecord, task_id: str) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "goal_context": None,
+        "task_slice": None,
+        "context_budget": None,
+        "verification_policy": None,
+        "bounded_sources": None,
+        "operator_warnings": [],
+        "next_action": None,
+    }
+    goal_link_yaml = task_path / "goal-link.yaml"
+    if not goal_link_yaml.exists():
+        return fields
+
+    parsed_op_warnings: list[str] = []
+    try:
+        link_data = yaml.safe_load(goal_link_yaml.read_text(encoding="utf-8")) or {}
+        goal_id = link_data.get("goal_id")
+        slice_id = link_data.get("slice_id")
+        goal_path_str = link_data.get("goal_path") or f".devflow/goals/{goal_id}"
+        goal_path = repo_root / goal_path_str
+
+        fields["goal_context"] = {
+            "linked": True,
+            "goal_id": goal_id,
+            "slice_id": slice_id,
+            "goal_path": goal_path_str,
+            "slice_source_path": link_data.get("slice_source_path") or f".devflow/goals/{goal_id}/task-slices.yaml",
+            "execution_mode": link_data.get("execution_mode") or "HITL",
+            "human_checkpoint_required": link_data.get("human_checkpoint_required") if link_data.get("human_checkpoint_required") is not None else True,
+            "checkpoint_reason": link_data.get("checkpoint_reason") or "",
+            "promotion_allowed": link_data.get("promotion_allowed") or False,
+            "risk": link_data.get("risk") or "medium"
+        }
+
+        slice_data = load_slice_from_goal(goal_path, slice_id, parsed_op_warnings) or {}
+        fields["task_slice"] = {
+            "title": slice_data.get("title") or task.title or "",
+            "summary": slice_data.get("summary") or "",
+            "acceptance_criteria": slice_data.get("acceptance_criteria") or [],
+            "required_artifacts": slice_data.get("required_artifacts") or [],
+            "shared_files": slice_data.get("shared_files") or [],
+            "blocked_by": slice_data.get("blocked_by") or [],
+            "blocks": slice_data.get("blocks") or [],
+            "parallel_safe": slice_data.get("parallel_safe") or False,
+            "workspace_isolation_required": slice_data.get("workspace_isolation_required") or False
+        }
+
+        context_budget = load_context_pointers(goal_path, parsed_op_warnings)
+        fields["context_budget"] = context_budget
+
+        vp = slice_data.get("verification_policy") or {}
+        if isinstance(vp, str):
+            vp_dict = {"policy_type": vp}
+        elif isinstance(vp, dict):
+            vp_dict = vp
+        else:
+            vp_dict = {}
+        fields["verification_policy"] = {
+            "test_first_required": vp_dict.get("test_first_required", True),
+            "red_green_required": vp_dict.get("red_green_required", True),
+            "required_evidence": vp_dict.get("required_evidence") or []
+        }
+
+        fields["bounded_sources"] = build_bounded_sources(
+            repo_root,
+            goal_path,
+            task_path,
+            context_budget,
+            parsed_op_warnings,
+            parsed_op_warnings
+        )
+
+        fields["operator_warnings"] = _GOAL_LINK_OPERATOR_WARNINGS + parsed_op_warnings + (context_budget.get("warnings") or [])
+        fields["next_action"] = {
+            "label": "Review packet, then run task explicitly",
+            "command": f"devflow task run {task_id} --worker shell -- <command>"
+        }
+    except Exception as exc:
+        parsed_op_warnings.append(f"warning: failed to process goal link context: {exc}")
+        fields["operator_warnings"] = _GOAL_LINK_OPERATOR_WARNINGS + parsed_op_warnings
+    return fields
 
 
 def build_agent_packet(
@@ -1030,13 +1024,11 @@ def _normalize_to_posix(path_str: str) -> str:
 
     # Check for Windows path start (e.g. C:\... or similar) or backslashes
     if "\\" in path_str or (len(path_str) > 1 and path_str[1] == ":" and path_str[0].isalpha()):
-        from pathlib import PureWindowsPath
         pure = PureWindowsPath(path_str)
         parts = list(pure.parts)
         if parts and len(parts[0]) > 1 and parts[0][1] == ":" and parts[0][0].isalpha():
             parts[0] = "/"
         path_str = "/".join(parts)
-        import re
         path_str = re.sub(r'/+', '/', path_str)
     else:
         path_str = path_str.replace("\\", "/")
