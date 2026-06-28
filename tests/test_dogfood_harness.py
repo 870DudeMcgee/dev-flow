@@ -206,6 +206,59 @@ def test_case_result_recorder_commands_are_read_only_snapshots(tmp_path: Path) -
     assert finalized["commands_run"][0]["status"] == "passed"
 
 
+def test_case_result_recorder_records_task_mechanics(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "tiny-deterministic-docs-task")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    task = result.create_task("Dogfood helper task")
+    run = result.run_shell_task(
+        task.id,
+        ["/bin/sh", "-c", "printf helper > helper.txt"],
+        command_label="write helper fixture",
+        timeout_seconds=10,
+    )
+    verified = result.verify_task(
+        task.id,
+        ["/bin/sh", "-c", "test -s helper.txt"],
+        command_label="helper check",
+        timeout_seconds=10,
+    )
+    preview = result.preview_task_promotion(task.id)
+    finalized = result.finalize()
+
+    assert run.status == "complete"
+    assert verified.verification_status == "passed"
+    assert preview
+    assert finalized["commands_run"] == [
+        {
+            "command": "devflow task create 'Dogfood helper task'",
+            "status": "passed",
+            "exit_code": None,
+            "output": task.id,
+        },
+        {
+            "command": f"devflow task run {task.id} --worker shell -- write helper fixture",
+            "status": "passed",
+            "exit_code": None,
+            "output": None,
+        },
+        {
+            "command": f"devflow task verify {task.id} --shell helper check",
+            "status": "passed",
+            "exit_code": 0,
+            "output": None,
+        },
+        {
+            "command": f"devflow task promote-preview {task.id}",
+            "status": "ready",
+            "exit_code": None,
+            "output": None,
+        },
+    ]
+
+
 def test_recorded_scratch_repo_uses_case_result_recorder(tmp_path: Path) -> None:
     _init_dogfood_repo(tmp_path)
     case = next(item for item in production_readiness_cases() if item["id"] == "git-native-worker-lane-hardening")

@@ -261,8 +261,7 @@ def _case_tiny_docs(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Dogfood tiny docs task")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Dogfood tiny docs task")
 
     packet = build_task_packet(
         task.id,
@@ -275,21 +274,19 @@ def _case_tiny_docs(
     context_packet_size = case_result.set_context_packet_size(len(packet_json))
     case_result.record_command(f"devflow task packet {task.id}", status="passed", output=relative_path(root, packet_path))
 
-    run_shell_task(
-        root,
+    case_result.run_shell_task(
         task.id,
         ["/bin/sh", "-c", "mkdir -p docs && printf 'dogfood tiny docs note\n' > docs/dogfood-tiny-note.md"],
+        command_label="tiny docs write",
         timeout_seconds=10,
     )
-    case_result.record_command(f"devflow task run {task.id} --worker shell -- tiny docs write", status="passed")
 
-    verified = verify_task(
-        root,
+    verified = case_result.verify_task(
         task.id,
         ["/bin/sh", "-c", "test -s docs/dogfood-tiny-note.md"],
+        command_label="docs check",
         timeout_seconds=10,
     )
-    case_result.record_command(f"devflow task verify {task.id} --shell docs check", status=verified.verification_status)
 
     reloaded = get_task(root, task.id)
     sources = packet.bounded_sources or {}
@@ -1068,21 +1065,20 @@ def _case_failed_verification(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Dogfood failed verification recovery")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Dogfood failed verification recovery")
 
-    run_shell_task(root, task.id, ["/bin/sh", "-c", "printf actual > recovery.txt"], timeout_seconds=10)
-    case_result.record_command(f"devflow task run {task.id} --worker shell -- write recovery fixture", status="passed")
-
-    verified = verify_task(
-        root,
+    case_result.run_shell_task(
         task.id,
-        ["/bin/sh", "-c", 'test "$(cat recovery.txt)" = expected'],
+        ["/bin/sh", "-c", "printf actual > recovery.txt"],
+        command_label="write recovery fixture",
         timeout_seconds=10,
     )
-    case_result.record_command(f"devflow task verify {task.id} --shell failing check",
-        status=verified.verification_status,
-        exit_code=verified.verification_exit_code,
+
+    verified = case_result.verify_task(
+        task.id,
+        ["/bin/sh", "-c", 'test "$(cat recovery.txt)" = expected'],
+        command_label="failing check",
+        timeout_seconds=10,
     )
     readiness_errors = promotion_readiness_errors(verified, root / ".devflow" / "tasks" / task.id)
     case_result.write_json_artifact(case_dir / "artifacts" / "promotion-readiness-errors.json",
@@ -1145,12 +1141,19 @@ def _case_handoff_resume(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Dogfood handoff resume")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
-    run_shell_task(root, task.id, ["/bin/sh", "-c", "printf handoff > handoff.txt"], timeout_seconds=10)
-    case_result.record_command(f"devflow task run {task.id} --worker shell -- write handoff fixture", status="passed")
-    verified = verify_task(root, task.id, ["/bin/sh", "-c", "test -s handoff.txt"], timeout_seconds=10)
-    case_result.record_command(f"devflow task verify {task.id} --shell handoff check", status=verified.verification_status)
+    task = case_result.create_task("Dogfood handoff resume")
+    case_result.run_shell_task(
+        task.id,
+        ["/bin/sh", "-c", "printf handoff > handoff.txt"],
+        command_label="write handoff fixture",
+        timeout_seconds=10,
+    )
+    verified = case_result.verify_task(
+        task.id,
+        ["/bin/sh", "-c", "test -s handoff.txt"],
+        command_label="handoff check",
+        timeout_seconds=10,
+    )
 
     fresh = get_task(root, task.id)
     task_path = root / ".devflow" / "tasks" / task.id
@@ -1430,14 +1433,21 @@ def _case_operating_layer_visual_qa(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Dogfood operating layer visual QA")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Dogfood operating layer visual QA")
 
-    run_shell_task(root, task.id, ["/bin/sh", "-c", "printf visual > visual.txt"], timeout_seconds=10)
-    case_result.record_command(f"devflow task run {task.id} --worker shell -- write visual fixture", status="passed")
+    case_result.run_shell_task(
+        task.id,
+        ["/bin/sh", "-c", "printf visual > visual.txt"],
+        command_label="write visual fixture",
+        timeout_seconds=10,
+    )
 
-    verified = verify_task(root, task.id, ["/bin/sh", "-c", "test -s visual.txt"], timeout_seconds=10)
-    case_result.record_command(f"devflow task verify {task.id} --shell visual check", status=verified.verification_status)
+    verified = case_result.verify_task(
+        task.id,
+        ["/bin/sh", "-c", "test -s visual.txt"],
+        command_label="visual check",
+        timeout_seconds=10,
+    )
 
     plan = build_visual_qa_plan(root)
     result = write_visual_qa_image_fallbacks(root, update_baseline=True)

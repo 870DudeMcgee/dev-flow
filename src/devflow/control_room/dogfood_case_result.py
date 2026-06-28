@@ -81,6 +81,99 @@ class CaseResultRecorder:
         )
         return result
 
+    def create_task(
+        self,
+        title: str,
+        *,
+        root: Path | None = None,
+        git_worktree: bool = False,
+        worker_id: str = "shell",
+        definition_of_done: str | None = None,
+        command_suffix: str = "",
+    ) -> Any:
+        from devflow.control_room.service import create_task
+
+        target_root = self.root if root is None else root
+        task = create_task(
+            target_root,
+            title,
+            git_worktree=git_worktree,
+            worker_id=worker_id,
+            definition_of_done=definition_of_done,
+        )
+        option = " --git-worktree" if git_worktree else ""
+        self.record_command(
+            f"devflow task create{option} {title!r}{_command_suffix(command_suffix)}",
+            status="passed",
+            output=task.id,
+        )
+        return task
+
+    def run_shell_task(
+        self,
+        task_id: str,
+        command: list[str],
+        *,
+        root: Path | None = None,
+        command_label: str,
+        timeout_seconds: int = 60,
+        worker_adapter: str = "shell",
+        env: dict[str, str] | None = None,
+        command_suffix: str = "",
+    ) -> Any:
+        from devflow.control_room.service import run_shell_task
+
+        task = run_shell_task(
+            self.root if root is None else root,
+            task_id,
+            command,
+            timeout_seconds=timeout_seconds,
+            worker_adapter=worker_adapter,
+            env=env,
+        )
+        self.record_command(
+            f"devflow task run {task_id} --worker {worker_adapter} -- {command_label}{_command_suffix(command_suffix)}",
+            status="passed",
+        )
+        return task
+
+    def verify_task(
+        self,
+        task_id: str,
+        command: list[str],
+        *,
+        root: Path | None = None,
+        command_label: str,
+        timeout_seconds: int = 120,
+        command_suffix: str = "",
+    ) -> Any:
+        from devflow.control_room.service import verify_task
+
+        task = verify_task(self.root if root is None else root, task_id, command, timeout_seconds=timeout_seconds)
+        self.record_command(
+            f"devflow task verify {task_id} --shell {command_label}{_command_suffix(command_suffix)}",
+            status=task.verification_status,
+            exit_code=task.verification_exit_code,
+        )
+        return task
+
+    def preview_task_promotion(
+        self,
+        task_id: str,
+        *,
+        root: Path | None = None,
+        command_suffix: str = "",
+    ) -> dict[str, Any]:
+        from devflow.control_room.service import preview_task_promotion
+
+        preview = preview_task_promotion(self.root if root is None else root, task_id)
+        status = _promotion_preview_status(preview)
+        self.record_command(
+            f"devflow task promote-preview {task_id}{_command_suffix(command_suffix)}",
+            status=status,
+        )
+        return preview
+
     def record_warning(self, warning: str) -> None:
         record_warning(self.state, warning)
 
@@ -205,6 +298,18 @@ def record_command(
             "output": output,
         }
     )
+
+
+def _command_suffix(suffix: str) -> str:
+    return f" {suffix}" if suffix else ""
+
+
+def _promotion_preview_status(preview: dict[str, Any]) -> str:
+    status = preview.get("promotion_readiness") or preview.get("status")
+    git = preview.get("git")
+    if not status and isinstance(git, dict):
+        status = git.get("promotion_readiness")
+    return str(status or "ready")
 
 
 def record_artifact(state: dict[str, Any], path: str | Path, *, root: Path | None = None) -> str:

@@ -499,6 +499,20 @@ def test_builtin_manual_codex_worker_contract_is_available(tmp_path: Path, monke
     assert "<main_checkout>/**" in show_result.output
 
 
+def test_builtin_agent_profiles_live_in_builtins_module() -> None:
+    from devflow.control_room.agent_registry import _builtin_agents
+    from devflow.control_room.agent_registry_builtins import builtin_agents
+
+    agents = builtin_agents()
+    wrapped = _builtin_agents()
+
+    assert set(agents) == set(wrapped)
+    assert agents["devflow-manual-codex-worker"].adapter == "manual"
+    assert agents["devflow-shell-worker"].adapter == "shell"
+    assert agents["devflow-openai-worker"].enabled is False
+    assert agents is not wrapped
+
+
 def test_agent_packet_includes_manual_proof_contract_fields(tmp_path: Path) -> None:
     initialize_seed(tmp_path)
     task = create_task(tmp_path, "Manual proof packet task")

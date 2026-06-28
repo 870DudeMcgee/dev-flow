@@ -88,6 +88,15 @@ def test_missing_lifecycle_reads_as_missing_without_mutating(tmp_path: Path) -> 
     assert not lifecycle_path.exists()
 
 
+def test_goal_command_group_lives_in_control_room_command_module() -> None:
+    from devflow.control_room.goal_command import goal_app
+
+    cli_source = Path("src/devflow/cli.py").read_text(encoding="utf-8")
+
+    assert goal_app.info.help == "Manage goals and planning scaffolds"
+    assert "@goal_app.command" not in cli_source
+
+
 def test_goal_init_writes_active_lifecycle(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     brief = tmp_path / "brief.md"
