@@ -20,6 +20,7 @@ from devflow.control_room.dogfood_case_catalog import (
 from devflow.control_room.git_state import inspect_git_state
 from devflow.control_room.paths import relative_path
 from devflow.control_room.persistence import atomic_write_text, utc_now
+from devflow.control_room.worker_outcome import validate_worker_outcome_file
 
 SILVER_THRESHOLD = 82
 
@@ -67,6 +68,18 @@ class CaseResultRecorder:
 
     def write_summary_artifact(self, filename: str, summary: dict[str, Any]) -> Path:
         return write_case_summary_artifact(self.state, self.root, self.case_dir, filename, summary)
+
+    def record_worker_outcome_validation(self, outcome_path: Path, outcome: dict[str, Any]) -> dict[str, Any]:
+        self.write_json_artifact(outcome_path, outcome)
+        result = validate_worker_outcome_file(self.root, outcome_path)
+        self.record_artifact(result["output_path"])
+        self.record_command(
+            f"devflow worker validate-outcome {relative_path(self.root, outcome_path)}",
+            status=result["status"],
+            exit_code=0 if result["status"] == "passed" else 1,
+            output=result["output_path"],
+        )
+        return result
 
     def record_warning(self, warning: str) -> None:
         record_warning(self.state, warning)

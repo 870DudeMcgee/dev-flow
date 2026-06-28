@@ -130,6 +130,47 @@ def test_case_result_recorder_owns_recording_helpers(tmp_path: Path) -> None:
     assert finalized["cleanup_status"] == "marker_removed"
 
 
+def test_case_result_recorder_records_worker_outcome_validation(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "unsafe-worker-outcome")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+    outcome_path = case_dir / "artifacts" / "unsafe-outcome.json"
+    outcome = {
+        "schema_version": 1,
+        "task_id": "dogfood-test",
+        "worker": "fixture",
+        "source_kind": "manual_evidence",
+        "source_path": ".devflow/dogfood/runs/dogfood-test/cases/unsafe-worker-outcome/artifacts/unsafe-outcome.json",
+        "outcome": "completed",
+        "files_touched": [".git/config"],
+        "commands_run": [],
+        "tool_results": [{"status": "unsafe_path"}],
+        "verification_status": "not_run",
+        "retryable": False,
+        "human_review_required": False,
+        "notes": [],
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    validation = result.record_worker_outcome_validation(outcome_path, outcome)
+    finalized = result.finalize()
+
+    assert validation["status"] == "failed"
+    assert finalized["artifacts_created"] == [
+        ".devflow/dogfood/runs/dogfood-test/cases/unsafe-worker-outcome/artifacts/unsafe-outcome.json",
+        validation["output_path"],
+    ]
+    assert finalized["commands_run"] == [
+        {
+            "command": "devflow worker validate-outcome .devflow/dogfood/runs/dogfood-test/cases/unsafe-worker-outcome/artifacts/unsafe-outcome.json",
+            "status": "failed",
+            "exit_code": 1,
+            "output": validation["output_path"],
+        }
+    ]
+
+
 def test_case_result_recorder_sets_context_packet_size(tmp_path: Path) -> None:
     _init_dogfood_repo(tmp_path)
     case = next(item for item in production_readiness_cases() if item["id"] == "tiny-deterministic-docs-task")

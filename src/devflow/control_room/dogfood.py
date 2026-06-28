@@ -61,7 +61,7 @@ from devflow.control_room.supervisor_surface import build_control_room_status, b
 from devflow.control_room.task_closure import close_task
 from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packet, build_task_packet
 from devflow.control_room.worker_evidence import write_worker_evidence
-from devflow.control_room.worker_outcome import validate_worker_outcome, validate_worker_outcome_file
+from devflow.control_room.worker_outcome import validate_worker_outcome
 from devflow.control_room.dogfood_case_catalog import (
     CATEGORY_LABELS,
     CATEGORY_MAX,
@@ -359,15 +359,8 @@ def _case_unsafe_worker_outcome(
         human_review_required=False,
         notes=["intentionally invalid unsafe worker outcome"],
     )
-    case_result.write_json_artifact(outcome_path, outcome)
-    result = validate_worker_outcome_file(root, outcome_path)
-    case_result.record_artifact(result["output_path"])
+    result = case_result.record_worker_outcome_validation(outcome_path, outcome)
     shared["unsafe_validation_path"] = result["output_path"]
-    case_result.record_command(f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
-        status=result["status"],
-        exit_code=0 if result["status"] == "passed" else 1,
-        output=result["output_path"],
-    )
 
     errors_text = "\n".join(result["errors"])
     case_result.award("A_safety_git_discipline", 2, result["status"] == "failed", "unsafe outcome was rejected")
@@ -2138,14 +2131,7 @@ def _create_validation_failure(root: Path, run_id: str, case_dir: Path, case_res
         human_review_required=False,
         notes=["validation failure source for knowledge capture"],
     )
-    case_result.write_json_artifact(outcome_path, outcome)
-    validation = validate_worker_outcome_file(root, outcome_path)
-    case_result.record_artifact(validation["output_path"])
-    case_result.record_command(f"devflow worker validate-outcome {relative_path(root, outcome_path)}",
-        status=validation["status"],
-        exit_code=0 if validation["status"] == "passed" else 1,
-        output=validation["output_path"],
-    )
+    validation = case_result.record_worker_outcome_validation(outcome_path, outcome)
     return validation["output_path"]
 
 
