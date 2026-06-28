@@ -33,6 +33,10 @@ class CaseResultRecorder:
         self._scores: dict[str, int] = {}
         self._failures: list[str] = []
 
+    @property
+    def commands(self) -> tuple[dict[str, Any], ...]:
+        return tuple(dict(command) for command in self.state["commands_run"])
+
     def award(self, category: str, points: int, condition: bool, lesson: str) -> None:
         award_case_points(self.state, self._scores, self._failures, category, points, condition, lesson)
 
@@ -69,6 +73,10 @@ class CaseResultRecorder:
 
     def record_lesson(self, lesson: str) -> None:
         record_lesson(self.state, lesson)
+
+    def set_context_packet_size(self, size: int) -> int:
+        self.state["context_packet_size"] = size
+        return size
 
     def set_cleanup_status(self, status: str, *, warning: str | None = None) -> str:
         return set_cleanup_status(self.state, status, warning=warning)

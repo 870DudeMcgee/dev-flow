@@ -20,6 +20,7 @@ from devflow.control_room.dogfood_case_result import (
     write_case_json_artifact,
     write_case_text_artifact,
 )
+from devflow.control_room.dogfood_case_scratch import create_recorded_git_native_case_scratch_repo
 from devflow.control_room.persistence import list_tasks
 
 
@@ -127,6 +128,69 @@ def test_case_result_recorder_owns_recording_helpers(tmp_path: Path) -> None:
     assert finalized["warnings"] == ["fixture warning"]
     assert finalized["lessons"] == ["fixture lesson"]
     assert finalized["cleanup_status"] == "marker_removed"
+
+
+def test_case_result_recorder_sets_context_packet_size(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "tiny-deterministic-docs-task")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    result.set_context_packet_size(1234)
+    finalized = result.finalize()
+
+    assert finalized["context_packet_size"] == 1234
+
+
+def test_case_result_recorder_commands_are_read_only_snapshots(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "tiny-deterministic-docs-task")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    result.record_command("devflow dogfood fixture", status="passed")
+    commands = result.commands
+
+    assert commands == (
+        {
+            "command": "devflow dogfood fixture",
+            "status": "passed",
+            "exit_code": None,
+            "output": None,
+        },
+    )
+    commands[0]["status"] = "mutated"
+
+    finalized = result.finalize()
+    assert finalized["commands_run"][0]["status"] == "passed"
+
+
+def test_recorded_scratch_repo_uses_case_result_recorder(tmp_path: Path) -> None:
+    _init_dogfood_repo(tmp_path)
+    case = next(item for item in production_readiness_cases() if item["id"] == "git-native-worker-lane-hardening")
+    case_dir = tmp_path / ".devflow" / "dogfood" / "runs" / "dogfood-test" / "cases" / case["id"]
+
+    result = CaseResultRecorder(tmp_path, "dogfood-test", case, case_dir)
+    scratch = create_recorded_git_native_case_scratch_repo(
+        case_dir,
+        "scratch-repo",
+        case_result=result,
+        evidence_label="scratch",
+    )
+    finalized = result.finalize()
+
+    assert scratch == case_dir / "artifacts" / "scratch-repo"
+    assert finalized["artifacts_created"] == [
+        ".devflow/dogfood/runs/dogfood-test/cases/git-native-worker-lane-hardening/artifacts/scratch-repo"
+    ]
+    assert finalized["commands_run"] == [
+        {
+            "command": "git init scratch scratch dogfood repo",
+            "status": "passed",
+            "exit_code": None,
+            "output": ".devflow/dogfood/runs/dogfood-test/cases/git-native-worker-lane-hardening/artifacts/scratch-repo",
+        }
+    ]
 
 
 def test_case_schema_and_suite_totals() -> None:

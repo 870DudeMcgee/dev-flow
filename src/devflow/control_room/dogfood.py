@@ -258,7 +258,6 @@ def _case_tiny_docs(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Dogfood tiny docs task")
     case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -270,7 +269,7 @@ def _case_tiny_docs(
     packet_json = packet.model_dump_json(indent=2)
     packet_path = case_dir / "artifacts" / "task-packet.json"
     case_result.write_text_artifact(packet_path, packet_json + "\n")
-    state["context_packet_size"] = len(packet_json)
+    context_packet_size = case_result.set_context_packet_size(len(packet_json))
     case_result.record_command(f"devflow task packet {task.id}", status="passed", output=relative_path(root, packet_path))
 
     run_shell_task(
@@ -295,9 +294,9 @@ def _case_tiny_docs(
     source_count = len(source_items) if isinstance(source_items, list) else 0
 
     case_result.award("B_pipeline_correctness", 4, reloaded.status == "verified", "task reached verified state")
-    case_result.award("C_context_efficiency", 4, state["context_packet_size"] <= 50000, "task packet stayed bounded")
+    case_result.award("C_context_efficiency", 4, context_packet_size <= 50000, "task packet stayed bounded")
     case_result.award("C_context_efficiency", 3, source_count <= 12, "tiny task did not require whole-repo context")
-    case_result.award("G_performance_lightweight", 2, len(state["commands_run"]) <= 4, "docs-only case used a short command sequence")
+    case_result.award("G_performance_lightweight", 2, len(case_result.commands) <= 4, "docs-only case used a short command sequence")
 
     return case_result.finalize()
 
@@ -306,7 +305,6 @@ def _case_cli_help(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     task = create_task(root, "Dogfood CLI help bounded task")
     case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
 
@@ -341,7 +339,7 @@ def _case_cli_help(
     case_result.award(
         "G_performance_lightweight",
         2,
-        help_result.returncode == 0 and _commands_have_no_provider_calls(state["commands_run"]),
+        help_result.returncode == 0 and _commands_have_no_provider_calls(case_result.commands),
         "CLI help check avoided provider calls",
     )
     return case_result.finalize()
@@ -398,12 +396,10 @@ def _case_git_native_worker_lane(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "git-native-lane-repo",
-        state=state,
-        root=root,
+        case_result=case_result,
         evidence_label="Git-native",
     )
     first = create_task(scratch, "Dogfood Git lane one", git_worktree=True)
@@ -526,12 +522,10 @@ def _case_local_worker_lane(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "local-worker-lane-repo",
-        state=state,
-        root=root,
+        case_result=case_result,
         evidence_label="local-worker-lane",
     )
 
@@ -641,7 +635,7 @@ def _case_local_worker_lane(
     }
     case_result.write_summary_artifact("local-worker-lane-summary.json", summary)
 
-    commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
+    commands_text = " ".join(str(command["command"]).lower() for command in case_result.commands)
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "route")
     case_result.award(
         "A_safety_git_discipline",
@@ -681,7 +675,6 @@ def _case_registry_runtime_contract(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = case_dir / "artifacts" / "registry-runtime-contract-repo"
     scratch.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-b", "main"], cwd=scratch, check=True, capture_output=True, text=True, timeout=20)
@@ -809,7 +802,7 @@ agents:
     }
     case_result.write_summary_artifact("registry-runtime-contract-summary.json", summary)
 
-    commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
+    commands_text = " ".join(str(command["command"]).lower() for command in case_result.commands)
     forbidden_tokens = ("push-main", "promote", "verify", "route", "agent run")
     runtime_fields = {"execution_surface", "task_run_allowed", "agent_run_allowed", "packet_allowed", "refusal_reason", "next_command", "evidence_contract"}
     remote_refusal_matches_contract = (
@@ -857,12 +850,10 @@ def _case_model_audition_evidence(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "model-audition-repo",
-        state=state,
-        root=root,
+        case_result=case_result,
         evidence_label="model-audition",
     )
 
@@ -956,7 +947,7 @@ def _case_model_audition_evidence(
     }
     case_result.write_summary_artifact("model-audition-summary.json", summary)
 
-    commands_text = " ".join(str(command["command"]).lower() for command in state["commands_run"])
+    commands_text = " ".join(str(command["command"]).lower() for command in case_result.commands)
     forbidden_tokens = ("openai", "anthropic", "gemini", "push-main", "promote", "verify")
     case_result.award(
         "A_safety_git_discipline",
@@ -1265,12 +1256,10 @@ def _case_simple_scheduler_parallel_coordination(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "simple-scheduler-repo",
-        state=state,
-        root=root,
+        case_result=case_result,
         evidence_label="simple-scheduler",
     )
 
@@ -1367,7 +1356,7 @@ task_slices:
         and retry_after.verification_status == "failed"
         and retry_after.verification_command == "pytest tests/test_retry.py"
     )
-    commands_clean = _commands_have_no_provider_calls(state["commands_run"])
+    commands_clean = _commands_have_no_provider_calls(case_result.commands)
     counts = snapshot_after.counts
     case_result.award(
         "B_pipeline_correctness",
@@ -1403,9 +1392,8 @@ def _case_question_blocker_resume_loop(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
-        case_dir, "question-resume-repo", state=state, root=root, evidence_label="question-resume"
+        case_dir, "question-resume-repo", case_result=case_result, evidence_label="question-resume"
     )
 
     task = create_task(scratch, "Dogfood question blocker")
@@ -1456,7 +1444,7 @@ def _case_question_blocker_resume_loop(
         and (scratch / ".devflow" / "tasks" / task.id / "question-answers" / f"{answered.question_id}.json").exists()
     )
     events_text = (scratch / ".devflow" / "tasks" / task.id / "events.jsonl").read_text(encoding="utf-8")
-    commands_clean = _commands_have_no_provider_calls(state["commands_run"])
+    commands_clean = _commands_have_no_provider_calls(case_result.commands)
     case_result.award(
         "B_pipeline_correctness",
         2,
@@ -1492,9 +1480,8 @@ def _case_operator_readiness_reconciliation(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
-        case_dir, "operator-readiness-repo", state=state, root=root, evidence_label="operator-readiness"
+        case_dir, "operator-readiness-repo", case_result=case_result, evidence_label="operator-readiness"
     )
 
     project_dir = scratch / ".devflow" / "project"
@@ -1656,7 +1643,7 @@ def _case_operator_readiness_reconciliation(
         and warning.get("blocked_by") == "goal_lifecycle_missing"
         for warning in surfaces["status"]["warnings"]
     )
-    commands_clean = _commands_have_no_provider_calls(state["commands_run"])
+    commands_clean = _commands_have_no_provider_calls(case_result.commands)
 
     close_task(scratch, generated.id, outcome="evidence-only", reason="dogfood operator readiness evidence captured")
     close_task(scratch, descriptive.id, outcome="evidence-only", reason="dogfood operator readiness evidence captured")
@@ -1686,12 +1673,10 @@ def _case_intent_scaffold_approval_path(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    state = case_result.state
     scratch = _create_recorded_git_native_case_scratch_repo(
         case_dir,
         "intent-scaffold-repo",
-        state=state,
-        root=root,
+        case_result=case_result,
         evidence_label="intent-scaffold",
     )
 
@@ -1771,7 +1756,7 @@ def _case_intent_scaffold_approval_path(
     link = yaml.safe_load(link_path.read_text(encoding="utf-8")) if link_path.exists() else {}
     open_questions = yaml.safe_load(open_questions_path.read_text(encoding="utf-8")) if open_questions_path.exists() else {}
     slice_ids = [slice_.task_id for slice_ in slices]
-    commands_clean = _intent_scaffold_commands_avoid_execution(state["commands_run"])
+    commands_clean = _intent_scaffold_commands_avoid_execution(case_result.commands)
     commit_count_after = _git_commit_count(scratch)
     tracked_status = _git_short_status(scratch)
     no_execution = (
