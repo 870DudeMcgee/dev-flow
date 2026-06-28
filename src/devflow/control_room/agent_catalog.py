@@ -4,12 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from devflow.control_room.agent_catalog_hermes import (
-    DEVFLOW_HERMES_PROFILES,
-    configured_hermes_agents,
-)
+from devflow.control_room.agent_catalog_hermes import configured_hermes_agents
 from devflow.control_room.agent_catalog_local import (
-    LOCAL_ENDPOINT_TIMEOUT_SECONDS,
     _local_model_policy,
     _local_ollama_catalog,
     _local_openai_compatible_catalog,
