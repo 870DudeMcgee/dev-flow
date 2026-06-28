@@ -281,7 +281,7 @@ def _case_tiny_docs(
         timeout_seconds=10,
     )
 
-    verified = case_result.verify_task(
+    case_result.verify_task(
         task.id,
         ["/bin/sh", "-c", "test -s docs/dogfood-tiny-note.md"],
         command_label="docs check",
@@ -1148,7 +1148,7 @@ def _case_handoff_resume(
         command_label="write handoff fixture",
         timeout_seconds=10,
     )
-    verified = case_result.verify_task(
+    case_result.verify_task(
         task.id,
         ["/bin/sh", "-c", "test -s handoff.txt"],
         command_label="handoff check",
@@ -1442,7 +1442,7 @@ def _case_operating_layer_visual_qa(
         timeout_seconds=10,
     )
 
-    verified = case_result.verify_task(
+    case_result.verify_task(
         task.id,
         ["/bin/sh", "-c", "test -s visual.txt"],
         command_label="visual check",

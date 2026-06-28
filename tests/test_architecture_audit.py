@@ -17,6 +17,7 @@ from devflow.control_room.architecture_audit import (
     GraphMetrics,
     GraphifyStatus,
     HotspotRow,
+    _find_graphify,
     parse_graph_report_metrics,
     run_architecture_audit,
     scan_architecture_hotspots,
@@ -144,6 +145,15 @@ def test_install_failure_returns_useful_error_and_does_not_run_audit(tmp_path: P
     assert "Failed to install Graphify" in str(exc_info.value)
     assert "install failed" in str(exc_info.value)
     assert runner.commands == [[sys.executable, "-m", "pip", "install", GRAPHIFY_REQUIREMENT]]
+
+
+def test_find_graphify_checks_project_virtualenv_before_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    graphify_path = tmp_path / ".venv" / "bin" / "graphify"
+    graphify_path.parent.mkdir(parents=True)
+    graphify_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", "")
+
+    assert _find_graphify(tmp_path) == graphify_path
 
 
 def test_parse_graph_report_metrics_from_markdown_table() -> None:

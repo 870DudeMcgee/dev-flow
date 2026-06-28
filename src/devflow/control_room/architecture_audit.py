@@ -131,7 +131,6 @@ def run_architecture_audit(
 ) -> ArchitectureAuditResult:
     """Run the Dev-Flow architecture audit and optionally write the checkpoint doc."""
     root = root.resolve()
-    find_graphify = graphify_finder or _find_graphify
     run_command = command_runner or _run_command
 
     install_status = "not_requested"
@@ -140,15 +139,15 @@ def run_architecture_audit(
         if install_result.returncode != 0:
             detail = _command_failure_detail(install_result)
             raise ArchitectureAuditError(f"Failed to install Graphify with {GRAPHIFY_REQUIREMENT}. {detail}")
-        graphify_path = find_graphify()
+        graphify_path = _find_graphify_for_root(root, graphify_finder)
         if graphify_path is None:
             raise ArchitectureAuditError(
-                f"Installed {GRAPHIFY_REQUIREMENT}, but the 'graphify' executable was not found on PATH "
-                "or beside the active Python executable."
+                f"Installed {GRAPHIFY_REQUIREMENT}, but the 'graphify' executable was not found on PATH, "
+                "under the project virtualenv, or beside the active Python executable."
             )
         install_status = "installed"
     else:
-        graphify_path = find_graphify()
+        graphify_path = _find_graphify_for_root(root, graphify_finder)
         if graphify_path is None:
             raise ArchitectureAuditError(
                 "Graphify is not installed. Default audit mode is read-only and will not mutate the environment. "
@@ -345,10 +344,37 @@ def render_architecture_audit_lines(result: ArchitectureAuditResult) -> list[str
     return lines
 
 
-def _find_graphify() -> Path | None:
-    executable_dir = Path(sys.executable).resolve().parent
-    candidates = [executable_dir / "graphify", executable_dir / "graphify.exe"]
+def _find_graphify_for_root(root: Path, graphify_finder: GraphifyFinder | None) -> Path | None:
+    if graphify_finder is not None:
+        return graphify_finder()
+    return _find_graphify(root)
+
+
+def _find_graphify(root: Path | None = None) -> Path | None:
+    executable_path = Path(sys.executable)
+    executable_dirs = [executable_path.parent]
+    resolved_executable_dir = executable_path.resolve().parent
+    if resolved_executable_dir not in executable_dirs:
+        executable_dirs.append(resolved_executable_dir)
+
+    candidates: list[Path] = []
+    if root is not None:
+        candidates.extend(
+            [
+                root / ".venv" / "bin" / "graphify",
+                root / ".venv" / "Scripts" / "graphify.exe",
+                root / "venv" / "bin" / "graphify",
+                root / "venv" / "Scripts" / "graphify.exe",
+            ]
+        )
+    for executable_dir in executable_dirs:
+        candidates.extend([executable_dir / "graphify", executable_dir / "graphify.exe"])
+
+    seen: set[Path] = set()
     for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
         if candidate.exists():
             return candidate
     discovered = shutil.which("graphify")
