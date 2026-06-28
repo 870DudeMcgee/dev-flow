@@ -2,6 +2,35 @@
 
 The architectural review is rendered as a single self-contained HTML file in the OS temp directory. Tailwind and Mermaid both come from CDNs. Mermaid handles graph-shaped diagrams reliably; hand-built divs and inline SVG handle the more editorial visuals (mass diagrams, cross-sections). Mix the two — don't lean on Mermaid for everything, it'll start to look generic.
 
+## Required Visual Inspection
+
+Every generated Graphify or architecture-review HTML file must be opened as a
+rendered page before it is used for recommendations or completion claims.
+Reading the HTML source, `GRAPH_REPORT.md`, `graph.json`, or DOM text is not
+enough.
+
+This applies to `graphify-out/graph.html`, call-flow HTML, and temp review
+files such as `file:///private/tmp/architecture-review-20260627T155650Z.html`.
+
+Process:
+
+1. Open the rendered HTML in a browser. If the browser blocks `file://`, start a
+   local static server from the containing directory:
+
+   ```bash
+   python3 -m http.server <free-port> --bind 127.0.0.1
+   ```
+
+   Then browse the equivalent `http://127.0.0.1:<port>/<filename>` URL.
+2. Capture an overview screenshot showing the whole report or graph context.
+3. Capture focused screenshots for each hotspot, candidate, or before/after
+   diagram cited in the recommendation.
+4. Save screenshots under `.devflow/architecture-rehab/screenshots/` in the
+   reviewed repo, or under the controlling repo's `.devflow/` directory for
+   temp-file reviews.
+5. Cite screenshot paths in the handoff or recommendation. For improvement
+   work, keep before and after screenshots from the same view when practical.
+
 ## Scaffold
 
 ```html
