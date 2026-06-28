@@ -11,11 +11,11 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Metric | Value |
 |---|---:|
-| Nodes | 9,193 |
-| Edges | 21,740 |
-| Communities | 556 |
-| Extracted edges | 81% |
-| Inferred edges | 19% |
+| Nodes | 9,208 |
+| Edges | 21,682 |
+| Communities | 560 |
+| Extracted edges | 82% |
+| Inferred edges | 18% |
 | Ambiguous edges | 0% |
 
 ## Graphify Artifacts
@@ -34,29 +34,29 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Rank | Path | Lines | Definitions | Local imports | Boundary target |
 |---:|---|---:|---:|---:|---|
-| 1 | `src/devflow/cli.py` | 4,627 | 172 | 131 | yes |
+| 1 | `src/devflow/cli.py` | 3,599 | 145 | 107 | yes |
 | 2 | `tests/test_operating_layer.py` | 2,852 | 99 | 24 | no |
 | 3 | `src/devflow/control_room/operating_layer_script.py` | 3,907 | 0 | 0 | yes |
-| 4 | `src/devflow/control_room/dogfood.py` | 2,213 | 40 | 31 | yes |
-| 5 | `src/devflow/control_room/operating_layer.py` | 1,282 | 69 | 17 | yes |
-| 6 | `tests/test_operator_ui_browser.py` | 1,718 | 58 | 5 | no |
-| 7 | `src/devflow/control_room/operating_layer_styles.py` | 3,016 | 0 | 0 | yes |
-| 8 | `src/devflow/control_room/supervisor_surface.py` | 1,550 | 45 | 18 | yes |
-| 9 | `src/devflow/control_room/agent_registry.py` | 1,514 | 50 | 0 | yes |
-| 10 | `src/devflow/control_room/hyperplane_harness.py` | 1,228 | 55 | 5 | no |
+| 4 | `src/devflow/control_room/dogfood.py` | 2,198 | 40 | 31 | yes |
+| 5 | `tests/test_operator_ui_browser.py` | 1,718 | 58 | 5 | no |
+| 6 | `src/devflow/control_room/operating_layer_styles.py` | 3,016 | 0 | 0 | yes |
+| 7 | `src/devflow/control_room/agent_registry.py` | 1,514 | 50 | 0 | yes |
+| 8 | `src/devflow/control_room/hyperplane_harness.py` | 1,228 | 55 | 5 | no |
+| 9 | `tests/test_control_room_shell.py` | 1,549 | 33 | 8 | no |
+| 10 | `src/devflow/control_room/supervisor_surface.py` | 1,050 | 38 | 16 | yes |
 
 ## Recommended Cleanup Targets
 
 1. `src/devflow/cli.py`
 2. `src/devflow/control_room/operating_layer_script.py`
 3. `src/devflow/control_room/dogfood.py`
-4. `src/devflow/control_room/operating_layer.py`
-5. `src/devflow/control_room/operating_layer_styles.py`
+4. `src/devflow/control_room/operating_layer_styles.py`
+5. `src/devflow/control_room/agent_registry.py`
 6. `src/devflow/control_room/supervisor_surface.py`
-7. `src/devflow/control_room/agent_registry.py`
-8. `src/devflow/control_room/task_packet.py`
-9. `src/devflow/control_room/loop_engine.py`
-10. `src/devflow/control_room/operating_layer_server.py`
+7. `src/devflow/control_room/task_packet.py`
+8. `src/devflow/control_room/loop_engine.py`
+9. `src/devflow/control_room/operating_layer_server.py`
+10. `tests/test_operating_layer.py`
 
 ## Selection Rules
 

@@ -10,6 +10,7 @@ Tests exercise the CLI endpoint across all six safety classes:
 """
 from __future__ import annotations
 
+import importlib
 import json
 
 from typer.testing import CliRunner
@@ -26,6 +27,17 @@ from devflow.control_room.supervisor_surface import (
 )
 
 runner = CliRunner()
+
+
+def test_supervisor_policy_module_is_preferred_import_path() -> None:
+    policy_module = importlib.import_module("devflow.control_room.supervisor_policy")
+
+    command = "devflow task verify task-0001"
+    assert policy_module.classify_supervisor_command(command) == classify_supervisor_command(command)
+    assert json.loads(policy_module.render_supervisor_command_classification(command, json_output=True))[
+        "safety_class"
+    ] == APPROVAL_REQUIRED_WORKER_RUNTIME
+    assert policy_module.build_supervisor_policy()["policy_id"] == "devflow-supervisor-policy"
 
 
 def _json_output(result) -> dict:
