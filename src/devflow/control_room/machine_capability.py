@@ -155,4 +155,3 @@ def _numeric_params(model: dict[str, Any]) -> int | None:
             except ValueError:
                 continue
     return None
-

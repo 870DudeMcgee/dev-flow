@@ -797,4 +797,3 @@ def builtin_agents() -> dict[str, AgentDefinition]:
     )
 
     return agents
-
