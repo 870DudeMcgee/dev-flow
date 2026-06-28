@@ -264,6 +264,28 @@ INDEX_HTML = """<!doctype html>
             <div id="guided-action-result" class="guided-action-result" aria-live="polite"></div>
           </section>
 
+          <!-- Refactor Loop -->
+          <section id="refactor-section" class="panel refactor-section" aria-label="Refactor Loop">
+            <div class="panel-header">
+              <h2 class="panel-title">Refactor</h2>
+              <output id="refactor-status-badge" class="status-badge" aria-live="polite" aria-atomic="true">Idle</output>
+            </div>
+            <div class="bj-form-area">
+              <div class="bj-form-row">
+                <div class="bj-form-group">
+                  <label for="refactor-worker">Worker</label>
+                  <select id="refactor-worker">
+                    <option value="local-fast">local-fast</option>
+                    <option value="codex55">codex55</option>
+                  </select>
+                </div>
+                <button id="refactor-run-btn" class="btn btn-primary" type="button">Refactor</button>
+                <button id="refactor-view-work-btn" class="btn btn-secondary" type="button" disabled>View work</button>
+              </div>
+              <div id="refactor-result" class="refactor-result" aria-live="polite"></div>
+            </div>
+          </section>
+
           <!-- Builder-Judge Loop -->
           <section id="builder-judge-section" class="panel builder-judge-section" aria-label="Builder-Judge Loop">
             <div class="panel-header">

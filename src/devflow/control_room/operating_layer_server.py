@@ -44,6 +44,12 @@ from devflow.control_room.browser_action_policy import (
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
+from devflow.control_room.refactor_loop import (
+    RefactorLoopError,
+    load_refactor_run_status,
+    require_refactor_approval,
+    start_refactor_loop,
+)
 from devflow.control_room.supervisor_surface import classify_supervisor_command
 
 
@@ -115,6 +121,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             query = parse_qs(request.query)
             self._handle_builder_judge_status(query)
             return
+        if path == "/api/refactor/status":
+            query = parse_qs(request.query)
+            self._handle_refactor_status(query)
+            return
         if path == "/healthz":
             self._send_text(json.dumps({"status": "ok"}) + "\n", "application/json; charset=utf-8")
             return
@@ -139,6 +149,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         if request.path == "/api/builder-judge/quality-gate":
             self._handle_builder_judge_quality_gate()
+            return
+        if request.path == "/api/refactor/start":
+            self._handle_refactor_start()
             return
         if request.path == "/api/task/write-context":
             self._handle_task_write_context()
@@ -711,6 +724,36 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(result, HTTPStatus.OK)
 
+    def _handle_refactor_start(self) -> None:
+        try:
+            payload = self._read_json_body()
+            require_refactor_approval(payload)
+            root = self._payload_project_root(payload)
+            worker = str(payload["worker"])
+            result = start_refactor_loop(root, worker=worker)
+        except (RefactorLoopError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Refactor loop failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_refactor_status(self, query: dict[str, list[str]]) -> None:
+        try:
+            root = self._query_project_root(query)
+            run_id = (query.get("run_id") or [None])[0]
+            loop_slug = (query.get("loop_slug") or [None])[0]
+            payload = load_refactor_run_status(root, run_id=run_id, loop_slug=loop_slug)
+        except RefactorLoopError as exc:
+            status = HTTPStatus.NOT_FOUND if "not found" in str(exc) else HTTPStatus.BAD_REQUEST
+            self._send_json_error(str(exc), status)
+            return
+        except (ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(payload, HTTPStatus.OK)
+
     def _handle_task_write_context(self) -> None:
         """Write implementation context markdown into a task workspace."""
         try:
@@ -733,6 +776,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
 
     def _payload_project_root(self, payload: dict[str, object]) -> Path:
         project_id = payload.get("project")
+        root = self.server.repo_root
+        if isinstance(project_id, str) and project_id.strip():
+            root = resolve_project_root(self.server.repo_root, project_id.strip()).root
+        return root
+
+    def _query_project_root(self, query: dict[str, list[str]]) -> Path:
+        project_id = (query.get("project") or [None])[0]
         root = self.server.repo_root
         if isinstance(project_id, str) and project_id.strip():
             root = resolve_project_root(self.server.repo_root, project_id.strip()).root

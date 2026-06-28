@@ -10,7 +10,11 @@ let selectedTaskId = null;
 let availableAgents = [];
 let localModelInventory = {};
 let selectedProfileId = localStorage.getItem('devflow-brainstorm-profile') || null;
+let lastRefactorRunId = localStorage.getItem('devflow-refactor-run-id') || null;
+let refactorPollTimer = null;
+let refactorActiveTab = 'overview';
 const ACTION_APPROVAL_PHRASE = 'I approve this exact Dev-Flow command';
+const REFACTOR_APPROVAL_ACTION = 'refactor-loop-start';
 const BRAINSTORM_DOD_PREFIX = 'devflow-brainstorm-definition-of-done:';
 setActiveBrainstormSession(localStorage.getItem('devflow-brainstorm-session') || `browser-${Date.now().toString(36)}`);
 
@@ -3108,6 +3112,8 @@ function openFocus(type, id, opts) {
 function closeFocus() {
   const overlay = $('focus-overlay');
   if (overlay) overlay.hidden = true;
+  if (refactorPollTimer) clearTimeout(refactorPollTimer);
+  refactorPollTimer = null;
 }
 
 // === ACTION EXECUTION ===
@@ -3284,6 +3290,22 @@ function setupTaskSurfaceActions() {
   if (closeButton) closeButton.addEventListener('click', closeFocus);
 
   document.addEventListener('click', async (e) => {
+    const refactorTab = e.target.closest('[data-refactor-tab]');
+    if (refactorTab) {
+      e.preventDefault();
+      e.stopPropagation();
+      activateRefactorTab(refactorTab.dataset.refactorTab || 'overview');
+      return;
+    }
+
+    const refactorViewButton = e.target.closest('[data-refactor-view-work]');
+    if (refactorViewButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      openRefactorWork(refactorViewButton.dataset.refactorViewWork || lastRefactorRunId || '');
+      return;
+    }
+
     const genericCopyButton = e.target.closest('[data-copy-command]');
     if (genericCopyButton) {
       e.preventDefault();
@@ -3572,7 +3594,307 @@ function render() {
   renderLocalModelInventory(snapshot?.local_model_inventory || localModelInventory || {});
 }
 
-// === INIT ===
+// === REFACTOR LOOP ===
+function setRefactorStatus(text, cls) {
+  const badge = $('refactor-status-badge');
+  if (!badge) return;
+  badge.textContent = text;
+  badge.className = 'status-badge ' + (cls || 'online');
+}
+
+function refactorDisplayCommand(command) {
+  if (Array.isArray(command)) return command.join(' ');
+  return String(command || '');
+}
+
+function setRefactorViewButtonState(runId) {
+  const btn = $('refactor-view-work-btn');
+  if (!btn) return;
+  const id = runId || lastRefactorRunId || '';
+  btn.disabled = false;
+  btn.dataset.refactorRunId = id;
+}
+
+function renderRefactorResult(result, state) {
+  const target = $('refactor-result');
+  if (!target) return;
+  if (state === 'pending') {
+    target.innerHTML = '<div class="refactor-result-card warn"><strong>Running Graphify audit...</strong></div>';
+    return;
+  }
+  const error = result?.error || '';
+  const started = Boolean(result?.started);
+  const issueCount = result?.issue_count;
+  const tone = error ? 'bad' : (started ? 'good' : 'warn');
+  const title = error
+    ? 'Refactor loop blocked'
+    : (started ? 'Refactor loop started' : 'No refactor loop started');
+  const rows = [
+    `Worker: ${result?.worker || 'unknown'}`,
+    `Issues: ${issueCount == null ? 'unknown' : issueCount}`,
+    result?.goal_file ? `Goal: ${result.goal_file}` : '',
+    result?.scorecard_path ? `Scorecard: ${result.scorecard_path}` : '',
+    result?.loop_log ? `Log: ${result.loop_log}` : '',
+  ].filter(Boolean);
+  const command = refactorDisplayCommand(result?.command);
+  const runId = result?.run_id || lastRefactorRunId || '';
+  target.innerHTML = `<div class="refactor-result-card ${tone}">
+    <strong>${esc(title)}</strong>
+    ${result?.message ? `<span>${esc(result.message)}</span>` : ''}
+    ${error ? `<span>${esc(error)}</span>` : ''}
+    ${rows.map(row => `<span>${esc(row)}</span>`).join('')}
+    ${command ? `<code>${esc(command)}</code>` : ''}
+    ${runId ? `<button class="btn btn-sm btn-secondary" type="button" data-refactor-view-work="${esc(runId)}">View work</button>` : ''}
+  </div>`;
+}
+
+function refactorStatusMeta(status) {
+  const value = String(status || 'unknown').toLowerCase();
+  if (value === 'completed') return { label: 'Completed', cls: 'good' };
+  if (value === 'running') return { label: 'Running', cls: 'warn' };
+  if (value === 'blocked' || value === 'failed') return { label: sentenceCase(value), cls: 'bad' };
+  if (value === 'idle') return { label: 'Idle', cls: 'neutral' };
+  return { label: 'Unknown', cls: 'neutral' };
+}
+
+function refactorPhaseList(phases) {
+  const rows = Array.isArray(phases) ? phases : [];
+  return `<div class="refactor-phase-list">
+    ${rows.map(phase => `<div class="refactor-phase refactor-phase-${esc(phase.state || 'pending')}">
+      <span>${esc(phase.name || 'Phase')}</span>
+      <strong>${esc(sentenceCase(phase.state || 'pending'))}</strong>
+      <em>${esc(phase.detail || '')}</em>
+    </div>`).join('')}
+  </div>`;
+}
+
+function refactorPreflightCard(title, payload) {
+  if (!payload || typeof payload !== 'object') {
+    return `<div class="refactor-evidence-card muted"><strong>${esc(title)}</strong><span>No evidence recorded yet.</span></div>`;
+  }
+  const ok = payload.ok === true;
+  const rows = Object.entries(payload)
+    .filter(([key]) => ['ok', 'profile', 'model', 'base_url', 'reason', 'config'].includes(key))
+    .map(([key, value]) => `<span><b>${esc(key)}</b>: ${esc(value)}</span>`)
+    .join('');
+  return `<div class="refactor-evidence-card ${ok ? 'good' : 'warn'}"><strong>${esc(title)}</strong>${rows || '<span>Evidence recorded.</span>'}</div>`;
+}
+
+function refactorArtifactsHtml(artifacts) {
+  const rows = Array.isArray(artifacts) ? artifacts : [];
+  if (!rows.length) return '<div class="refactor-empty">No evidence files recorded yet.</div>';
+  return `<div class="refactor-artifact-list">
+    ${rows.map(item => `<div class="refactor-artifact">
+      <span>${esc(item.label || item.kind || 'Artifact')}</span>
+      <code>${esc(item.path || '')}</code>
+      <strong>${item.exists ? 'present' : 'missing'}</strong>
+    </div>`).join('')}
+  </div>`;
+}
+
+function refactorLogTailHtml(lines) {
+  const rows = Array.isArray(lines) ? lines : [];
+  if (!rows.length) return '<div class="refactor-empty">No worker log output recorded yet.</div>';
+  return `<pre class="refactor-log-tail">${esc(rows.join('\\n'))}</pre>`;
+}
+
+function refactorWorkTabs(activeTab) {
+  const tabs = [
+    ['overview', 'Overview'],
+    ['planner', 'Planner'],
+    ['worker', 'Worker'],
+    ['judge', 'Judge'],
+    ['files', 'Files'],
+  ];
+  return `<div class="refactor-work-tabs" role="tablist" aria-label="Refactor work evidence">
+    ${tabs.map(([id, label]) => `<button class="refactor-tab ${activeTab === id ? 'active' : ''}" type="button" role="tab" data-refactor-tab="${id}" aria-selected="${activeTab === id ? 'true' : 'false'}">${label}</button>`).join('')}
+  </div>`;
+}
+
+function renderRefactorWorkView(data) {
+  const content = $('focus-content');
+  if (!content) return;
+  const status = refactorStatusMeta(data?.status);
+  const command = refactorDisplayCommand(data?.command);
+  const workerProfile = data?.profile || data?.worker || 'unknown';
+  const plannerProfile = data?.planner_profile || 'not configured';
+  const judgeProfile = data?.judge_profile || 'not configured';
+  const logPath = data?.loop_log || 'No log path recorded';
+  content.innerHTML = `<div class="refactor-work-view">
+    <div class="focus-task-head refactor-work-head">
+      <span class="focus-task-id">${esc(data?.run_id || 'refactor')}</span>
+      <h2>Refactor Work</h2>
+      <span class="focus-status refactor-status-${status.cls}">${esc(status.label)}</span>
+    </div>
+    <div class="focus-grid">
+      <div><span>Worker</span><strong>${esc(data?.worker || 'unknown')}</strong></div>
+      <div><span>Worker profile</span><strong>${esc(workerProfile)}</strong></div>
+      <div><span>Planner</span><strong>${esc(plannerProfile)}</strong></div>
+      <div><span>Judge</span><strong>${esc(judgeProfile)}</strong></div>
+      <div><span>Issues</span><strong>${esc(data?.issue_count == null ? 'unknown' : data.issue_count)}</strong></div>
+      <div><span>Latest</span><strong>${esc(data?.latest_log_line || data?.message || 'No recent output')}</strong></div>
+    </div>
+    <div class="task-command-box refactor-rationale-box">
+      <label>Evidence Rationale</label>
+      <p>Dev-Flow shows prompts, plans, outputs, judge feedback, logs, and artifact paths recorded by the loop. Hidden model reasoning is not exposed.</p>
+      ${command ? `<code>${esc(command)}</code><button class="btn btn-sm btn-secondary" type="button" data-copy-command="${esc(command)}">Copy command</button>` : ''}
+    </div>
+    ${refactorPhaseList(data?.phases || [])}
+    ${refactorWorkTabs(refactorActiveTab)}
+    <div class="refactor-tab-panels">
+      <section data-refactor-panel="overview">
+        <h3>Overview</h3>
+        <div class="refactor-overview-grid">
+          ${refactorPreflightCard('Worker preflight', data?.preflight)}
+          ${refactorPreflightCard('Planner preflight', data?.planner_preflight)}
+          ${refactorPreflightCard('Judge preflight', data?.judge_preflight)}
+        </div>
+        <div class="task-command-box"><label>Next safe action</label><p>${esc(data?.next_safe_action || 'Refresh the work view for the latest state.')}</p></div>
+      </section>
+      <section data-refactor-panel="planner">
+        <h3>Planner Rationale</h3>
+        <p class="refactor-panel-note">Planner profile: ${esc(plannerProfile)}${data?.planner_toolsets ? ' · toolsets: ' + esc(data.planner_toolsets) : ''}</p>
+        ${refactorPreflightCard('Planner evidence', data?.planner_preflight)}
+      </section>
+      <section data-refactor-panel="worker">
+        <h3>Worker Output</h3>
+        <p class="refactor-panel-note">Worker profile: ${esc(workerProfile)} · log: ${esc(logPath)}</p>
+        ${refactorLogTailHtml(data?.log_tail || [])}
+      </section>
+      <section data-refactor-panel="judge">
+        <h3>Judge Feedback</h3>
+        <p class="refactor-panel-note">Judge profile: ${esc(judgeProfile)}</p>
+        ${refactorPreflightCard('Judge evidence', data?.judge_preflight)}
+      </section>
+      <section data-refactor-panel="files">
+        <h3>Evidence Files</h3>
+        ${refactorArtifactsHtml(data?.artifacts || [])}
+      </section>
+    </div>
+  </div>`;
+  activateRefactorTab(refactorActiveTab);
+}
+
+function renderRefactorWorkError(message) {
+  const content = $('focus-content');
+  if (!content) return;
+  content.innerHTML = `<div class="refactor-work-view">
+    <div class="focus-task-head refactor-work-head">
+      <span class="focus-task-id">refactor</span>
+      <h2>Refactor Work</h2>
+      <span class="focus-status refactor-status-bad">Blocked</span>
+    </div>
+    <div class="refactor-result-card bad"><strong>Could not load work view</strong><span>${esc(message || 'Unknown error')}</span></div>
+  </div>`;
+}
+
+function activateRefactorTab(tabId) {
+  refactorActiveTab = tabId || 'overview';
+  document.querySelectorAll('[data-refactor-tab]').forEach(btn => {
+    const active = btn.dataset.refactorTab === refactorActiveTab;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-refactor-panel]').forEach(panel => {
+    panel.hidden = panel.dataset.refactorPanel !== refactorActiveTab;
+  });
+}
+
+async function refreshRefactorWork(runId) {
+  const params = new URLSearchParams();
+  if (runId) params.set('run_id', runId);
+  if (selectedProjectId) params.set('project', selectedProjectId);
+  const url = '/api/refactor/status' + (params.toString() ? `?${params.toString()}` : '');
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!resp.ok) {
+      renderRefactorWorkError(data?.error || 'Refactor status request failed.');
+      return;
+    }
+    if (data?.run_id) {
+      lastRefactorRunId = data.run_id;
+      localStorage.setItem('devflow-refactor-run-id', data.run_id);
+      setRefactorViewButtonState(data.run_id);
+    }
+    renderRefactorWorkView(data);
+    if (!($('focus-overlay')?.hidden) && ['running', 'unknown'].includes(String(data?.status || ''))) {
+      refactorPollTimer = setTimeout(() => refreshRefactorWork(data?.run_id || runId), 3000);
+    }
+  } catch(e) {
+    renderRefactorWorkError(e.message || 'Refactor status request failed.');
+  }
+}
+
+function openRefactorWork(runId) {
+  const overlay = $('focus-overlay');
+  const content = $('focus-content');
+  if (!overlay || !content) return;
+  if (refactorPollTimer) clearTimeout(refactorPollTimer);
+  refactorPollTimer = null;
+  refactorActiveTab = 'overview';
+  content.innerHTML = `<div class="refactor-work-view">
+    <div class="focus-task-head refactor-work-head">
+      <span class="focus-task-id">${esc(runId || lastRefactorRunId || 'latest')}</span>
+      <h2>Refactor Work</h2>
+      <span class="focus-status refactor-status-neutral">Loading</span>
+    </div>
+    <div class="refactor-result-card warn"><strong>Loading refactor evidence...</strong></div>
+  </div>`;
+  overlay.hidden = false;
+  refreshRefactorWork(runId || lastRefactorRunId || '');
+}
+
+async function runRefactorLoop() {
+  const worker = $('refactor-worker')?.value || 'local-fast';
+  const runBtn = $('refactor-run-btn');
+  const body = {
+    worker,
+    human_approved: true,
+    approval_phrase: ACTION_APPROVAL_PHRASE,
+    approved_action: REFACTOR_APPROVAL_ACTION,
+    approved_worker: worker,
+  };
+  if (selectedProjectId) body.project = selectedProjectId;
+  if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'Running...'; }
+  setRefactorStatus('Running...', 'warn');
+  renderRefactorResult({}, 'pending');
+  try {
+    const resp = await fetch('/api/refactor/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      setRefactorStatus('Blocked', 'warn');
+      renderRefactorResult({ ...data, worker, issue_count: null }, 'done');
+      return;
+    }
+    if (data?.run_id) {
+      lastRefactorRunId = data.run_id;
+      localStorage.setItem('devflow-refactor-run-id', data.run_id);
+      setRefactorViewButtonState(data.run_id);
+    }
+    setRefactorStatus(data.started ? 'Started' : 'Idle', data.error ? 'warn' : 'online');
+    renderRefactorResult(data, 'done');
+    if (data.started) setTimeout(() => loadSnapshot(selectedProjectId), 500);
+  } catch(e) {
+    setRefactorStatus('Error', 'warn');
+    renderRefactorResult({ error: e.message || 'Refactor request failed.', worker, issue_count: null }, 'done');
+  } finally {
+    if (runBtn) { runBtn.disabled = false; runBtn.textContent = 'Refactor'; }
+  }
+}
+
+function setupRefactorLoop() {
+  const runBtn = $('refactor-run-btn');
+  const viewBtn = $('refactor-view-work-btn');
+  setRefactorViewButtonState(lastRefactorRunId);
+  if (runBtn) runBtn.addEventListener('click', runRefactorLoop);
+  if (viewBtn) viewBtn.addEventListener('click', () => openRefactorWork(viewBtn.dataset.refactorRunId || lastRefactorRunId || ''));
+}
+
 // === BUILDER-JUDGE LOOP ===
 function setupBuilderJudge() {
   populateBJModelSelectors();
@@ -3848,6 +4170,7 @@ async function loadBuilderJudgeLoops() {
   }
 }
 
+// === INIT ===
 function init() {
   setupNavigation();
   setupRepoSelector();
@@ -3858,6 +4181,7 @@ function init() {
   setupPipelineButtons();
   setupFilter();
   setupTaskSurfaceActions();
+  setupRefactorLoop();
   setupBuilderJudge();
 
   // Load persisted brainstorm session

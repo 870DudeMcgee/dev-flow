@@ -2914,7 +2914,8 @@ summary:focus-visible {
   #pipeline-spine .pipeline-stages { grid-template-columns: 1fr; }
   #product-review-section { order: 6; }
   #mission-feed-section { order: 7; }
-  #builder-judge-section { order: 8; }
+  #refactor-section { order: 8; }
+  #builder-judge-section { order: 9; }
   .next-task-meta,
   .nt-meta-secondary { align-items: flex-start; flex-direction: column; }
   .nt-evidence-list { grid-template-columns: 1fr; }
@@ -2923,7 +2924,174 @@ summary:focus-visible {
 }
 
 /* ===== BUILDER-JUDGE LOOP ===== */
+.refactor-section,
 .builder-judge-section { margin-top: 8px; }
+.refactor-section .bj-form-row { align-items: flex-end; }
+.refactor-section .btn { flex-shrink: 0; min-height: 29px; }
+.refactor-result {
+  color: var(--text-soft);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  padding-top: 4px;
+}
+.refactor-result-card {
+  background: var(--bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 5px;
+  padding: 8px 10px;
+}
+.refactor-result-card.good { border-left: 3px solid var(--accent); }
+.refactor-result-card.warn { border-left: 3px solid var(--orange); }
+.refactor-result-card.bad { border-left: 3px solid var(--red); }
+.refactor-result-card code {
+  background: #070a0f;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-soft);
+  display: block;
+  font-size: 11px;
+  overflow: hidden;
+  padding: 5px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.refactor-work-view { display: grid; gap: 12px; }
+.refactor-work-head .focus-status { border: 1px solid var(--border); }
+.refactor-status-good { background: var(--accent-soft); color: var(--accent); }
+.refactor-status-warn { background: var(--orange-soft); color: var(--orange); }
+.refactor-status-bad { background: var(--red-soft); color: var(--red); }
+.refactor-status-neutral { background: var(--bg-3); color: var(--text-soft); }
+.refactor-rationale-box p {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0 0 8px;
+}
+.refactor-phase-list {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+.refactor-phase {
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--text-muted);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 2px;
+  min-height: 72px;
+  padding: 8px 10px;
+}
+.refactor-phase span { color: var(--text); font-size: 12px; font-weight: 700; }
+.refactor-phase strong { color: var(--text-soft); font-size: 10px; text-transform: uppercase; }
+.refactor-phase em { color: var(--text-muted); font-size: 11px; font-style: normal; line-height: 1.35; }
+.refactor-phase-done { border-left-color: var(--accent); }
+.refactor-phase-active { border-left-color: var(--orange); }
+.refactor-phase-pending { border-left-color: var(--text-muted); }
+.refactor-work-tabs {
+  align-items: center;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-top: 4px;
+}
+.refactor-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 8px;
+}
+.refactor-tab.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+.refactor-tab-panels section {
+  display: grid;
+  gap: 10px;
+  padding-top: 6px;
+}
+.refactor-tab-panels section[hidden] { display: none; }
+.refactor-tab-panels h3 {
+  color: var(--text);
+  font-size: 14px;
+  margin: 0;
+}
+.refactor-overview-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.refactor-evidence-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--text-muted);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+}
+.refactor-evidence-card.good { border-left-color: var(--accent); }
+.refactor-evidence-card.warn { border-left-color: var(--orange); }
+.refactor-evidence-card.muted { border-left-color: var(--text-muted); }
+.refactor-evidence-card strong { color: var(--text); font-size: 12px; }
+.refactor-evidence-card span,
+.refactor-panel-note,
+.refactor-empty {
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+.refactor-log-tail {
+  background: #070a0f;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.refactor-artifact-list { display: grid; gap: 6px; }
+.refactor-artifact {
+  align-items: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(90px, 0.6fr) minmax(0, 2fr) auto;
+  padding: 7px 9px;
+}
+.refactor-artifact span,
+.refactor-artifact strong {
+  color: var(--text-soft);
+  font-size: 11px;
+}
+.refactor-artifact code {
+  color: var(--text);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .refactor-artifact { grid-template-columns: 1fr; }
+  .refactor-work-tabs { flex-wrap: wrap; }
+}
 .bj-form-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
 .bj-form-group { display: flex; flex-direction: column; gap: 2px; }
 .bj-form-group label { font-size: 10px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
