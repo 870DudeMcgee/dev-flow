@@ -35,7 +35,7 @@ def test_agent_hyperplane_dry_run_writes_plan_without_hyperplane_calls(
             "--target",
             "control-room",
             "--judge",
-            "local-gemma4-doc-reviewer",
+            "local-gemma4-qat",
             "--dry-run",
             "--json",
         ],
@@ -51,7 +51,7 @@ def test_agent_hyperplane_dry_run_writes_plan_without_hyperplane_calls(
     assert payload["will_commit_merge_push_or_promote"] is False
     assert payload["suite"] == "worker-safety"
     assert payload["target"] == "control-room"
-    assert payload["judge"] == "local-gemma4-doc-reviewer"
+    assert payload["judge"] == "local-gemma4-qat"
     assert payload["depth"] == 12
     assert payload["breadth"] == 2
 
@@ -122,7 +122,7 @@ def test_agent_hyperplane_execute_writes_isolated_artifacts_without_task_state_m
             "--target",
             "control-room",
             "--judge",
-            "local-gemma4-doc-reviewer",
+            "local-gemma4-qat",
             "--execute",
             "--json",
         ],
@@ -186,7 +186,7 @@ def test_agent_hyperplane_missing_dependency_fails_cleanly(
             "--target",
             "control-room",
             "--judge",
-            "local-gemma4-doc-reviewer",
+            "local-gemma4-qat",
             "--execute",
             "--json",
         ],
@@ -262,9 +262,9 @@ def test_agent_hyperplane_refuses_self_grading_without_override(
         "--suite",
         "grounded-summary",
         "--target",
-        "local-gemma4-doc-reviewer",
+        "local-gemma4-qat",
         "--judge",
-        "local-gemma4-doc-reviewer",
+        "local-gemma4-qat",
         "--dry-run",
         "--json",
     ]
@@ -307,7 +307,7 @@ def test_agent_hyperplane_execute_refuses_unsafe_git_state_before_model_calls(
             "--target",
             "control-room",
             "--judge",
-            "local-gemma4-doc-reviewer",
+            "local-gemma4-qat",
             "--execute",
             "--json",
         ],

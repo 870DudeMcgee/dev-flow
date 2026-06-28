@@ -101,7 +101,7 @@ def test_rank_local_agent_candidates_selects_installed_registry_patch_agent(tmp_
     assert "model_not_installed" in missing[0].reasons
 
 
-def test_rank_local_agent_candidates_refuses_when_no_installed_registry_agent(tmp_path: Path) -> None:
+def test_rank_local_agent_candidates_refuses_when_installed_model_is_read_only(tmp_path: Path) -> None:
     registry = load_agent_registry(tmp_path)
     installed = parse_ollama_list(OLLAMA_LIST)
 
@@ -109,7 +109,8 @@ def test_rank_local_agent_candidates_refuses_when_no_installed_registry_agent(tm
 
     assert selection.status == "no_eligible_agent"
     assert selection.selected_agent_id is None
-    assert "gemma4:12b-it-qat" in selection.unregistered_installed_models
+    assert selection.unregistered_installed_models == []
+    assert all(candidate.model != "gemma4:12b-it-qat" for candidate in selection.candidates)
 
 
 def test_write_selected_agent_evidence_records_explicit_choice(tmp_path: Path) -> None:

@@ -16,6 +16,17 @@ from tests.helpers import init_test_git_repo
 runner = CliRunner()
 
 
+def test_agent_app_is_reexported_from_control_room_command_module() -> None:
+    from devflow.cli import agent_app as cli_agent_app
+    from devflow.control_room.agent_command import agent_app as command_agent_app
+
+    cli_source = (Path(__file__).resolve().parents[1] / "src/devflow/cli.py").read_text(encoding="utf-8")
+
+    assert cli_agent_app is command_agent_app
+    assert "agent_app = typer.Typer" not in cli_source
+    assert "@agent_app.command" not in cli_source
+
+
 @pytest.fixture
 def mock_repo(tmp_path: Path) -> Path:
     # Set up basic agent registry and directories
@@ -1032,5 +1043,4 @@ def test_df_quick_mentions_project(mock_repo: Path) -> None:
     assert 'df ask --project "what is this project?"' in result.output
     assert 'df run --project --prompt "summarize this project"' in result.output
     assert 'Quotes are optional for simple prompts. Use quotes for shell-sensitive characters, or use qwopus chat.' in result.output
-
 
