@@ -110,14 +110,23 @@ from devflow.control_room.task_scorecard_command import (
     render_task_scorecard_json,
     render_task_scorecard_lines,
 )
+from devflow.control_room.architecture_command import architecture_app, architecture_audit_command  # noqa: F401
 from devflow.control_room.builder_judge_command import builder_judge_app
 from devflow.control_room.dogfood_command import dogfood_app
+from devflow.control_room.freshness_command import (  # noqa: F401
+    freshness_app, freshness_create_batch, freshness_loop, freshness_run,
+    freshness_verify_batch, freshness_worker_batch,
+)
 from devflow.control_room.goal_command import goal_app
 from devflow.control_room.idea_command import idea_app
 from devflow.control_room.local_model_command import local_model_app
 from devflow.control_room.loop_command import loop_app
 from devflow.control_room.agent_command import agent_app
 from devflow.control_room.operating_layer_command import operating_layer_app
+from devflow.control_room.question_command import (  # noqa: F401
+    question_answer, question_app, question_list, question_resolve, question_show,
+)
+from devflow.control_room.scheduler_command import scheduler_app, scheduler_retry, scheduler_status  # noqa: F401
 from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
 from devflow.control_room.qwopus_evidence import write_qwopus_escalation_packet
@@ -126,12 +135,6 @@ from devflow.control_room.review_readiness import (
     build_review_readiness_projection,
     render_review_readiness,
     summarize_review_readiness,
-)
-from devflow.control_room.question_resume import (
-    answer_question,
-    build_question_snapshot,
-    render_question_snapshot,
-    resolve_question,
 )
 from devflow.control_room.supervisor_surface import (
     render_control_room_status,
@@ -174,10 +177,6 @@ supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervis
 hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
 project_app = typer.Typer(help="Create and manage registered projects")
 map_app = typer.Typer(help="Project Code Map orientation layer (Milestone 11)")
-freshness_app = typer.Typer(help="Detect stale goal/task/document guidance")
-scheduler_app = typer.Typer(help="Inspect simple scheduler queue and retry evidence")
-question_app = typer.Typer(help="List, answer, and resolve human-blocking worker questions")
-architecture_app = typer.Typer(help="Run architecture evidence workflows")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
 app.add_typer(worktree_app, name="worktree")
@@ -202,339 +201,6 @@ app.add_typer(local_model_app, name="local-model")
 app.add_typer(loop_app, name="loop")
 app.add_typer(builder_judge_app, name="builder-judge")
 app.add_typer(architecture_app, name="architecture")
-
-
-@architecture_app.command("audit")
-def architecture_audit_command(
-    install_graphify: bool = typer.Option(
-        False,
-        "--install-graphify",
-        help="Install graphifyy in the active Python environment before running the audit.",
-    ),
-    write_doc: bool = typer.Option(
-        False,
-        "--write-doc",
-        help="Write docs/architecture/control-room-architecture-audit.md.",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Print architecture audit result as JSON."),
-) -> None:
-    """Run Graphify and local hotspot evidence for architecture cleanup decisions."""
-    from devflow.control_room.architecture_audit import (
-        ArchitectureAuditError,
-        render_architecture_audit_lines,
-        run_architecture_audit,
-    )
-
-    try:
-        result = run_architecture_audit(
-            Path.cwd(),
-            install_graphify=install_graphify,
-            write_doc=write_doc,
-        )
-    except ArchitectureAuditError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-    if json_output:
-        typer.echo(json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True))
-        return
-    for line in render_architecture_audit_lines(result):
-        typer.echo(line)
-
-
-@scheduler_app.command("status")
-def scheduler_status(
-    json_output: bool = typer.Option(False, "--json", help="Print scheduler status as JSON."),
-) -> None:
-    """Show the derived simple scheduler projection."""
-    from devflow.control_room.scheduler_projection import build_scheduler_snapshot, render_scheduler_snapshot
-
-    snapshot = build_scheduler_snapshot(Path.cwd())
-    if json_output:
-        typer.echo(json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True))
-    else:
-        typer.echo(render_scheduler_snapshot(snapshot), nl=False)
-
-
-@scheduler_app.command("retry")
-def scheduler_retry(
-    task_id: str = typer.Argument(..., help="Task ID to mark for manual retry."),
-    reason: str = typer.Option(..., "--reason", help="Human-readable retry reason."),
-    json_output: bool = typer.Option(False, "--json", help="Print retry request as JSON."),
-) -> None:
-    """Write explicit retry-request evidence without rerunning work."""
-    from devflow.control_room.scheduler_projection import request_scheduler_retry
-
-    try:
-        request = request_scheduler_retry(Path.cwd(), task_id, reason=reason)
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    if json_output:
-        typer.echo(json.dumps(request.model_dump(mode="json"), indent=2, sort_keys=True))
-    else:
-        typer.echo(f"retry_request: {request.retry_request_path}")
-        typer.echo(f"next_safe_action: {request.recommended_next_command}")
-
-
-@question_app.command("list")
-def question_list(json_output: bool = typer.Option(False, "--json", help="Print question projection as JSON.")) -> None:
-    """Show worker and blocker questions without mutating evidence."""
-    snapshot = build_question_snapshot(Path.cwd())
-    if json_output:
-        typer.echo(json.dumps(snapshot.model_dump(mode="json"), indent=2, sort_keys=True))
-        return
-    typer.echo(render_question_snapshot(snapshot), nl=False)
-
-
-@question_app.command("show")
-def question_show(
-    question_id: str = typer.Argument(..., help="Question ID to inspect."),
-    json_output: bool = typer.Option(False, "--json", help="Print question record as JSON."),
-) -> None:
-    """Show one derived or persisted question record."""
-    snapshot = build_question_snapshot(Path.cwd())
-    question = next((item for item in snapshot.questions if item.question_id == question_id), None)
-    if question is None:
-        typer.echo(f"Unknown question id: {question_id}", err=True)
-        raise typer.Exit(code=1)
-    if json_output:
-        typer.echo(question.model_dump_json(indent=2))
-        return
-    typer.echo(f"question: {question.question_id}")
-    typer.echo(f"status: {question.status}")
-    typer.echo(f"task: {question.task_id}")
-    typer.echo(f"question_text: {question.question}")
-    typer.echo(f"resume: {question.recommended_resume_command}")
-
-
-@question_app.command("answer")
-def question_answer(
-    question_id: str = typer.Argument(..., help="Question ID to answer."),
-    answer: str = typer.Option(..., "--answer", help="Human answer to persist as evidence."),
-    resume_command: str | None = typer.Option(None, "--resume-command", help="Recommended Dev-Flow resume command."),
-    json_output: bool = typer.Option(False, "--json", help="Print answer record as JSON."),
-) -> None:
-    """Persist a human answer without running the resume command."""
-    try:
-        question = answer_question(Path.cwd(), question_id, answer=answer, resume_command=resume_command)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-    if json_output:
-        typer.echo(question.model_dump_json(indent=2))
-        return
-    typer.echo(f"question: {question.question_id}")
-    typer.echo(f"status: {question.status}")
-    typer.echo(f"answer_path: {question.answer_path}")
-    typer.echo(f"next_safe_action: {question.recommended_resume_command}")
-
-
-@question_app.command("resolve")
-def question_resolve(
-    question_id: str = typer.Argument(..., help="Question ID to resolve."),
-    reason: str = typer.Option(..., "--reason", help="Reason this question is no longer actionable."),
-    json_output: bool = typer.Option(False, "--json", help="Print resolved record as JSON."),
-) -> None:
-    """Persist a resolution without deleting source question evidence."""
-    try:
-        question = resolve_question(Path.cwd(), question_id, reason=reason)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-    if json_output:
-        typer.echo(question.model_dump_json(indent=2))
-        return
-    typer.echo(f"question: {question.question_id}")
-    typer.echo(f"status: {question.status}")
-    typer.echo(f"answer_path: {question.answer_path}")
-
-
-@freshness_app.command("loop")
-def freshness_loop(
-    json_output: bool = typer.Option(False, "--json", help="Print the loop report as JSON."),
-    all_projects: bool = typer.Option(False, "--all-projects", help="Run the loop across every registered project."),
-) -> None:
-    """Run one freshness-control loop iteration and update derived state."""
-    if all_projects:
-        from devflow.control_room.multi_project_freshness import (
-            render_multi_project_freshness_report,
-            run_multi_project_freshness_loop,
-        )
-
-        report = run_multi_project_freshness_loop()
-        if json_output:
-            typer.echo(json.dumps(report.model_dump(), indent=2, sort_keys=True))
-        else:
-            typer.echo(render_multi_project_freshness_report(report), nl=False)
-        if report.status == "needs_human_decision":
-            raise typer.Exit(code=2)
-        return
-
-    from devflow.control_room.freshness import render_freshness_report, run_freshness_loop
-    report = run_freshness_loop(Path.cwd())
-    if json_output:
-        typer.echo(json.dumps(report.model_dump(), indent=2, sort_keys=True))
-    else:
-        typer.echo(render_freshness_report(report), nl=False)
-    if report.status == "needs_human_decision":
-        raise typer.Exit(code=2)
-
-
-@freshness_app.command("verify-batch")
-def freshness_verify_batch(
-    goal_id: str = typer.Argument(..., help="Goal ID containing the projected verification batch."),
-    batch_id: str = typer.Argument(..., help="Projected verification batch ID, e.g. VB-0001."),
-    max_parallel: int = typer.Option(4, "--max-parallel", min=1, help="Maximum task verification processes to run at once."),
-    timeout_seconds: int = typer.Option(120, "--timeout-seconds", min=1, help="Timeout for each task verification process."),
-    json_output: bool = typer.Option(False, "--json", help="Print the batch run report as JSON."),
-) -> None:
-    """Run one currently projected freshness verification batch."""
-    from devflow.control_room.parallel_verification import (
-        VerificationBatchSelectionError,
-        render_parallel_verification_run,
-        run_projected_verification_batch,
-    )
-
-    try:
-        run = run_projected_verification_batch(
-            Path.cwd(),
-            goal_id,
-            batch_id,
-            max_parallel=max_parallel,
-            timeout_seconds=timeout_seconds,
-        )
-    except VerificationBatchSelectionError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
-
-    if json_output:
-        typer.echo(json.dumps(run.model_dump(), indent=2, sort_keys=True))
-    else:
-        typer.echo(render_parallel_verification_run(run), nl=False)
-    if run.status == "failed":
-        raise typer.Exit(code=1)
-
-
-@freshness_app.command("worker-batch")
-def freshness_worker_batch(
-    goal_id: str = typer.Argument(..., help="Goal ID containing the projected worker batch."),
-    batch_id: str = typer.Argument(..., help="Projected worker batch ID, e.g. WB-0001."),
-    max_parallel: int = typer.Option(4, "--max-parallel", min=1, help="Maximum task worker processes to run at once."),
-    timeout_seconds: int = typer.Option(120, "--timeout-seconds", min=1, help="Timeout for each task worker process."),
-    json_output: bool = typer.Option(False, "--json", help="Print the worker run report as JSON."),
-) -> None:
-    """Run one currently projected shell-worker batch."""
-    from devflow.control_room.parallel_worker import (
-        WorkerBatchSelectionError,
-        render_parallel_worker_run,
-        run_projected_worker_batch,
-    )
-
-    try:
-        run = run_projected_worker_batch(
-            Path.cwd(),
-            goal_id,
-            batch_id,
-            max_parallel=max_parallel,
-            timeout_seconds=timeout_seconds,
-        )
-    except WorkerBatchSelectionError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
-
-    if json_output:
-        typer.echo(json.dumps(run.model_dump(), indent=2, sort_keys=True))
-    else:
-        typer.echo(render_parallel_worker_run(run), nl=False)
-    if run.status == "failed":
-        raise typer.Exit(code=1)
-
-
-@freshness_app.command("create-batch")
-def freshness_create_batch(
-    goal_id: str = typer.Argument(..., help="Goal ID containing the projected parallel task batch."),
-    batch_id: str = typer.Argument(..., help="Projected parallel task batch ID, e.g. PB-0001."),
-    json_output: bool = typer.Option(False, "--json", help="Print the task creation run report as JSON."),
-) -> None:
-    """Create tasks for one currently projected parallel-safe batch."""
-    from devflow.control_room.parallel_task_creation import (
-        ParallelTaskCreationSelectionError,
-        render_parallel_task_creation_run,
-        run_projected_task_creation_batch,
-    )
-
-    try:
-        run = run_projected_task_creation_batch(Path.cwd(), goal_id, batch_id)
-    except ParallelTaskCreationSelectionError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
-
-    if json_output:
-        typer.echo(json.dumps(run.model_dump(), indent=2, sort_keys=True))
-    else:
-        typer.echo(render_parallel_task_creation_run(run), nl=False)
-
-
-@freshness_app.command("run")
-def freshness_run(
-    max_iterations: int = typer.Option(3, "--max-iterations", min=1, help="Maximum bounded loop iterations."),
-    all_projects: bool = typer.Option(False, "--all-projects", help="Run bounded read-mostly loop iterations across registered projects."),
-    create_tasks: bool = typer.Option(
-        False,
-        "--create-tasks",
-        help="Explicitly create tasks from the first projected parallel-safe batch in each safe iteration.",
-    ),
-    execute_verification: bool = typer.Option(
-        False,
-        "--execute-verification",
-        help="Explicitly run the first projected verification batch in each safe iteration.",
-    ),
-    execute_workers: bool = typer.Option(
-        False,
-        "--execute-workers",
-        help="Explicitly run the first projected shell-worker batch in each safe iteration.",
-    ),
-    max_parallel: int = typer.Option(4, "--max-parallel", min=1, help="Maximum task worker or verification processes to run at once."),
-    timeout_seconds: int = typer.Option(120, "--timeout-seconds", min=1, help="Timeout for each task worker or verification process."),
-    json_output: bool = typer.Option(False, "--json", help="Print the control run report as JSON."),
-) -> None:
-    """Run bounded PLC-style freshness iterations."""
-    from devflow.control_room.freshness_runner import (
-        render_bounded_freshness_run,
-        render_bounded_multi_project_freshness_run,
-        run_bounded_freshness_control,
-        run_bounded_multi_project_freshness_control,
-    )
-
-    if all_projects:
-        if create_tasks or execute_workers or execute_verification:
-            typer.echo("Error: --all-projects currently supports read-mostly bounded runs only.", err=True)
-            raise typer.Exit(code=1)
-        run = run_bounded_multi_project_freshness_control(max_iterations=max_iterations)
-        if json_output:
-            typer.echo(json.dumps(run.model_dump(), indent=2, sort_keys=True))
-        else:
-            typer.echo(render_bounded_multi_project_freshness_run(run), nl=False)
-        if run.status == "needs_human_decision":
-            raise typer.Exit(code=2)
-        return
-
-    run = run_bounded_freshness_control(
-        Path.cwd(),
-        max_iterations=max_iterations,
-        create_tasks=create_tasks,
-        execute_workers=execute_workers,
-        execute_verification=execute_verification,
-        max_parallel=max_parallel,
-        timeout_seconds=timeout_seconds,
-    )
-    if json_output:
-        typer.echo(json.dumps(run.model_dump(), indent=2, sort_keys=True))
-    else:
-        typer.echo(render_bounded_freshness_run(run), nl=False)
-    if run.status in {"needs_human_decision", "worker_failed", "verification_failed"}:
-        raise typer.Exit(code=2)
 
 
 TRUSTED_LOCAL_WARNING = "Security: shell execution is path-isolated, not sandboxed; run only trusted local commands."
