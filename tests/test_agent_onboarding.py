@@ -22,9 +22,12 @@ runner = CliRunner()
 
 def test_agent_catalog_import_surface_preserves_onboarding_compatibility() -> None:
     from devflow.control_room import agent_catalog
+    from devflow.control_room import agent_catalog_hermes, agent_catalog_local
     from devflow.control_room.agent_onboarding import build_agent_catalog as compat_build_agent_catalog
 
     assert callable(agent_catalog.build_agent_catalog)
+    assert agent_catalog.configured_hermes_agents is agent_catalog_hermes.configured_hermes_agents
+    assert agent_catalog_local.__name__ == "devflow.control_room.agent_catalog_local"
     assert callable(compat_build_agent_catalog)
     assert "agent_onboarding" not in (Path(__file__).resolve().parents[1] / "src/devflow/control_room/agent_catalog.py").read_text(
         encoding="utf-8"
