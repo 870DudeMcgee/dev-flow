@@ -30,6 +30,7 @@ DEFAULT_PLANNER_PROFILE = WORKER_PROFILES["codex55"]
 DEFAULT_SMOKE_SESSION_TIMEOUT = 120
 DEFAULT_SMOKE_HERMES_MAX_TURNS = 2
 DEFAULT_SMOKE_HERMES_TOOLSETS = "terminal"
+DEFAULT_CODEX55_REHAB_TOOLSETS = "terminal"
 LOCAL_HOST_MARKERS = ("127.0.0.1", "localhost", "[::1]")
 Runner = Callable[[list[str]], subprocess.CompletedProcess[str] | None]
 PreflightChecker = Callable[[str], dict[str, Any]]
@@ -346,6 +347,7 @@ def prepare_rehab_loop(
     selected_session_timeout = session_timeout
     selected_hermes_max_turns = hermes_max_turns
     selected_hermes_toolsets = hermes_toolsets
+    selected_planner_toolsets = planner_toolsets
     selected_hermes_ignore_rules = hermes_ignore_rules
     if selected_goal_template == "smoke":
         if selected_session_timeout is None:
@@ -358,6 +360,11 @@ def prepare_rehab_loop(
             selected_hermes_ignore_rules = True
     elif selected_hermes_ignore_rules is None:
         selected_hermes_ignore_rules = False
+    if selected_goal_template == "rehab" and worker == "codex55":
+        if selected_planner_toolsets is None:
+            selected_planner_toolsets = DEFAULT_CODEX55_REHAB_TOOLSETS
+        if selected_hermes_toolsets is None:
+            selected_hermes_toolsets = DEFAULT_CODEX55_REHAB_TOOLSETS
     selected_judge_profile = None
     selected_planner_profile = None
     if not selected_no_judge:
@@ -403,7 +410,7 @@ def prepare_rehab_loop(
         no_judge=selected_no_judge,
         judge_profile=selected_judge_profile,
         planner_profile=selected_planner_profile,
-        planner_toolsets=planner_toolsets,
+        planner_toolsets=selected_planner_toolsets,
         stall_timeout=stall_timeout,
         session_timeout=selected_session_timeout,
         hermes_max_turns=selected_hermes_max_turns,
@@ -419,7 +426,7 @@ def prepare_rehab_loop(
         "worker": worker,
         "profile": selected_profile,
         "planner_profile": selected_planner_profile,
-        "planner_toolsets": planner_toolsets,
+        "planner_toolsets": selected_planner_toolsets,
         "judge_profile": selected_judge_profile,
         "goal_template": selected_goal_template,
         "session_timeout": selected_session_timeout,

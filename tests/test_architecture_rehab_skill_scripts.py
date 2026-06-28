@@ -318,8 +318,38 @@ def test_start_rehab_loop_codex_worker_uses_codex55_profile(tmp_path: Path) -> N
             "dfcodex55",
             "--planner-profile",
             "dfcodex55",
+            "--planner-toolsets",
+            "terminal",
+            "--hermes-toolsets",
+            "terminal",
         ]
     ]
+
+
+def test_start_rehab_loop_codex_worker_defaults_to_terminal_toolsets(tmp_path: Path) -> None:
+    start = _load_script("start_rehab_loop.py")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    loop_script = tmp_path / "Loop Goal Script" / "loop.py"
+    loop_script.parent.mkdir()
+    loop_script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    result = start.prepare_rehab_loop(
+        repo,
+        candidate="Use Codex worker with safe toolsets",
+        loop_script=loop_script,
+        goal_dir=tmp_path / "goals",
+        worker="codex55",
+        dry_run=True,
+        timestamp="20260628T195500Z",
+    )
+
+    assert "--planner-toolsets" in result["command"]
+    assert result["command"][result["command"].index("--planner-toolsets") + 1] == "terminal"
+    assert "--hermes-toolsets" in result["command"]
+    assert result["command"][result["command"].index("--hermes-toolsets") + 1] == "terminal"
+    assert result["planner_toolsets"] == "terminal"
+    assert result["hermes_toolsets"] == "terminal"
 
 
 def test_start_rehab_loop_passes_planner_toolsets(tmp_path: Path) -> None:
@@ -337,13 +367,17 @@ def test_start_rehab_loop_passes_planner_toolsets(tmp_path: Path) -> None:
         goal_dir=tmp_path / "goals",
         worker="codex55",
         planner_toolsets="hermes-cli",
+        hermes_toolsets="read-only",
         dry_run=True,
         timestamp="20260628T200000Z",
     )
 
     assert "--planner-toolsets" in result["command"]
     assert result["command"][result["command"].index("--planner-toolsets") + 1] == "hermes-cli"
+    assert "--hermes-toolsets" in result["command"]
+    assert result["command"][result["command"].index("--hermes-toolsets") + 1] == "read-only"
     assert result["planner_toolsets"] == "hermes-cli"
+    assert result["hermes_toolsets"] == "read-only"
 
 
 def test_preflight_profile_accepts_remote_codex_profile_without_local_probe(tmp_path: Path) -> None:
