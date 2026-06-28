@@ -179,6 +179,15 @@ def test_invalid_idea_id_fails_cleanly(tmp_path: Path) -> None:
     assert "Invalid idea id" in result.output
 
 
+def test_idea_command_group_lives_in_control_room_command_module() -> None:
+    from devflow.control_room.idea_command import idea_app
+
+    cli_source = Path("src/devflow/cli.py").read_text(encoding="utf-8")
+
+    assert idea_app.info.help == "Capture and review raw ideas before they become goals or tasks"
+    assert "@idea_app.command" not in cli_source
+
+
 def test_idea_cli_capture_list_show_classify_promote_archive(tmp_path: Path) -> None:
     old_cwd = Path.cwd()
     try:
