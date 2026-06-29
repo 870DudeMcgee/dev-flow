@@ -558,8 +558,12 @@ function adoptFirstViewportBrainstormSession(snap) {
 // === SNAPSHOT LOADING ===
 async function loadSnapshot(project) {
   const url = project ? `/api/snapshot?project=${encodeURIComponent(project)}` : '/api/snapshot';
+  // Show skeleton on first load (when no snapshot yet).
+  if (!snapshot) _showSnapshotSkeleton();
+  _clearSnapshotError();
   try {
     const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Snapshot request failed (${resp.status})`);
     snapshot = await resp.json();
     localModelInventory = snapshot.local_model_inventory || localModelInventory || {};
     adoptFirstViewportBrainstormSession(snapshot);
@@ -567,7 +571,40 @@ async function loadSnapshot(project) {
   } catch (e) {
     snapshot = null;
     render();
+    _showSnapshotError(e);
   }
+}
+
+function _showSnapshotSkeleton() {
+  const targets = [
+    'orchestrator-goal-title', 'orchestrator-directive', 'orchestrator-command',
+    'active-work-groups', 'guided-review-queue', 'guided-evidence-stream',
+    'mission-feed-list', 'idea-greenhouse-lanes'
+  ];
+  for (const id of targets) {
+    const el = $(id);
+    if (!el || el.children.length) continue;
+    const lines = id.endsWith('groups') || id.endsWith('queue') || id.endsWith('stream') || id === 'idea-greenhouse-lanes' ? 2 : 1;
+    let html = '';
+    for (let i = 0; i < lines; i++) html += '<div class="df-skeleton df-skeleton-line"></div>';
+    el.innerHTML = html;
+  }
+}
+
+function _showSnapshotError(err) {
+  const target = $('orchestrator-section') || $('main-panel');
+  if (!target) return;
+  const banner = document.createElement('div');
+  banner.className = 'df-error-banner';
+  banner.setAttribute('role', 'alert');
+  banner.innerHTML = `<span>Failed to load snapshot: ${esc(err?.message || 'unknown error')}</span>` +
+    '<button class="df-error-dismiss" type="button" aria-label="Dismiss error">×</button>';
+  banner.querySelector('.df-error-dismiss')?.addEventListener('click', () => banner.remove());
+  target.prepend(banner);
+}
+
+function _clearSnapshotError() {
+  document.querySelectorAll('.df-error-banner').forEach(el => el.remove());
 }
 
 // === NAVIGATION ===
@@ -578,11 +615,12 @@ function setActiveNav(navId) {
 }
 function setupNavigation() {
   const navTargets = {
-    home: '#idea-greenhouse-section',
-    work: '#product-review-section',
-    review: '#product-review-section',
+    home: '#zone-capture-plan',
+    work: '#zone-execute',
+    tools: '#zone-tools',
     projects: '#repo-selector',
-    advanced: '#builder-judge-section',
+    settings: '#settings',
+    help: '#help',
   };
   document.querySelectorAll('.nav-item[data-nav]').forEach(link => {
     link.addEventListener('click', (event) => {
@@ -597,6 +635,88 @@ function setupNavigation() {
         target.click();
       }
     });
+  });
+}
+
+// === SIDEBAR TOGGLE (mobile) ===
+function setupSidebarToggle() {
+  const btn = $('sidebar-toggle');
+  const sidebar = $('main-sidebar');
+  const backdrop = $('sidebar-backdrop');
+  if (!btn || !sidebar) return;
+  const close = () => {
+    sidebar.classList.remove('mobile-open');
+    btn.setAttribute('aria-expanded', 'false');
+    if (backdrop) backdrop.hidden = true;
+  };
+  btn.addEventListener('click', () => {
+    const isOpen = sidebar.classList.toggle('mobile-open');
+    btn.setAttribute('aria-expanded', String(isOpen));
+    if (backdrop) backdrop.hidden = !isOpen;
+  });
+  if (backdrop) backdrop.addEventListener('click', close);
+  // Close on nav click (mobile)
+  sidebar.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', close);
+  });
+}
+
+// === SCROLLSPY: sync active nav with visible section ===
+function setupScrollspy() {
+  const navLinks = document.querySelectorAll('.nav-item[data-nav-target]');
+  if (!navLinks.length || !('IntersectionObserver' in window)) return;
+  const visibleMap = new Map();
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      visibleMap.set(entry.target.id, entry.isIntersecting);
+    }
+    // Pick the first section that's currently visible.
+    let activeId = null;
+    for (const [id, visible] of visibleMap) {
+      if (visible) { activeId = id; break; }
+    }
+    if (!activeId) return;
+    navLinks.forEach(link => {
+      const isActive = link.dataset.navTarget === activeId;
+      link.classList.toggle('active', isActive);
+      if (isActive) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }, { rootMargin: '-80px 0px -60% 0px', threshold: 0 });
+  navLinks.forEach(link => {
+    const target = document.getElementById(link.dataset.navTarget);
+    if (target) observer.observe(target);
+  });
+}
+
+// === TOOL TABS ===
+function setupToolTabs() {
+  const tabs = document.querySelectorAll('.tools-tab');
+  const panels = document.querySelectorAll('.tools-panel');
+  if (!tabs.length) return;
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.toolsTab;
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      panels.forEach(p => {
+        const match = p.dataset.toolsPanel === target;
+        p.hidden = !match;
+        p.classList.toggle('active', match);
+      });
+    });
+  });
+}
+
+// === COLLAPSIBLE EMPTY SECTIONS ===
+function setupCollapsibleEmpty() {
+  // Use event delegation so dynamically-empty sections also work
+  document.addEventListener('click', (e) => {
+    const header = e.target.closest('.zone .panel.is-empty .panel-header, .zone .product-review-section.is-empty .product-review-header');
+    if (!header) return;
+    // Don't toggle if clicking on a button or interactive element
+    if (e.target.closest('button, a, input, select, .model-selector')) return;
+    const panel = header.closest('.panel, .product-review-section');
+    if (panel) panel.classList.toggle('expanded');
   });
 }
 
@@ -623,17 +743,17 @@ function renderRepoBrowser(data) {
 
   let html = '';
   if (data.parent_path) {
-    html += `<div class="repo-item" data-browse-path="${esc(data.parent_path)}" style="cursor:pointer;">
-      <span class="repo-item-icon">↑</span>
+    html += `<div class="repo-item repo-browser-item" role="option" tabindex="-1" data-browse-path="${esc(data.parent_path)}">
+      <span class="repo-item-icon" aria-hidden="true">↑</span>
       <div><strong>..</strong><span class="repo-path">Parent directory</span></div>
     </div>`;
   }
   for (const entry of data.entries) {
     if (!entry.is_dir) continue;
     const icon = entry.has_devflow ? '⚑' : '📁';
-    const badge = entry.has_devflow ? '<span style="font-size:9px;color:var(--accent);margin-left:4px;">DevFlow</span>' : '';
-    html += `<div class="repo-item" data-browse-path="${esc(entry.path)}" data-is-dir="true" style="cursor:pointer;">
-      <span class="repo-item-icon">${icon}</span>
+    const badge = entry.has_devflow ? '<span class="repo-devflow-badge">DevFlow</span>' : '';
+    html += `<div class="repo-item repo-browser-item" role="option" tabindex="-1" data-browse-path="${esc(entry.path)}" data-is-dir="true">
+      <span class="repo-item-icon" aria-hidden="true">${icon}</span>
       <div>
         <strong>${esc(entry.name)}${badge}</strong>
         <span class="repo-path">${esc(entry.path)}</span>
@@ -641,9 +761,15 @@ function renderRepoBrowser(data) {
     </div>`;
   }
   if (!data.entries.some(e => e.is_dir)) {
-    html += '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;">No subdirectories</div>';
+    html += '<div class="repo-browser-empty">No subdirectories</div>';
   }
   browser.innerHTML = html;
+
+  // Re-init keyboard navigation for the freshly rendered items.
+  const selector = $('repo-selector');
+  if (selector && !($('repo-dropdown')?.hidden)) {
+    _initDropdownKeyboard(selector, browser, '.repo-item');
+  }
 
   browser.querySelectorAll('.repo-item').forEach(item => {
     item.addEventListener('click', (e) => {
@@ -691,12 +817,41 @@ function setupRepoSelector() {
   selector.addEventListener('click', (e) => {
     e.stopPropagation();
     dropdown.hidden = !dropdown.hidden;
+    selector.setAttribute('aria-expanded', String(!dropdown.hidden));
     if (!dropdown.hidden && !currentBrowsePath) {
       browseDirectory('~');
     }
+    if (!dropdown.hidden) {
+      _initDropdownKeyboard(selector, dropdown, '.repo-item');
+    }
   });
-  document.addEventListener('click', () => { dropdown.hidden = true; });
+  document.addEventListener('click', () => {
+    dropdown.hidden = true;
+    selector.setAttribute('aria-expanded', 'false');
+  });
   dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+  // Keyboard: Enter/Space toggles, arrows navigate repo items, Escape closes.
+  selector.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      dropdown.hidden = !dropdown.hidden;
+      selector.setAttribute('aria-expanded', String(!dropdown.hidden));
+      if (!dropdown.hidden && !currentBrowsePath) browseDirectory('~');
+      if (!dropdown.hidden) _initDropdownKeyboard(selector, dropdown, '.repo-item');
+    } else if (e.key === 'Escape') {
+      dropdown.hidden = true;
+      selector.setAttribute('aria-expanded', 'false');
+    } else if (!dropdown.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      _moveDropdownActive(dropdown, e.key === 'ArrowDown' ? 1 : -1, selector, '.repo-item');
+    } else if (!dropdown.hidden && e.key === 'Enter' && dropdown.querySelector('.repo-item.keyboard-active')) {
+      e.preventDefault();
+      const item = dropdown.querySelector('.repo-item.keyboard-active');
+      const browsePath = item?.dataset.browsePath;
+      if (browsePath) browseDirectory(browsePath);
+    }
+  });
 
   const openBtn = $('repo-open-btn');
   const pathInput = $('repo-path-input');
@@ -838,8 +993,34 @@ function setupModelSelector() {
   selector.addEventListener('click', (e) => {
     e.stopPropagation();
     dropdown.hidden = !dropdown.hidden;
+    selector.setAttribute('aria-expanded', String(!dropdown.hidden));
+    if (!dropdown.hidden) {
+      _initDropdownKeyboard(selector, dropdown, '.model-dropdown-item[data-agent-id]');
+    }
   });
-  document.addEventListener('click', () => { dropdown.hidden = true; });
+  document.addEventListener('click', () => {
+    dropdown.hidden = true;
+    selector.setAttribute('aria-expanded', 'false');
+  });
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+  // Keyboard: Enter/Space toggles, arrows navigate, Escape closes.
+  selector.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      dropdown.hidden = !dropdown.hidden;
+      selector.setAttribute('aria-expanded', String(!dropdown.hidden));
+      if (!dropdown.hidden) _initDropdownKeyboard(selector, dropdown, '.model-dropdown-item[data-agent-id]');
+    } else if (e.key === 'Escape') {
+      dropdown.hidden = true;
+      selector.setAttribute('aria-expanded', 'false');
+    } else if (!dropdown.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      _moveDropdownActive(dropdown, e.key === 'ArrowDown' ? 1 : -1, selector, '.model-dropdown-item[data-agent-id]');
+    } else if (!dropdown.hidden && e.key === 'Enter' && dropdown.querySelector('.keyboard-active')) {
+      e.preventDefault();
+      dropdown.querySelector('.keyboard-active').click();
+    }
+  });
   loadAgents().then(() => {
     // Restore label from saved profile
     if (selectedProfileId) {
@@ -848,6 +1029,43 @@ function setupModelSelector() {
       if (label && agent) label.textContent = agent.label || agent.id;
     }
   });
+}
+
+// --- Shared dropdown keyboard helpers ---
+function _initDropdownKeyboard(trigger, dropdown, itemSelector) {
+  const items = dropdown.querySelectorAll(itemSelector);
+  items.forEach(i => i.classList.remove('keyboard-active'));
+  if (items.length) {
+    items[0].classList.add('keyboard-active');
+    items[0].scrollIntoView({ block: 'nearest' });
+    trigger.setAttribute('aria-activedescendant', items[0].id || _ensureIds(items, 'dd-opt'));
+  }
+  // Make items keyboard-clickable
+  items.forEach(item => {
+    item.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+    };
+  });
+}
+
+function _moveDropdownActive(dropdown, dir, trigger, itemSelector) {
+  const items = Array.from(dropdown.querySelectorAll(itemSelector));
+  if (!items.length) return;
+  let idx = items.findIndex(i => i.classList.contains('keyboard-active'));
+  idx = idx < 0 ? 0 : (idx + dir + items.length) % items.length;
+  items.forEach(i => i.classList.remove('keyboard-active'));
+  items[idx].classList.add('keyboard-active');
+  items[idx].scrollIntoView({ block: 'nearest' });
+  trigger.setAttribute('aria-activedescendant', items[idx].id || _ensureIds(items, 'dd-opt'));
+}
+
+function _ensureIds(items, prefix) {
+  let firstId = '';
+  items.forEach((item, i) => {
+    if (!item.id) item.id = prefix + '-' + i;
+    if (!i) firstId = item.id;
+  });
+  return firstId;
 }
 
 // === BRAINSTORM SESSION MANAGEMENT ===
@@ -2984,16 +3202,22 @@ function setIdeaDetailStatus(message, tone, statusId) {
 }
 
 
+// === FOCUS OVERLAY ===
+let _focusLastActive = null;
+
 function openFocus(type, id, opts) {
   const overlay = $('focus-overlay');
   const content = $('focus-content');
   if (!overlay || !content) return;
+  // Remember the element that had focus before opening, so we can restore it.
+  _focusLastActive = document.activeElement;
   if (type === 'idea') {
     const idea = findIdeaCard(id);
     if (idea) {
       selectedTaskId = null;
       content.innerHTML = renderIdeaDetail(idea);
       overlay.hidden = false;
+      _focusIntoOverlay(overlay);
       return;
     }
   }
@@ -3102,10 +3326,34 @@ function openFocus(type, id, opts) {
   overlay.hidden = false;
   if (opts?.focusShell) {
     const input = content.querySelector('[data-shell-command]');
-    if (input) input.focus();
+    if (input) { input.focus(); return; }
   } else if (opts?.focusVerify) {
     const input = content.querySelector('[data-verify-command]');
-    if (input) input.focus();
+    if (input) { input.focus(); return; }
+  }
+  _focusIntoOverlay(overlay);
+}
+
+function _focusIntoOverlay(overlay) {
+  // Move focus into the modal: prefer close button, then first focusable.
+  const target = overlay.querySelector('#focus-close')
+    || overlay.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (target) target.focus();
+  else overlay.setAttribute('tabindex', '-1'), overlay.focus();
+}
+
+function _focusTrapKeydown(e) {
+  if (e.key !== 'Tab') return;
+  const overlay = $('focus-overlay');
+  if (!overlay || overlay.hidden) return;
+  const focusable = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) { e.preventDefault(); return; }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
   }
 }
 
@@ -3114,6 +3362,11 @@ function closeFocus() {
   if (overlay) overlay.hidden = true;
   if (refactorPollTimer) clearTimeout(refactorPollTimer);
   refactorPollTimer = null;
+  // Restore focus to the element that opened the modal.
+  if (_focusLastActive && typeof _focusLastActive.focus === 'function') {
+    _focusLastActive.focus();
+    _focusLastActive = null;
+  }
 }
 
 // === ACTION EXECUTION ===
@@ -4277,6 +4530,9 @@ function init() {
     if (e.key === 'Escape') closeFocus();
   });
 
+  // Focus trap: keep Tab inside the modal while it's open
+  document.addEventListener('keydown', _focusTrapKeydown);
+
   // Close repo dropdown on Escape
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -4284,6 +4540,18 @@ function init() {
       if (dd) dd.hidden = true;
     }
   });
+
+  // Mobile sidebar toggle
+  setupSidebarToggle();
+
+  // Scrollspy: sync active nav item with visible section
+  setupScrollspy();
+
+  // Tool tabs (Refactor / Builder-Judge)
+  setupToolTabs();
+
+  // Collapsible empty sections
+  setupCollapsibleEmpty();
 
   // Load snapshot
   loadSnapshot();

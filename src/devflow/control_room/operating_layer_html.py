@@ -7,13 +7,13 @@ INDEX_HTML = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Dev-Flow Operating Layer — control room">
   <title>Dev-Flow Operating Layer</title>
-  <link rel="stylesheet" href="/app.css?v=model-pickers-20260626">
+  <link rel="stylesheet" href="/app.css?v=zones-20260628">
 </head>
 <body>
   <div class="app-shell">
 
     <!-- ===== SIDEBAR ===== -->
-    <aside class="sidebar" role="navigation" aria-label="Main navigation">
+    <aside class="sidebar" id="main-sidebar" role="navigation" aria-label="Main navigation">
 
       <div class="brand">
         <span class="brand-mark">D</span>
@@ -24,25 +24,21 @@ INDEX_HTML = """<!doctype html>
       </div>
 
       <nav class="nav-list" aria-label="Sections">
-        <a href="#idea-greenhouse-section" class="nav-item active" data-nav="home" aria-label="Home">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
-          <span>Home</span>
+        <a href="#zone-capture-plan" class="nav-item active" data-nav="home" data-nav-target="zone-capture-plan" aria-label="Capture and Plan" aria-current="page">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+          <span>Plan</span>
         </a>
-        <a href="#product-review-section" class="nav-item" data-nav="work" aria-label="Work">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v2H6V4zm0 4h8v2H6V8zm0 4h8v2H6v-2z" clip-rule="evenodd"/></svg>
-          <span>Work</span>
+        <a href="#zone-execute" class="nav-item" data-nav="work" data-nav-target="zone-execute" aria-label="Execute">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v2H6V4zm0 4h8v2H6V8zm0 4h8v2H6v-2z" clip-rule="evenodd"/></svg>
+          <span>Execute</span>
         </a>
-        <a href="#product-review-section" class="nav-item" data-nav="review" aria-label="Review">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-          <span>Review</span>
+        <a href="#zone-tools" class="nav-item" data-nav="tools" data-nav-target="zone-tools" aria-label="Tools">
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+          <span>Tools</span>
         </a>
         <a href="#repo-selector" class="nav-item" data-nav="projects" aria-label="Projects">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
+          <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/></svg>
           <span>Projects</span>
-        </a>
-        <a href="#builder-judge-section" class="nav-item" data-nav="advanced" aria-label="Advanced">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
-          <span>Advanced</span>
         </a>
       </nav>
 
@@ -68,24 +64,30 @@ INDEX_HTML = """<!doctype html>
       </div>
     </aside>
 
+    <!-- Mobile nav backdrop -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+
     <!-- ===== MAIN ===== -->
     <main id="main-panel" role="main" aria-label="DevFlow Operating Layer">
 
       <!-- ===== TOP BAR ===== -->
       <header class="topbar">
         <div class="topbar-left">
-          <div class="repo-selector" id="repo-selector" tabindex="0" role="button" aria-haspopup="true" aria-label="Select repository">
-            <span class="repo-icon">⚑</span>
+          <button id="sidebar-toggle" type="button" class="sidebar-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="main-sidebar">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><path fill-rule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+          </button>
+          <div class="repo-selector" id="repo-selector" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" aria-label="Select repository">
+            <span class="repo-icon" aria-hidden="true">⚑</span>
             <div class="repo-info">
               <span class="repo-label">Repository</span>
               <strong id="repo-name">DevFlow</strong>
               <span class="repo-path" id="repo-path">~/DevFlow</span>
             </div>
-            <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            <svg class="chevron" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
           </div>
 
           <div class="topbar-pill" id="branch-pill">
-            <span class="pill-icon">⑂</span>
+            <span class="pill-icon" aria-hidden="true">⑂</span>
             <span class="pill-label">Branch</span>
             <strong id="branch-name">main</strong>
           </div>
@@ -97,14 +99,14 @@ INDEX_HTML = """<!doctype html>
           </div>
 
           <div class="topbar-pill">
-            <span class="pill-icon">◴</span>
+            <span class="pill-icon" aria-hidden="true">◴</span>
             <span class="pill-label">Last sync</span>
             <strong id="last-sync">2m ago</strong>
           </div>
         </div>
 
         <div class="topbar-right">
-          <button id="refresh-button" type="button" class="topbar-btn" title="Refresh snapshot">⟳ Refresh</button>
+          <button id="refresh-button" type="button" class="topbar-btn" title="Refresh snapshot"><span aria-hidden="true">⟳</span> Refresh</button>
           <div id="topbar-health" class="topbar-health" aria-label="System health">
             <span id="topbar-health-dot" class="status-dot online" aria-hidden="true"></span>
             <output id="orchestrator-health-label" class="topbar-health-label" aria-live="polite" aria-atomic="true">Nominal</output>
@@ -131,25 +133,34 @@ INDEX_HTML = """<!doctype html>
         <div class="repo-dropdown-header">
           <span class="pill-label">Working directory</span>
         </div>
-        <div id="repo-current-path" style="padding:4px 12px;font-size:11px;color:var(--text-muted);word-break:break-all;"></div>
-        <div id="repo-browser" style="max-height:300px;overflow-y:auto;padding:4px 0;"></div>
-        <div class="repo-dropdown-footer" style="padding:8px 12px;border-top:1px solid var(--border-light);display:flex;gap:8px;align-items:center;">
-          <input type="text" id="repo-path-input" placeholder="Enter path..." style="flex:1;padding:4px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;">
-          <button class="btn btn-sm btn-primary" id="repo-open-btn" type="button" style="padding:4px 12px;font-size:11px;">Open</button>
+        <div id="repo-current-path" class="repo-current-path"></div>
+        <div id="repo-browser" class="repo-browser"></div>
+        <div class="repo-dropdown-footer">
+          <input type="text" id="repo-path-input" class="repo-path-input" placeholder="Enter path...">
+          <button class="btn btn-sm btn-primary repo-open-btn" id="repo-open-btn" type="button">Open</button>
         </div>
       </div>
 
-      <!-- ===== LAYOUT COLUMNS ===== -->
+      <!-- ===== LAYOUT: main zones + chat sidebar ===== -->
       <div class="layout-columns">
 
-        <!-- Center: Idea-to-Product pipeline spine -->
-        <div class="center-column">
+        <!-- ===== MAIN CONTENT — zones ===== -->
+        <div class="main-content">
+
+        <!-- ================================================================ -->
+        <!-- ZONE 1: CAPTURE & PLAN -->
+        <!-- ================================================================ -->
+        <div class="zone" id="zone-capture-plan" data-zone="capture-plan">
+          <div class="zone-header">
+            <h2 class="zone-title">Capture &amp; Plan</h2>
+            <span class="zone-hint">Ideas → Brainstorm → Spec → Plan → Task</span>
+          </div>
 
           <!-- Idea Greenhouse -->
           <section id="idea-greenhouse-section" class="panel idea-greenhouse-section" aria-label="Idea Greenhouse">
             <div class="panel-header">
               <div>
-                <h2 class="panel-title">Idea Greenhouse</h2>
+                <h3 class="panel-title">Idea Greenhouse</h3>
                 <p class="panel-subtitle">Capture fast. Sort later. Keep active work constrained.</p>
               </div>
               <output id="idea-greenhouse-status" class="status-pill muted" aria-live="polite">Ready</output>
@@ -170,20 +181,29 @@ INDEX_HTML = """<!doctype html>
           <!-- Pipeline spine -->
           <section id="pipeline-spine" class="panel pipeline-section" aria-label="Pipeline">
             <div class="panel-header">
-              <h2 class="panel-title">Pipeline</h2>
-              <span class="info-icon" title="Pipeline stages for the current project">ⓘ</span>
+              <h3 class="panel-title">Pipeline</h3>
+              <span class="info-icon" tabindex="0" role="img" aria-label="Pipeline stages for the current project" title="Pipeline stages for the current project">ⓘ</span>
             </div>
             <div class="pipeline-stages" id="pipeline-stages-container"></div>
-            <div class="definition-editor">
-              <label for="brainstorm-definition-of-done">Definition of Done</label>
-              <textarea id="brainstorm-definition-of-done" rows="4" placeholder="What must be true before this brainstorm becomes done?"></textarea>
-            </div>
           </section>
+
+          <!-- Hidden textarea for backward-compatible DoD save (pipeline stage) -->
+          <textarea id="brainstorm-definition-of-done" rows="4" placeholder="What must be true before this brainstorm becomes done?" hidden></textarea>
+        </div>
+
+        <!-- ================================================================ -->
+        <!-- ZONE 2: EXECUTE -->
+        <!-- ================================================================ -->
+        <div class="zone" id="zone-execute" data-zone="execute">
+          <div class="zone-header">
+            <h2 class="zone-title">Execute</h2>
+            <span class="zone-hint">Active task, evidence, review, and promotion</span>
+          </div>
 
           <!-- Next Task section -->
           <section id="orchestrator-section" class="panel orchestrator-section next-task-section" aria-label="Next Task">
             <div class="panel-header">
-              <h2 class="panel-title">Next Task</h2>
+              <h3 class="panel-title">Next Task</h3>
               <output id="orchestrator-sync" class="status-badge online" aria-live="polite" aria-atomic="true">Launchpad</output>
             </div>
             <div id="operator-next-steps" class="operator-next-steps" aria-label="What can I do next"></div>
@@ -213,61 +233,74 @@ INDEX_HTML = """<!doctype html>
             </div>
           </section>
 
-          <!-- ===== TASK CONTROL ===== -->
+          <!-- Task Control -->
           <section id="product-review-section" class="product-review-section" aria-label="Task Control">
             <div class="product-review-header">
               <div>
-                <h2 class="panel-title">Task Control</h2>
-                <p class="panel-subtitle">Task evidence, verification, review, and promotion live here.</p>
+                <h3 class="panel-title">Task Control</h3>
+                <p class="panel-subtitle">Evidence, verification, review, and promotion.</p>
               </div>
             </div>
             <div class="task-control-grid">
-            <!-- Worker lanes -->
-            <section class="dock-panel" aria-labelledby="worker-lanes-heading">
-              <div class="dock-panel-header">
-                <h3 id="worker-lanes-heading">Worker lanes</h3>
-                <output id="active-work-count" class="dock-count" aria-live="polite" aria-atomic="true">0 tasks</output>
-                <span class="dock-status-note">Live</span>
-              </div>
-              <div id="active-work-groups" class="worker-lanes-list" role="list" aria-label="Task cards"></div>
-            </section>
+              <section class="dock-panel" aria-labelledby="worker-lanes-heading">
+                <div class="dock-panel-header">
+                  <h4 id="worker-lanes-heading">Worker lanes</h4>
+                  <output id="active-work-count" class="dock-count" aria-live="polite" aria-atomic="true">0 tasks</output>
+                  <span class="dock-status-note">Live</span>
+                </div>
+                <div id="active-work-groups" class="worker-lanes-list" role="list" aria-label="Task cards"></div>
+              </section>
 
-            <!-- Review queue -->
-            <section class="dock-panel" aria-labelledby="review-queue-heading">
-              <div class="dock-panel-header">
-                <h3 id="review-queue-heading">Review queue</h3>
-                <output id="review-queue-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
-                <span class="dock-status-note">Live</span>
-              </div>
-              <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Review items"></div>
-            </section>
+              <section class="dock-panel" aria-labelledby="review-queue-heading">
+                <div class="dock-panel-header">
+                  <h4 id="review-queue-heading">Review queue</h4>
+                  <output id="review-queue-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
+                  <span class="dock-status-note">Live</span>
+                </div>
+                <div id="guided-review-queue" class="review-queue-list" role="list" aria-label="Review items"></div>
+              </section>
 
-            <!-- Evidence stream -->
-            <section class="dock-panel" aria-labelledby="evidence-stream-heading">
-              <div class="dock-panel-header">
-                <h3 id="evidence-stream-heading">Evidence stream</h3>
-                <output id="evidence-stream-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
-                <span class="dock-status-note">Live</span>
-              </div>
-              <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
-            </section>
+              <section class="dock-panel" aria-labelledby="evidence-stream-heading">
+                <div class="dock-panel-header">
+                  <h4 id="evidence-stream-heading">Evidence stream</h4>
+                  <output id="evidence-stream-count" class="dock-count" aria-live="polite" aria-atomic="true">0 items</output>
+                  <span class="dock-status-note">Live</span>
+                </div>
+                <div id="guided-evidence-stream" class="evidence-stream-list" role="list" aria-label="Evidence items"></div>
+              </section>
             </div>
           </section>
 
-          <!-- Mission Feed -->
+          <!-- Work Feed -->
           <section id="mission-feed-section" class="panel mission-feed-section" aria-label="Work feed">
             <div class="panel-header">
-              <h2 class="panel-title">Work Feed</h2>
+              <h3 class="panel-title">Work Feed</h3>
               <output id="mission-feed-count" aria-live="polite" aria-atomic="true">0</output>
             </div>
             <div id="mission-feed-list" class="mission-feed-list"></div>
             <div id="guided-action-result" class="guided-action-result" aria-live="polite"></div>
           </section>
+        </div>
 
-          <!-- Refactor Loop -->
-          <section id="refactor-section" class="panel refactor-section" aria-label="Refactor Loop">
+        <!-- ================================================================ -->
+        <!-- ZONE 3: TOOLS -->
+        <!-- ================================================================ -->
+        <div class="zone" id="zone-tools" data-zone="tools">
+          <div class="zone-header">
+            <h2 class="zone-title">Tools</h2>
+            <span class="zone-hint">On-demand AI coding tools</span>
+          </div>
+
+          <!-- Tool tabs -->
+          <div class="tools-tabs">
+            <button class="tools-tab active" data-tools-tab="refactor" type="button">Refactor</button>
+            <button class="tools-tab" data-tools-tab="builder-judge" type="button">Builder-Judge</button>
+          </div>
+
+          <!-- Refactor panel -->
+          <section id="refactor-section" class="panel refactor-section tools-panel active" data-tools-panel="refactor" aria-label="Refactor Loop">
             <div class="panel-header">
-              <h2 class="panel-title">Refactor</h2>
+              <h3 class="panel-title">Refactor</h3>
               <output id="refactor-status-badge" class="status-badge" aria-live="polite" aria-atomic="true">Idle</output>
             </div>
             <div class="bj-form-area">
@@ -286,10 +319,10 @@ INDEX_HTML = """<!doctype html>
             </div>
           </section>
 
-          <!-- Builder-Judge Loop -->
-          <section id="builder-judge-section" class="panel builder-judge-section" aria-label="Builder-Judge Loop">
+          <!-- Builder-Judge panel -->
+          <section id="builder-judge-section" class="panel builder-judge-section tools-panel" data-tools-panel="builder-judge" aria-label="Builder-Judge Loop" hidden>
             <div class="panel-header">
-              <h2 class="panel-title">Builder-Judge Loop</h2>
+              <h3 class="panel-title">Builder-Judge Loop</h3>
               <output id="bj-status-badge" class="status-badge" aria-live="polite" aria-atomic="true">Idle</output>
             </div>
 
@@ -318,11 +351,11 @@ INDEX_HTML = """<!doctype html>
               <div class="bj-form-row">
                 <div class="bj-form-group">
                   <label for="bj-pass-threshold">Pass Threshold</label>
-                  <input type="number" id="bj-pass-threshold" min="50" max="100" value="85" style="width:80px;">
+                  <input type="number" id="bj-pass-threshold" class="bj-number-input" min="50" max="100" value="85">
                 </div>
                 <div class="bj-form-group">
                   <label for="bj-max-rounds">Max Rounds</label>
-                  <input type="number" id="bj-max-rounds" min="1" max="20" value="5" style="width:80px;">
+                  <input type="number" id="bj-max-rounds" class="bj-number-input" min="1" max="20" value="5">
                 </div>
                 <div class="bj-form-group bj-checkbox-group">
                   <label class="bj-checkbox-label">
@@ -332,8 +365,8 @@ INDEX_HTML = """<!doctype html>
                 </div>
               </div>
 
-              <button id="bj-run-btn" class="btn btn-primary" type="button" style="width:100%;">
-                ▶ Run Loop
+              <button id="bj-run-btn" class="btn btn-primary btn-full" type="button">
+                <span aria-hidden="true">▶</span> Run Loop
               </button>
             </div>
 
@@ -357,41 +390,27 @@ INDEX_HTML = """<!doctype html>
 
             <div class="bj-history-header">
               <span class="label">Recent Loops</span>
-              <button class="btn btn-sm btn-secondary" id="bj-refresh-list" type="button" style="padding:2px 8px;font-size:10px;">↻</button>
+              <button class="btn btn-sm btn-secondary btn-icon-sm" id="bj-refresh-list" type="button" aria-label="Refresh recent loops"><span aria-hidden="true">↻</span></button>
             </div>
             <div id="bj-loops-list" class="bj-loops-list"></div>
           </section>
         </div>
 
-        <!-- Right: compact history -->
-        <div class="right-column">
-          <!-- Brainstorm History -->
-          <section class="panel history-panel" aria-label="Brainstorm history">
-            <div class="panel-header">
-              <h2 class="panel-title" style="font-size:13px;">History</h2>
-              <button class="btn btn-sm btn-secondary" id="brainstorm-new-session-side" type="button" style="padding:2px 8px;font-size:10px;">+ New</button>
-            </div>
-            <details id="brainstorm-history-details" open>
-              <summary>
-                <span>Recent brainstorms</span>
-                <output id="brainstorm-history-count" aria-live="polite">0</output>
-              </summary>
-              <div id="brainstorm-sessions-list" class="history-list"></div>
-            </details>
-          </section>
+      </div>
 
-          <!-- Brainstorm -->
-          <section id="brainstorm-section" class="panel brainstorm-section" aria-label="Brainstorm">
+      <!-- ===== RIGHT SIDEBAR: Brainstorm chat ===== -->
+      <aside class="chat-sidebar" aria-label="Brainstorm chat">
+        <section id="brainstorm-section" class="panel brainstorm-section" aria-label="Brainstorm">
             <div class="panel-header">
-              <h2 class="panel-title">Brainstorm</h2>
+              <h3 class="panel-title">Brainstorm</h3>
               <div class="panel-header-controls">
-                <button class="btn btn-sm btn-secondary" id="brainstorm-new-session" type="button" style="padding:3px 10px;font-size:11px;">+ New</button>
+                <button class="btn btn-sm btn-secondary btn-compact-md" id="brainstorm-new-session" type="button">+ New</button>
                 <div class="model-selector-wrap">
-                  <span class="model-selector" id="model-selector" tabindex="0" role="button" aria-haspopup="listbox">
+                  <span class="model-selector" id="model-selector" tabindex="0" role="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select brainstorm model">
                     <span id="model-selector-label">DeepSeek V4 Flash Free</span>
-                    <svg class="chevron" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                    <svg class="chevron" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                   </span>
-                  <div class="model-dropdown" id="model-dropdown" hidden></div>
+                  <div class="model-dropdown" id="model-dropdown" role="listbox" aria-label="Brainstorm models" hidden></div>
                 </div>
                 <label class="evidence-toggle">
                   <input type="checkbox" id="local-evidence-only" checked>
@@ -399,6 +418,16 @@ INDEX_HTML = """<!doctype html>
                 </label>
               </div>
             </div>
+
+            <!-- Brainstorm history (compact) -->
+            <details id="brainstorm-history-details" class="brainstorm-history-inline">
+              <summary>
+                <span>Recent</span>
+                <output id="brainstorm-history-count" aria-live="polite">0</output>
+                <button class="btn btn-sm btn-secondary btn-compact" id="brainstorm-new-session-side" type="button">+ New</button>
+              </summary>
+              <div id="brainstorm-sessions-list" class="history-list"></div>
+            </details>
 
             <div id="brainstorm-transcript" class="brainstorm-transcript" role="log" aria-live="polite" aria-label="Brainstorm transcript"></div>
 
@@ -417,8 +446,9 @@ INDEX_HTML = """<!doctype html>
               </div>
             </form>
           </section>
-        </div>
-      </div>
+      </aside>
+
+      </div><!-- /layout-columns -->
 
       <!-- ===== FOOTER ===== -->
       <footer class="app-footer">
@@ -440,7 +470,7 @@ INDEX_HTML = """<!doctype html>
 
     </main>
   </div>
-  <script src="/app.js?v=model-pickers-20260626"></script>
+  <script src="/app.js?v=zones-20260628"></script>
 </body>
 </html>
 """
