@@ -76,7 +76,8 @@ def test_operating_layer_js_uses_active_brainstorm_session_for_atomic_bridge() -
     assert "Legacy Brainstorm payload fallback" in APP_JS
     assert "if (detail.task_action) return detail.task_action;" in APP_JS
     assert APP_JS.index("if (detail.task_action) return detail.task_action;") < APP_JS.index("return payload?.action || null;")
-    assert "if (typedTaskAction)" in APP_JS
+    assert "createTaskFromAcceptedImplementation" in APP_JS
+    assert "Implementation artifact is ready. Use Create Task after builder-judge acceptance." in APP_JS
     assert "implContext?.text && implContext.text.trim()" not in APP_JS
 
 

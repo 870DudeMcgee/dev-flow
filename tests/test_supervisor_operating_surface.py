@@ -138,6 +138,9 @@ def test_evidence_writing_commands_are_not_pure_read_only() -> None:
         "devflow idea promote I-0001 --to goal --rationale reviewed",
         "devflow idea park I-0001 --reason later",
         "devflow idea archive I-0001 --reason superseded",
+        "devflow architecture audit --install-graphify --write-doc",
+        "devflow architecture audit --write-doc",
+        "devflow architecture audit --install-graphify",
     ):
         classification = classify_supervisor_command(command)
         assert classification["safety_class"] == APPROVAL_REQUIRED_EVIDENCE_WRITING

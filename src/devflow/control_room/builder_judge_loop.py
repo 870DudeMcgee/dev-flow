@@ -37,6 +37,11 @@ from devflow.control_room.brainstorm import (
     _normalize_raw_response,
 )
 from devflow.control_room.env_loader import resolve_api_key
+from devflow.control_room.hermes_profile_resolver import (
+    hermes_direct_handoff_state,
+    load_hermes_picker_runtime,
+)
+from devflow.control_room.loops import loop_artifact, loop_envelope
 from devflow.control_room.openrouter_agent import _redact
 from devflow.control_room.paths import devflow_dir, relative_path
 from devflow.control_room.persistence import atomic_write_text
@@ -59,6 +64,11 @@ MAX_DRAFT_LENGTH = 50_000
 
 DEFAULT_BUILDER_PROFILE = "hermes-qwen37plus"
 DEFAULT_JUDGE_PROFILE = "hermes-opus48"
+PONYTAIL_SIMPLIFICATION_LADDER = (
+    "Ponytail simplification ladder: skip unnecessary work; delete what should not exist; "
+    "reuse existing code; prefer stdlib/native behavior/already-approved dependencies; "
+    "then write only the minimum new content or code that works."
+)
 
 LoopStatus = Literal[
     "running",
@@ -121,6 +131,7 @@ class BuilderJudgeRun(BaseModel):
     started_at: str
     finished_at: str | None = None
     evidence_path: str | None = None
+    handoff_state: dict[str, Any] | None = None
     stop_reason: str = ""
     next_safe_action: str = ""
 
@@ -183,6 +194,18 @@ def run_builder_judge_loop(
 
     builder_profile, builder_provider = _load_profile(root, config.builder_profile_id)
     judge_profile, judge_provider = _load_profile(root, config.judge_profile_id)
+    handoff_state = _builder_judge_handoff_state(
+        builder_profile=builder_profile,
+        builder_provider=builder_provider,
+        judge_profile=judge_profile,
+        judge_provider=judge_provider,
+    )
+    if handoff_state:
+        run.status = "failed"
+        run.handoff_state = handoff_state
+        run.stop_reason = "hermes_handoff_required"
+        run.next_safe_action = str(handoff_state.get("next_safe_action") or "Use the Hermes handoff command shown in run evidence.")
+        return _finish(root, run, write_evidence=write_evidence)
 
     if config.builder_profile_id == config.judge_profile_id:
         raise BuilderJudgeConfigError(
@@ -338,6 +361,7 @@ def run_builder_judge_loop(
 
 def list_builder_judge_loops(root: Path) -> list[dict[str, Any]]:
     """List all builder-judge loop runs, newest first."""
+    root = root.resolve()
     directory = builder_judge_dir(root)
     if not directory.exists():
         return []
@@ -350,18 +374,36 @@ def list_builder_judge_loops(root: Path) -> list[dict[str, Any]]:
             data = json.loads(run_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-        results.append({
+        projected = project_builder_judge_run(data, root=root)
+        config = projected.get("config", {})
+        if not isinstance(config, dict):
+            config = {}
+        rounds = projected.get("rounds", [])
+        row = {
             "loop_id": data.get("loop_id", entry.name),
-            "run_id": data.get("run_id", ""),
-            "status": data.get("status", "unknown"),
-            "started_at": data.get("started_at", ""),
-            "finished_at": data.get("finished_at", ""),
-            "final_score": data.get("final_score"),
-            "rounds_completed": len(data.get("rounds", [])),
-            "definition_of_done": (data.get("config", {}).get("definition_of_done", ""))[:200],
-            "builder_profile_id": data.get("config", {}).get("builder_profile_id", ""),
-            "judge_profile_id": data.get("config", {}).get("judge_profile_id", ""),
-        })
+            "run_id": projected.get("run_id", ""),
+            "status": projected.get("status", "unknown"),
+            "started_at": projected.get("started_at", ""),
+            "finished_at": projected.get("finished_at", ""),
+            "final_score": projected.get("final_score"),
+            "rounds_completed": len(rounds) if isinstance(rounds, list) else 0,
+            "definition_of_done": str(config.get("definition_of_done") or "")[:200],
+            "builder_profile_id": str(config.get("builder_profile_id") or ""),
+            "judge_profile_id": str(config.get("judge_profile_id") or ""),
+        }
+        results.append(
+            loop_envelope(
+                loop_family="builder_judge",
+                run_id=str(row.get("run_id") or row.get("loop_id") or ""),
+                status=str(row.get("status") or "unknown"),
+                loop_id=str(row.get("loop_id") or "") or None,
+                phases=projected.get("phases") if isinstance(projected.get("phases"), list) else None,
+                artifacts=projected.get("artifacts") if isinstance(projected.get("artifacts"), list) else None,
+                evidence_path=projected.get("evidence_path") if isinstance(projected.get("evidence_path"), str) else None,
+                next_safe_action=str(projected.get("next_safe_action") or ""),
+                extra=row,
+            )
+        )
     results.sort(key=lambda r: r.get("started_at", ""), reverse=True)
     return results
 
@@ -372,9 +414,59 @@ def get_builder_judge_run(root: Path, loop_id: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return project_builder_judge_run(json.loads(path.read_text(encoding="utf-8")), root=root)
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def project_builder_judge_run(run_or_dict: Any, root: Path | None = None) -> dict[str, Any]:
+    """Return the additive read envelope for a builder-judge run."""
+    if isinstance(run_or_dict, dict):
+        data = dict(run_or_dict)
+    elif hasattr(run_or_dict, "model_dump"):
+        data = run_or_dict.model_dump(mode="json")
+    else:
+        data = dict(run_or_dict)
+
+    loop_id = _string_or_none(data.get("loop_id"))
+    run_id = _string_or_none(data.get("run_id")) or loop_id or ""
+    status = _string_or_none(data.get("status")) or "unknown"
+    evidence_path = _string_or_none(data.get("evidence_path"))
+    phases = data.get("phases") if isinstance(data.get("phases"), list) else []
+    artifacts = data.get("artifacts") if isinstance(data.get("artifacts"), list) else None
+    if artifacts is None:
+        artifacts = []
+        if evidence_path:
+            artifacts.append(
+                loop_artifact(
+                    "Run evidence",
+                    "json",
+                    evidence_path,
+                    _builder_artifact_exists(root, evidence_path),
+                )
+            )
+    return loop_envelope(
+        loop_family="builder_judge",
+        run_id=run_id,
+        status=status,
+        loop_id=loop_id,
+        phases=phases,
+        artifacts=artifacts,
+        evidence_path=evidence_path,
+        next_safe_action=_string_or_none(data.get("next_safe_action")) or "",
+        extra=data,
+    )
+
+
+def _builder_artifact_exists(root: Path | None, path: str) -> bool:
+    artifact_path = Path(path)
+    if not artifact_path.is_absolute() and root is not None:
+        artifact_path = root / artifact_path
+    return artifact_path.exists()
+
+
+def _string_or_none(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 # ── Validation ────────────────────────────────────────────────────────────
@@ -404,6 +496,9 @@ def _validate_config(config: BuilderJudgeConfig) -> None:
 # ── Model loading ─────────────────────────────────────────────────────────
 
 def _load_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
+    hermes_runtime = load_hermes_picker_runtime(root, profile_id)
+    if hermes_runtime is not None:
+        return hermes_runtime
     agent = load_agent_registry(root).require_agent(profile_id)
     provider = load_provider_registry(root).require_provider(agent.provider)
     is_ollama = _is_ollama_provider(provider)
@@ -414,6 +509,30 @@ def _load_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, Provide
             f"and cannot be used for builder-judge loops."
         )
     return agent, provider
+
+
+def _builder_judge_handoff_state(
+    *,
+    builder_profile: AgentDefinition,
+    builder_provider: ProviderDefinition,
+    judge_profile: AgentDefinition,
+    judge_provider: ProviderDefinition,
+) -> dict[str, Any] | None:
+    builder_state = hermes_direct_handoff_state(builder_profile, builder_provider)
+    judge_state = hermes_direct_handoff_state(judge_profile, judge_provider)
+    if builder_state is None and judge_state is None:
+        return None
+    states = {"builder": builder_state, "judge": judge_state}
+    first = builder_state or judge_state or {}
+    return {
+        "runtime_contract": "handoff_v1",
+        "builder": builder_state,
+        "judge": judge_state,
+        "next_command": first.get("next_command"),
+        "next_safe_action": first.get("next_command") or "Configure the selected Hermes profile, then rerun.",
+        "setup_guidance": "Builder/Judge direct chat is not available for one or more selected Hermes profiles.",
+        "states": states,
+    }
 
 
 def _resolve_api_key(provider: ProviderDefinition) -> str | None:
@@ -431,6 +550,7 @@ def _builder_system_prompt(profile: AgentDefinition) -> str:
         f"Your job is to produce content that meets a specific Definition of Done. "
         f"You will receive the bar, your previous draft (if any), and the Judge's "
         f"specific feedback and issues. Your task: produce the best possible revision. "
+        f"Apply the {PONYTAIL_SIMPLIFICATION_LADDER} "
         f"Address every issue the Judge raised. Do not explain yourself — just output "
         f"the content. Return ONLY the content, no meta-commentary, no JSON."
     )
@@ -474,6 +594,7 @@ def _judge_system_prompt(profile: AgentDefinition) -> str:
         f"You are adversarial. Your job is to grade the Builder's draft against "
         f"a specific Definition of Done. Score 0-100. Be harsh — find the holes, "
         f"the gaps, the missing pieces. List every specific issue. "
+        f"Enforce the {PONYTAIL_SIMPLIFICATION_LADDER} "
         f"Return JSON with keys: score (integer 0-100), issues (array of strings), "
         f"feedback (string summary). Do not rubber-stamp. If the draft is perfect, "
         f"score 100. If it misses the bar entirely, score below 50."

@@ -9,8 +9,10 @@ let userSelectedBrainstormSession = false;
 let selectedTaskId = null;
 let availableAgents = [];
 let localModelInventory = {};
+let localModelReadiness = {};
 let selectedProfileId = localStorage.getItem('devflow-brainstorm-profile') || null;
 let lastRefactorRunId = localStorage.getItem('devflow-refactor-run-id') || null;
+let lastWorkbenchLoopId = localStorage.getItem('devflow-workbench-loop-id') || null;
 let refactorPollTimer = null;
 let refactorActiveTab = 'overview';
 const ACTION_APPROVAL_PHRASE = 'I approve this exact Dev-Flow command';
@@ -558,16 +560,54 @@ function adoptFirstViewportBrainstormSession(snap) {
 // === SNAPSHOT LOADING ===
 async function loadSnapshot(project) {
   const url = project ? `/api/snapshot?project=${encodeURIComponent(project)}` : '/api/snapshot';
+  // Show skeleton on first load (when no snapshot yet).
+  if (!snapshot) _showSnapshotSkeleton();
+  _clearSnapshotError();
   try {
     const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Snapshot request failed (${resp.status})`);
     snapshot = await resp.json();
     localModelInventory = snapshot.local_model_inventory || localModelInventory || {};
+    localModelReadiness = snapshot.local_model_readiness || localModelReadiness || {};
     adoptFirstViewportBrainstormSession(snapshot);
     render();
   } catch (e) {
     snapshot = null;
     render();
+    _showSnapshotError(e);
   }
+}
+
+function _showSnapshotSkeleton() {
+  const targets = [
+    'orchestrator-goal-title', 'orchestrator-directive', 'orchestrator-command',
+    'active-work-groups', 'guided-review-queue', 'guided-evidence-stream',
+    'mission-feed-list', 'idea-greenhouse-lanes'
+  ];
+  for (const id of targets) {
+    const el = $(id);
+    if (!el || el.children.length) continue;
+    const lines = id.endsWith('groups') || id.endsWith('queue') || id.endsWith('stream') || id === 'idea-greenhouse-lanes' ? 2 : 1;
+    let html = '';
+    for (let i = 0; i < lines; i++) html += '<div class="df-skeleton df-skeleton-line"></div>';
+    el.innerHTML = html;
+  }
+}
+
+function _showSnapshotError(err) {
+  const target = $('orchestrator-section') || $('main-panel');
+  if (!target) return;
+  const banner = document.createElement('div');
+  banner.className = 'df-error-banner';
+  banner.setAttribute('role', 'alert');
+  banner.innerHTML = `<span>Failed to load snapshot: ${esc(err?.message || 'unknown error')}</span>` +
+    '<button class="df-error-dismiss" type="button" aria-label="Dismiss error">×</button>';
+  banner.querySelector('.df-error-dismiss')?.addEventListener('click', () => banner.remove());
+  target.prepend(banner);
+}
+
+function _clearSnapshotError() {
+  document.querySelectorAll('.df-error-banner').forEach(el => el.remove());
 }
 
 // === NAVIGATION ===
@@ -578,11 +618,10 @@ function setActiveNav(navId) {
 }
 function setupNavigation() {
   const navTargets = {
-    home: '#idea-greenhouse-section',
-    work: '#product-review-section',
-    review: '#product-review-section',
+    home: '#zone-capture-plan',
+    work: '#zone-execute',
+    tools: '#zone-tools',
     projects: '#repo-selector',
-    advanced: '#builder-judge-section',
   };
   document.querySelectorAll('.nav-item[data-nav]').forEach(link => {
     link.addEventListener('click', (event) => {
@@ -597,6 +636,88 @@ function setupNavigation() {
         target.click();
       }
     });
+  });
+}
+
+// === SIDEBAR TOGGLE (mobile) ===
+function setupSidebarToggle() {
+  const btn = $('sidebar-toggle');
+  const sidebar = $('main-sidebar');
+  const backdrop = $('sidebar-backdrop');
+  if (!btn || !sidebar) return;
+  const close = () => {
+    sidebar.classList.remove('mobile-open');
+    btn.setAttribute('aria-expanded', 'false');
+    if (backdrop) backdrop.hidden = true;
+  };
+  btn.addEventListener('click', () => {
+    const isOpen = sidebar.classList.toggle('mobile-open');
+    btn.setAttribute('aria-expanded', String(isOpen));
+    if (backdrop) backdrop.hidden = !isOpen;
+  });
+  if (backdrop) backdrop.addEventListener('click', close);
+  // Close on nav click (mobile)
+  sidebar.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', close);
+  });
+}
+
+// === SCROLLSPY: sync active nav with visible section ===
+function setupScrollspy() {
+  const navLinks = document.querySelectorAll('.nav-item[data-nav-target]');
+  if (!navLinks.length || !('IntersectionObserver' in window)) return;
+  const visibleMap = new Map();
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      visibleMap.set(entry.target.id, entry.isIntersecting);
+    }
+    // Pick the first section that's currently visible.
+    let activeId = null;
+    for (const [id, visible] of visibleMap) {
+      if (visible) { activeId = id; break; }
+    }
+    if (!activeId) return;
+    navLinks.forEach(link => {
+      const isActive = link.dataset.navTarget === activeId;
+      link.classList.toggle('active', isActive);
+      if (isActive) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }, { rootMargin: '-80px 0px -60% 0px', threshold: 0 });
+  navLinks.forEach(link => {
+    const target = document.getElementById(link.dataset.navTarget);
+    if (target) observer.observe(target);
+  });
+}
+
+// === TOOL TABS ===
+function setupToolTabs() {
+  const tabs = document.querySelectorAll('.tools-tab');
+  const panels = document.querySelectorAll('.tools-panel');
+  if (!tabs.length) return;
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.toolsTab;
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      panels.forEach(p => {
+        const match = p.dataset.toolsPanel === target;
+        p.hidden = !match;
+        p.classList.toggle('active', match);
+      });
+    });
+  });
+}
+
+// === COLLAPSIBLE EMPTY SECTIONS ===
+function setupCollapsibleEmpty() {
+  // Use event delegation so dynamically-empty sections also work
+  document.addEventListener('click', (e) => {
+    const header = e.target.closest('.zone .panel.is-empty .panel-header, .zone .product-review-section.is-empty .product-review-header');
+    if (!header) return;
+    // Don't toggle if clicking on a button or interactive element
+    if (e.target.closest('button, a, input, select, .model-selector')) return;
+    const panel = header.closest('.panel, .product-review-section');
+    if (panel) panel.classList.toggle('expanded');
   });
 }
 
@@ -623,17 +744,17 @@ function renderRepoBrowser(data) {
 
   let html = '';
   if (data.parent_path) {
-    html += `<div class="repo-item" data-browse-path="${esc(data.parent_path)}" style="cursor:pointer;">
-      <span class="repo-item-icon">↑</span>
+    html += `<div class="repo-item repo-browser-item" role="option" tabindex="-1" data-browse-path="${esc(data.parent_path)}">
+      <span class="repo-item-icon" aria-hidden="true">↑</span>
       <div><strong>..</strong><span class="repo-path">Parent directory</span></div>
     </div>`;
   }
   for (const entry of data.entries) {
     if (!entry.is_dir) continue;
     const icon = entry.has_devflow ? '⚑' : '📁';
-    const badge = entry.has_devflow ? '<span style="font-size:9px;color:var(--accent);margin-left:4px;">DevFlow</span>' : '';
-    html += `<div class="repo-item" data-browse-path="${esc(entry.path)}" data-is-dir="true" style="cursor:pointer;">
-      <span class="repo-item-icon">${icon}</span>
+    const badge = entry.has_devflow ? '<span class="repo-devflow-badge">DevFlow</span>' : '';
+    html += `<div class="repo-item repo-browser-item" role="option" tabindex="-1" data-browse-path="${esc(entry.path)}" data-is-dir="true">
+      <span class="repo-item-icon" aria-hidden="true">${icon}</span>
       <div>
         <strong>${esc(entry.name)}${badge}</strong>
         <span class="repo-path">${esc(entry.path)}</span>
@@ -641,9 +762,15 @@ function renderRepoBrowser(data) {
     </div>`;
   }
   if (!data.entries.some(e => e.is_dir)) {
-    html += '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;">No subdirectories</div>';
+    html += '<div class="repo-browser-empty">No subdirectories</div>';
   }
   browser.innerHTML = html;
+
+  // Re-init keyboard navigation for the freshly rendered items.
+  const selector = $('repo-selector');
+  if (selector && !($('repo-dropdown')?.hidden)) {
+    _initDropdownKeyboard(selector, browser, '.repo-item');
+  }
 
   browser.querySelectorAll('.repo-item').forEach(item => {
     item.addEventListener('click', (e) => {
@@ -691,12 +818,41 @@ function setupRepoSelector() {
   selector.addEventListener('click', (e) => {
     e.stopPropagation();
     dropdown.hidden = !dropdown.hidden;
+    selector.setAttribute('aria-expanded', String(!dropdown.hidden));
     if (!dropdown.hidden && !currentBrowsePath) {
       browseDirectory('~');
     }
+    if (!dropdown.hidden) {
+      _initDropdownKeyboard(selector, dropdown, '.repo-item');
+    }
   });
-  document.addEventListener('click', () => { dropdown.hidden = true; });
+  document.addEventListener('click', () => {
+    dropdown.hidden = true;
+    selector.setAttribute('aria-expanded', 'false');
+  });
   dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+  // Keyboard: Enter/Space toggles, arrows navigate repo items, Escape closes.
+  selector.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      dropdown.hidden = !dropdown.hidden;
+      selector.setAttribute('aria-expanded', String(!dropdown.hidden));
+      if (!dropdown.hidden && !currentBrowsePath) browseDirectory('~');
+      if (!dropdown.hidden) _initDropdownKeyboard(selector, dropdown, '.repo-item');
+    } else if (e.key === 'Escape') {
+      dropdown.hidden = true;
+      selector.setAttribute('aria-expanded', 'false');
+    } else if (!dropdown.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      _moveDropdownActive(dropdown, e.key === 'ArrowDown' ? 1 : -1, selector, '.repo-item');
+    } else if (!dropdown.hidden && e.key === 'Enter' && dropdown.querySelector('.repo-item.keyboard-active')) {
+      e.preventDefault();
+      const item = dropdown.querySelector('.repo-item.keyboard-active');
+      const browsePath = item?.dataset.browsePath;
+      if (browsePath) browseDirectory(browsePath);
+    }
+  });
 
   const openBtn = $('repo-open-btn');
   const pathInput = $('repo-path-input');
@@ -713,63 +869,133 @@ function setupRepoSelector() {
 }
 
 // === MODEL SELECTOR ===
+function brainstormModelPickerConfig() {
+  return {
+    key: 'brainstorm',
+    selectorId: 'model-selector',
+    labelId: 'model-selector-label',
+    dropdownId: 'model-dropdown',
+    noteId: 'model-fallback-note',
+    storageKey: 'devflow-brainstorm-profile',
+    emptyText: 'No selectable profiles',
+    setupEmptyText: 'Register a model in Model setup below.',
+    optionIdPrefix: 'brainstorm-model',
+  };
+}
+
+function builderModelPickerConfig() {
+  return {
+    key: 'builder',
+    inputId: 'bj-builder-model',
+    selectorId: 'bj-builder-model-selector',
+    labelId: 'bj-builder-model-label',
+    dropdownId: 'bj-builder-model-dropdown',
+    noteId: 'bj-builder-model-fallback-note',
+    fallbackId: 'hermes-qwen37plus',
+    fallbackLabel: 'Hermes Qwen 3.7 Plus',
+    optionIdPrefix: 'builder-model',
+  };
+}
+
+function judgeModelPickerConfig() {
+  return {
+    key: 'judge',
+    inputId: 'bj-judge-model',
+    selectorId: 'bj-judge-model-selector',
+    labelId: 'bj-judge-model-label',
+    dropdownId: 'bj-judge-model-dropdown',
+    noteId: 'bj-judge-model-fallback-note',
+    fallbackId: 'hermes-opus48',
+    fallbackLabel: 'Hermes Opus 4.8',
+    avoidInputId: 'bj-builder-model',
+    optionIdPrefix: 'judge-model',
+  };
+}
+
 async function loadAgents() {
   try {
     const resp = await fetch('/api/agents');
     const data = await resp.json();
     availableAgents = data.agents || [];
     localModelInventory = data.local_model_inventory || {};
-    renderModelDropdown();
+    localModelReadiness = data.local_model_readiness || {};
+    reconcileSelectedProfile();
     populateBJModelSelectors();
   } catch(e) {
     availableAgents = [];
     localModelInventory = {};
-    renderModelDropdown();
+    localModelReadiness = {};
+    reconcileSelectedProfile();
     populateBJModelSelectors();
   }
 }
 
 function renderModelDropdown() {
-  const dropdown = $('model-dropdown');
+  renderModelPickerDropdown(brainstormModelPickerConfig());
+}
+
+function renderModelPickerDropdown(config) {
+  const dropdown = $(config.dropdownId);
   if (!dropdown) return;
   const rows = Array.isArray(localModelInventory?.rows) ? localModelInventory.rows : [];
-  const selectableIds = new Set(selectableAgents().map(agent => agent.id));
-  const agentRows = selectableAgents().map(agent => ({
-    kind: 'agent',
-    id: agent.id,
-    label: agent.label || agent.id,
-    model: agent.model || '',
-    purpose: agent.purpose || '',
-    is_local: Boolean(agent.is_local),
-  }));
+  const selectable = selectableAgents();
+  const selectableIds = new Set(selectable.map(agent => agent.id));
+  const selectedId = getModelPickerValue(config);
+
+  const remoteRows = selectable.filter(agent => !agent.is_local).map(toSelectableModelRow);
+  const localRows = selectable.filter(agent => agent.is_local).map(toSelectableModelRow);
+
+  // Setup rows: installed-but-unregistered models, discovered endpoint models,
+  // offline endpoints, and registered-but-unavailable profiles. These are NOT
+  // selectable models — they live in a collapsed "Model setup" section.
   const installedRows = rows.filter(row => row.kind === 'unregistered_ollama_model');
-  const endpointRows = rows.filter(row => row.kind === 'local_endpoint_model' || row.kind === 'local_endpoint');
-  const unavailableRows = rows.filter(row =>
+  const endpointModelRows = rows.filter(row => row.kind === 'local_endpoint_model');
+  const offlineEndpointRows = rows.filter(row => row.kind === 'local_endpoint' || row.status === 'unavailable');
+  const unavailableProfileRows = rows.filter(row =>
     row.kind === 'registered_profile' && !selectableIds.has(row.selectable_profile_id || row.profile_id || '')
   );
+
+  const needsProfileCount = installedRows.length + endpointModelRows.filter(row => row.status !== 'ready').length;
+  const offlineCount = offlineEndpointRows.length;
+
   const sections = [];
-  if (agentRows.length) sections.push(renderModelDropdownSection('Available profiles', agentRows.map(renderSelectableModelRow)));
-  if (installedRows.length) sections.push(renderModelDropdownSection('Installed local models', installedRows.map(renderInventoryModelRow)));
-  if (endpointRows.length) sections.push(renderModelDropdownSection('Local endpoints', endpointRows.map(renderInventoryModelRow)));
-  if (unavailableRows.length) sections.push(renderModelDropdownSection('Unavailable', unavailableRows.map(renderInventoryModelRow)));
-  if (!sections.length) {
-    dropdown.innerHTML = '<div class="model-dropdown-item"><div class="md-name">No agents available</div></div>';
-    return;
+  if (remoteRows.length) sections.push(renderModelDropdownSection('Remote profiles', remoteRows.map(agent => renderSelectableModelRow(agent, selectedId))));
+  if (localRows.length) sections.push(renderModelDropdownSection('Local profiles', localRows.map(agent => renderSelectableModelRow(agent, selectedId))));
+  if (!remoteRows.length && !localRows.length) {
+    sections.push(`<div class="model-dropdown-item model-dropdown-empty"><div class="md-name">${esc(config.emptyText || 'No selectable profiles')}</div><div class="md-purpose">${esc(config.setupEmptyText || 'Register a model in Model setup below.')}</div></div>`);
   }
+
+  const setupRows = [
+    ...installedRows.map(renderInventoryModelRow),
+    ...endpointModelRows.map(renderInventoryModelRow),
+    ...offlineEndpointRows.map(renderInventoryModelRow),
+    ...unavailableProfileRows.map(renderInventoryModelRow),
+  ];
+  if (setupRows.length) {
+    sections.push(renderModelSetupSection(setupRows, needsProfileCount, offlineCount));
+  }
+
   dropdown.innerHTML = sections.join('');
+
   dropdown.querySelectorAll('[data-agent-id]').forEach(item => {
-    item.addEventListener('click', (e) => {
+    item.addEventListener('click', async (e) => {
       e.stopPropagation();
       const agentId = item.dataset.agentId;
       const agent = availableAgents.find(a => a.id === agentId);
       if (agent) {
-        selectedProfileId = agentId;
-        localStorage.setItem('devflow-brainstorm-profile', agentId);
-        const label = $('model-selector-label');
-        if (label) label.textContent = agent.label || agent.id;
-        dropdown.hidden = true;
-        renderModelDropdown();
+        await selectModelPickerAgent(config, agent);
       }
+    });
+  });
+  // Toggle the collapsed Model setup section.
+  dropdown.querySelectorAll('[data-model-setup-toggle]').forEach(toggle => {
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const body = toggle.parentElement?.querySelector('.model-setup-body');
+      if (!body) return;
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      body.hidden = expanded;
     });
   });
   dropdown.querySelectorAll('[data-local-model-command]').forEach(button => {
@@ -792,6 +1018,185 @@ function renderModelDropdown() {
   });
 }
 
+function toSelectableModelRow(agent) {
+  return {
+    kind: 'agent',
+    id: agent.id,
+    label: agent.label || agent.id,
+    model: agent.model || '',
+    purpose: agent.purpose || '',
+    is_local: Boolean(agent.is_local),
+  };
+}
+
+function getModelPickerValue(config) {
+  if (config.inputId) return ($(config.inputId)?.value || '').trim();
+  return selectedProfileId || localStorage.getItem(config.storageKey || '') || '';
+}
+
+function setModelPickerValue(config, value, options = {}) {
+  if (config.inputId) {
+    const input = $(config.inputId);
+    if (input) input.value = value || '';
+  } else {
+    selectedProfileId = value || null;
+    if (options.persist && config.storageKey && value) localStorage.setItem(config.storageKey, value);
+  }
+  const note = $(config.noteId);
+  if (note) { note.hidden = true; note.textContent = ''; }
+}
+
+async function selectModelPickerAgent(config, agent) {
+  if (!agent?.id) return;
+  const dropdown = $(config.dropdownId);
+  const selector = $(config.selectorId);
+  const previousValue = getModelPickerValue(config);
+  const previousAgent = previousValue ? availableAgents.find(a => a.id === previousValue) : null;
+  const selectNow = () => {
+    setModelPickerValue(config, agent.id, { persist: true });
+    updateModelPickerLabel(config, agent);
+    closeModelPickerDropdown(config);
+    renderModelPickerDropdown(config);
+  };
+
+  if (!shouldEnsureLocalModelBeforeSelection(agent)) {
+    selectNow();
+    return;
+  }
+
+  try {
+    setModelPickerBusy(config, true);
+    updateModelPickerLabel(config, { id: agent.id, label: 'Starting...' });
+    if (dropdown) dropdown.hidden = true;
+    if (selector) selector.setAttribute('aria-expanded', 'false');
+    const evidence = await ensureLocalModelProfile(agent.id);
+    if (!localModelEnsureSucceeded(evidence)) {
+      throw new Error(evidence?.reason || `Local model boot did not finish (${evidence?.status || 'unknown'})`);
+    }
+    setModelPickerValue(config, agent.id, { persist: true });
+    updateModelPickerLabel(config, agent);
+    renderModelPickerDropdown(config);
+  } catch(e) {
+    setModelPickerValue(config, previousValue, { persist: false });
+    updateModelPickerLabel(config, previousAgent || { id: previousValue, label: previousValue || config.fallbackLabel || 'Select model' });
+    showModelPickerNote(config, `Could not start ${agent.label || agent.id}: ${e.message || 'unknown error'}`);
+  } finally {
+    setModelPickerBusy(config, false);
+  }
+}
+
+function closeModelPickerDropdown(config) {
+  const dropdown = $(config.dropdownId);
+  const selector = $(config.selectorId);
+  if (dropdown) dropdown.hidden = true;
+  if (selector) selector.setAttribute('aria-expanded', 'false');
+}
+
+function setModelPickerBusy(config, busy) {
+  const selector = $(config.selectorId);
+  if (!selector) return;
+  selector.classList.toggle('is-starting', Boolean(busy));
+  selector.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
+function showModelPickerNote(config, message) {
+  const note = $(config.noteId);
+  if (!note) return;
+  note.hidden = false;
+  note.textContent = message;
+}
+
+function shouldEnsureLocalModelBeforeSelection(agent) {
+  if (!agent?.is_local) return false;
+  if (agent.provider === 'ollama' || agent.adapter === 'ollama_chat') return false;
+  return true;
+}
+
+async function ensureLocalModelProfile(profileId) {
+  const body = { profile_id: profileId };
+  if (selectedProjectId) body.project = selectedProjectId;
+  const resp = await fetch('/api/local-model/ensure', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  let payload = {};
+  try {
+    payload = await resp.json();
+  } catch(_e) {
+    payload = {};
+  }
+  if (!resp.ok) {
+    throw new Error(payload.error || `Local model ensure failed (${resp.status})`);
+  }
+  return payload;
+}
+
+function localModelEnsureSucceeded(evidence) {
+  const status = String(evidence?.status || evidence?.lifecycle?.status || '').toLowerCase();
+  return !['failed', 'error', 'started_unready'].includes(status);
+}
+
+function updateModelPickerLabel(config, agent) {
+  const label = $(config.labelId);
+  if (!label) return;
+  label.textContent = agent?.label || agent?.id || config.fallbackLabel || 'Select model';
+}
+
+function reconcileModelPicker(config) {
+  const selectable = selectableAgents();
+  const currentValue = getModelPickerValue(config);
+  const savedId = config.storageKey ? localStorage.getItem(config.storageKey) || currentValue : currentValue;
+  const preferred = savedId ? selectable.find(a => a.id === savedId) : null;
+  if (preferred) {
+    setModelPickerValue(config, preferred.id, { persist: false });
+    updateModelPickerLabel(config, preferred);
+    renderModelPickerDropdown(config);
+    return;
+  }
+  let fallback = null;
+  if (config.fallbackId) fallback = selectable.find(a => a.id === config.fallbackId) || null;
+  if (!fallback && config.avoidInputId) {
+    const avoidValue = ($(config.avoidInputId)?.value || '').trim();
+    fallback = selectable.find(a => a.id !== avoidValue) || null;
+  }
+  fallback = fallback || selectable[0] || null;
+  if (fallback) {
+    setModelPickerValue(config, fallback.id, { persist: false });
+    updateModelPickerLabel(config, fallback);
+    const note = $(config.noteId);
+    if (note) {
+      if (savedId && savedId !== fallback.id) {
+        note.hidden = false;
+        note.textContent = `Saved model unavailable - using ${fallback.label || fallback.id}`;
+      } else {
+        note.hidden = true;
+        note.textContent = '';
+      }
+    }
+  } else {
+    setModelPickerValue(config, config.fallbackId || '', { persist: false });
+    updateModelPickerLabel(config, { id: config.fallbackId, label: config.fallbackLabel });
+  }
+  renderModelPickerDropdown(config);
+}
+
+function renderModelSetupSection(rowHtml, needsProfileCount, offlineCount) {
+  if (!rowHtml.length) return '';
+  const counts = [];
+  if (needsProfileCount > 0) counts.push(`${needsProfileCount} model${needsProfileCount === 1 ? '' : 's'} need profiles`);
+  if (offlineCount > 0) counts.push(`${offlineCount} endpoint${offlineCount === 1 ? '' : 's'} offline`);
+  const countHtml = counts.length ? `<span class="model-setup-counts">${esc(counts.join(' · '))}</span>` : '';
+  return `<div class="model-dropdown-section model-setup-section">
+    <button type="button" class="model-setup-toggle" data-model-setup-toggle aria-expanded="false">
+      <span class="model-dropdown-section-title">Model setup</span>
+      ${countHtml}
+      <span class="model-setup-chevron" aria-hidden="true">▾</span>
+    </button>
+    <div class="model-setup-body" hidden>${rowHtml.join('')}</div>
+  </div>`;
+}
+
 function selectableAgents() {
   return (availableAgents || []).filter(agent => agent && agent.id);
 }
@@ -804,8 +1209,8 @@ function renderModelDropdownSection(label, rowHtml) {
   </div>`;
 }
 
-function renderSelectableModelRow(agent) {
-  const isActive = agent.id === selectedProfileId;
+function renderSelectableModelRow(agent, activeId) {
+  const isActive = agent.id === activeId;
   const localityBadge = agent.is_local
     ? '<span class="md-badge local">LOCAL</span>'
     : '<span class="md-badge cloud">CLOUD</span>';
@@ -832,22 +1237,90 @@ function renderInventoryModelRow(row) {
 }
 
 function setupModelSelector() {
-  const selector = $('model-selector');
-  const dropdown = $('model-dropdown');
+  setupModelPicker(brainstormModelPickerConfig(), { load: true });
+}
+
+function setupModelPicker(config, options = {}) {
+  const selector = $(config.selectorId);
+  const dropdown = $(config.dropdownId);
   if (!selector || !dropdown) return;
   selector.addEventListener('click', (e) => {
     e.stopPropagation();
     dropdown.hidden = !dropdown.hidden;
-  });
-  document.addEventListener('click', () => { dropdown.hidden = true; });
-  loadAgents().then(() => {
-    // Restore label from saved profile
-    if (selectedProfileId) {
-      const agent = availableAgents.find(a => a.id === selectedProfileId);
-      const label = $('model-selector-label');
-      if (label && agent) label.textContent = agent.label || agent.id;
+    selector.setAttribute('aria-expanded', String(!dropdown.hidden));
+    if (!dropdown.hidden) {
+      _initDropdownKeyboard(selector, dropdown, '.model-dropdown-item[data-agent-id]', config.optionIdPrefix || config.key || 'model');
     }
   });
+  document.addEventListener('click', () => {
+    dropdown.hidden = true;
+    selector.setAttribute('aria-expanded', 'false');
+  });
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+  // Keyboard: Enter/Space toggles, arrows navigate, Escape closes.
+  selector.addEventListener('keydown', (e) => {
+    if (!dropdown.hidden && e.key === 'Enter' && dropdown.querySelector('.keyboard-active')) {
+      e.preventDefault();
+      dropdown.querySelector('.keyboard-active').click();
+    } else if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      dropdown.hidden = !dropdown.hidden;
+      selector.setAttribute('aria-expanded', String(!dropdown.hidden));
+      if (!dropdown.hidden) _initDropdownKeyboard(selector, dropdown, '.model-dropdown-item[data-agent-id]', config.optionIdPrefix || config.key || 'model');
+    } else if (e.key === 'Escape') {
+      dropdown.hidden = true;
+      selector.setAttribute('aria-expanded', 'false');
+    } else if (!dropdown.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      _moveDropdownActive(dropdown, e.key === 'ArrowDown' ? 1 : -1, selector, '.model-dropdown-item[data-agent-id]', config.optionIdPrefix || config.key || 'model');
+    }
+  });
+  if (options.load) loadAgents();
+}
+
+// If the saved profile is unavailable, fall back to the first selectable
+// profile for this session WITHOUT overwriting localStorage, and surface a
+// small note naming the fallback. A concrete user pick (which writes
+// localStorage) clears the note.
+function reconcileSelectedProfile() {
+  reconcileModelPicker(brainstormModelPickerConfig());
+}
+
+// --- Shared dropdown keyboard helpers ---
+function _initDropdownKeyboard(trigger, dropdown, itemSelector, idPrefix = 'dd-opt') {
+  const items = dropdown.querySelectorAll(itemSelector);
+  items.forEach(i => i.classList.remove('keyboard-active'));
+  if (items.length) {
+    items[0].classList.add('keyboard-active');
+    items[0].scrollIntoView({ block: 'nearest' });
+    trigger.setAttribute('aria-activedescendant', items[0].id || _ensureIds(items, idPrefix + '-opt'));
+  }
+  // Make items keyboard-clickable
+  items.forEach(item => {
+    item.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+    };
+  });
+}
+
+function _moveDropdownActive(dropdown, dir, trigger, itemSelector, idPrefix = 'dd-opt') {
+  const items = Array.from(dropdown.querySelectorAll(itemSelector));
+  if (!items.length) return;
+  let idx = items.findIndex(i => i.classList.contains('keyboard-active'));
+  idx = idx < 0 ? 0 : (idx + dir + items.length) % items.length;
+  items.forEach(i => i.classList.remove('keyboard-active'));
+  items[idx].classList.add('keyboard-active');
+  items[idx].scrollIntoView({ block: 'nearest' });
+  trigger.setAttribute('aria-activedescendant', items[idx].id || _ensureIds(items, idPrefix + '-opt'));
+}
+
+function _ensureIds(items, prefix) {
+  let firstId = '';
+  items.forEach((item, i) => {
+    if (!item.id) item.id = prefix + '-' + i;
+    if (!i) firstId = item.id;
+  });
+  return firstId;
 }
 
 // === BRAINSTORM SESSION MANAGEMENT ===
@@ -1282,6 +1755,268 @@ function setupIdeaGreenhouse() {
   });
 }
 
+// === UNIFIED CHAT WORKBENCH ===
+const WORKBENCH_STAGES = ['idea', 'brainstorm', 'spec', 'plan', 'implement'];
+
+function workbenchStageLabel(stage) {
+  const labels = {
+    idea: 'Idea',
+    brainstorm: 'Brainstorm',
+    spec: 'Spec',
+    plan: 'Plan',
+    implement: 'Implement',
+  };
+  return labels[stage] || sentenceCase(stage);
+}
+
+function workbenchStageRank(stage) {
+  const idx = WORKBENCH_STAGES.indexOf(stage);
+  return idx < 0 ? 0 : idx;
+}
+
+function gateTone(item) {
+  if (item?.ready) return 'good';
+  const status = String(item?.status || '').toLowerCase();
+  if (status === 'missing' || status === 'blocked') return 'warn';
+  return 'neutral';
+}
+
+function renderWorkbenchGateAction(item) {
+  const action = item?.setup_action || null;
+  if (!action) return '';
+  if (action.command) {
+    return `<button class="btn btn-sm btn-readonly" type="button" data-copy-command="${esc(action.command)}" data-copy-kind="terminal_command" title="${esc(action.detail || '')}">Copy setup</button>`;
+  }
+  if (action.gate === 'ponytail') {
+    return `<button class="btn btn-sm btn-secondary" type="button" data-workbench-setup-gate="ponytail" title="${esc(action.detail || '')}">Record approval</button>`;
+  }
+  return '';
+}
+
+function renderWorkbench(workbench) {
+  const stagePath = $('workbench-stage-path');
+  const gateStrip = $('workbench-gate-strip');
+  const nextAction = $('workbench-next-action');
+  const result = $('workbench-implement-result');
+  if (!stagePath || !gateStrip || !nextAction) return;
+  const data = workbench || {};
+  const activeStage = data.stage || 'idea';
+  const activeRank = workbenchStageRank(activeStage);
+  const artifactPaths = data.artifact_paths || {};
+
+  stagePath.innerHTML = WORKBENCH_STAGES.map((stage, index) => {
+    const state = index < activeRank ? 'done' : index === activeRank ? 'active' : 'pending';
+    const path = artifactPaths[stage] || '';
+    return `<span class="workbench-stage-chip ${state}" data-workbench-stage="${esc(stage)}" title="${esc(path || workbenchStageLabel(stage))}">
+      <strong>${esc(workbenchStageLabel(stage))}</strong>
+      ${path ? `<code>${esc(path)}</code>` : ''}
+    </span>`;
+  }).join('');
+
+  const gates = Array.isArray(data.gate_status?.items) ? data.gate_status.items : [];
+  gateStrip.innerHTML = gates.map(item => {
+    const tone = gateTone(item);
+    return `<article class="workbench-gate-card ${tone}">
+      <div>
+        <strong>${esc(item.label || item.id || 'Gate')}</strong>
+        <span>${esc(item.detail || item.status || '')}</span>
+        <em>${esc(item.source || '')}</em>
+      </div>
+      ${renderWorkbenchGateAction(item)}
+    </article>`;
+  }).join('') || '<div class="workbench-gate-card neutral"><div><strong>Gates</strong><span>No gate data yet.</span></div></div>';
+
+  const canImplement = activeStage === 'implement' && data.gate_status?.ready && data.session_id;
+  const createProject = !data.project_id;
+  const activeLoops = Array.isArray(data.active_loop_ids) ? data.active_loop_ids : [];
+  const loopHtml = activeLoops.length
+    ? `<button class="btn btn-sm btn-secondary" type="button" data-workbench-open-loop="${esc(activeLoops[0])}">Open latest loop</button>`
+    : '';
+  nextAction.innerHTML = `<div>
+    <span>Next action</span>
+    <strong>${esc(data.next_action || 'Capture an idea or continue Brainstorm.')}</strong>
+    ${data.session_id ? `<code>${esc(data.session_id)}</code>` : ''}
+  </div>
+  <div class="workbench-next-buttons">
+    ${createProject ? '<button class="btn btn-sm btn-secondary" type="button" data-workbench-create-project>Make this real</button>' : ''}
+    ${canImplement ? '<button class="btn btn-sm btn-primary" type="button" data-workbench-implement>Implement</button>' : ''}
+    ${loopHtml}
+  </div>`;
+
+  if (result && !result.dataset.preserve) {
+    result.innerHTML = lastWorkbenchLoopId
+      ? `<span>Latest implementation loop</span><button class="btn btn-sm btn-secondary" type="button" data-workbench-open-loop="${esc(lastWorkbenchLoopId)}">${esc(lastWorkbenchLoopId)}</button>`
+      : '';
+  }
+}
+
+async function recordPonytailApproval(button) {
+  if (!window.confirm('Record Ponytail plugin approval after installing the DietrichGebert/ponytail Codex plugin and reviewing lifecycle hooks?')) {
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const body = {
+      gate: 'ponytail',
+      human_approved: true,
+      approval_phrase: ACTION_APPROVAL_PHRASE,
+      approved_source: 'DietrichGebert/ponytail',
+      reviewed_lifecycle_hooks: true,
+    };
+    if (selectedProjectId) body.project = selectedProjectId;
+    const resp = await fetch('/api/gates/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    const target = $('workbench-implement-result');
+    if (target) {
+      target.dataset.preserve = '1';
+      target.innerHTML = `<div class="workbench-result-card ${resp.ok ? 'good' : 'warn'}"><strong>${esc(data.status || 'Ponytail')}</strong><span>${esc(data.message || data.error || '')}</span></div>`;
+    }
+    await loadSnapshot(selectedProjectId);
+  } catch(e) {
+    const target = $('workbench-implement-result');
+    if (target) {
+      target.dataset.preserve = '1';
+      target.innerHTML = `<div class="workbench-result-card warn"><strong>Ponytail setup failed</strong><span>${esc(e.message || 'unknown error')}</span></div>`;
+    }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function createWorkbenchProject() {
+  const name = window.prompt('Project name');
+  if (!name || !name.trim()) return;
+  const target = $('workbench-implement-result');
+  if (target) {
+    target.dataset.preserve = '1';
+    target.innerHTML = '<div class="workbench-result-card neutral"><strong>Creating project...</strong></div>';
+  }
+  try {
+    const resp = await fetch('/api/workbench/project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    const data = await resp.json();
+    if (target) {
+      const project = data.project || {};
+      target.innerHTML = `<div class="workbench-result-card ${resp.ok ? 'good' : 'warn'}"><strong>${esc(resp.ok ? 'Project created' : 'Project blocked')}</strong><span>${esc(data.error || project.project_id || '')}</span>${project.path ? `<code>${esc(project.path)}</code>` : ''}</div>`;
+    }
+    if (resp.ok && data.project?.project_id) {
+      selectedProjectId = data.project.project_id;
+      await loadSnapshot(selectedProjectId);
+    }
+  } catch(e) {
+    if (target) target.innerHTML = `<div class="workbench-result-card warn"><strong>Project failed</strong><span>${esc(e.message || 'unknown error')}</span></div>`;
+  }
+}
+
+async function runWorkbenchImplement(button) {
+  const workbench = snapshot?.workbench || {};
+  const sessionId = workbench.session_id || brainstormSessionId;
+  if (!sessionId) {
+    renderActionError({ message: 'Workbench needs an active brainstorm session first.', command: 'workbench implement' });
+    return;
+  }
+  const builderModel = $('bj-builder-model')?.value || selectedProfileId || '';
+  const judgeModel = $('bj-judge-model')?.value || '';
+  const target = $('workbench-implement-result');
+  if (target) {
+    target.dataset.preserve = '1';
+    target.innerHTML = '<div class="workbench-result-card neutral"><strong>Sending to builder-judge...</strong><span>Implement will write implementation.md only after the judge passes it.</span></div>';
+  }
+  const original = button?.textContent || '';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Running...';
+  }
+  try {
+    const body = {
+      session_id: sessionId,
+      definition_of_done: currentBrainstormDefinitionOfDone() || undefined,
+      builder_profile_id: builderModel || undefined,
+      judge_profile_id: judgeModel || undefined,
+      pass_threshold: parseInt($('bj-pass-threshold')?.value || '85', 10),
+      max_rounds: parseInt($('bj-max-rounds')?.value || '3', 10),
+      async: true,
+    };
+    if (selectedProjectId) body.project = selectedProjectId;
+    const resp = await fetch('/api/workbench/implement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (target) target.innerHTML = `<div class="workbench-result-card warn"><strong>Implement blocked</strong><span>${esc(data.error || 'Gate evidence is missing.')}</span></div>`;
+      return;
+    }
+    lastWorkbenchLoopId = data.loop_id || '';
+    if (lastWorkbenchLoopId) localStorage.setItem('devflow-workbench-loop-id', lastWorkbenchLoopId);
+    if (target) {
+      target.innerHTML = `<div class="workbench-result-card good"><strong>Builder-judge started</strong><span>${esc(data.next_action || 'Loop running.')}</span><code>${esc(data.loop_id || '')}</code></div>`;
+    }
+    if (data.loop_id) await pollBuilderJudgeLoop(data.loop_id);
+    await loadSnapshot(selectedProjectId);
+    await refreshPipelineState();
+  } catch(e) {
+    if (target) target.innerHTML = `<div class="workbench-result-card warn"><strong>Implement failed</strong><span>${esc(e.message || 'unknown error')}</span></div>`;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+}
+
+function setupWorkbenchActions() {
+  document.addEventListener('click', async (e) => {
+    const gateButton = e.target.closest('[data-workbench-setup-gate]');
+    if (gateButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (gateButton.dataset.workbenchSetupGate === 'ponytail') {
+        await recordPonytailApproval(gateButton);
+      }
+      return;
+    }
+
+    const createButton = e.target.closest('[data-workbench-create-project]');
+    if (createButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      await createWorkbenchProject();
+      return;
+    }
+
+    const implementButton = e.target.closest('[data-workbench-implement]');
+    if (implementButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      await runWorkbenchImplement(implementButton);
+      return;
+    }
+
+    const loopButton = e.target.closest('[data-workbench-open-loop]');
+    if (loopButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      const loopId = loopButton.dataset.workbenchOpenLoop || lastWorkbenchLoopId || '';
+      if (loopId) {
+        document.querySelector('[data-tools-tab="builder-judge"]')?.click();
+        const resp = await fetch(`/api/builder-judge/status?loop_id=${encodeURIComponent(loopId)}`).catch(() => null);
+        const data = resp ? await resp.json().catch(() => null) : null;
+        if (resp?.ok && data) renderBJRunResult(data);
+        document.querySelector('#builder-judge-section')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+    }
+  });
+}
+
 // === PIPELINE ===
 let pipelineState = { stages: [] };
 
@@ -1314,6 +2049,8 @@ function getPipelinePrimaryStage(state) {
   if (state?.primary_stage_id) return state.primary_stage_id;
   const stages = state?.stages || [];
   const next = stages.find(stage => !isPipelineStageComplete(stage));
+  const implementation = stages.find(stage => stage.id === 'implementation');
+  if (!next && implementation && isPipelineStageComplete(implementation) && !(state?.created_task_ids || []).length) return 'task';
   if (!next) return null;
   if (next.id === 'brainstorm') return null;
   return next.id || null;
@@ -1322,8 +2059,8 @@ function getPipelinePrimaryStage(state) {
 function getNextStageLabel(stageId) {
   if (stageId === 'spec') return 'Generate Spec →';
   if (stageId === 'plan') return 'Generate Plan →';
-  if (stageId === 'implementation') return 'Create Task →';
-  if (stageId === 'task') return 'View Tasks';
+  if (stageId === 'implementation') return 'Implement →';
+  if (stageId === 'task') return 'Create Task →';
   return 'Review →';
 }
 
@@ -1564,13 +2301,57 @@ function useModelForBrainstormStage(stage) {
   return stage === 'spec' || stage === 'plan';
 }
 
+async function createTaskFromAcceptedImplementation(control) {
+  const btn = control || null;
+  const originalText = btn?.textContent || '';
+  const defaultTitle = snapshot?.workbench?.artifact_paths?.implement
+    ? 'Workbench implementation'
+    : 'Brainstorm implementation';
+  const title = window.prompt('Task title', defaultTitle);
+  if (!title || !title.trim()) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Creating task...';
+  }
+  try {
+    const bridgePayload = await createTaskFromBrainstorm(
+      brainstormSessionId,
+      title.trim(),
+      { definition_of_done: currentBrainstormDefinitionOfDone() || undefined }
+    );
+    if (!bridgePayload || !bridgePayload.task_id) {
+      throw new Error('Brainstorm task bridge did not return a task id');
+    }
+    const launchpad = bridgePayload.launchpad || {};
+    const contextPath = bridgePayload.context_path || '.devflow/workspaces/' + bridgePayload.task_id + '/implementation-context.md';
+    appendBrainstormMsg('system', `Task created: ${bridgePayload.task_id}. Implementation context target: ${contextPath}. Next: ${launchpad.action_label || 'use the Next Task launchpad'}.`, {});
+    await loadSnapshot(selectedProjectId);
+    selectTaskInLaunchpad(bridgePayload.task_id, { focusShell: launchpad.focus_shell !== false });
+  } catch(e) {
+    appendBrainstormMsg('system', 'Task creation error: ' + (e.message || 'unknown'), { kind: 'provider_error' });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+}
+
 async function runPipelinePrimaryStage(stage, control) {
   if (!stage) return;
+  if (stage === 'implementation') {
+    await runWorkbenchImplement(control || null);
+    return;
+  }
+  if (stage === 'task') {
+    await createTaskFromAcceptedImplementation(control || null);
+    return;
+  }
   const btn = control || null;
   const originalText = btn?.textContent || '';
   if (btn) {
     btn.disabled = true;
-    btn.textContent = stage === 'implementation' ? 'Creating task...' : 'Escalating...';
+    btn.textContent = 'Escalating...';
   }
   const useModel = useModelForBrainstormStage(stage);
   if (useModel) {
@@ -1586,56 +2367,7 @@ async function runPipelinePrimaryStage(stage, control) {
       const detail = pipelineDetailFromPayload(payload);
       const taskAction = taskActionFromPipelinePayload(payload);
       if (payload.stage === 'implementation' && taskAction) {
-        appendBrainstormMsg('system', detail.operator_summary || 'Creating implementation task...', {});
-        try {
-          // Prefer typed pipeline_detail: single bridge call creates the task and context evidence.
-          const implContext = implementationContextFromPipelinePayload(payload);
-          const typedTaskAction = detail.task_action || null;
-          let bridgePayload = null;
-          let createdTaskId = null;
-          let outLine = '';
-
-          if (typedTaskAction) {
-            const dodValue = currentBrainstormDefinitionOfDone();
-            bridgePayload = await createTaskFromBrainstorm(
-              brainstormSessionId,
-              taskAction.title,
-              { definition_of_done: dodValue || undefined }
-            );
-            if (!bridgePayload || !bridgePayload.task_id) {
-              throw new Error('Brainstorm task bridge did not return a task id');
-            }
-            createdTaskId = bridgePayload.task_id;
-            outLine = `Task ${createdTaskId}: ${taskAction.title}`;
-          } else {
-            // Legacy Brainstorm payload fallback: older payloads may only include top-level action.
-            const cmd = taskAction.command;
-            const actionResult = await runApprovedCommand(cmd, {});
-            if (actionResult.executed && actionResult.exit_code === 0) {
-              outLine = (actionResult.stdout || '').trim().split(String.fromCharCode(10))[0];
-              createdTaskId = parseCreatedTaskId(actionResult.stdout);
-              if (!createdTaskId) {
-                throw new Error('Legacy task creation did not return a task id');
-              }
-            } else {
-              throw new Error(actionResult.message || actionResult.stderr || 'Legacy task creation failed');
-            }
-          }
-
-          if (createdTaskId && outLine) {
-            const contextTarget = implContext?.target_path_template || '.devflow/workspaces/{task_id}/implementation-context.md';
-            const contextPath = bridgePayload?.context_path || contextTarget.replace('{task_id}', createdTaskId);
-            const launchpad = bridgePayload?.launchpad || {};
-            const postCreate = bridgePayload?.post_create_action || {};
-            const nextLabel = postCreate.label || launchpad.action_label || 'use the Next Task launchpad';
-            const nextMsg = `Task created: ${outLine}. Implementation context target: ${contextPath}. Next: ${nextLabel}.`;
-            appendBrainstormMsg('system', nextMsg, {});
-            await loadSnapshot(selectedProjectId);
-            selectTaskInLaunchpad(createdTaskId, { focusShell: launchpad.focus_shell !== false });
-          }
-        } catch(e2) {
-          appendBrainstormMsg('system', 'Task creation error: ' + (e2.message || 'unknown'), { kind: 'provider_error' });
-        }
+        appendBrainstormMsg('system', 'Implementation artifact is ready. Use Create Task after builder-judge acceptance.', {});
       } else {
         let info = `Escalated to ${stageLabel}. `;
         const modelDetail = detail.advisory_model || payload.model_info;
@@ -2605,51 +3337,133 @@ function renderTopbarHealth(snapHealth, agentCatalog, activeTaskCount) {
   setText('orchestrator-goal-id', currentSnapshot.focus_goal_id || (activeTaskCount ? `${activeTaskCount} tasks` : 'none'));
 }
 
-function renderLocalModelInventory(inventory) {
+function renderLocalModelInventory(inventory, readiness = {}) {
   const container = $('local-model-inventory');
   if (!container) return;
   const summary = inventory?.summary || {};
+  const readinessSummary = readiness?.summary || {};
   const rows = Array.isArray(inventory?.rows) ? inventory.rows : [];
+  const readinessRows = Array.isArray(readiness?.lanes) ? readiness.lanes : [];
+  const readinessByProfile = localModelReadinessByProfile(readinessRows);
   const machine = summary.machine_label || 'machine unknown';
   const concurrency = summary.concurrency_label || 'local model concurrency unknown';
   if (!rows.length) {
     container.innerHTML = `<div class="local-model-summary">
       <strong>Local Models</strong>
       <span>${esc(machine)} · ${esc(concurrency)}</span>
-      <em>No local models discovered.</em>
-    </div>`;
+      <em>${esc(localModelReadinessSummary(readinessSummary) || 'No local models discovered.')}</em>
+    </div>
+    ${renderLocalModelReadinessActions(readinessRows)}`;
+    attachLocalModelActionHandlers(container);
     return;
   }
-  const shownRows = rows.slice(0, 10);
+  const shownRows = [];
+  const shownCommands = new Set();
+  for (const row of rows.slice(0, 10)) {
+    const readiness = readinessByProfile.get(row?.profile_id) || readinessByProfile.get(row?.provider_id) || readinessByProfile.get(row?.model);
+    const command = row?.action?.command || localModelReadinessAction(readiness)?.command || '';
+    if (command && shownCommands.has(command)) continue;
+    if (command) shownCommands.add(command);
+    shownRows.push(row);
+  }
   container.innerHTML = `<div class="local-model-summary">
     <strong>Local Models</strong>
     <span>${esc(machine)} · ${esc(concurrency)}</span>
-    <em>${esc(summary.available_profile_count || 0)} available profiles · ${esc(summary.unregistered_count || 0)} need onboarding</em>
+    <em>${esc(localModelReadinessSummary(readinessSummary) || `${summary.available_profile_count || 0} available profiles · ${summary.unregistered_count || 0} need onboarding`)}</em>
   </div>
   <div class="local-model-list">
-    ${shownRows.map(renderLocalModelInventoryItem).join('')}
-  </div>`;
+    ${shownRows.map(row => renderLocalModelInventoryItem(row, readinessByProfile)).join('')}
+  </div>
+  `;
   attachLocalModelActionHandlers(container);
 }
 
-function renderLocalModelInventoryItem(row) {
+function localModelReadinessByProfile(lanes) {
+  const byProfile = new Map();
+  lanes.forEach(lane => {
+    if (!lane || typeof lane !== 'object') return;
+    [lane.profile_id, lane.provider_id, lane.model_id, lane.lane_id].forEach(key => {
+      if (key) byProfile.set(String(key), lane);
+    });
+  });
+  return byProfile;
+}
+
+function localModelReadinessSummary(summary) {
+  const laneCount = Number(summary?.lane_count || 0);
+  if (!laneCount) return '';
+  const ready = Number(summary?.ready_count || 0);
+  const blocked = Number(summary?.blocked_count || 0);
+  const actions = Number(summary?.needs_action_count || 0);
+  const starts = Number(summary?.start_command_count || 0);
+  const parts = [`${ready}/${laneCount} readiness lanes ready`];
+  if (blocked) parts.push(`${blocked} blocked`);
+  if (actions) parts.push(`${actions} onboarding actions`);
+  if (starts) parts.push(`${starts} start actions`);
+  return parts.join(' · ');
+}
+
+function localModelReadinessAction(lane) {
+  const commands = [
+    ...(Array.isArray(lane?.start_commands) ? lane.start_commands : []),
+    ...(Array.isArray(lane?.provision_commands) ? lane.provision_commands : []),
+  ];
+  return commands.find(command => command?.command) || null;
+}
+
+function localModelReadinessDetail(lane) {
+  if (!lane) return '';
+  const action = localModelReadinessAction(lane);
+  const readiness = sentenceCase(lane.readiness || 'unknown');
+  if (action?.reason) return `${readiness}. Next: ${action.reason}`;
+  if (lane.ready) return `${readiness}. Ready to select.`;
+  return `${readiness}. Next: inspect local model readiness.`;
+}
+
+function renderLocalModelReadinessActions(lanes, excludedCommands = new Set()) {
+  const seenCommands = new Set();
+  const actionLanes = lanes
+    .filter(lane => !lane?.ready && localModelReadinessAction(lane))
+    .filter(lane => {
+      const command = localModelReadinessAction(lane)?.command || '';
+      if (!command || seenCommands.has(command) || excludedCommands.has(command)) return false;
+      seenCommands.add(command);
+      return true;
+    })
+    .slice(0, 4);
+  if (!actionLanes.length) return '';
+  return `<div class="local-model-readiness-actions">
+    ${actionLanes.map(lane => {
+      const action = localModelReadinessAction(lane);
+      const label = action?.kind === 'start' ? 'Start' : (action?.label || 'Run setup');
+      return `<div class="local-model-readiness-action">
+        <span>${esc(lane.profile_id || lane.lane_id || 'model')}</span>
+        <button type="button" class="local-model-action" data-local-model-command="${esc(action.command)}">${esc(label)}</button>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderLocalModelInventoryItem(row, readinessByProfile = new Map()) {
   const status = row?.status_label || sentenceCase(row?.status || '');
   const model = row?.model || row?.provider_label || 'Local endpoint';
   const provider = row?.provider_label || row?.provider_id || row?.source || '';
+  const readiness = readinessByProfile.get(row?.profile_id) || readinessByProfile.get(row?.provider_id) || readinessByProfile.get(row?.model);
   const meta = [
     row?.adapter,
     row?.context_length ? `${row.context_length} ctx` : '',
     row?.weight_class || '',
   ].filter(Boolean).join(' · ');
-  const action = row?.action || null;
+  const action = row?.action;
   const actionHtml = action?.command
-    ? `<button type="button" class="local-model-action" data-local-model-command="${esc(action.command)}">${esc(action.label || 'Add profile')}</button>`
+    ? `<button type="button" class="local-model-action" data-local-model-command="${esc(action.command)}">${esc(action.label || (action.kind === 'start' ? 'Start' : 'Add profile'))}</button>`
     : '';
+  const detail = row?.detail || localModelReadinessDetail(readiness);
   return `<div class="local-model-item">
     <div class="local-model-item-main">
       <strong>${esc(model)}</strong>
       <span>${esc(provider)}${meta ? ` · ${esc(meta)}` : ''}</span>
-      ${row?.detail ? `<em>${esc(row.detail)}</em>` : ''}
+      ${detail ? `<em>${esc(detail)}</em>` : ''}
     </div>
     <span class="local-model-status">${esc(status)}</span>
     ${actionHtml}
@@ -2676,6 +3490,238 @@ function attachLocalModelActionHandlers(root) {
     });
   });
 }
+
+function architectureMetricValue(value) {
+  if (value === null || value === undefined || value === '') return 'unknown';
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString() : String(value);
+}
+
+function architectureStatusMeta(evidence) {
+  const freshness = evidence?.freshness?.status || evidence?.status || 'missing';
+  if (freshness === 'fresh') return { label: 'Fresh', cls: 'online' };
+  if (freshness === 'stale') return { label: 'Stale', cls: 'warn' };
+  if (freshness === 'missing') return { label: 'Missing', cls: 'bad' };
+  if (freshness === 'unknown') return { label: 'Unknown', cls: 'idle' };
+  if (evidence?.status === 'available') return { label: 'Available', cls: 'online' };
+  return { label: sentenceCase(freshness), cls: 'idle' };
+}
+
+function inlineCommandFromAction(text) {
+  const match = String(text || '').match(/`([^`]+)`/);
+  return match ? match[1] : '';
+}
+
+function architectureArtifactUrl(artifact) {
+  let url = artifact?.view_url || (artifact?.artifact_id ? `/architecture/artifact?id=${encodeURIComponent(artifact.artifact_id)}` : '');
+  if (url && selectedProjectId) {
+    url += (url.includes('?') ? '&' : '?') + 'project=' + encodeURIComponent(selectedProjectId);
+  }
+  return url;
+}
+
+function findArchitectureArtifact(artifacts, predicate) {
+  return (Array.isArray(artifacts) ? artifacts : []).find(predicate) || null;
+}
+
+function closeArchitectureViewer() {
+  const overlay = $('architecture-viewer-overlay');
+  const frame = $('architecture-viewer-frame');
+  const report = $('architecture-viewer-report');
+  if (frame) { frame.src = 'about:blank'; frame.hidden = true; }
+  if (report) { report.textContent = ''; report.hidden = true; }
+  if (overlay) overlay.hidden = true;
+}
+
+async function openArchitectureReport(artifact) {
+  const overlay = $('architecture-viewer-overlay');
+  const frame = $('architecture-viewer-frame');
+  const report = $('architecture-viewer-report');
+  const title = $('architecture-viewer-title');
+  if (!overlay || !report) return;
+  if (title) title.textContent = artifact?.label || 'Graph report';
+  if (frame) { frame.src = 'about:blank'; frame.hidden = true; }
+  report.hidden = false;
+  report.textContent = 'Loading report…';
+  overlay.hidden = false;
+  try {
+    const resp = await fetch(architectureArtifactUrl(artifact));
+    if (!resp.ok) throw new Error(`Report unavailable (${resp.status})`);
+    const text = await resp.text();
+    // Rendered as escaped text content (textContent), never innerHTML.
+    report.textContent = text;
+  } catch (e) {
+    report.textContent = `Could not load report: ${e.message || 'unknown error'}`;
+  }
+}
+
+function openArchitectureSandboxedHtml(artifact) {
+  const overlay = $('architecture-viewer-overlay');
+  const frame = $('architecture-viewer-frame');
+  const report = $('architecture-viewer-report');
+  const title = $('architecture-viewer-title');
+  if (!overlay || !frame) return;
+  if (title) title.textContent = artifact?.label || 'Architecture artifact';
+  if (report) { report.textContent = ''; report.hidden = true; }
+  // sandbox="allow-scripts" only — no same-origin, forms, popups, or top navigation.
+  frame.setAttribute('sandbox', 'allow-scripts');
+  frame.hidden = false;
+  frame.src = architectureArtifactUrl(artifact);
+  overlay.hidden = false;
+}
+
+function setupArchitectureViewer() {
+  const overlay = $('architecture-viewer-overlay');
+  const close = $('architecture-viewer-close');
+  if (close) close.addEventListener('click', closeArchitectureViewer);
+  if (overlay) {
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeArchitectureViewer(); });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlay && !overlay.hidden) closeArchitectureViewer();
+  });
+}
+
+function renderArchitectureEvidence(evidence) {
+  const section = $('architecture-evidence-section');
+  const target = $('architecture-evidence-content');
+  const badge = $('architecture-evidence-status');
+  if (!section || !target) return;
+  const data = evidence || {};
+  const status = architectureStatusMeta(data);
+  if (badge) {
+    badge.textContent = status.label;
+    badge.className = 'status-badge ' + status.cls;
+  }
+  section.classList.toggle('is-empty', (data.status || 'missing') === 'missing');
+  section.classList.toggle('is-stale', data?.freshness?.status === 'stale');
+
+  const metrics = data.metrics || {};
+  const freshness = data.freshness || {};
+  const diagnostic = data.diagnostic || {};
+  const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+  const hotspots = Array.isArray(data.hotspots) ? data.hotspots : [];
+  const questions = Array.isArray(data.suggested_questions) ? data.suggested_questions : [];
+  const nextAction = data.next_safe_action || '';
+  const nextCommand = inlineCommandFromAction(nextAction);
+  const diagnosticWarnings = Array.isArray(diagnostic?.raw?.warnings) ? diagnostic.raw.warnings : [];
+  const refreshAction = data.refresh_action || null;
+  const artifactCount = Number.isFinite(Number(data.artifact_count)) ? Number(data.artifact_count) : artifacts.length;
+
+  const reportArtifact = findArchitectureArtifact(artifacts, a => a.viewer === 'markdown' || a.kind === 'report');
+  const graphArtifact = findArchitectureArtifact(artifacts, a => a.artifact_id === 'graph-tree' || a.kind === 'graph_json');
+  const callflowArtifact = findArchitectureArtifact(artifacts, a => String(a.artifact_id || '').startsWith('callflow'));
+
+  const metricRows = [
+    ['Nodes', metrics.nodes],
+    ['Edges', metrics.edges],
+    ['Communities', metrics.communities],
+    ['Extracted', metrics.extracted_edge_percent === null || metrics.extracted_edge_percent === undefined ? null : `${metrics.extracted_edge_percent}%`],
+  ];
+
+  const provenanceRows = [
+    ['Built commit', freshness.built_commit || 'unknown'],
+    ['Current HEAD', freshness.head_commit || 'unknown'],
+    ['Report date', freshness.report_date || 'unknown'],
+    ['Generated', freshness.generated_at ? shortTime(freshness.generated_at) : 'unknown'],
+    ['Artifacts', String(artifactCount)],
+  ];
+
+  const actionButtons = [];
+  if (reportArtifact) {
+    actionButtons.push(`<button class="btn btn-sm btn-secondary" type="button" data-arch-view="report" data-arch-id="${esc(reportArtifact.artifact_id)}">View report</button>`);
+  }
+  if (graphArtifact) {
+    actionButtons.push(`<button class="btn btn-sm btn-secondary" type="button" data-arch-view="graph" data-arch-id="${esc(graphArtifact.artifact_id)}">View graph</button>`);
+  }
+  if (callflowArtifact) {
+    actionButtons.push(`<button class="btn btn-sm btn-secondary" type="button" data-arch-view="callflow" data-arch-id="${esc(callflowArtifact.artifact_id)}">View callflow</button>`);
+  }
+  if (refreshAction?.command) {
+    actionButtons.push(`<button class="btn btn-sm btn-caution" type="button" data-arch-refresh="${esc(refreshAction.command)}" title="Approval-required: installs graphifyy if needed and rewrites the checkpoint doc.">${esc(refreshAction.label || 'Refresh evidence')}</button>`);
+  }
+  const actionHtml = actionButtons.length
+    ? actionButtons.join('')
+    : '<span class="architecture-empty">No Graphify artifacts found yet. Refresh evidence to generate them.</span>';
+
+  const hotspotHtml = hotspots.length
+    ? hotspots.map(item => `<li><strong>${esc(item.label)}</strong><span>${esc(item.detail || '')}</span></li>`).join('')
+    : '<li><span>No graph hotspots found in the report.</span></li>';
+  const questionHtml = questions.length
+    ? questions.map(item => `<li><strong>${esc(item.question)}</strong>${item.reason ? `<span>${esc(item.reason)}</span>` : ''}</li>`).join('')
+    : '<li><span>No suggested questions found in the report.</span></li>';
+  const diagnosticHtml = diagnosticWarnings.length
+    ? diagnosticWarnings.map(item => `<span class="architecture-diagnostic-chip">${esc(item)}</span>`).join('')
+    : `<span class="architecture-diagnostic-chip">${esc(sentenceCase(diagnostic.status || 'not_run'))}</span>`;
+
+  target.innerHTML = `<div class="architecture-summary-row">
+    <div class="architecture-summary-main">
+      <span class="architecture-source-chip">Source: ${esc(data.source_path || 'graphify-out/GRAPH_REPORT.md')}</span>
+      <strong>${esc(data.summary || 'Graphify report missing')}</strong>
+      <span>${esc(freshness.detail || 'Freshness unknown.')}</span>
+    </div>
+    <div class="architecture-next-action">
+      <span>Next safe action</span>
+      <code>${esc(nextAction || 'No architecture action queued.')}</code>
+      ${nextCommand ? `<button class="btn btn-sm btn-readonly" type="button" data-copy-command="${esc(nextCommand)}" data-copy-kind="terminal_command" aria-label="Copy architecture evidence command">Copy</button>` : ''}
+    </div>
+  </div>
+  <div class="architecture-metric-grid">
+    ${metricRows.map(([label, value]) => `<div class="architecture-metric"><span>${esc(label)}</span><strong>${esc(architectureMetricValue(value))}</strong></div>`).join('')}
+    <div class="architecture-metric architecture-freshness"><span>Freshness</span><strong>${esc(status.label)}</strong></div>
+    <div class="architecture-metric architecture-diagnostics"><span>Diagnostics</span><strong>${esc(sentenceCase(diagnostic.status || 'not_run'))}</strong></div>
+  </div>
+  <div class="architecture-provenance-grid">
+    ${provenanceRows.map(([label, value]) => `<div class="architecture-provenance"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}
+  </div>
+  <div class="architecture-action-row" role="group" aria-label="Architecture evidence actions">${actionHtml}</div>
+  <div class="architecture-evidence-grid">
+    <section class="architecture-evidence-block" aria-label="Graphify hotspots">
+      <h4>Hotspots</h4>
+      <ul>${hotspotHtml}</ul>
+    </section>
+    <section class="architecture-evidence-block" aria-label="Graphify diagnostic notes">
+      <h4>Diagnostics</h4>
+      <div class="architecture-diagnostic-list">${diagnosticHtml}</div>
+    </section>
+    <section class="architecture-evidence-block architecture-question-block" aria-label="Graphify suggested questions">
+      <h4>Suggested Questions</h4>
+      <ul>${questionHtml}</ul>
+    </section>
+  </div>`;
+
+  target.querySelectorAll('[data-arch-view]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const kind = btn.dataset.archView;
+      const artifactId = btn.dataset.archId;
+      const artifact = findArchitectureArtifact(artifacts, a => a.artifact_id === artifactId);
+      if (!artifact) return;
+      if (kind === 'report') {
+        openArchitectureReport(artifact);
+      } else {
+        openArchitectureSandboxedHtml(artifact);
+      }
+    });
+  });
+  target.querySelectorAll('[data-arch-refresh]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const command = btn.dataset.archRefresh || '';
+      if (!command) return;
+      btn.disabled = true;
+      try {
+        await runApprovedCommand(command, {});
+        await loadSnapshot(selectedProjectId);
+      } catch (err) {
+        if (!err?.actionRendered) renderActionError({ message: err.message || 'Refresh failed', command });
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 
 function shouldUsePresentationPipeline(pipeline) {
   // Browser runtime override: during an active Brainstorm session, local pipeline state can drive Pipeline only.
@@ -2984,16 +4030,22 @@ function setIdeaDetailStatus(message, tone, statusId) {
 }
 
 
+// === FOCUS OVERLAY ===
+let _focusLastActive = null;
+
 function openFocus(type, id, opts) {
   const overlay = $('focus-overlay');
   const content = $('focus-content');
   if (!overlay || !content) return;
+  // Remember the element that had focus before opening, so we can restore it.
+  _focusLastActive = document.activeElement;
   if (type === 'idea') {
     const idea = findIdeaCard(id);
     if (idea) {
       selectedTaskId = null;
       content.innerHTML = renderIdeaDetail(idea);
       overlay.hidden = false;
+      _focusIntoOverlay(overlay);
       return;
     }
   }
@@ -3102,10 +4154,34 @@ function openFocus(type, id, opts) {
   overlay.hidden = false;
   if (opts?.focusShell) {
     const input = content.querySelector('[data-shell-command]');
-    if (input) input.focus();
+    if (input) { input.focus(); return; }
   } else if (opts?.focusVerify) {
     const input = content.querySelector('[data-verify-command]');
-    if (input) input.focus();
+    if (input) { input.focus(); return; }
+  }
+  _focusIntoOverlay(overlay);
+}
+
+function _focusIntoOverlay(overlay) {
+  // Move focus into the modal: prefer close button, then first focusable.
+  const target = overlay.querySelector('#focus-close')
+    || overlay.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (target) target.focus();
+  else overlay.setAttribute('tabindex', '-1'), overlay.focus();
+}
+
+function _focusTrapKeydown(e) {
+  if (e.key !== 'Tab') return;
+  const overlay = $('focus-overlay');
+  if (!overlay || overlay.hidden) return;
+  const focusable = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+  if (!focusable.length) { e.preventDefault(); return; }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
   }
 }
 
@@ -3114,6 +4190,11 @@ function closeFocus() {
   if (overlay) overlay.hidden = true;
   if (refactorPollTimer) clearTimeout(refactorPollTimer);
   refactorPollTimer = null;
+  // Restore focus to the element that opened the modal.
+  if (_focusLastActive && typeof _focusLastActive.focus === 'function') {
+    _focusLastActive.focus();
+    _focusLastActive = null;
+  }
 }
 
 // === ACTION EXECUTION ===
@@ -3589,9 +4670,14 @@ function render() {
 
   // Brainstorm transcript is managed by the chat form, not the snapshot.
   // The first viewport consumes renderable presentation slices with snapshot fallbacks.
+  renderWorkbench(snapshot?.workbench || null);
   renderIdeaGreenhouse(snapshot?.idea_greenhouse || null);
   renderFirstViewport(firstViewportPresentationFromSnapshot(snapshot));
-  renderLocalModelInventory(snapshot?.local_model_inventory || localModelInventory || {});
+  renderLocalModelInventory(
+    snapshot?.local_model_inventory || localModelInventory || {},
+    snapshot?.local_model_readiness || localModelReadiness || {}
+  );
+  renderArchitectureEvidence(snapshot?.architecture_evidence || null);
 }
 
 // === REFACTOR LOOP ===
@@ -3648,15 +4734,16 @@ function renderRefactorResult(result, state) {
   </div>`;
 }
 
-function refactorStatusMeta(status) {
+function refactorStatusMeta(status, label) {
   const value = String(status || 'unknown').toLowerCase();
-  if (value === 'completed') return { label: 'Completed', cls: 'good' };
-  if (value === 'running') return { label: 'Running', cls: 'warn' };
-  if (value === 'paused') return { label: 'Paused', cls: 'warn' };
-  if (value === 'stopped_needs_review') return { label: 'Stopped - Needs Review', cls: 'warn' };
-  if (value === 'blocked' || value === 'failed') return { label: sentenceCase(value), cls: 'bad' };
-  if (value === 'idle') return { label: 'Idle', cls: 'neutral' };
-  return { label: 'Unknown', cls: 'neutral' };
+  const fallback = label || '';
+  if (value === 'completed') return { label: fallback || 'Completed', cls: 'good' };
+  if (value === 'running') return { label: fallback || 'Running', cls: 'warn' };
+  if (value === 'paused') return { label: fallback || 'Paused', cls: 'warn' };
+  if (value === 'stopped_needs_review') return { label: fallback || 'Stopped - Needs Review', cls: 'warn' };
+  if (value === 'blocked' || value === 'failed') return { label: fallback || sentenceCase(value), cls: 'bad' };
+  if (value === 'idle') return { label: fallback || 'Idle', cls: 'neutral' };
+  return { label: fallback || 'Unknown', cls: 'neutral' };
 }
 
 function refactorPhaseList(phases) {
@@ -3759,7 +4846,7 @@ function refactorWorkTabs(activeTab) {
 function renderRefactorWorkView(data) {
   const content = $('focus-content');
   if (!content) return;
-  const status = refactorStatusMeta(data?.status);
+  const status = refactorStatusMeta(data?.status, data?.status_label);
   const command = refactorDisplayCommand(data?.command);
   const workerProfile = data?.profile || data?.worker || 'unknown';
   const plannerProfile = data?.planner_profile || 'not configured';
@@ -3959,6 +5046,7 @@ function setupRefactorLoop() {
 
 // === BUILDER-JUDGE LOOP ===
 function setupBuilderJudge() {
+  setupBJModelPickers();
   populateBJModelSelectors();
   loadBuilderJudgeLoops();
 
@@ -3969,33 +5057,29 @@ function setupBuilderJudge() {
   if (refreshBtn) refreshBtn.addEventListener('click', loadBuilderJudgeLoops);
 }
 
+function setupBJModelPickers() {
+  setupModelPicker(builderModelPickerConfig());
+  setupModelPicker(judgeModelPickerConfig());
+}
+
 function populateBJModelSelectors() {
-  const builderSel = $('bj-builder-model');
-  const judgeSel = $('bj-judge-model');
-  if (!builderSel || !judgeSel) return;
-  const previousBuilder = builderSel.value;
-  const previousJudge = judgeSel.value;
+  const builderConfig = builderModelPickerConfig();
+  const judgeConfig = judgeModelPickerConfig();
+  const builderInput = $(builderConfig.inputId);
+  const judgeInput = $(judgeConfig.inputId);
+  if (!builderInput || !judgeInput) return;
 
-  // Use the same selectable agent set as the Brainstorm model selector.
-  const selectorAgents = selectableAgents();
+  reconcileModelPicker(builderConfig);
+  reconcileModelPicker(judgeConfig);
 
-  const optionsHtml = selectorAgents.length
-    ? selectorAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
-    : '<option value="hermes-qwen37plus">Hermes Qwen 3.7 Plus</option>';
-
-  builderSel.innerHTML = optionsHtml;
-  judgeSel.innerHTML = selectorAgents.length
-    ? selectorAgents.map(a => `<option value="${esc(a.id)}">${esc(a.label || a.id)} — ${esc(a.model || '')}</option>`).join('')
-    : '<option value="hermes-opus48">Hermes Opus 4.8</option>';
-
-  const ids = selectorAgents.map(a => a.id);
-  if (ids.length) {
-    const selectedId = selectedProfileId && ids.includes(selectedProfileId) ? selectedProfileId : null;
-    builderSel.value = ids.includes(previousBuilder) ? previousBuilder : (selectedId || ids[0]);
-    judgeSel.value = ids.includes(previousJudge) ? previousJudge : (ids.find(id => id !== builderSel.value) || ids[0]);
-  } else {
-    builderSel.value = 'hermes-qwen37plus';
-    judgeSel.value = 'hermes-opus48';
+  const ids = selectableAgents().map(a => a.id);
+  if (ids.length && builderInput.value === judgeInput.value) {
+    const alternate = selectableAgents().find(a => a.id !== builderInput.value);
+    if (alternate) {
+      setModelPickerValue(judgeConfig, alternate.id, { persist: false });
+      updateModelPickerLabel(judgeConfig, alternate);
+      renderModelPickerDropdown(judgeConfig);
+    }
   }
 }
 
@@ -4163,6 +5247,7 @@ function renderBJRunResult(run) {
     running: { label: 'RUNNING', cls: 'warn' },
   };
   const statusInfo = statusMap[run.status] || { label: run.status, cls: 'warn' };
+  if (run.status_label) statusInfo.label = run.status_label;
   setBJStatus(statusInfo.label, statusInfo.cls);
 
   if (run.final_draft || run.status === 'passed' || run.status === 'max_rounds' || run.status === 'escalated') {
@@ -4198,12 +5283,13 @@ async function loadBuilderJudgeLoops() {
       const statusCls = loop.status === 'passed' ? 'bj-status-pass' :
         loop.status === 'escalated' ? 'bj-status-escalate' :
         loop.status === 'failed' ? 'bj-status-fail' : 'bj-status-other';
+      const statusLabel = loop.status_label || loop.status;
       const score = loop.final_score != null ? `${loop.final_score}/100` : '—';
       const dodPreview = (loop.definition_of_done || '').substring(0, 80);
       return `
         <div class="bj-loop-item" data-bj-loop-id="${esc(loop.loop_id)}">
           <div class="bj-loop-item-header">
-            <span class="bj-loop-status ${statusCls}">${esc(loop.status)}</span>
+            <span class="bj-loop-status ${statusCls}">${esc(statusLabel)}</span>
             <span class="bj-loop-score">${score}</span>
             <span class="bj-loop-rounds">${loop.rounds_completed} round(s)</span>
           </div>
@@ -4240,11 +5326,13 @@ function init() {
   setupBrainstormForm();
   setupBrainstormDefinitionOfDone();
   setupIdeaGreenhouse();
+  setupWorkbenchActions();
   setupPipelineButtons();
   setupFilter();
   setupTaskSurfaceActions();
   setupRefactorLoop();
   setupBuilderJudge();
+  setupArchitectureViewer();
 
   // Load persisted brainstorm session
   loadBrainstormTranscript(brainstormSessionId);
@@ -4277,6 +5365,9 @@ function init() {
     if (e.key === 'Escape') closeFocus();
   });
 
+  // Focus trap: keep Tab inside the modal while it's open
+  document.addEventListener('keydown', _focusTrapKeydown);
+
   // Close repo dropdown on Escape
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -4284,6 +5375,18 @@ function init() {
       if (dd) dd.hidden = true;
     }
   });
+
+  // Mobile sidebar toggle
+  setupSidebarToggle();
+
+  // Scrollspy: sync active nav item with visible section
+  setupScrollspy();
+
+  // Tool tabs (Refactor / Builder-Judge)
+  setupToolTabs();
+
+  // Collapsible empty sections
+  setupCollapsibleEmpty();
 
   // Load snapshot
   loadSnapshot();

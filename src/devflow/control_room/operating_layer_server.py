@@ -6,18 +6,23 @@ import re
 import subprocess
 import threading
 import webbrowser
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlparse, urlsplit
 
 from devflow.control_room.brainstorm import (
     BrainstormError,
     escalate_brainstorm_session,
     run_brainstorm_message,
     start_brainstorm_from_idea,
+)
+from devflow.control_room.architecture_evidence import (
+    ArtifactResolutionError,
+    resolve_architecture_artifact,
 )
 from devflow.control_room.brainstorm_pipeline import (
     create_task_from_brainstorm,
@@ -33,6 +38,7 @@ from devflow.control_room.builder_judge_loop import (
     BuilderJudgeRunError,
     get_builder_judge_run,
     list_builder_judge_loops,
+    project_builder_judge_run,
     run_builder_judge_loop,
     run_quality_gate,
 )
@@ -40,6 +46,21 @@ from devflow.control_room.env_loader import load_hermes_env_file
 from devflow.control_room.browser_action_policy import (
     promotion_task_id_from_command,
     resolve_browser_action_command,
+)
+from devflow.control_room.agent_registry import (
+    AgentRegistryError,
+    is_local_openai_compatible_provider,
+    load_agent_registry,
+    load_provider_registry,
+)
+from devflow.control_room.hermes_profile_resolver import (
+    HERMES_RETIRED_ALIAS_TO_CANONICAL_ID,
+    resolve_hermes_profile,
+)
+from devflow.control_room.local_model_readiness import load_expected_local_model_manifest
+from devflow.control_room.local_model_server import (
+    LocalModelServerError,
+    ensure_local_model_server_for_profile,
 )
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
@@ -51,6 +72,17 @@ from devflow.control_room.refactor_loop import (
     start_refactor_loop,
 )
 from devflow.control_room.supervisor_surface import classify_supervisor_command
+from devflow.control_room.unified_workbench import (
+    WorkbenchError,
+    create_workbench_project,
+    finalize_workbench_run,
+    implementation_config_from_package,
+    new_workbench_loop_id,
+    prepare_implementation_package,
+    run_workbench_implementation,
+    setup_gate,
+    workbench_running_payload,
+)
 
 
 ACTION_TIMEOUT_SECONDS = 20
@@ -59,6 +91,46 @@ ACTION_OUTPUT_LIMIT = 12000
 # In-memory registry of running builder-judge loops (loop_id → BuilderJudgeRun)
 _bj_running_loops: dict[str, dict] = {}
 _bj_threads: dict[str, threading.Thread] = {}
+
+
+@dataclass(frozen=True)
+class LocalModelEnsureProfile:
+    profile_id: str
+    requested_profile_id: str
+    provider: str
+    model: str
+    adapter: str
+    base_url: str | None
+    source: str
+    label: str | None = None
+    hermes_profile: str | None = None
+    local_server_backed: bool = False
+
+    @property
+    def is_ollama(self) -> bool:
+        return self.provider == "ollama" or self.adapter == "ollama_chat"
+
+    @property
+    def is_local(self) -> bool:
+        if self.is_ollama or self.local_server_backed:
+            return True
+        return _is_local_http_base_url(self.base_url)
+
+    def evidence(self) -> dict[str, Any]:
+        return {
+            "profile_id": self.profile_id,
+            "requested_profile_id": self.requested_profile_id,
+            "label": self.label,
+            "provider": self.provider,
+            "model": self.model,
+            "adapter": self.adapter,
+            "base_url": self.base_url,
+            "source": self.source,
+            "hermes_profile": self.hermes_profile,
+            "is_local": self.is_local,
+            "is_ollama": self.is_ollama,
+            "local_server_backed": self.local_server_backed,
+        }
 
 
 class OperatingLayerHTTPServer(ThreadingHTTPServer):
@@ -99,6 +171,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/agents":
             self._handle_agents_list()
+            return
+        if path == "/architecture/artifact":
+            query = parse_qs(request.query)
+            self._handle_architecture_artifact(query)
             return
         if path == "/api/browse":
             query = parse_qs(request.query)
@@ -149,6 +225,18 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         if request.path == "/api/builder-judge/quality-gate":
             self._handle_builder_judge_quality_gate()
+            return
+        if request.path == "/api/workbench/project":
+            self._handle_workbench_project()
+            return
+        if request.path == "/api/workbench/implement":
+            self._handle_workbench_implement()
+            return
+        if request.path == "/api/gates/setup":
+            self._handle_gates_setup()
+            return
+        if request.path == "/api/local-model/ensure":
+            self._handle_local_model_ensure()
             return
         if request.path == "/api/refactor/start":
             self._handle_refactor_start()
@@ -371,67 +459,52 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         try:
             root = self.server.repo_root
             from devflow.control_room.agent_catalog import build_agent_catalog
-            from devflow.control_room.agent_registry import (
-                is_hermes_subscription_agent,
-                is_local_openai_compatible_provider,
-                is_remote_advisory_agent,
-                load_agent_registry,
-                load_provider_registry,
-            )
             from devflow.control_room.local_model_inventory import build_local_model_inventory
+            from devflow.control_room.local_model_readiness import build_local_model_readiness_plan
+
             catalog = build_agent_catalog(root)
-            profile_by_id = {
-                profile["id"]: profile
-                for profile in catalog.get("profiles", [])
-                if isinstance(profile, dict) and profile.get("id")
-            }
-            availability_by_profile = {
-                profile["id"]: profile.get("availability", {})
-                for profile in catalog.get("profiles", [])
-                if isinstance(profile, dict) and profile.get("id")
-            }
-            registry = load_agent_registry(root)
-            providers = load_provider_registry(root)
-            agents = []
-            for agent in registry.enabled_agents():
-                provider = providers.providers.get(agent.provider)
-                if not provider:
-                    continue
-                is_remote = is_remote_advisory_agent(agent, provider=provider)
-                is_hermes_subscription = is_hermes_subscription_agent(agent, provider=provider)
-                is_ollama = provider.provider == "ollama" or agent.adapter == "ollama_chat"
-                is_local_endpoint = is_local_openai_compatible_provider(provider)
-                is_local = is_ollama or is_local_endpoint
-                if not is_remote and not is_local and not is_hermes_subscription:
-                    continue
-                availability = availability_by_profile.get(agent.id, {})
-                if is_local and availability.get("status") in {"missing", "unavailable"}:
-                    continue
-                catalog_profile = profile_by_id.get(agent.id, {})
-                agents.append({
-                    "id": agent.id,
-                    "model": agent.model,
-                    "label": agent.model_role_name or agent.id,
-                    "purpose": agent.purpose or "",
-                    "tier": agent.tier,
-                    "secondary_roles": agent.secondary_roles,
-                    "provider": agent.provider,
-                    "adapter": catalog_profile.get("adapter") or agent.adapter,
-                    "role": catalog_profile.get("role") or agent.role,
-                    "authority": catalog_profile.get("authority"),
-                    "is_local": is_local,
-                    "availability": availability,
-                    "runtime_contract": catalog_profile.get("runtime_contract", {}),
-                })
+            inventory = build_local_model_inventory(catalog)
+            agents = [
+                agent
+                for agent in catalog.get("hermes_agents", [])
+                if isinstance(agent, dict) and agent.get("id")
+            ]
             self._send_json(
                 {
                     "agents": agents,
-                    "local_model_inventory": build_local_model_inventory(catalog),
+                    "local_model_inventory": inventory,
+                    "local_model_readiness": build_local_model_readiness_plan(
+                        root,
+                        agent_catalog=catalog,
+                        inventory=inventory,
+                    ),
                 },
                 HTTPStatus.OK,
             )
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_architecture_artifact(self, query: dict[str, list[str]]) -> None:
+        artifact_id = (query.get("id") or [None])[0]
+        project_id = (query.get("project") or [None])[0]
+        try:
+            root = self.server.repo_root
+            if project_id:
+                root = resolve_project_root(self.server.repo_root, project_id).root
+        except ProjectRegistryError as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            resolved = resolve_architecture_artifact(root, artifact_id or "")
+        except ArtifactResolutionError as exc:
+            self._send_json_error(str(exc), HTTPStatus(exc.status))
+            return
+        try:
+            body = Path(resolved.absolute_path).read_bytes()
+        except OSError:
+            self._send_json_error("artifact is unavailable", HTTPStatus.NOT_FOUND)
+            return
+        self._send_artifact(body, resolved.content_type)
 
     def _handle_brainstorm_message(self) -> None:
         try:
@@ -589,33 +662,39 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             def _run_bj_loop():
                 try:
                     run = run_builder_judge_loop(root, config, loop_id=loop_id)
-                    _bj_running_loops[loop_id] = run.model_dump(mode="json")
+                    _bj_running_loops[loop_id] = project_builder_judge_run(run, root=root)
                 except Exception as exc:
-                    _bj_running_loops[loop_id] = {
-                        "loop_id": loop_id,
-                        "status": "failed",
-                        "error": str(exc),
-                        "rounds": [],
-                        "config": config.model_dump(mode="json"),
-                        "started_at": datetime.now(timezone.utc).isoformat(),
-                        "finished_at": datetime.now(timezone.utc).isoformat(),
-                        "stop_reason": "background_thread_error",
-                        "next_safe_action": str(exc),
-                    }
+                    _bj_running_loops[loop_id] = project_builder_judge_run(
+                        {
+                            "loop_id": loop_id,
+                            "status": "failed",
+                            "error": str(exc),
+                            "rounds": [],
+                            "config": config.model_dump(mode="json"),
+                            "started_at": datetime.now(timezone.utc).isoformat(),
+                            "finished_at": datetime.now(timezone.utc).isoformat(),
+                            "stop_reason": "background_thread_error",
+                            "next_safe_action": str(exc),
+                        },
+                        root=root,
+                    )
 
             thread = threading.Thread(target=_run_bj_loop, daemon=True)
             _bj_threads[loop_id] = thread
-            _bj_running_loops[loop_id] = {
-                "loop_id": loop_id,
-                "run_id": "",
-                "status": "running",
-                "config": config.model_dump(mode="json"),
-                "rounds": [],
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "finished_at": None,
-                "stop_reason": "",
-                "next_safe_action": "",
-            }
+            _bj_running_loops[loop_id] = project_builder_judge_run(
+                {
+                    "loop_id": loop_id,
+                    "run_id": "",
+                    "status": "running",
+                    "config": config.model_dump(mode="json"),
+                    "rounds": [],
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "finished_at": None,
+                    "stop_reason": "",
+                    "next_safe_action": "",
+                },
+                root=root,
+            )
             thread.start()
 
             self._send_json(_bj_running_loops[loop_id], HTTPStatus.OK)
@@ -623,7 +702,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             # Synchronous mode (for CLI or testing)
             try:
                 run = run_builder_judge_loop(root, config)
-                result = run.model_dump(mode="json")
+                result = project_builder_judge_run(run, root=root)
             except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
                 self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
                 return
@@ -715,7 +794,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 pass_threshold=pass_threshold,
                 max_rounds=max_rounds,
             )
-            result = run.model_dump(mode="json")
+            result = project_builder_judge_run(run, root=root)
         except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
@@ -723,6 +802,197 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_json_error(f"Quality gate failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         self._send_json(result, HTTPStatus.OK)
+
+    def _handle_workbench_project(self) -> None:
+        try:
+            payload = self._read_json_body()
+            result = create_workbench_project(payload)
+        except (WorkbenchError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Workbench project create failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_workbench_implement(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            session_id = payload.get("session_id")
+            if not isinstance(session_id, str) or not session_id.strip():
+                raise WorkbenchError("session_id is required")
+            title = payload.get("title")
+            if title is not None and not isinstance(title, str):
+                raise WorkbenchError("title must be a string")
+            definition_of_done = payload.get("definition_of_done")
+            if definition_of_done is not None and not isinstance(definition_of_done, str):
+                raise WorkbenchError("definition_of_done must be a string")
+            builder_profile_id = payload.get("builder_profile_id")
+            if builder_profile_id is not None and not isinstance(builder_profile_id, str):
+                raise WorkbenchError("builder_profile_id must be a string")
+            judge_profile_id = payload.get("judge_profile_id")
+            if judge_profile_id is not None and not isinstance(judge_profile_id, str):
+                raise WorkbenchError("judge_profile_id must be a string")
+            pass_threshold_raw = payload.get("pass_threshold")
+            pass_threshold = int(pass_threshold_raw) if isinstance(pass_threshold_raw, (int, float, str)) else DEFAULT_PASS_THRESHOLD
+            max_rounds_raw = payload.get("max_rounds")
+            max_rounds = int(max_rounds_raw) if isinstance(max_rounds_raw, (int, float, str)) else 3
+            async_mode = bool(payload.get("async", True))
+
+            if not async_mode:
+                result = run_workbench_implementation(
+                    root,
+                    session_id=session_id,
+                    title=title or None,
+                    definition_of_done=definition_of_done or None,
+                    builder_profile_id=builder_profile_id or DEFAULT_BUILDER_PROFILE,
+                    judge_profile_id=judge_profile_id or DEFAULT_JUDGE_PROFILE,
+                    pass_threshold=pass_threshold,
+                    max_rounds=max_rounds,
+                )
+                self._send_json(result.model_dump(mode="json"), HTTPStatus.OK)
+                return
+
+            package = prepare_implementation_package(
+                root,
+                session_id=session_id,
+                title=title or None,
+                definition_of_done=definition_of_done or None,
+            )
+            config = implementation_config_from_package(
+                package,
+                builder_profile_id=builder_profile_id or DEFAULT_BUILDER_PROFILE,
+                judge_profile_id=judge_profile_id or DEFAULT_JUDGE_PROFILE,
+                pass_threshold=pass_threshold,
+                max_rounds=max_rounds,
+            )
+            loop_id = new_workbench_loop_id()
+        except (BuilderJudgeConfigError, BuilderJudgeRunError, WorkbenchError, ProjectRegistryError, OSError, ValueError) as exc:
+            status = HTTPStatus.CONFLICT if isinstance(exc, WorkbenchError) else HTTPStatus.BAD_REQUEST
+            self._send_json_error(str(exc), status)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Workbench implement failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        def _run_workbench_loop() -> None:
+            try:
+                run = run_builder_judge_loop(root, config, loop_id=loop_id)
+                final = finalize_workbench_run(root, session_id=session_id, run=run, package=package)
+                payload = project_builder_judge_run(run, root=root)
+                payload["workbench"] = {
+                    "session_id": session_id,
+                    "implementation_path": final["implementation_path"],
+                    "refactor_offer_path": final["refactor_offer_path"],
+                    "next_action": final["next_action"],
+                    "package": package.model_dump(mode="json"),
+                }
+                _bj_running_loops[loop_id] = payload
+            except Exception as exc:
+                _bj_running_loops[loop_id] = project_builder_judge_run(
+                    {
+                        "loop_id": loop_id,
+                        "status": "failed",
+                        "error": str(exc),
+                        "rounds": [],
+                        "config": config.model_dump(mode="json"),
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                        "finished_at": datetime.now(timezone.utc).isoformat(),
+                        "stop_reason": "workbench_background_thread_error",
+                        "next_safe_action": str(exc),
+                        "workbench": {
+                            "session_id": session_id,
+                            "package": package.model_dump(mode="json"),
+                        },
+                    },
+                    root=root,
+                )
+
+        thread = threading.Thread(target=_run_workbench_loop, daemon=True)
+        _bj_threads[loop_id] = thread
+        _bj_running_loops[loop_id] = project_builder_judge_run(
+            workbench_running_payload(
+                root,
+                session_id=session_id,
+                loop_id=loop_id,
+                package=package,
+                config=config,
+            ),
+            root=root,
+        )
+        thread.start()
+        self._send_json(_bj_running_loops[loop_id], HTTPStatus.OK)
+
+    def _handle_gates_setup(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            result = setup_gate(root, payload)
+        except (WorkbenchError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Gate setup failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_local_model_ensure(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            profile_id = payload.get("profile_id")
+            if not isinstance(profile_id, str) or not profile_id.strip():
+                self._send_json_error("profile_id is required", HTTPStatus.BAD_REQUEST)
+                return
+            resolved = _resolve_local_model_ensure_profile(root, profile_id.strip())
+        except (ProjectRegistryError, ValueError, AgentRegistryError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        except KeyError as exc:
+            message = str(exc.args[0]) if exc.args else str(exc)
+            self._send_json_error(message, HTTPStatus.NOT_FOUND)
+            return
+
+        if resolved.is_ollama:
+            self._send_json(
+                _local_model_ensure_skipped_payload(
+                    resolved,
+                    status="unmanaged",
+                    management="managed_by_ollama",
+                    reason="Ollama profiles are managed by Ollama; Dev-Flow does not stop or start Ollama.",
+                ),
+                HTTPStatus.OK,
+            )
+            return
+
+        if not resolved.is_local:
+            self._send_json(
+                _local_model_ensure_skipped_payload(
+                    resolved,
+                    status="skipped",
+                    management="provider_managed_remote",
+                    reason="Remote/frontier profiles are provider-managed; no local model server boot is needed.",
+                ),
+                HTTPStatus.OK,
+            )
+            return
+
+        try:
+            lifecycle = ensure_local_model_server_for_profile(
+                root,
+                provider=resolved.provider,
+                model=resolved.model,
+                base_url=resolved.base_url,
+            )
+        except LocalModelServerError as exc:
+            self._send_json_error(str(exc), HTTPStatus.CONFLICT)
+            return
+        except Exception as exc:
+            self._send_json_error(f"Local model ensure failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        self._send_json(_local_model_ensure_payload(resolved, lifecycle), HTTPStatus.OK)
 
     def _handle_refactor_start(self) -> None:
         try:
@@ -817,6 +1087,23 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
+    def _send_artifact(self, body: bytes, content_type: str) -> None:
+        # Architecture evidence artifacts are served inline-only with strict,
+        # no-sniff, no-store headers. Graphify HTML is rendered inside a
+        # sandboxed iframe on the client; we never expose arbitrary path reads.
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Disposition", "inline")
+        self.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def _send_json(self, payload: dict[str, object], status: HTTPStatus) -> None:
         body = json.dumps(payload) + "\n"
         encoded = body.encode("utf-8")
@@ -842,6 +1129,157 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(encoded)
         except (BrokenPipeError, ConnectionResetError):
             return
+
+
+def _resolve_local_model_ensure_profile(root: Path, profile_id: str) -> LocalModelEnsureProfile:
+    if profile_id in HERMES_RETIRED_ALIAS_TO_CANONICAL_ID or profile_id.startswith("hermes-profile-"):
+        raise KeyError(f"Unknown profile_id '{profile_id}'")
+    registry_profile = _registry_ensure_profile(root, profile_id)
+    if registry_profile is not None:
+        return registry_profile
+
+    hermes_profile = _hermes_ensure_profile(profile_id)
+    if hermes_profile is not None:
+        return hermes_profile
+
+    manifest_profile = _manifest_ensure_profile(profile_id)
+    if manifest_profile is not None:
+        return manifest_profile
+
+    raise KeyError(f"Unknown profile_id '{profile_id}'")
+
+
+def _registry_ensure_profile(root: Path, profile_id: str) -> LocalModelEnsureProfile | None:
+    try:
+        agent = load_agent_registry(root).require_agent(profile_id)
+    except KeyError:
+        return None
+    providers = load_provider_registry(root)
+    provider = providers.providers.get(agent.provider)
+    if provider is not None:
+        return LocalModelEnsureProfile(
+            profile_id=agent.id,
+            requested_profile_id=profile_id,
+            provider=provider.provider,
+            model=agent.model,
+            adapter=agent.adapter,
+            base_url=provider.base_url,
+            source="agent_registry",
+            label=agent.model_role_name or agent.id,
+            hermes_profile=agent.id if agent.id.startswith("hermes-") else None,
+            local_server_backed=is_local_openai_compatible_provider(provider),
+        )
+
+    manifest_profile = _manifest_ensure_profile(profile_id)
+    if manifest_profile is not None:
+        return manifest_profile
+    return None
+
+
+def _hermes_ensure_profile(profile_id: str) -> LocalModelEnsureProfile | None:
+    profile = resolve_hermes_profile(profile_id)
+    if profile is None:
+        return None
+    manifest_profile = _manifest_ensure_profile(profile.id) or _manifest_ensure_profile(profile.hermes_profile)
+    return LocalModelEnsureProfile(
+        profile_id=profile.id,
+        requested_profile_id=profile_id,
+        provider=profile.provider,
+        model=profile.model,
+        adapter="hermes_profile",
+        base_url=profile.base_url,
+        source="hermes_profile",
+        label=profile.label,
+        hermes_profile=profile.hermes_profile,
+        local_server_backed=bool(manifest_profile and manifest_profile.local_server_backed),
+    )
+
+
+def _manifest_ensure_profile(profile_id: str) -> LocalModelEnsureProfile | None:
+    try:
+        manifest = load_expected_local_model_manifest()
+    except Exception:
+        return None
+    for lane in manifest.lanes.values():
+        aliases = {
+            lane.profile_id,
+            lane.lane_id,
+            lane.provider_id,
+            lane.model_id,
+        }
+        if profile_id not in aliases:
+            continue
+        return LocalModelEnsureProfile(
+            profile_id=lane.profile_id,
+            requested_profile_id=profile_id,
+            provider=lane.provider_id,
+            model=lane.model_id,
+            adapter=lane.adapter,
+            base_url=lane.base_url,
+            source="local_model_manifest",
+            label=lane.profile_id,
+            hermes_profile=lane.profile_id if lane.profile_id.startswith("hermes-") else None,
+            local_server_backed=lane.local_server_backed,
+        )
+    return None
+
+
+def _local_model_ensure_payload(
+    resolved: LocalModelEnsureProfile,
+    lifecycle: dict[str, Any],
+) -> dict[str, Any]:
+    status = str(lifecycle.get("status") or "unknown")
+    payload: dict[str, Any] = {
+        "action": "ensure_local_model_server",
+        "status": status,
+        "will_manage_local_server": bool(lifecycle.get("will_manage_local_server")),
+        "management": "devflow_managed_local_server" if lifecycle.get("will_manage_local_server") else "unmanaged_local_endpoint",
+        "reason": lifecycle.get("reason") or "local model server lifecycle completed",
+        "profile": resolved.evidence(),
+        "lifecycle": lifecycle,
+    }
+    payload.update(resolved.evidence())
+    return payload
+
+
+def _local_model_ensure_skipped_payload(
+    resolved: LocalModelEnsureProfile,
+    *,
+    status: str,
+    management: str,
+    reason: str,
+) -> dict[str, Any]:
+    lifecycle = {
+        "action": "ensure",
+        "status": status,
+        "will_manage_local_server": False,
+        "provider": resolved.provider,
+        "model": resolved.model,
+        "base_url": resolved.base_url,
+        "management": management,
+        "reason": reason,
+    }
+    payload: dict[str, Any] = {
+        "action": "ensure_local_model_server",
+        "status": status,
+        "will_manage_local_server": False,
+        "management": management,
+        "reason": reason,
+        "profile": resolved.evidence(),
+        "lifecycle": lifecycle,
+    }
+    payload.update(resolved.evidence())
+    return payload
+
+
+def _is_local_http_base_url(base_url: str | None) -> bool:
+    if not base_url:
+        return False
+    try:
+        parsed = urlparse(base_url)
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
 
 
 def find_listening_pids(port: int) -> list[int]:

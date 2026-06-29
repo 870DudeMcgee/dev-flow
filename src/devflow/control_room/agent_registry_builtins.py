@@ -424,8 +424,8 @@ def builtin_agents() -> dict[str, AgentDefinition]:
             enabled=True,
         )
 
-    agents["local-qwen35-mtp"] = AgentDefinition(
-        id="local-qwen35-mtp",
+    agents["hermes-qwen32"] = AgentDefinition(
+        id="hermes-qwen32",
         provider="qwen35-mtp",
         model="qwen35-9b-mtp",
         adapter="openai_compatible",
@@ -434,8 +434,8 @@ def builtin_agents() -> dict[str, AgentDefinition]:
         tier="frontier",
         default_mode="frontier_read_only",
         execution_mode="automated",
-        purpose="Fast local OpenAI-compatible advisory profile for status, planning, Telegram, and operator-control loops.",
-        model_role_name="local-qwen35-mtp",
+        purpose="Canonical Hermes local advisory profile for status, planning, Telegram, and operator-control loops.",
+        model_role_name="Hermes Qwen 3.2",
         secondary_roles=["status", "planning", "telegram", "operator-control", "advisory"],
         use_caution=[
             "Advisory evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, merge, or push."

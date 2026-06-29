@@ -305,8 +305,7 @@ def _case_cli_help(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Dogfood CLI help bounded task")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Dogfood CLI help bounded task")
 
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     plan_path = root / ".devflow" / "tasks" / task.id / "orchestration-plan.yaml"
@@ -1025,8 +1024,7 @@ def _case_plan_only_unsafe_git(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Dogfood plan-only unsafe Git state")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Dogfood plan-only unsafe Git state")
 
     marker = root / f".dogfood-dirty-marker-{run_id}"
     marker_created = False
@@ -1196,8 +1194,7 @@ def _case_parallelism_docs_test(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Update docs and tests for dogfood split")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Update docs and tests for dogfood split")
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     case_result.record_command(f"devflow task orchestrate {task.id} --plan-only", status="passed")
     if plan.get("parallelism_allowed") is not True:
@@ -1229,8 +1226,7 @@ def _case_central_schema_risk(
     root: Path, run_id: str, case: dict[str, Any], case_dir: Path, shared: dict[str, Any]
 ) -> dict[str, Any]:
     case_result = _CaseResult(root, run_id, case, case_dir)
-    task = create_task(root, "Rewrite whole repo migration and disable guardrail")
-    case_result.record_command(f"devflow task create {task.title!r}", status="passed", output=task.id)
+    task = case_result.create_task("Rewrite whole repo migration and disable guardrail")
     plan = create_orchestration_plan(root, task.id, plan_only=True)
     case_result.record_command(f"devflow task orchestrate {task.id} --plan-only", status="passed")
     active = {item["condition"] for item in plan.get("stop_conditions", []) if item.get("active")}

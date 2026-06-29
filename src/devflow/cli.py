@@ -146,6 +146,7 @@ from devflow.control_room.supervisor_surface import (
 )
 from devflow.control_room.telegram_routing import render_telegram_route
 from devflow.control_room.hermes_readiness import render_hermes_imessage_check
+from devflow.control_room.hermes_profiles_command import hermes_profiles_app
 from devflow.control_room.project_create import create_project as create_managed_project
 from devflow.control_room.project_create import import_project as import_managed_project
 from devflow.control_room.project_registry import (
@@ -191,6 +192,7 @@ app.add_typer(maintenance_app, name="maintenance")
 app.add_typer(release_app, name="release")
 app.add_typer(supervisor_app, name="supervisor")
 app.add_typer(hermes_app, name="hermes")
+hermes_app.add_typer(hermes_profiles_app, name="profiles")
 app.add_typer(project_app, name="project")
 app.add_typer(map_app, name="map")
 app.add_typer(freshness_app, name="freshness")
@@ -379,9 +381,52 @@ def doctor_command(
         "--repair",
         help="Auto-fix the macOS hidden flag on the venv before checking (non-destructive).",
     ),
+    provision: bool = typer.Option(False, "--provision", help="Inspect local model readiness and onboarding commands."),
+    json_output: bool = typer.Option(False, "--json", help="Print local model readiness payload as JSON with --provision."),
+    apply_changes: bool = typer.Option(
+        False,
+        "--apply",
+        help="Run supported local model onboarding commands from --provision and write command evidence.",
+    ),
 ) -> None:
     """Check local control-room runtime readiness."""
     root = Path.cwd()
+    if json_output and not provision:
+        typer.echo("Error: doctor --json is only supported with --provision.", err=True)
+        raise typer.Exit(code=1)
+    if apply_changes and not provision:
+        typer.echo("Error: doctor --apply requires --provision.", err=True)
+        raise typer.Exit(code=1)
+    if json_output and apply_changes:
+        typer.echo("Error: doctor --provision --json is read-only and cannot be combined with --apply.", err=True)
+        raise typer.Exit(code=1)
+    if provision:
+        from devflow.control_room.local_model_readiness import (
+            LocalModelReadinessError,
+            apply_local_model_readiness_plan,
+            build_local_model_readiness_plan,
+            render_local_model_readiness_apply_result,
+            render_local_model_readiness_plan,
+        )
+
+        try:
+            if apply_changes:
+                result = apply_local_model_readiness_plan(root)
+                for line in render_local_model_readiness_apply_result(result):
+                    typer.echo(line)
+                if result["status"] == "failed":
+                    raise typer.Exit(code=1)
+                return
+            plan = build_local_model_readiness_plan(root)
+        except LocalModelReadinessError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        if json_output:
+            typer.echo(json.dumps(plan, indent=2, sort_keys=True))
+            return
+        for line in render_local_model_readiness_plan(plan):
+            typer.echo(line)
+        return
     if repair:
         from devflow.control_room.control_room_doctor import repair_macos_path_hygiene
 

@@ -12,6 +12,8 @@ from typing import Any, Callable
 
 from devflow.control_room.architecture_audit import ArchitectureAuditResult, run_architecture_audit
 from devflow.control_room.browser_action_policy import ACTION_APPROVAL_PHRASE
+from devflow.control_room.builder_judge_loop import PONYTAIL_SIMPLIFICATION_LADDER
+from devflow.control_room.loops import loop_envelope
 from devflow.control_room.log_sanitizer import sanitize_log_line
 from devflow.control_room.persistence import atomic_write_text
 
@@ -197,7 +199,17 @@ def _project_refactor_run_status(root: Path, record: dict[str, Any]) -> dict[str
         handoff_evidence=handoff_evidence,
         loop_evidence=loop_evidence,
     )
-    return {
+    phases = _refactor_phases(
+        record,
+        status,
+        artifacts,
+        log_tail,
+        planner_evidence=planner_evidence,
+        handoff_evidence=handoff_evidence,
+        judge_evidence=judge_evidence,
+    )
+    next_safe_action = _next_safe_action(record, status, handoff_evidence, status_info["reason"])
+    payload = {
         **record,
         "status": status,
         "status_label": _status_label(status),
@@ -211,17 +223,21 @@ def _project_refactor_run_status(root: Path, record: dict[str, Any]) -> dict[str
         "handoff_evidence": handoff_evidence,
         "judge_evidence": judge_evidence,
         "artifacts": artifacts,
-        "phases": _refactor_phases(
-            record,
-            status,
-            artifacts,
-            log_tail,
-            planner_evidence=planner_evidence,
-            handoff_evidence=handoff_evidence,
-            judge_evidence=judge_evidence,
-        ),
-        "next_safe_action": _next_safe_action(record, status, handoff_evidence, status_info["reason"]),
+        "phases": phases,
+        "next_safe_action": next_safe_action,
     }
+    run_id = _string_or_none(payload.get("run_id")) or ""
+    return loop_envelope(
+        loop_family="refactor",
+        run_id=run_id,
+        status=status,
+        status_label=payload["status_label"],
+        phases=phases,
+        artifacts=artifacts,
+        evidence_path=_string_or_none(record.get("run_path")),
+        next_safe_action=next_safe_action,
+        extra=payload,
+    )
 
 
 def _run_architecture_audit(root: Path) -> ArchitectureAuditResult:
@@ -264,7 +280,10 @@ def _load_rehab_script(root: Path, name: str) -> ModuleType:
 def _candidate_from_audit(audit: ArchitectureAuditResult, issue_count: int) -> str:
     target = audit.recommended_cleanup_targets[0] if audit.recommended_cleanup_targets else "the highest-risk hotspot"
     plural = "issue" if issue_count == 1 else "issues"
-    return f"Use Graphify and Ponytail gates to resolve {issue_count} architecture {plural}, starting at {target}"
+    return (
+        f"Use Graphify evidence and the {PONYTAIL_SIMPLIFICATION_LADDER} "
+        f"to resolve {issue_count} architecture {plural}, starting at {target}"
+    )
 
 
 def _loop_start_error(loop_result: dict[str, Any]) -> str:

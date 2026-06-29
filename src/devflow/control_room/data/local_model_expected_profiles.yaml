@@ -1,0 +1,209 @@
+schema_version: 1
+lanes:
+  hermes-qwen32:
+    profile_id: hermes-qwen32
+    provider_id: qwen35-mtp
+    model_id: qwen35-9b-mtp
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 12
+    ideal_ram_gb: 16
+    weight_class: medium
+    quant_policy: ud-q4-k-xl
+    base_url: http://127.0.0.1:8080/v1
+    port: 8080
+    local_server_backed: true
+    fallback_lanes:
+      - hermes-gemma12b
+      - hermes-minimaxm3
+  hermes-gemma12b:
+    profile_id: hermes-gemma12b
+    provider_id: ollama
+    model_id: gemma4:12b-it-qat
+    adapter: ollama_chat
+    role: local_senior_worker
+    authority: read-only
+    min_ram_gb: 24
+    ideal_ram_gb: 48
+    weight_class: medium
+    quant_policy: qat
+    base_url: http://127.0.0.1:11434
+    port: 11434
+    local_server_backed: false
+    fallback_lanes:
+      - hermes-qwen36-27b-mtp
+      - hermes-minimaxm3
+  hermes-qwen36-27b-mtp:
+    profile_id: hermes-qwen36-27b-mtp
+    provider_id: qwen35-mtp
+    model_id: qwen3.6-27b-mtp
+    adapter: openai_compatible
+    role: implementation_worker
+    authority: read-only
+    min_ram_gb: 32
+    ideal_ram_gb: 64
+    weight_class: heavy
+    quant_policy: q4-k-m
+    base_url: http://127.0.0.1:8092/v1
+    port: 8092
+    local_server_backed: true
+    fallback_lanes:
+      - hermes-gemma12b
+      - hermes-minimaxm3
+  hermes-qwen36-27b-mlx4bit:
+    profile_id: hermes-qwen36-27b-mlx4bit
+    provider_id: local
+    model_id: qwen3.6-27b-mlxf4bit
+    adapter: openai_compatible
+    role: implementation_worker
+    authority: read-only
+    min_ram_gb: 48
+    ideal_ram_gb: 96
+    weight_class: heavy
+    quant_policy: mlxf4bit
+    base_url: http://127.0.0.1:8093/v1
+    port: 8093
+    local_server_backed: true
+    fallback_lanes:
+      - hermes-qwen36-27b-mtp
+      - hermes-minimaxm3
+  hermes-qwen36-27b-mlx8bit:
+    profile_id: hermes-qwen36-27b-mlx8bit
+    provider_id: local
+    model_id: qwen3.6-27b-mlxf8bit
+    adapter: openai_compatible
+    role: implementation_worker
+    authority: read-only
+    min_ram_gb: 64
+    ideal_ram_gb: 128
+    weight_class: heavy
+    quant_policy: mlxf8bit
+    base_url: http://127.0.0.1:8094/v1
+    port: 8094
+    local_server_backed: true
+    fallback_lanes:
+      - hermes-qwen36-27b-mlx4bit
+      - hermes-minimaxm3
+  hermes-ornith9b:
+    profile_id: hermes-ornith9b
+    provider_id: local-ornith-9b
+    model_id: ornith-1.0-9b-q4
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 24
+    ideal_ram_gb: 48
+    weight_class: medium
+    quant_policy: q4-k-m
+    base_url: http://127.0.0.1:8084/v1
+    port: 8084
+    local_server_backed: true
+    fallback_lanes:
+      - hermes-qwen32
+      - hermes-minimaxm3
+  hermes-ornith35b:
+    profile_id: hermes-ornith35b
+    provider_id: local-ornith-35b
+    model_id: ornith-1.0-35b-q4
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 64
+    ideal_ram_gb: 96
+    weight_class: heavy
+    quant_policy: q4-k-m
+    base_url: http://127.0.0.1:8085/v1
+    port: 8085
+    local_server_backed: true
+    fallback_lanes:
+      - hermes-ornith9b
+      - hermes-gemma12b
+      - hermes-minimaxm3
+  hermes-minimaxm3:
+    profile_id: hermes-minimaxm3
+    provider_id: openrouter
+    model_id: minimax/minimax-m3
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 0
+    ideal_ram_gb: 0
+    weight_class: remote
+    quant_policy: provider-managed
+    base_url: https://openrouter.ai/api/v1
+    local_server_backed: false
+    api_key_env: OPENROUTER_API_KEY
+    fallback_lanes:
+      - hermes-codex-gpt55
+      - hermes-qwen32
+  hermes-qwen37plus:
+    profile_id: hermes-qwen37plus
+    provider_id: openrouter
+    model_id: qwen/qwen3.7-plus
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 0
+    ideal_ram_gb: 0
+    weight_class: remote
+    quant_policy: provider-managed
+    base_url: https://openrouter.ai/api/v1
+    local_server_backed: false
+    api_key_env: OPENROUTER_API_KEY
+    fallback_lanes:
+      - hermes-minimaxm3
+      - hermes-codex-gpt55
+      - hermes-qwen32
+  hermes-sonnet46:
+    profile_id: hermes-sonnet46
+    provider_id: openrouter
+    model_id: anthropic/claude-sonnet-4.6
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 0
+    ideal_ram_gb: 0
+    weight_class: remote
+    quant_policy: provider-managed
+    base_url: https://openrouter.ai/api/v1
+    local_server_backed: false
+    api_key_env: OPENROUTER_API_KEY
+    fallback_lanes:
+      - hermes-qwen37plus
+      - hermes-codex-gpt55
+      - hermes-qwen32
+  hermes-opus48:
+    profile_id: hermes-opus48
+    provider_id: openrouter
+    model_id: anthropic/claude-opus-4.8
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 0
+    ideal_ram_gb: 0
+    weight_class: remote
+    quant_policy: provider-managed
+    base_url: https://openrouter.ai/api/v1
+    local_server_backed: false
+    api_key_env: OPENROUTER_API_KEY
+    fallback_lanes:
+      - hermes-sonnet46
+      - hermes-qwen37plus
+      - hermes-codex-gpt55
+      - hermes-qwen32
+  hermes-codex-gpt55:
+    profile_id: hermes-codex-gpt55
+    provider_id: openai-codex
+    model_id: gpt-5.5
+    adapter: hermes_profile
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 0
+    ideal_ram_gb: 0
+    weight_class: remote
+    quant_policy: subscription-managed
+    base_url: https://chatgpt.com/backend-api/codex
+    local_server_backed: false
+    fallback_lanes:
+      - hermes-qwen32

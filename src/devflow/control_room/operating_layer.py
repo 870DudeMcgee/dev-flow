@@ -15,6 +15,10 @@ from devflow.control_room.dashboard import (
     collect_multi_project_dashboard_state,
 )
 from devflow.control_room.agent_catalog import build_agent_catalog
+from devflow.control_room.architecture_evidence import (
+    ArchitectureEvidenceProjection,
+    build_architecture_evidence,
+)
 from devflow.control_room.freshness import FreshnessReport, run_freshness_loop
 from devflow.control_room.goal_spec_projection import (
     OperatingLayerAction,
@@ -29,6 +33,7 @@ from devflow.control_room.idea_greenhouse_projection import (
     build_idea_greenhouse,
 )
 from devflow.control_room.local_model_inventory import build_local_model_inventory
+from devflow.control_room.local_model_readiness import build_local_model_readiness_plan
 from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
@@ -50,6 +55,7 @@ from devflow.control_room.task_workbench import (
     TaskWorkbenchWorkerActivity,
     build_task_workbench,
 )
+from devflow.control_room.unified_workbench import WorkbenchState, build_workbench_state
 
 
 OPERATING_LAYER_SCHEMA_VERSION = 1
@@ -193,8 +199,11 @@ class OperatingLayerSnapshot(BaseModel):
     operator_readiness: OperatorReadinessSnapshot | None = None
     agent_catalog: dict[str, Any] = Field(default_factory=dict)
     local_model_inventory: dict[str, Any] = Field(default_factory=dict)
+    local_model_readiness: dict[str, Any] = Field(default_factory=dict)
     local_model_runtime: dict[str, Any] = Field(default_factory=dict)
     serial_local_agent_run: dict[str, Any] = Field(default_factory=dict)
+    architecture_evidence: ArchitectureEvidenceProjection = Field(default_factory=ArchitectureEvidenceProjection)
+    workbench: WorkbenchState
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -213,12 +222,21 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     questions = _questions(question_snapshot, dashboard.tasks)
     inbox = _inbox_items(dashboard.tasks, freshness, question_snapshot=question_snapshot, project_id=project_id)
     goal_board = build_goal_board(root, freshness, project_id=project_id)
+    first_viewport = build_first_viewport_presentation(task_workbench, root=root)
+    architecture_evidence = build_architecture_evidence(root)
     idea_greenhouse = build_idea_greenhouse(root, warnings)
 
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
     if dashboard_next_action.command:
         dashboard_next_action.command = scope_task_command(dashboard_next_action.command, project_id)
     agent_catalog = _agent_catalog_card(root, warnings)
+    local_model_inventory = build_local_model_inventory(agent_catalog)
+    local_model_readiness = _local_model_readiness_card(
+        root,
+        warnings,
+        agent_catalog=agent_catalog,
+        inventory=local_model_inventory,
+    )
 
     return OperatingLayerSnapshot(
         generated_at=datetime.now(timezone.utc).isoformat(),
@@ -230,7 +248,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         focus_task_id=task_workbench.focus_task_id,
         lanes=task_workbench.lanes,
         tasks=task_workbench.tasks,
-        first_viewport=build_first_viewport_presentation(task_workbench, root=root),
+        first_viewport=first_viewport,
         questions=questions,
         inbox=inbox,
         promotion_desk=task_workbench.promotion_candidates,
@@ -256,9 +274,12 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         idea_greenhouse=idea_greenhouse,
         operator_readiness=dashboard.operator_readiness,
         agent_catalog=agent_catalog,
-        local_model_inventory=build_local_model_inventory(agent_catalog),
+        local_model_inventory=local_model_inventory,
+        local_model_readiness=local_model_readiness,
         local_model_runtime=list_local_model_runtime_status(root),
         serial_local_agent_run=_serial_local_agent_run_card(root, warnings),
+        architecture_evidence=architecture_evidence,
+        workbench=build_workbench_state(root, project_id=project_id, first_viewport=first_viewport),
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )
@@ -333,6 +354,38 @@ def _agent_catalog_card(root: Path, warnings: list[str]) -> dict[str, Any]:
             "profiles": [],
             "local_ollama": {"status": "unavailable", "error": str(exc), "installed_models": [], "unregistered_models": []},
             "actions": [],
+        }
+
+
+def _local_model_readiness_card(
+    root: Path,
+    warnings: list[str],
+    *,
+    agent_catalog: dict[str, Any],
+    inventory: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return build_local_model_readiness_plan(
+            root,
+            agent_catalog=agent_catalog,
+            inventory=inventory,
+        )
+    except Exception as exc:  # pragma: no cover - defensive dashboard projection
+        warnings.append(f"local model readiness unavailable: {exc}")
+        return {
+            "schema_version": 1,
+            "status": "unavailable",
+            "lanes": [],
+            "provision_commands": [],
+            "start_commands": [],
+            "summary": {
+                "lane_count": 0,
+                "ready_count": 0,
+                "blocked_count": 0,
+                "needs_action_count": 0,
+                "start_command_count": 0,
+            },
+            "error": str(exc),
         }
 
 

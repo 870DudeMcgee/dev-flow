@@ -18,6 +18,7 @@ def _write_run(root: Path, loop_id: str, payload: dict[str, Any]) -> None:
 
 def test_builder_judge_list_json_returns_loop_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
+    long_bar = "N" * 220
     _write_run(
         tmp_path,
         "bj-old",
@@ -48,7 +49,7 @@ def test_builder_judge_list_json_returns_loop_rows(tmp_path: Path, monkeypatch: 
             "final_score": 72,
             "rounds": [{"round_number": 1}, {"round_number": 2}],
             "config": {
-                "definition_of_done": "New bar",
+                "definition_of_done": long_bar,
                 "builder_profile_id": "builder-b",
                 "judge_profile_id": "judge-b",
             },
@@ -62,21 +63,33 @@ def test_builder_judge_list_json_returns_loop_rows(tmp_path: Path, monkeypatch: 
     assert json.loads(result.output) == {
         "loops": [
             {
+                "loop_family": "builder_judge",
                 "loop_id": "bj-new",
                 "run_id": "run-new",
                 "status": "max_rounds",
+                "status_label": "Max Rounds",
+                "phases": [],
+                "artifacts": [],
+                "evidence_path": None,
+                "next_safe_action": "",
                 "started_at": "2026-01-02T00:00:00Z",
                 "finished_at": "2026-01-02T00:03:00Z",
                 "final_score": 72,
                 "rounds_completed": 2,
-                "definition_of_done": "New bar",
+                "definition_of_done": "N" * 200,
                 "builder_profile_id": "builder-b",
                 "judge_profile_id": "judge-b",
             },
             {
+                "loop_family": "builder_judge",
                 "loop_id": "bj-old",
                 "run_id": "run-old",
                 "status": "passed",
+                "status_label": "Passed",
+                "phases": [],
+                "artifacts": [],
+                "evidence_path": None,
+                "next_safe_action": "",
                 "started_at": "2026-01-01T00:00:00Z",
                 "finished_at": "2026-01-01T00:01:00Z",
                 "final_score": 91,
@@ -111,7 +124,15 @@ def test_builder_judge_show_json_returns_stored_run(tmp_path: Path, monkeypatch:
     result = runner.invoke(builder_judge_app, ["show", "bj-show", "--json"])
 
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == payload
+    assert json.loads(result.output) == {
+        **payload,
+        "loop_family": "builder_judge",
+        "status_label": "Passed",
+        "phases": [],
+        "artifacts": [],
+        "evidence_path": None,
+        "next_safe_action": "",
+    }
 
 
 def test_builder_judge_show_missing_exits_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,7 +182,17 @@ def test_builder_judge_run_json_outputs_passed_run(
     assert config.pass_threshold == 85
     assert config.max_rounds == 5
     assert config.escalate_on_max_rounds is True
-    assert json.loads(result.output) == {"loop_id": "bj-run", "status": "passed"}
+    assert json.loads(result.output) == {
+        "loop_family": "builder_judge",
+        "loop_id": "bj-run",
+        "run_id": "bj-run",
+        "status": "passed",
+        "status_label": "Passed",
+        "phases": [],
+        "artifacts": [],
+        "evidence_path": None,
+        "next_safe_action": "",
+    }
 
 
 def test_builder_judge_run_json_exits_2_for_non_passing_run(
@@ -186,4 +217,14 @@ def test_builder_judge_run_json_exits_2_for_non_passing_run(
     result = runner.invoke(builder_judge_app, ["run", "--dod", "Do the thing", "--json"])
 
     assert result.exit_code == 2
-    assert json.loads(result.output) == {"loop_id": "bj-run", "status": "max_rounds"}
+    assert json.loads(result.output) == {
+        "loop_family": "builder_judge",
+        "loop_id": "bj-run",
+        "run_id": "bj-run",
+        "status": "max_rounds",
+        "status_label": "Max Rounds",
+        "phases": [],
+        "artifacts": [],
+        "evidence_path": None,
+        "next_safe_action": "",
+    }

@@ -122,6 +122,7 @@ def test_brainstorm_message_missing_key_fails_without_fake_assistant_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     setup_temp_git_repo(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     import devflow.control_room.env_loader as env_loader_mod
     monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
@@ -221,17 +222,54 @@ def test_brainstorm_hermes_codex_profile_does_not_fall_back_to_openrouter(
     )
 
     assert payload["status"] == "failed"
-    assert "Hermes/OpenAI subscription profile" in payload["error"]
+    assert "Hermes profile setup required" in payload["error"]
     assert "OPENROUTER_API_KEY" not in payload["error"]
     assert payload["will_call_provider"] is False
     assert payload["provider"] == "openai-codex"
     assert payload["model"] == "gpt-5.5"
+    assert payload["handoff_state"]["runtime_contract"]["execution_surface"] == "hermes_profile_handoff"
     records = [
         json.loads(line)
         for line in (tmp_path / payload["transcript_path"]).read_text(encoding="utf-8").splitlines()
     ]
     assert records[-1]["kind"] == "provider_error"
     assert "OPENROUTER_API_KEY" not in records[-1]["content"]
+
+
+def test_dynamic_hermes_brainstorm_profile_returns_handoff_without_agent_not_found(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    profile_dir = tmp_path / ".hermes" / "profiles" / "local-brainstorm"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "config.yaml").write_text(
+        """model:
+  default: qwen35-9b-mtp
+  provider: qwen35-mtp
+  base_url: http://127.0.0.1:8080/v1
+""",
+        encoding="utf-8",
+    )
+
+    def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        raise AssertionError("Dynamic Hermes handoff profile must not call provider HTTP APIs")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    payload = run_brainstorm_message(
+        root=tmp_path,
+        message="Shape this through a local Hermes profile.",
+        session_id="session-dynamic-hermes",
+        profile_id="hermes-profile-local-brainstorm",
+    )
+
+    assert payload["status"] == "failed"
+    assert payload["will_call_provider"] is False
+    assert payload["handoff_state"]["profile"]["hermes_profile"] == "local-brainstorm"
+    assert payload["next_command"] == "hermes -p local-brainstorm chat -q <prompt>"
+    assert "agent not found" not in json.dumps(payload).lower()
 
 
 def test_local_qwen_openai_compatible_profile_runs_without_api_key(

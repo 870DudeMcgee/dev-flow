@@ -30,6 +30,7 @@ BROWSER_ALLOWED_MUTATIONS: tuple[str, ...] = (
     "model/provider onboarding",
     "task verification",
     "task promotion",
+    "architecture evidence refresh",
 )
 
 BROWSER_BLOCKED_MUTATIONS: tuple[str, ...] = (
@@ -173,6 +174,23 @@ def _approved_idea_classify_command_args(command: str) -> list[str]:
     note_value = values.get("--note", "")
     if _is_placeholder_text(note_value, field="note") or len(note_value.strip()) < 1:
         raise ValueError("approved idea classify requires a concrete (non-empty, non-placeholder) note")
+    return _devflow_command_args_from_tokens(tokens)
+
+
+def _approved_architecture_refresh_command_args(command: str) -> list[str]:
+    tokens = shlex.split(command)
+    normalized = _normalize_devflow_command_tokens(tokens)
+    # Accept ONLY the exact approved Graphify refresh command — both flags, no
+    # extras, in any order. This intentionally rejects bare audit, --json,
+    # arbitrary options, or positional values.
+    if normalized[:3] != ["devflow", "architecture", "audit"]:
+        raise ValueError("only the approved architecture evidence refresh may run from the operating layer")
+    flags = normalized[3:]
+    if sorted(flags) != ["--install-graphify", "--write-doc"]:
+        raise ValueError(
+            "approved architecture evidence refresh must be exactly "
+            "'devflow architecture audit --install-graphify --write-doc'"
+        )
     return _devflow_command_args_from_tokens(tokens)
 
 
@@ -595,6 +613,7 @@ _BROWSER_ACTION_RULES: tuple[_BrowserActionRule, ...] = (
     _BrowserActionRule(APPROVAL_REQUIRED_EVIDENCE_WRITING, _approved_idea_capture_command_args),
     _BrowserActionRule(APPROVAL_REQUIRED_EVIDENCE_WRITING, _approved_idea_evidence_command_args),
     _BrowserActionRule(APPROVAL_REQUIRED_EVIDENCE_WRITING, _approved_idea_classify_command_args),
+    _BrowserActionRule(APPROVAL_REQUIRED_EVIDENCE_WRITING, _approved_architecture_refresh_command_args),
     _BrowserActionRule(APPROVAL_REQUIRED_EVIDENCE_WRITING, _approved_agent_serial_packet_command_args),
     _BrowserActionRule(APPROVAL_REQUIRED_TASK_STATE, _approved_task_creation_command_args),
     _BrowserActionRule(APPROVAL_REQUIRED_TASK_STATE, _approved_task_close_command_args),

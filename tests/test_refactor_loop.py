@@ -96,7 +96,9 @@ def test_refactor_loop_starts_with_exact_issue_count_and_selected_worker(tmp_pat
     assert result["judge_profile"] == "dfcodex55"
     assert calls["max_iterations"] == 3
     assert calls["worker"] == "codex55"
-    assert "Use Graphify and Ponytail gates" in calls["candidate"]
+    assert "Use Graphify evidence" in calls["candidate"]
+    assert "Ponytail simplification ladder" in calls["candidate"]
+    assert "skip unnecessary work" in calls["candidate"]
 
 
 def test_refactor_run_status_projects_profiles_artifacts_and_sanitized_log_tail(tmp_path: Path) -> None:
@@ -143,6 +145,9 @@ def test_refactor_run_status_projects_profiles_artifacts_and_sanitized_log_tail(
     status = load_refactor_run_status(tmp_path, run_id=result["run_id"])
 
     assert status["run_id"] == result["run_id"]
+    assert status["loop_family"] == "refactor"
+    assert status["run_path"] == result["run_path"]
+    assert status["evidence_path"] == result["run_path"]
     assert status["status"] == "completed"
     assert status["worker"] == "codex55"
     assert status["profile"] == "dfcodex55"
@@ -195,6 +200,8 @@ def test_refactor_run_status_projects_handoff_plan_and_paused_resume_evidence(
 
     status = load_refactor_run_status(tmp_path, run_id=result["run_id"])
 
+    assert status["loop_family"] == "refactor"
+    assert status["evidence_path"] == result["run_path"]
     assert status["status"] == "paused"
     assert status["status_source"] == "handoff"
     assert "Shutdown by signal" in status["status_reason"]
@@ -453,6 +460,9 @@ def test_operating_layer_refactor_status_endpoint_reads_persisted_run(
         payload = json.loads(response.read().decode("utf-8"))
         assert response.status == 200
         assert payload["run_id"] == result["run_id"]
+        assert payload["loop_family"] == "refactor"
+        assert payload["run_path"] == result["run_path"]
+        assert payload["evidence_path"] == result["run_path"]
         assert payload["status"] == "completed"
         assert payload["log_tail"][-1] == "Completed handoff"
         assert payload["status_reason"]
