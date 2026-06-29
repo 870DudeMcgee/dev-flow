@@ -156,8 +156,8 @@ def test_builder_judge_run_json_outputs_passed_run(
     config = captured["config"]
     assert config.definition_of_done == "Do the thing"
     assert config.starting_point is None
-    assert config.builder_profile_id == "deepseek-v4-flash-free-brainstormer"
-    assert config.judge_profile_id == "glm-5-2-brainstormer"
+    assert config.builder_profile_id == "hermes-qwen37plus"
+    assert config.judge_profile_id == "hermes-opus48"
     assert config.pass_threshold == 85
     assert config.max_rounds == 5
     assert config.escalate_on_max_rounds is True

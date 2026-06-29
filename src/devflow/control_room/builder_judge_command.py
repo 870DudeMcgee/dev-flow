@@ -5,6 +5,8 @@ from pathlib import Path
 
 import typer
 
+from devflow.control_room.builder_judge_loop import DEFAULT_BUILDER_PROFILE, DEFAULT_JUDGE_PROFILE
+
 
 builder_judge_app = typer.Typer(help="Run builder-judge quality-control loops")
 
@@ -13,8 +15,8 @@ builder_judge_app = typer.Typer(help="Run builder-judge quality-control loops")
 def builder_judge_run(
     definition_of_done: str = typer.Option(..., "--dod", "--definition-of-done", help="What does great look like? Be specific."),
     starting_point: str = typer.Option("", "--starting-point", help="Seed text for the builder to start from."),
-    builder: str = typer.Option("deepseek-v4-flash-free-brainstormer", "--builder", help="Builder model profile ID."),
-    judge: str = typer.Option("glm-5-2-brainstormer", "--judge", help="Judge model profile ID."),
+    builder: str = typer.Option(DEFAULT_BUILDER_PROFILE, "--builder", help="Builder model profile ID."),
+    judge: str = typer.Option(DEFAULT_JUDGE_PROFILE, "--judge", help="Judge model profile ID."),
     pass_threshold: int = typer.Option(85, "--threshold", min=50, max=100, help="Pass threshold (0-100)."),
     max_rounds: int = typer.Option(5, "--max-rounds", min=1, max=20, help="Maximum rounds."),
     no_escalate: bool = typer.Option(False, "--no-escalate", help="Don't escalate on max rounds; just stop."),

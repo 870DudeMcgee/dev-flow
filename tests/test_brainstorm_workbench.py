@@ -105,13 +105,13 @@ def _write_local_qwen_profile(root: Path, *, base_url: str) -> None:
     )
 
 
-def test_deepseek_flash_free_brainstorm_profile_is_registry_visible(tmp_path: Path) -> None:
+def test_default_hermes_qwen_brainstorm_profile_is_registry_visible(tmp_path: Path) -> None:
     setup_temp_git_repo(tmp_path)
 
-    profile = load_agent_registry(tmp_path).require_agent("deepseek-v4-flash-free-brainstormer")
+    profile = load_agent_registry(tmp_path).require_agent("hermes-qwen37plus")
 
     assert profile.provider == "openrouter"
-    assert profile.model == "deepseek/deepseek-v4-flash:free"
+    assert profile.model == "qwen/qwen3.7-plus"
     assert profile.default_mode == "frontier_read_only"
     assert "brainstorm" in profile.secondary_roles
     assert "<brainstorms>/**" in profile.allowed_writes
@@ -147,7 +147,7 @@ def test_brainstorm_message_missing_key_fails_without_fake_assistant_output(
     assert not any(record.get("role") == "assistant" for record in records)
 
 
-def test_brainstorm_message_calls_deepseek_free_and_appends_transcript(
+def test_brainstorm_message_calls_default_hermes_qwen_and_appends_transcript(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -190,10 +190,10 @@ def test_brainstorm_message_calls_deepseek_free_and_appends_transcript(
     )
 
     assert payload["status"] == "success"
-    assert payload["model"] == "deepseek/deepseek-v4-flash:free"
+    assert payload["model"] == "qwen/qwen3.7-plus"
     assert payload["assistant_message"].startswith("Start by naming")
     assert captured_requests[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
-    assert captured_requests[0]["payload"]["model"] == "deepseek/deepseek-v4-flash:free"
+    assert captured_requests[0]["payload"]["model"] == "qwen/qwen3.7-plus"
 
     transcript = tmp_path / payload["transcript_path"]
     records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines()]
@@ -373,7 +373,7 @@ def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path
     assert pipeline["artifacts"]["implementation"]["artifact_path"] == (
         ".devflow/brainstorms/session-003/implementation.md"
     )
-    assert pipeline["advisory_model"]["profile_id"] == "deepseek-v4-flash-free-brainstormer"
+    assert pipeline["advisory_model"]["profile_id"] == "hermes-qwen37plus"
     assert pipeline["task_action"]["command"] == implementation_with_done["action"]["command"]
     assert pipeline["task_action"]["context_required"] is True
     assert pipeline["implementation_context"]["source_paths"] == [

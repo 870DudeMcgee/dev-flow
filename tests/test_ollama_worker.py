@@ -292,6 +292,7 @@ def test_ollama_worker_success(tmp_path: Path) -> None:
 
 def test_registry_backed_qwopus_run_writes_patch_artifacts_and_can_apply(tmp_path: Path) -> None:
     (tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    _write_local_patch_registry(tmp_path, agent_id="qwopus-implementer", model="qwopus:latest")
     task = create_task(tmp_path, "docs/polish: update hello with Qwopus")
     workspace_path = tmp_path / task.workspace
     assert (workspace_path / "hello.txt").read_text(encoding="utf-8") == "Hello World\n"
@@ -469,6 +470,7 @@ def test_gemma_patch_worker_uses_native_chat_with_explicit_generation_options(tm
 
 def test_non_gemma_patch_worker_keeps_generate_endpoint_with_explicit_generation_options(tmp_path: Path) -> None:
     Path(tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    _write_local_patch_registry(tmp_path, agent_id="qwopus-implementer", model="qwopus:latest")
     task = create_task(tmp_path, "Qwopus patch settings")
 
     mock_response = MagicMock()
@@ -566,6 +568,7 @@ def test_registry_backed_qwopus_cli_output_names_canonical_evidence_paths(
     Path("hello.txt").write_text("Hello World\n", encoding="utf-8")
     created = runner.invoke(app, ["task", "create", "Update hello through canonical Qwopus"])
     assert created.exit_code == 0, created.output
+    _write_local_patch_registry(tmp_path, agent_id="qwopus-implementer", model="qwopus:latest")
 
     context_pack_data = {
         "context_pack": {
@@ -688,6 +691,7 @@ def test_ollama_worker_connection_failure(tmp_path: Path) -> None:
 
 def test_registry_backed_qwopus_missing_model_failure_preserves_raw_ollama_error(tmp_path: Path) -> None:
     Path(tmp_path / "hello.txt").write_text("Hello World\n", encoding="utf-8")
+    _write_local_patch_registry(tmp_path, agent_id="qwopus-implementer", model="qwopus:latest")
     task = create_task(tmp_path, "Missing Qwopus model")
     raw_error = b'{"error":"model \\"qwopus:latest\\" not found, try pulling it first"}'
     http_error = urllib.error.HTTPError(
@@ -717,6 +721,7 @@ def test_qwopus_no_patch_failure_is_visible_and_suggests_escalation(tmp_path: Pa
     Path("hello.txt").write_text("Hello World\n", encoding="utf-8")
     created = runner.invoke(app, ["task", "create", "No patch Qwopus run"])
     assert created.exit_code == 0, created.output
+    _write_local_patch_registry(tmp_path, agent_id="qwopus-implementer", model="qwopus:latest")
 
     mock_response = MagicMock()
     mock_response.read.return_value = json.dumps(
