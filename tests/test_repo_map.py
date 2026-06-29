@@ -11,6 +11,7 @@ from devflow.repo_map import (
     build_repo_map_symbols,
     refresh_repo_maps,
 )
+from tests.helpers import git_commit, git_init
 
 
 class TestRepoMap(unittest.TestCase):
@@ -18,9 +19,7 @@ class TestRepoMap(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         os.makedirs("src/devflow", exist_ok=True)
         os.makedirs("tests", exist_ok=True)
         with open("src/devflow/example.py", "w", encoding="utf-8") as handle:
@@ -44,8 +43,7 @@ class TestRepoMap(unittest.TestCase):
             handle.write("def ignored():\n    pass\n")
         with open("bad.py", "w", encoding="utf-8") as handle:
             handle.write("def broken(:\n")
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         init_workspace()
 
     def tearDown(self):

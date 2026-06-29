@@ -39,7 +39,7 @@ build_task_next_action, render_task_next_action = _tr.build_task_next_action, _t
 build_task_review, render_task_review = _tr.build_task_review, _tr.render_task_review
 
 
-def build_control_room_status(root: Path) -> dict[str, Any]:
+def build_control_room_status(root: Path, *, live_discovery: bool = True) -> dict[str, Any]:
     from devflow.control_room.agent_catalog import build_agent_catalog
     from devflow.control_room.local_model_inventory import build_local_model_inventory
     from devflow.control_room.local_model_readiness import build_local_model_readiness_plan
@@ -49,7 +49,7 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
     scheduler = build_scheduler_snapshot(root)
     operator_readiness = build_operator_readiness_snapshot(root)
     questions = build_question_snapshot(root)
-    agent_catalog = build_agent_catalog(root)
+    agent_catalog = build_agent_catalog(root, live_discovery=live_discovery)
     local_model_inventory = build_local_model_inventory(agent_catalog)
     local_model_readiness = build_local_model_readiness_plan(
         root,
@@ -108,8 +108,8 @@ def render_control_room_status(root: Path) -> str:
     return _tr._json(build_control_room_status(root))
 
 
-def build_supervisor_packet(root: Path) -> dict[str, Any]:
-    status = build_control_room_status(root)
+def build_supervisor_packet(root: Path, *, live_discovery: bool = True) -> dict[str, Any]:
+    status = build_control_room_status(root, live_discovery=live_discovery)
     policy = build_supervisor_policy()
     scheduler = build_scheduler_snapshot(root)
     operator_readiness = status["operator_readiness"]

@@ -19,6 +19,7 @@ from devflow.artifacts import (
     write_artifact,
 )
 from devflow.cli import init_workspace, main
+from tests.helpers import git_commit, git_init
 
 
 class TestArtifacts(unittest.TestCase):
@@ -26,13 +27,10 @@ class TestArtifacts(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         with open("sample.txt", "w", encoding="utf-8") as handle:
             handle.write("hello\n")
-        os.system("git add sample.txt")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         init_workspace()
 
     def tearDown(self):

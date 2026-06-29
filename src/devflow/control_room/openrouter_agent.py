@@ -433,7 +433,7 @@ def _build_advisory_prompt(
                 )
             )
         else:
-            packet = build_supervisor_packet(root)
+            packet = build_supervisor_packet(root, live_discovery=False)
             lines.append(json.dumps(packet, indent=2, sort_keys=True))
     ledger = root / "docs" / "verification-ledger.md"
     if ledger.exists():

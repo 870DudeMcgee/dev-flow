@@ -5,6 +5,7 @@ import shutil
 import json
 from unittest.mock import patch
 from devflow.evals import run_role_eval, compare_prompts
+from tests.helpers import git_commit, git_init
 
 class TestEvals(unittest.TestCase):
     def setUp(self):
@@ -21,11 +22,8 @@ class TestEvals(unittest.TestCase):
         with open("src/greeting.txt", "w", encoding="utf-8") as f:
             f.write("hello\n")
         
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
-        os.system("git add .")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_init(os.getcwd())
+        git_commit(os.getcwd(), message="init")
 
         # Create a mock implementer fixture
         self.fixture_data = {

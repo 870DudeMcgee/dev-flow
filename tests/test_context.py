@@ -11,6 +11,7 @@ from devflow.artifacts import list_artifacts, read_artifact
 from devflow.cli import init_workspace, main
 from devflow.context import build_context_pack, estimate_tokens, inspect_context_pack, list_context_packs
 from devflow.repo_map import refresh_repo_maps
+from tests.helpers import git_commit, git_init
 
 
 class TestContextPacks(unittest.TestCase):
@@ -18,9 +19,7 @@ class TestContextPacks(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         os.makedirs("src/devflow", exist_ok=True)
         os.makedirs("tests", exist_ok=True)
         with open("src/devflow/target.py", "w", encoding="utf-8") as handle:
@@ -29,8 +28,7 @@ class TestContextPacks(unittest.TestCase):
             handle.write("def other():\n    return 'other'\n")
         with open("tests/test_target.py", "w", encoding="utf-8") as handle:
             handle.write("from devflow.target import target\n")
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         init_workspace()
         os.makedirs(".devflow/tasks", exist_ok=True)
         self.task_path = ".devflow/tasks/T-042_context.md"

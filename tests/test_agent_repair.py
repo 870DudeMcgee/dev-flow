@@ -8,15 +8,14 @@ from devflow.cli import init_workspace
 from devflow.repo_map import refresh_repo_maps
 from devflow.agents.runner import run_repair_agent
 from devflow.artifacts import read_artifact
+from tests.helpers import git_commit, git_init
 
 class TestAgentRepairRunner(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         init_workspace()
         
         # Configure test task with verification command
@@ -47,11 +46,9 @@ diff --git a/target.py b/target.py
         with open("test_target.py", "w", encoding="utf-8") as f:
              f.write("import target\ntarget.foo()\n")
              
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         refresh_repo_maps()
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'commit maps' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="commit maps")
 
 
     def tearDown(self):

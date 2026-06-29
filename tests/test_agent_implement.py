@@ -8,21 +8,19 @@ from devflow.cli import init_workspace
 from devflow.repo_map import refresh_repo_maps
 from devflow.agents.runner import run_implement_agent
 from devflow.artifacts import read_artifact
+from tests.helpers import git_commit, git_init
 
 class TestAgentImplementRunner(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         init_workspace()
         os.makedirs("src/devflow", exist_ok=True)
         with open("src/devflow/target.py", "w", encoding="utf-8") as f:
             f.write("def foo(): pass")
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         refresh_repo_maps()
         
         self.task_path = ".devflow/tasks/002_implement.md"

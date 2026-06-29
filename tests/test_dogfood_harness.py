@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -22,6 +23,8 @@ from devflow.control_room.dogfood_case_result import (
 )
 from devflow.control_room.dogfood_case_scratch import create_recorded_git_native_case_scratch_repo
 from devflow.control_room.persistence import list_tasks
+
+pytestmark = pytest.mark.slow
 
 
 runner = CliRunner()

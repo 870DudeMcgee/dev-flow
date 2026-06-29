@@ -22,6 +22,7 @@ from devflow.cli import (
     status_task,
     status_workspace,
 )
+from tests.helpers import git_commit, git_init
 
 
 class TestCLI(unittest.TestCase):
@@ -29,22 +30,18 @@ class TestCLI(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
 
         with open("sample.txt", "w", encoding="utf-8") as handle:
             handle.write("hello\n")
-        os.system("git add sample.txt")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
 
     def tearDown(self):
         os.chdir(self.old_cwd)
         shutil.rmtree(self.test_dir)
 
     def commit_all(self, message="checkpoint"):
-        os.system("git add . > /dev/null 2>&1")
-        os.system(f"git commit -m '{message}' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message=message)
 
     def test_cli_init_creates_full_devflow_tree(self):
         init_workspace()
@@ -970,11 +967,9 @@ diff --git a/sample.txt b/sample.txt
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
         # Commit task to make sure worktree is clean!
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'commit repair task' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="commit repair task")
         refresh_repo_maps()
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'commit maps' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="commit maps")
 
         old_argv = sys.argv
         try:

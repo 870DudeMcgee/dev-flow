@@ -25,7 +25,7 @@ from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.machine_capability import LOCAL_DEFAULT_MODEL_ID, discover_machine_capability
 
 
-def build_agent_catalog(root: Path, *, provider_id: str | None = None) -> dict[str, Any]:
+def build_agent_catalog(root: Path, *, provider_id: str | None = None, live_discovery: bool = True) -> dict[str, Any]:
     root = root.resolve()
     providers = load_provider_registry(root)
     registry = load_agent_registry(root)
@@ -53,7 +53,9 @@ def build_agent_catalog(root: Path, *, provider_id: str | None = None) -> dict[s
 
     machine = discover_machine_capability()
     local_ollama = _local_ollama_catalog(registry)
-    local_openai_compatible = _local_openai_compatible_catalog(registry, providers, machine=machine)
+    local_openai_compatible = _local_openai_compatible_catalog(
+        registry, providers, machine=machine, live_discovery=live_discovery
+    )
     local_model_policy = _local_model_policy(local_openai_compatible, local_ollama, machine)
     hermes_agents = configured_hermes_agents(root)
     if provider_filter:

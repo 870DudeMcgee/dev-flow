@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import urllib.request
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -811,6 +812,38 @@ def test_local_model_inventory_adds_concrete_ollama_onboarding_action(
         "devflow agent add-model --provider ollama --model qwen3:14b "
         "--authority read-only --role local_senior_worker --json"
     )
+
+
+def test_agent_catalog_local_discovery_skips_endpoints_when_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+
+    provider_yaml = (
+        "id: local-offline\n"
+        "provider: local-offline\n"
+        "adapter: openai_compatible\n"
+        "base_url: http://127.0.0.1:0/v1\n"
+        "enabled: true\n"
+    )
+    (tmp_path / ".devflow/providers/local-offline.yaml").write_text(provider_yaml, encoding="utf-8")
+
+    def fail_urlopen(*args: object, **kwargs: object) -> None:
+        raise AssertionError("live_discovery=False should not probe endpoints")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    from devflow.control_room.agent_catalog import build_agent_catalog
+
+    payload = build_agent_catalog(tmp_path, live_discovery=False)
+    local_openai_compatible = payload["local_openai_compatible"]
+    assert local_openai_compatible["status"] == "unavailable"
+    provider = next(item for item in local_openai_compatible["providers"] if item["id"] == "local-offline")
+    assert provider["status"] == "not_checked"
+    assert provider["error"] == "live_discovery_disabled"
 
 
 def test_operating_layer_snapshot_exposes_agent_catalog_and_model_actions(

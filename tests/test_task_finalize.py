@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -135,8 +134,11 @@ def test_finalize_refuses_when_dirty_after_verification() -> None:
             res_verify = runner.invoke(app, ["task", "verify", "task-0001", "--", "/bin/sh", "-c", "true"])
             assert res_verify.exit_code == 0
 
-            # Sleep briefly to ensure filesystem mtime difference is measurable
-            time.sleep(1.1)
+            # Keep the stale check deterministic by making verification timestamp older than later workspace writes.
+            verification_file = Path(".devflow/tasks/task-0001/verification.json")
+            verification_payload = json.loads(verification_file.read_text(encoding="utf-8"))
+            verification_payload["finished_at"] = "2000-01-01T00:00:00+00:00"
+            verification_file.write_text(json.dumps(verification_payload), encoding="utf-8")
 
             # Make a change inside worktree workspace after verification
             worktree_dir = Path(".devflow/worktrees/task-0001/shell")

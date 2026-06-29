@@ -9,6 +9,7 @@ from contextlib import redirect_stdout
 
 from devflow.cli import init_workspace, main
 from devflow.worktrees import create_worktree, list_worktrees, remove_worktree
+from tests.helpers import git_commit, git_init
 
 
 class TestWorktrees(unittest.TestCase):
@@ -16,16 +17,12 @@ class TestWorktrees(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         with open("sample.txt", "w", encoding="utf-8") as handle:
             handle.write("hello\n")
-        os.system("git add sample.txt")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         init_workspace()
-        os.system("git add .devflow sample.txt > /dev/null 2>&1")
-        os.system("git commit -m 'devflow init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="devflow init")
 
         self.task_path = ".devflow/tasks/090_worktree.md"
         with open(self.task_path, "w", encoding="utf-8") as handle:
@@ -43,8 +40,7 @@ Work in isolation.
 ## 2. Allowed Files
 - sample.txt
 """)
-        os.system("git add .devflow/tasks/090_worktree.md > /dev/null 2>&1")
-        os.system("git commit -m 'add task' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="add task")
 
     def tearDown(self):
         os.chdir(self.old_cwd)

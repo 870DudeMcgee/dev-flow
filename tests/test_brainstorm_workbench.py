@@ -365,6 +365,7 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
     assert all(request["payload"]["model"] == "qwen35-9b-mtp" for request in captured_requests)
 
 
+@pytest.mark.slow
 def test_brainstorm_escalation_writes_spec_plan_and_returns_task_action(tmp_path: Path) -> None:
     setup_temp_git_repo(tmp_path)
     run_brainstorm_message(
@@ -597,6 +598,7 @@ def test_start_brainstorm_from_idea_nonexistent_idea_fails(tmp_path: Path) -> No
         start_brainstorm_from_idea(tmp_path, "I-9999")
 
 
+@pytest.mark.slow
 def test_manual_spec_escalation_exposes_draft_status_in_pipeline_stages(tmp_path: Path) -> None:
     """Manual spec/plan escalation still works and exposes pipeline_detail["stages"]
     with draft status from StageArtifact, not just file-existence 'complete'."""
@@ -681,6 +683,7 @@ def test_model_error_spec_escalation_writes_fallback_artifact(
     assert stages_map["spec"]["status"] == "draft"
 
 
+@pytest.mark.slow
 def test_manual_plan_escalation_exposes_draft_status_in_pipeline_stages(tmp_path: Path) -> None:
     """Same draft-status check but for plan stage."""
     setup_temp_git_repo(tmp_path)

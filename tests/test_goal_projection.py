@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import pytest
 from typer.testing import CliRunner
@@ -8,29 +7,10 @@ from typer.testing import CliRunner
 from devflow.cli import app
 from devflow.control_room.goals import goal_dir
 from devflow.control_room.goal_projection import build_goal_status_projection
+from tests.helpers import setup_temp_repo
 
 
 runner = CliRunner()
-
-
-def setup_temp_repo(tmp_path: Path) -> Path:
-    """Initialize standard .devflow control room scaffolding in temp path."""
-    old_cwd = Path.cwd()
-    os.chdir(tmp_path)
-    
-    # Run devflow init via CLI
-    runner = CliRunner()
-    result = runner.invoke(app, ["init"])
-    assert result.exit_code == 0
-    
-    # Create docs/ for context pointer scanning
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir(exist_ok=True)
-    (docs_dir / "architecture.md").write_text("Standard architecture notes.", encoding="utf-8")
-    
-    # Restore cwd
-    os.chdir(old_cwd)
-    return tmp_path
 
 
 def _create_goal(tmp_path: Path) -> None:

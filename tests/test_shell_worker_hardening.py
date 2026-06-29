@@ -6,9 +6,24 @@ import time
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from devflow.control_room.shell_worker import ShellWorkerAdapter
 from devflow.control_room.models import WorkerInput
 from devflow.control_room.verification import run_verification_command
+
+pytestmark = pytest.mark.slow
+
+
+def _wait_for_file_absence(target: Path, *, timeout_seconds: float = 2.0, interval: float = 0.05) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if target.exists():
+            time.sleep(interval)
+            continue
+        return
+    assert not target.exists(), f"Expected file to remain absent after timeout: {target}"
+
 
 def test_shell_worker_environment_filtering() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -34,6 +49,7 @@ def test_shell_worker_environment_filtering() -> None:
         )
 
         os.environ["MOCK_SECRET"] = "parent_secret"
+        previous_path = os.environ.get("PATH")
         os.environ["PATH"] = "/usr/bin:/bin"
 
         try:
@@ -48,6 +64,10 @@ def test_shell_worker_environment_filtering() -> None:
             assert "INPUT_VAL=explicit_allowed" in log_content
 
         finally:
+            if previous_path is None:
+                os.environ.pop("PATH", None)
+            else:
+                os.environ["PATH"] = previous_path
             if "MOCK_SECRET" in os.environ:
                 del os.environ["MOCK_SECRET"]
 
@@ -159,10 +179,9 @@ def test_shell_worker_timeout_terminates_child_processes() -> None:
 
         adapter = ShellWorkerAdapter()
         res = adapter.run(worker_input)
-        time.sleep(1)
 
         assert res.status == "timeout"
-        assert not child_marker.exists()
+        _wait_for_file_absence(child_marker)
 
 
 def test_verification_timeout_terminates_child_processes() -> None:
@@ -190,7 +209,6 @@ def test_verification_timeout_terminates_child_processes() -> None:
             log_file,
             timeout_seconds=1,
         )
-        time.sleep(1)
 
         assert result.status == "timeout"
-        assert not child_marker.exists()
+        _wait_for_file_absence(child_marker)

@@ -13,6 +13,7 @@ from contextlib import redirect_stdout
 from devflow.cli import init_workspace, main, run_task
 from devflow.context import build_context_pack
 from devflow.memory import add_memory, inspect_memory, invalidate_memories, list_memories
+from tests.helpers import git_commit, git_init
 
 
 class TestMemoryRecords(unittest.TestCase):
@@ -20,17 +21,14 @@ class TestMemoryRecords(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.old_cwd = os.getcwd()
         os.chdir(self.test_dir)
-        os.system("git init > /dev/null 2>&1")
-        os.system("git config user.email 'tests@example.com'")
-        os.system("git config user.name 'Devflow Tests'")
+        git_init(os.getcwd())
         os.makedirs("src/devflow", exist_ok=True)
         os.makedirs("tests", exist_ok=True)
         with open("src/devflow/target.py", "w", encoding="utf-8") as handle:
             handle.write("def target():\n    return 'old'\n")
         with open("tests/test_target.py", "w", encoding="utf-8") as handle:
             handle.write("import unittest\n\nclass TestTarget(unittest.TestCase):\n    def test_target(self):\n        self.assertTrue(True)\n")
-        os.system("git add . > /dev/null 2>&1")
-        os.system("git commit -m 'init' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="init")
         init_workspace()
 
     def tearDown(self):
@@ -114,8 +112,7 @@ diff --git a/src/devflow/target.py b/src/devflow/target.py
 ## 10. Final Report
 Pending.
 """)
-        os.system("git add .devflow > /dev/null 2>&1")
-        os.system("git commit -m 'add devflow memory task' > /dev/null 2>&1")
+        git_commit(os.getcwd(), message="add devflow memory task")
 
         with redirect_stdout(io.StringIO()):
             run_task(task_path, yes=True)

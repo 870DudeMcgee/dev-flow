@@ -117,7 +117,13 @@ def _provider_model_rows(provider: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def _local_openai_compatible_catalog(registry: Any, providers: Any, *, machine: MachineCapability) -> dict[str, Any]:
+def _local_openai_compatible_catalog(
+    registry: Any,
+    providers: Any,
+    *,
+    machine: MachineCapability,
+    live_discovery: bool = True,
+) -> dict[str, Any]:
     provider_rows = _local_openai_provider_rows(providers)
     provider_rows.extend(configured_hermes_local_provider_rows())
     if not provider_rows:
@@ -130,7 +136,9 @@ def _local_openai_compatible_catalog(registry: Any, providers: Any, *, machine: 
         if key in seen:
             continue
         seen.add(key)
-        discovered.append(_discover_openai_compatible_provider(row, machine=machine))
+        discovered.append(
+            _discover_openai_compatible_provider(row, machine=machine, live_discovery=live_discovery)
+        )
 
     registered_by_provider: dict[str, set[str]] = {}
     for agent in registry.agents.values():
@@ -229,7 +237,9 @@ def _local_openai_provider_rows(providers: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _discover_openai_compatible_provider(row: dict[str, Any], *, machine: MachineCapability) -> dict[str, Any]:
+def _discover_openai_compatible_provider(
+    row: dict[str, Any], *, machine: MachineCapability, live_discovery: bool = True
+) -> dict[str, Any]:
     result = {
         "id": row["id"],
         "name": row["name"],
@@ -244,6 +254,15 @@ def _discover_openai_compatible_provider(row: dict[str, Any], *, machine: Machin
     }
     if row.get("config_path"):
         result["config_path"] = row["config_path"]
+    if not live_discovery:
+        result["status"] = "not_checked"
+        result["error"] = "live_discovery_disabled"
+        result["configured_models"] = _annotate_model_fit(
+            result["configured_models"],
+            machine=machine,
+            preferred_model=str(row.get("hermes_default_model") or row.get("configured_model") or ""),
+        )
+        return result
     try:
         request = urllib.request.Request(_models_url(row["base_url"]), headers={"Accept": "application/json"})
         with urllib.request.urlopen(request, timeout=LOCAL_ENDPOINT_TIMEOUT_SECONDS) as response:

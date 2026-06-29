@@ -17,6 +17,14 @@ fi
 REPO_ROOT=$(pwd -P)
 echo "✓ Confirmed repository root"
 
+if [[ -n "${PYTHON:-}" ]]; then
+  PYTHON_BIN=("$PYTHON")
+elif [[ -x ".venv/bin/python" ]]; then
+  PYTHON_BIN=(".venv/bin/python")
+else
+  PYTHON_BIN=("python3")
+fi
+
 # 2. Git Status Check
 echo -e "\n------------------------------------------------------------------------------"
 echo "🔍 Checking Git State"
@@ -36,7 +44,7 @@ echo "✓ Git worktree is clean (excluding .devflow paths)"
 echo -e "\n------------------------------------------------------------------------------"
 echo "⚙ Verifying Python Syntax (compileall)"
 echo "------------------------------------------------------------------------------"
-PYTHONPATH=src:. python3 -m compileall src
+PYTHONPATH=src:. "${PYTHON_BIN[@]}" -m compileall src  # compileall needs PYTHONPATH since it doesn't read pyproject.toml
 echo "✓ All source files compiled successfully"
 
 # 4. Lint Check (ruff)
@@ -48,10 +56,10 @@ echo "--------------------------------------------------------------------------
 # 'make lint' clean == release gate clean.
 if [[ -f ".venv/bin/ruff" ]]; then
   RUFF_BIN=(".venv/bin/ruff")
-elif python3 -c "import ruff" >/dev/null 2>&1; then
-  RUFF_BIN=("python3" "-m" "ruff")
+elif "${PYTHON_BIN[@]}" -c "import ruff" >/dev/null 2>&1; then
+  RUFF_BIN=("${PYTHON_BIN[@]}" "-m" "ruff")
 else
-  echo "❌ Error: ruff is not installed. Install dev tools with: pip install -e \".[test]\"" >&2
+  echo "❌ Error: ruff is not installed. Install dev tools with: pip install -e \".[dev]\"" >&2
   exit 1
 fi
 "${RUFF_BIN[@]}" check .
@@ -61,11 +69,18 @@ echo "✓ Ruff lint check passed"
 echo -e "\n------------------------------------------------------------------------------"
 echo "🧪 Running Pytest Regression Suite"
 echo "------------------------------------------------------------------------------"
-# Use the local virtual environment pytest if available, fallback to python3 -m pytest
+# Verify pytest plugin requirements for this suite.
+if ! PYTHONPATH=src:. "${PYTHON_BIN[@]}" -c "import xdist, pytest_timeout" >/dev/null 2>&1; then
+  echo "❌ Error: Required pytest plugins are not installed. Install dev tools with: pip install -e \".[dev]\"" >&2
+  exit 1
+fi
+
+# Use the local virtual environment pytest if available, fallback to python3 -m pytest.
+# Export PYTHONPATH for subprocess CLI tests (`python -m devflow.cli`) that do not read pytest's config.
 if [[ -f ".venv/bin/pytest" ]]; then
-  PYTHONPATH=src:. .venv/bin/pytest --ignore=scratch -q --tb=short
+  PYTHONPATH=src:. .venv/bin/pytest -n auto --timeout=60 --ignore=scratch -m "not ui_browser and not ui_browser_live" -q --tb=short
 else
-  PYTHONPATH=src:. python3 -m pytest tests/ --ignore=scratch -q --tb=short
+  PYTHONPATH=src:. "${PYTHON_BIN[@]}" -m pytest tests/ -n auto --timeout=60 --ignore=scratch -m "not ui_browser and not ui_browser_live" -q --tb=short
 fi
 echo "✓ Pytest suite completed successfully"
 
@@ -81,9 +96,9 @@ cleanup_cli_smoke() {
 }
 trap cleanup_cli_smoke EXIT
 
-python3 -m venv "$CLI_SMOKE_VENV"
-"$CLI_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"
-RUN_CLI=("$CLI_SMOKE_VENV/bin/devflow")
+"${PYTHON_BIN[@]}" -m venv "$CLI_SMOKE_VENV"
+env -u PYTHONPATH "$CLI_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"
+RUN_CLI=(env -u PYTHONPATH "$CLI_SMOKE_VENV/bin/devflow")
 
 # Assert basic help command works
 "${RUN_CLI[@]}" --help >/dev/null
@@ -153,7 +168,7 @@ echo "📦 Packaging & Smoke Install Gating"
 echo "------------------------------------------------------------------------------"
 
 BUILD_PROBE_DIR=$(mktemp -d -t devflow-build-probe-XXXXXX)
-if ! (cd "$BUILD_PROBE_DIR" && python3 -m build --version >/dev/null 2>&1); then
+if ! (cd "$BUILD_PROBE_DIR" && env -u PYTHONPATH "${PYTHON_BIN[@]}" -m build --version >/dev/null 2>&1); then
   rm -rf "$BUILD_PROBE_DIR"
   echo "[info] python-build is not installed. Skipping distribution compilation check."
   echo "       To test packaging, run: pip install build twine"
@@ -161,25 +176,25 @@ else
   rm -rf "$BUILD_PROBE_DIR"
   echo "Building distributions..."
   BUILD_RUN_DIR=$(mktemp -d -t devflow-build-run-XXXXXX)
-  (cd "$BUILD_RUN_DIR" && python3 -m build --outdir "$REPO_ROOT/dist" "$REPO_ROOT" >/dev/null)
+  (cd "$BUILD_RUN_DIR" && env -u PYTHONPATH "${PYTHON_BIN[@]}" -m build --outdir "$REPO_ROOT/dist" "$REPO_ROOT" >/dev/null)
   rm -rf "$BUILD_RUN_DIR"
   echo "✓ Distribution build succeeded"
 
-  if ! python3 -c "import twine" >/dev/null 2>&1; then
+  if ! "${PYTHON_BIN[@]}" -c "import twine" >/dev/null 2>&1; then
     echo "[info] twine is not installed. Skipping package metadata verification."
   else
     echo "Checking distributions with twine..."
-    python3 -m twine check "$REPO_ROOT"/dist/*
+    env -u PYTHONPATH "${PYTHON_BIN[@]}" -m twine check "$REPO_ROOT"/dist/*
     echo "✓ Package twine check passed"
   fi
 
   # Smoke install wheel in a temporary virtual environment
   echo "Smoke installing wheel in temporary virtualenv..."
   TEMP_SMOKE_VENV=$(mktemp -d -t devflow-release-smoke-XXXXXX)
-  python3 -m venv "$TEMP_SMOKE_VENV"
-  "$TEMP_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"/dist/*.whl
-  "$TEMP_SMOKE_VENV/bin/devflow" --help >/dev/null
-  "$TEMP_SMOKE_VENV/bin/devflow" task --help >/dev/null
+  "${PYTHON_BIN[@]}" -m venv "$TEMP_SMOKE_VENV"
+  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"/dist/*.whl
+  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" --help >/dev/null
+  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" task --help >/dev/null
   rm -rf "$TEMP_SMOKE_VENV"
   echo "✓ Fresh wheel installation and CLI help invocation smoke check succeeded"
 fi
