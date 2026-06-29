@@ -641,6 +641,15 @@ custom_providers:
 """,
         encoding="utf-8",
     )
+    (tmp_path / ".devflow" / "providers" / "qwen35-mtp.yaml").write_text(
+        f"""id: qwen35-mtp
+provider: qwen35-mtp
+adapter: openai_compatible
+base_url: http://127.0.0.1:{port}/v1
+enabled: true
+""",
+        encoding="utf-8",
+    )
 
     try:
         result = runner.invoke(app, ["agent", "catalog", "--json"])
