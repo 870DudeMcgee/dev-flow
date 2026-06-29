@@ -7,7 +7,7 @@ INDEX_HTML = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Dev-Flow Operating Layer — control room">
   <title>Dev-Flow Operating Layer</title>
-  <link rel="stylesheet" href="/app.css?v=zones-20260628">
+  <link rel="stylesheet" href="/app.css?v=unified-workbench-20260629">
 </head>
 <body>
   <div class="app-shell">
@@ -26,7 +26,7 @@ INDEX_HTML = """<!doctype html>
       <nav class="nav-list" aria-label="Sections">
         <a href="#zone-capture-plan" class="nav-item active" data-nav="home" data-nav-target="zone-capture-plan" aria-label="Capture and Plan" aria-current="page">
           <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
-          <span>Plan</span>
+            <span>Workbench</span>
         </a>
         <a href="#zone-execute" class="nav-item" data-nav="work" data-nav-target="zone-execute" aria-label="Execute">
           <svg class="nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0h8v2H6V4zm0 4h8v2H6V8zm0 4h8v2H6v-2z" clip-rule="evenodd"/></svg>
@@ -52,16 +52,6 @@ INDEX_HTML = """<!doctype html>
         </div>
       </div>
 
-      <div class="sidebar-footer">
-        <a href="#settings" class="nav-item small" data-nav="settings">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
-          <span>Settings</span>
-        </a>
-        <a href="#help" class="nav-item small" data-nav="help">
-          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
-          <span>Help</span>
-        </a>
-      </div>
     </aside>
 
     <!-- Mobile nav backdrop -->
@@ -152,18 +142,25 @@ INDEX_HTML = """<!doctype html>
         <!-- ================================================================ -->
         <div class="zone" id="zone-capture-plan" data-zone="capture-plan">
           <div class="zone-header">
-            <h2 class="zone-title">Capture &amp; Plan</h2>
-            <span class="zone-hint">Ideas → Brainstorm → Spec → Plan → Task</span>
+            <h2 class="zone-title">Chat Workbench</h2>
+            <span class="zone-hint">Idea -> Brainstorm -> Spec -> Plan -> Implement</span>
           </div>
 
-          <!-- Idea Greenhouse -->
-          <section id="idea-greenhouse-section" class="panel idea-greenhouse-section" aria-label="Idea Greenhouse">
+          <!-- Unified Chat Workbench -->
+          <section id="idea-greenhouse-section" class="panel idea-greenhouse-section unified-workbench-section" aria-label="Unified Chat Workbench">
             <div class="panel-header">
               <div>
-                <h3 class="panel-title">Idea Greenhouse</h3>
-                <p class="panel-subtitle">Capture fast. Sort later. Keep active work constrained.</p>
+                <h3 class="panel-title">Unified Chat Workbench</h3>
+                <p class="panel-subtitle">Capture fast, shape the conversation, then gate Implement with evidence.</p>
               </div>
               <output id="idea-greenhouse-status" class="status-pill muted" aria-live="polite">Ready</output>
+            </div>
+
+            <div class="workbench-overview" aria-label="Workbench stage and gate status">
+              <div id="workbench-stage-path" class="workbench-stage-path" aria-label="Stage path"></div>
+              <div id="workbench-gate-strip" class="workbench-gate-strip" aria-label="Implementation gates"></div>
+              <div id="workbench-next-action" class="workbench-next-action" aria-live="polite"></div>
+              <div id="workbench-implement-result" class="workbench-implement-result" aria-live="polite"></div>
             </div>
 
             <form id="idea-capture-form" class="idea-capture-form">
@@ -291,6 +288,18 @@ INDEX_HTML = """<!doctype html>
             <span class="zone-hint">On-demand AI coding tools</span>
           </div>
 
+          <!-- Architecture Evidence panel -->
+          <section id="architecture-evidence-section" class="panel architecture-evidence-section" aria-label="Architecture Evidence">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Architecture Evidence</h3>
+                <p class="panel-subtitle">Graphify freshness, metrics, hotspots, and drill-down artifacts.</p>
+              </div>
+              <output id="architecture-evidence-status" class="status-badge idle" aria-live="polite" aria-atomic="true">Loading</output>
+            </div>
+            <div id="architecture-evidence-content" class="architecture-evidence-content"></div>
+          </section>
+
           <!-- Tool tabs -->
           <div class="tools-tabs">
             <button class="tools-tab active" data-tools-tab="refactor" type="button">Refactor</button>
@@ -339,12 +348,28 @@ INDEX_HTML = """<!doctype html>
 
               <div class="bj-form-row">
                 <div class="bj-form-group">
-                  <label for="bj-builder-model">Builder Model</label>
-                  <select id="bj-builder-model"></select>
+                  <label for="bj-builder-model-selector">Builder Model</label>
+                  <input type="hidden" id="bj-builder-model" name="builder_profile_id" value="hermes-qwen37plus">
+                  <div class="model-selector-wrap bj-model-picker-wrap">
+                    <span class="model-selector bj-model-selector" id="bj-builder-model-selector" tabindex="0" role="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select builder model">
+                      <span id="bj-builder-model-label">Hermes Qwen 3.7 Plus</span>
+                      <span class="chevron" aria-hidden="true">▾</span>
+                    </span>
+                    <div class="model-dropdown bj-model-dropdown" id="bj-builder-model-dropdown" role="listbox" aria-label="Builder models" hidden></div>
+                    <div id="bj-builder-model-fallback-note" class="model-fallback-note bj-model-picker-note" hidden></div>
+                  </div>
                 </div>
                 <div class="bj-form-group">
-                  <label for="bj-judge-model">Judge Model</label>
-                  <select id="bj-judge-model"></select>
+                  <label for="bj-judge-model-selector">Judge Model</label>
+                  <input type="hidden" id="bj-judge-model" name="judge_profile_id" value="hermes-opus48">
+                  <div class="model-selector-wrap bj-model-picker-wrap">
+                    <span class="model-selector bj-model-selector" id="bj-judge-model-selector" tabindex="0" role="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Select judge model">
+                      <span id="bj-judge-model-label">Hermes Opus 4.8</span>
+                      <span class="chevron" aria-hidden="true">▾</span>
+                    </span>
+                    <div class="model-dropdown bj-model-dropdown" id="bj-judge-model-dropdown" role="listbox" aria-label="Judge models" hidden></div>
+                    <div id="bj-judge-model-fallback-note" class="model-fallback-note bj-model-picker-note" hidden></div>
+                  </div>
                 </div>
               </div>
 
@@ -412,6 +437,7 @@ INDEX_HTML = """<!doctype html>
                   </span>
                   <div class="model-dropdown" id="model-dropdown" role="listbox" aria-label="Brainstorm models" hidden></div>
                 </div>
+                <span id="model-fallback-note" class="model-fallback-note" hidden></span>
                 <label class="evidence-toggle">
                   <input type="checkbox" id="local-evidence-only" checked>
                   <span>Local evidence only</span>
@@ -468,9 +494,21 @@ INDEX_HTML = """<!doctype html>
         </div>
       </div>
 
+      <!-- ===== ARCHITECTURE ARTIFACT VIEWER OVERLAY ===== -->
+      <div id="architecture-viewer-overlay" class="focus-overlay architecture-viewer-overlay" role="dialog" aria-modal="true" aria-label="Architecture artifact viewer" hidden>
+        <div class="focus-panel architecture-viewer-panel">
+          <header class="architecture-viewer-header">
+            <strong id="architecture-viewer-title">Artifact</strong>
+            <button id="architecture-viewer-close" class="focus-close" type="button" aria-label="Close artifact viewer">&times;</button>
+          </header>
+          <pre id="architecture-viewer-report" class="architecture-viewer-report" hidden></pre>
+          <iframe id="architecture-viewer-frame" class="architecture-viewer-frame" title="Architecture artifact" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+        </div>
+      </div>
+
     </main>
   </div>
-  <script src="/app.js?v=zones-20260628"></script>
+  <script src="/app.js?v=unified-workbench-20260629"></script>
 </body>
 </html>
 """

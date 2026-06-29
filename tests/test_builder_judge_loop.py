@@ -118,10 +118,52 @@ def test_hermes_codex_profile_does_not_fall_back_to_openrouter(
     run = run_builder_judge_loop(tmp_path, config)
 
     assert run.status == "failed"
-    assert run.rounds[0].builder_profile_id == "hermes-codex-gpt55"
-    assert "Hermes/OpenAI subscription profile" in (run.rounds[0].error or "")
-    assert "OPENROUTER_API_KEY" not in (run.rounds[0].error or "")
-    assert run.rounds[0].builder_model == "gpt-5.5"
+    assert run.rounds == []
+    assert run.stop_reason == "hermes_handoff_required"
+    assert run.handoff_state is not None
+    assert run.handoff_state["builder"]["profile"]["id"] == "hermes-codex-gpt55"
+    assert "OPENROUTER_API_KEY" not in json.dumps(run.handoff_state)
+    assert run.next_safe_action.startswith("hermes")
+
+
+def test_dynamic_hermes_profile_returns_builder_judge_handoff_without_agent_not_found(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    profile_dir = tmp_path / ".hermes" / "profiles" / "local-draft"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "config.yaml").write_text(
+        """model:
+  default: qwen35-9b-mtp
+  provider: qwen35-mtp
+  base_url: http://127.0.0.1:8080/v1
+""",
+        encoding="utf-8",
+    )
+
+    def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
+        raise AssertionError("Dynamic Hermes handoff profile must not call provider HTTP APIs")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail_urlopen)
+
+    run = run_builder_judge_loop(
+        tmp_path,
+        BuilderJudgeConfig(
+            definition_of_done="Draft a concise operating-layer next step.",
+            builder_profile_id="hermes-profile-local-draft",
+            judge_profile_id="hermes-qwen37plus",
+            pass_threshold=85,
+            max_rounds=1,
+        ),
+    )
+
+    assert run.status == "failed"
+    assert run.stop_reason == "hermes_handoff_required"
+    assert run.handoff_state is not None
+    assert run.handoff_state["builder"]["profile"]["hermes_profile"] == "local-draft"
+    assert "agent not found" not in json.dumps(run.model_dump(mode="json")).lower()
 
 
 def test_config_validation_threshold_bounds(tmp_path: Path) -> None:
@@ -294,6 +336,16 @@ def test_evidence_persisted(
     saved = json.loads(run_path.read_text(encoding="utf-8"))
     assert saved["status"] == "passed"
     assert saved["loop_id"] == run.loop_id
+    assert saved["rounds"]
+    assert saved["config"]["definition_of_done"] == "A cold email."
+    assert saved["final_score"] == 92
+    assert saved["final_draft"] == "Good draft."
+    assert saved["stop_reason"] == "passed_round_1"
+    assert saved["next_safe_action"] == "Loop passed. Review the final draft."
+    assert "loop_family" not in saved
+    assert "status_label" not in saved
+    assert "phases" not in saved
+    assert "artifacts" not in saved
 
     # Round evidence should exist
     rounds_dir = tmp_path / ".devflow" / "builder-judge-loops" / run.loop_id / "rounds"
@@ -332,14 +384,26 @@ def test_list_and_get_run(
 
     loops = list_builder_judge_loops(tmp_path)
     assert len(loops) == 1
+    assert loops[0]["loop_family"] == "builder_judge"
     assert loops[0]["loop_id"] == run.loop_id
+    assert loops[0]["run_id"] == run.run_id
     assert loops[0]["status"] == "passed"
+    assert loops[0]["status_label"] == "Passed"
     assert loops[0]["final_score"] == 88
     assert loops[0]["rounds_completed"] == 1
+    assert loops[0]["evidence_path"] == run.evidence_path
 
     full_run = get_builder_judge_run(tmp_path, run.loop_id)
     assert full_run is not None
+    assert full_run["loop_family"] == "builder_judge"
     assert full_run["status"] == "passed"
+    assert full_run["status_label"] == "Passed"
+    assert full_run["evidence_path"] == run.evidence_path
+    assert full_run["next_safe_action"] == run.next_safe_action
+    assert full_run["config"]["definition_of_done"] == "A cold email."
+    assert full_run["final_score"] == 88
+    assert full_run["artifacts"][0]["path"] == run.evidence_path
+    assert full_run["artifacts"][0]["exists"] is True
     assert len(full_run["rounds"]) == 1
 
 

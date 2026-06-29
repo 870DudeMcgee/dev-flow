@@ -108,7 +108,7 @@ Expected result: read-only commands return `operator_plan.next_step: run_recomme
 
 ### 5. First Local Qwen Smoke
 
-If the catalog offers registration actions for `qwen35-mtp`, approve and run the exact `devflow agent add-provider ...` and `devflow agent add-model ...` commands shown by the catalog. Then run a bounded advisory or Brainstorm smoke against profile `local-qwen35-mtp`.
+If the catalog offers registration actions for `qwen35-mtp`, approve and run the exact `devflow agent add-provider ...` and `devflow agent add-model ...` commands shown by the catalog. Then validate the canonical Hermes profile surface and run a bounded smoke against profile `hermes-qwen32`.
 
 For task-local worker-pool smoke, create a low-risk task:
 
@@ -116,19 +116,19 @@ For task-local worker-pool smoke, create a low-risk task:
 PYTHONPATH=src .venv/bin/python -m devflow.cli task create "Hermes Mac mini local model smoke"
 ```
 
-Preview:
+Preview the packet-only Hermes handoff:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwen35-mtp --dry-run --json
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent serial-packet --phase implementer --provider qwen35-mtp --model qwen35-9b-mtp --task-id <task-id> --worker-id hermes-qwen32 --runtime hermes-profile --hermes-profile hermes-qwen32 --allowed-file docs/integrations/hermes-telegram-mac-mini-rollout.md --verify 'git diff --check'
 ```
 
-After explicit approval, run:
+After explicit approval, run the bounded Hermes profile smoke:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent run --task <task-id> --profile local-qwen35-mtp --base-url http://127.0.0.1:8080/v1 --json
+PYTHONPATH=src:. .venv/bin/python scripts/hermes_profile_smoke.py --skip-gpt --skip-direct-local --try-local-hermes --local-hermes-profile hermes-qwen32
 ```
 
-Expected result: DevFlow writes WorkerEvidence only under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`. It must not edit source, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
+Expected result: DevFlow writes packet or smoke evidence only under `.devflow/`. It must not edit source, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
 
 ### 6. Telegram/Hermes Rollout
 
@@ -163,4 +163,4 @@ action: <action>
 
 ## Next Safe Action
 
-Run `devflow agent catalog --json`, confirm `qwen35-9b-mtp` is the ready default with `single_flight` local concurrency, then perform one dry-run preview with `local-qwen35-mtp` before enabling Telegram-triggered read-only auto-runs.
+Run `devflow agent catalog --json`, confirm `qwen35-9b-mtp` is the ready default with `single_flight` local concurrency, then perform one packet preview with `hermes-qwen32` before enabling Telegram-triggered read-only auto-runs.

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal, Sequence
 
 from devflow.control_room.git_state import GitState, inspect_git_state
+from devflow.control_room.hermes_profile_resolver import resolve_hermes_profile_for_historical_cleanup
 from devflow.control_room.local_model_runtime_lock import (
     local_model_lock_dir,
     local_model_runtime_status,
@@ -901,6 +902,7 @@ def _runtime_payload(
             raise SerialLocalAgentRunError(
                 "hermes_profile is required when runtime_kind is hermes-profile"
             )
+        profile = _canonical_hermes_profile(profile)
     else:
         if profile:
             raise SerialLocalAgentRunError(
@@ -916,6 +918,15 @@ def _runtime_payload(
         "toolsets": toolset_values,
         "packet_only": True,
     }
+
+
+def _canonical_hermes_profile(profile_id: str) -> str:
+    profile = resolve_hermes_profile_for_historical_cleanup(profile_id)
+    if profile is None:
+        raise SerialLocalAgentRunError(
+            f"hermes_profile must be a canonical Hermes profile id: {profile_id}"
+        )
+    return profile.hermes_profile
 
 
 def _validate_runtime_kind(runtime_kind: SerialLocalRunRuntimeKind | str) -> str:

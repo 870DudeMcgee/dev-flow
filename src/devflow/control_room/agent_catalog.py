@@ -55,7 +55,7 @@ def build_agent_catalog(root: Path, *, provider_id: str | None = None) -> dict[s
     local_ollama = _local_ollama_catalog(registry)
     local_openai_compatible = _local_openai_compatible_catalog(registry, providers, machine=machine)
     local_model_policy = _local_model_policy(local_openai_compatible, local_ollama, machine)
-    hermes_agents = configured_hermes_agents()
+    hermes_agents = configured_hermes_agents(root)
     if provider_filter:
         hermes_agents = [agent for agent in hermes_agents if agent.get("provider") == provider_filter]
 
@@ -174,7 +174,7 @@ def _local_openai_onboarding_actions(local_openai_compatible: dict[str, Any]) ->
             model_id = str(model.get("id") or "").strip()
             if not model_id:
                 continue
-            profile_id = "local-qwen35-mtp" if model_id == LOCAL_DEFAULT_MODEL_ID else derive_profile_id(
+            profile_id = "hermes-qwen32" if model_id == LOCAL_DEFAULT_MODEL_ID else derive_profile_id(
                 provider_id, model_id, "advisory", "frontier_planner_architect_reviewer"
             )
             actions.append(

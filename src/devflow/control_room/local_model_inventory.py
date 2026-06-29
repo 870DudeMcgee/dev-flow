@@ -4,6 +4,8 @@ import re
 import shlex
 from typing import Any
 
+from devflow.control_room.agent_registry import derive_profile_id
+
 
 LOCAL_DISCOVERY_SOURCES = {"ollama", "local_openai_compatible"}
 
@@ -20,6 +22,7 @@ def build_local_model_inventory(agent_catalog: dict[str, Any]) -> dict[str, Any]
 
     rows: list[dict[str, Any]] = []
     registered_profile_keys: set[tuple[str, str]] = set()
+    seen_endpoint_identity_keys: set[tuple[str, str, str]] = set()
     for profile in profiles:
         row = _registered_profile_row(profile, endpoint_providers, local_ollama)
         if row is None:
@@ -36,7 +39,7 @@ def build_local_model_inventory(agent_catalog: dict[str, Any]) -> dict[str, Any]
         rows.append(_unregistered_ollama_row(model_name, installed, manifest))
 
     for provider in endpoint_providers:
-        rows.extend(_endpoint_rows(provider, registered_profile_keys))
+        rows.extend(_endpoint_rows(provider, registered_profile_keys, seen_endpoint_identity_keys))
 
     default_model = _text(policy.get("default_model")) or "unknown"
     default_provider_id = _text(policy.get("default_provider_id")) or "unknown"
@@ -149,7 +152,11 @@ def _unregistered_ollama_row(
     }
 
 
-def _endpoint_rows(provider: dict[str, Any], registered_profile_keys: set[tuple[str, str]]) -> list[dict[str, Any]]:
+def _endpoint_rows(
+    provider: dict[str, Any],
+    registered_profile_keys: set[tuple[str, str]],
+    seen_identity_keys: set[tuple[str, str, str]],
+) -> list[dict[str, Any]]:
     provider_id = _text(provider.get("id"))
     if not provider_id:
         return []
@@ -179,7 +186,7 @@ def _endpoint_rows(provider: dict[str, Any], registered_profile_keys: set[tuple[
                 "machine_fit_status": None,
                 "machine_fit_reason": None,
                 "action": _provider_action(provider_id, base_url),
-                "detail": _text(provider.get("error")) or "Local endpoint is not reachable.",
+                "detail": _offline_endpoint_detail(provider_label, base_url, _text(provider.get("error"))),
             }
         ]
 
@@ -188,6 +195,11 @@ def _endpoint_rows(provider: dict[str, Any], registered_profile_keys: set[tuple[
         model_id = _text(model.get("id"))
         if not model_id:
             continue
+        profile_id = _endpoint_profile_id(provider_id, model_id)
+        identity_key = (_text(base_url), model_id, profile_id)
+        if identity_key in seen_identity_keys:
+            continue
+        seen_identity_keys.add(identity_key)
         machine_fit = _mapping(model.get("machine_fit"))
         registered = (provider_id, model_id) in registered_profile_keys
         rows.append(
@@ -229,7 +241,7 @@ def _endpoint_model_action(provider_id: str, model_id: str, base_url: str) -> di
             f"--base-url {shlex.quote(base_url)} --json"
         )
         return _action("Register provider", command, "Registers this local OpenAI-compatible endpoint.")
-    profile_id = "local-qwen35-mtp" if model_id == "qwen35-9b-mtp" else None
+    profile_id = _endpoint_profile_id(provider_id, model_id)
     profile_option = f" --profile-id {shlex.quote(profile_id)}" if profile_id else ""
     command = (
         "devflow agent add-model "
@@ -239,6 +251,12 @@ def _endpoint_model_action(provider_id: str, model_id: str, base_url: str) -> di
         f"{profile_option} --json"
     )
     return _action("Add profile", command, "Adds this local endpoint model as an advisory profile.")
+
+
+def _endpoint_profile_id(provider_id: str, model_id: str) -> str | None:
+    if model_id == "qwen35-9b-mtp":
+        return "hermes-qwen32"
+    return derive_profile_id(provider_id, model_id, "advisory", "frontier_planner_architect_reviewer")
 
 
 def _provider_action(provider_id: str, base_url: str) -> dict[str, Any] | None:
@@ -251,6 +269,13 @@ def _provider_action(provider_id: str, base_url: str) -> dict[str, Any] | None:
         f"--base-url {shlex.quote(base_url)} --json"
     )
     return _action("Register provider", command, "Registers this local OpenAI-compatible endpoint.")
+
+
+def _offline_endpoint_detail(provider_label: str, base_url: str, error: str | None) -> str:
+    target = f"{provider_label} at {base_url}" if base_url else provider_label
+    if error:
+        return f"Offline endpoint: {target}. {error}"
+    return f"Offline endpoint: {target}."
 
 
 def _action(label: str, command: str, reason: str) -> dict[str, Any]:

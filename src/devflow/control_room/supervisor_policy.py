@@ -123,6 +123,7 @@ APPROVAL_REQUIRED_EVIDENCE_WRITING_COMMANDS = [
     "devflow idea scaffold-goal",
     "devflow idea park",
     "devflow idea archive",
+    "devflow architecture audit --install-graphify --write-doc",
 ]
 
 APPROVAL_REQUIRED_TASK_STATE_COMMANDS = [
@@ -434,6 +435,12 @@ def _classify_supervisor_command(command: str) -> str:
             return APPROVAL_REQUIRED_WORKER_RUNTIME
         if subcommand in {"score", "report"}:
             return APPROVAL_REQUIRED_EVIDENCE_WRITING
+        return FORBIDDEN_FOR_SUPERVISOR
+    if command_group == "architecture":
+        if subcommand == "audit":
+            if "--install-graphify" in tokens or "--write-doc" in tokens:
+                return APPROVAL_REQUIRED_EVIDENCE_WRITING
+            return PURE_READ_ONLY
         return FORBIDDEN_FOR_SUPERVISOR
     if command_group == "worktree":
         if subcommand == "list":

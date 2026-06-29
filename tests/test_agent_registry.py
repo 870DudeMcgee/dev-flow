@@ -18,7 +18,7 @@ from devflow.control_room.task_packet import build_agent_packet
 
 
 LOCAL_ENDPOINT_PROFILES = [
-    "local-qwen35-mtp",
+    "hermes-qwen32",
 ]
 
 LOCAL_OLLAMA_PROFILES = [
@@ -816,7 +816,7 @@ def test_simplified_local_profiles_are_registry_visible_and_safe(tmp_path: Path)
     registry = load_agent_registry(tmp_path)
     manual = registry.require_agent("devflow-manual-codex-worker")
     qwopus_patch_worker = registry.require_agent("qwopus-implementer")
-    qwen35 = registry.require_agent("local-qwen35-mtp")
+    qwen35 = registry.require_agent("hermes-qwen32")
     gemma_long = registry.require_agent("local-gemma4-qat")
     qwen_code = registry.require_agent("local-qwen25-coder-14b")
 
@@ -828,6 +828,7 @@ def test_simplified_local_profiles_are_registry_visible_and_safe(tmp_path: Path)
     assert qwen35.model == "qwen35-9b-mtp"
     assert qwen35.adapter == "openai_compatible"
     assert qwen35.default_mode == "frontier_read_only"
+    assert qwen35.model_role_name == "Hermes Qwen 3.2"
     assert qwen35.hermes_delegable is False
 
     assert gemma_long.provider == "ollama"

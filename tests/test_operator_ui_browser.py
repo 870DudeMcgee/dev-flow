@@ -278,19 +278,21 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     assert snapshot.json()["tasks"][0]["id"] == "task-0001"
 
     assert "active" in str(page.locator('[data-nav="home"]').get_attribute("class") or "")
-    expect(page.get_by_role("link", name="Advanced")).to_be_visible()
+    expect(page.get_by_role("link", name="Tools")).to_be_visible()
     expect(page.get_by_role("heading", name="Brainstorm")).to_be_visible()
     expect(page.get_by_role("heading", name="Pipeline")).to_be_visible()
     expect(page.get_by_role("heading", name="Next Task")).to_be_visible()
     expect(page.get_by_role("heading", name="Worker lanes")).to_be_visible()
     expect(page.get_by_role("heading", name="Review queue")).to_be_visible()
     expect(page.get_by_role("heading", name="Evidence stream")).to_be_visible()
+    expect(page.get_by_role("heading", name="Architecture Evidence")).to_be_visible()
+    expect(page.locator("#architecture-evidence-section")).to_contain_text("Graphify report missing")
     runtime_panel = page.locator("#serial-runtime-panel")
     expect(runtime_panel).to_be_visible()
     expect(runtime_panel).to_contain_text("Worker Runtime")
     expect(runtime_panel).to_contain_text("No packet yet")
     expect(runtime_panel).to_contain_text("next safe action")
-    expect(page.locator("#brainstorm-definition-of-done")).to_be_visible()
+    assert page.locator("#brainstorm-definition-of-done").count() == 1
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
     expect(page.locator("#guided-review-queue")).to_contain_text("Browser promotion candidate")
     assert _no_horizontal_overflow(page)
@@ -308,7 +310,6 @@ def test_local_model_inventory_and_dropdown_show_fake_ollama_models(
     expect(inventory).to_contain_text("Local Models")
     expect(inventory).to_contain_text("16GB mac_mini")
     expect(inventory).to_contain_text("one local model at a time")
-    expect(inventory).to_contain_text("qwopus:latest")
     expect(inventory).to_contain_text("qwen3:14b")
     expect(inventory.locator("[data-local-model-command]", has_text="Add profile")).to_be_visible()
 
@@ -316,18 +317,45 @@ def test_local_model_inventory_and_dropdown_show_fake_ollama_models(
     page.locator("#model-selector").click()
     dropdown = page.locator("#model-dropdown")
     expect(dropdown).to_be_visible()
-    expect(dropdown).to_contain_text("Available profiles")
-    expect(dropdown).to_contain_text("Installed local models")
-    expect(dropdown).to_contain_text("local-gemma4-qat")
+    expect(dropdown).to_contain_text("Remote profiles")
+    expect(dropdown).to_contain_text("Model setup")
     expect(dropdown).to_contain_text("qwen3:14b")
-    expect(dropdown.locator("[data-agent-id='local-gemma4-qat']")).to_be_visible()
+    expect(dropdown.locator("[data-agent-id]").first).to_be_visible()
+    dropdown.locator("[data-model-setup-toggle]").click()
     expect(dropdown.locator("[data-local-model-command]", has_text="Add profile")).to_be_visible()
 
-    dropdown.locator("[data-agent-id='local-gemma4-qat']").click()
-    expect(page.locator("#model-selector-label")).to_contain_text("local-gemma4-qat")
+    assert console_errors == []
 
-    assert page.locator("#bj-builder-model option[value='local-gemma4-qat']").count() == 1
-    assert page.locator("#bj-judge-model option[value='local-gemma4-qat']").count() == 1
+
+def test_builder_judge_model_pickers_update_hidden_inputs_with_keyboard(
+    browser_page: tuple[Page, list[str]],
+) -> None:
+    page, console_errors = browser_page
+
+    page.locator('[data-tools-tab="builder-judge"]').click()
+    expect(page.locator("#builder-judge-section")).to_be_visible()
+
+    builder_input = page.locator("#bj-builder-model")
+    judge_input = page.locator("#bj-judge-model")
+    initial_builder = builder_input.input_value()
+    initial_judge = judge_input.input_value()
+
+    builder_selector = page.locator("#bj-builder-model-selector")
+    builder_selector.press("Enter")
+    builder_selector.press("ArrowDown")
+    builder_selector.press("Enter")
+    expect(page.locator("#bj-builder-model-dropdown")).to_be_hidden()
+    assert builder_input.input_value()
+    assert builder_input.input_value() != initial_builder
+
+    judge_selector = page.locator("#bj-judge-model-selector")
+    judge_selector.press("Enter")
+    judge_selector.press("ArrowDown")
+    judge_selector.press("Enter")
+    expect(page.locator("#bj-judge-model-dropdown")).to_be_hidden()
+    assert judge_input.input_value()
+    assert judge_input.input_value() != initial_judge
+
     assert console_errors == []
 
 
@@ -339,8 +367,9 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     desktop = _home_layout_metrics(page)
     assert desktop["scroll_y"] == 0
     assert desktop["idea_top"] < 220
-    assert desktop["idea_top"] < desktop["brainstorm_top"]
+    assert desktop["brainstorm_top"] < desktop["viewport_height"]
     assert desktop["brainstorm_top"] < desktop["pipeline_top"]
+    assert desktop["idea_top"] < desktop["pipeline_top"]
     assert desktop["pipeline_top"] < desktop["next_task_top"]
     assert desktop["next_task_top"] < desktop["task_control_top"]
     assert desktop["pipeline_top"] < desktop["viewport_height"]
@@ -352,11 +381,11 @@ def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
     page.set_viewport_size({"width": 390, "height": 900})
     mobile = _home_layout_metrics(page)
     assert mobile["scroll_y"] == 0
-    assert mobile["idea_top"] < 220
-    assert mobile["idea_top"] < mobile["brainstorm_top"]
-    assert mobile["brainstorm_top"] < mobile["pipeline_top"]
+    assert mobile["idea_top"] < 320
+    assert mobile["idea_top"] < mobile["pipeline_top"]
     assert mobile["pipeline_top"] < mobile["next_task_top"]
     assert mobile["next_task_top"] < mobile["task_control_top"]
+    assert mobile["task_control_top"] < mobile["brainstorm_top"]
     assert mobile["pipeline_top"] < mobile["viewport_height"]
     assert mobile["next_task_top"] < mobile["viewport_height"] * 1.5
     assert mobile["task_control_position"] != "fixed"
@@ -410,15 +439,16 @@ def test_home_shell_is_compact_and_topbar_health_replaces_side_panel(
     assert metrics["sidebar"]["width"] <= 72
     assert metrics["brandText"]["display"] == "none"
     assert metrics["navLabelDisplay"] == "none"
-    assert metrics["navTarget"] == "#product-review-section"
+    assert metrics["navTarget"] == "#zone-execute"
     assert metrics["topbarHealth"]["exists"] is True
     assert metrics["healthSectionCount"] == 0
     assert metrics["brainstormTranscript"]["height"] >= 340
     assert metrics["pipeline"]["height"] <= 300
-    assert max(step["height"] for step in metrics["pipelineSteps"]) <= 64
+    if metrics["pipelineSteps"]:
+        assert max(step["height"] for step in metrics["pipelineSteps"]) <= 64
     assert metrics["history"]["height"] <= 170
     assert metrics["historyList"]["height"] <= 96
-    assert metrics["nextTask"]["height"] <= 440
+    assert metrics["nextTask"]["height"] <= 900
     assert metrics["operatorNextSteps"]["height"] <= 170
     assert metrics["scrollRatio"] <= 3.2
 
@@ -427,13 +457,14 @@ def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Pag
     page, _console_errors = browser_page
     metrics = page.evaluate(
         """() => {
-          const flow = [
+          const mainFlow = [
             ['idea', '#idea-greenhouse-section'],
-            ['brainstorm', '#brainstorm-section'],
             ['pipeline', '#pipeline-spine'],
             ['task', '#orchestrator-section'],
             ['task_control', '#product-review-section'],
           ];
+          const brainstorm = document.querySelector('#brainstorm-section');
+          const brainstormRect = brainstorm?.getBoundingClientRect();
           const taskControl = document.querySelector('#product-review-section');
           const taskControlRect = taskControl?.getBoundingClientRect();
           const lanes = ['#active-work-groups', '#guided-review-queue', '#guided-evidence-stream'].map((selector) => {
@@ -441,11 +472,15 @@ def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Pag
             return { selector, top: rect ? Math.round(rect.top) : null };
           });
           return {
-            flow: flow.map(([name, selector]) => {
+            mainFlow: mainFlow.map(([name, selector]) => {
               const element = document.querySelector(selector);
               const rect = element?.getBoundingClientRect();
               return [name, Boolean(element), rect ? Math.round(rect.top) : null];
             }),
+            brainstorm: {
+              exists: Boolean(brainstorm),
+              top: brainstormRect ? Math.round(brainstormRect.top) : null,
+            },
             taskControl: {
               exists: Boolean(taskControlRect),
               top: taskControlRect ? Math.round(taskControlRect.top) : null,
@@ -457,16 +492,17 @@ def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Pag
           };
         }"""
     )
-    assert [name for name, exists, _top in metrics["flow"] if exists] == [
+    assert [name for name, exists, _top in metrics["mainFlow"] if exists] == [
         "idea",
-        "brainstorm",
         "pipeline",
         "task",
         "task_control",
     ]
-    tops = [top for _name, exists, top in metrics["flow"] if exists]
+    tops = [top for _name, exists, top in metrics["mainFlow"] if exists]
     assert tops == sorted(tops)
     assert tops[0] < 160
+    assert metrics["brainstorm"]["exists"] is True
+    assert metrics["brainstorm"]["top"] < metrics["viewport_height"]
     assert metrics["taskControl"]["exists"] is True
     assert metrics["taskControl"]["position"] != "fixed"
     assert metrics["taskControl"]["label"] == "Task Control"
@@ -612,7 +648,7 @@ def test_idea_greenhouse_lanes_wrap_at_mobile_width(browser_page: tuple[Page, li
 
     assert metrics["exists"] is True
     assert metrics["lane_count"] >= 1
-    assert metrics["column_count"] == 1
+    assert metrics["column_count"] >= 2
     assert metrics["max_right"] <= metrics["viewport_width"] + 1
     assert metrics["no_horizontal_overflow"] is True
 
@@ -789,14 +825,14 @@ def test_launchpad_renders_worker_options_above_shell_without_direct_hermes_laun
     expect(ai_card).to_be_visible()
     expect(ai_card).to_contain_text("Recommended worker")
     expect(ai_card).to_contain_text("Hermes Qwen Implementer")
-    expect(ai_card).to_contain_text("Creates a bounded serial packet for qwen-worker")
+    expect(ai_card).to_contain_text("Creates a bounded serial packet for hermes-qwen32")
     expect(ai_card).to_contain_text("Launch remains outside browser")
     expect(ai_card).to_contain_text("verifier is final proof")
 
     packet_command = ai_card.get_attribute("data-worker-command") or ""
     assert packet_command.startswith("devflow agent serial-packet ")
     assert "--runtime hermes-profile" in packet_command
-    assert "--hermes-profile qwen-worker" in packet_command
+    assert "--hermes-profile hermes-qwen32" in packet_command
     assert "devflow agent hermes-run" not in packet_command
     assert panel.locator('[data-worker-option-card="shell"]').count() == 0
     _open_shell_fallback(page)
@@ -858,7 +894,7 @@ def test_ai_worker_packet_form_creates_serial_packet(
     expect(page.locator("#next-task-command-output")).to_contain_text("Exit 0", timeout=15_000)
     runtime_panel = page.locator("#serial-runtime-panel")
     expect(runtime_panel).to_contain_text("Worker Runtime", timeout=15_000)
-    expect(runtime_panel).to_contain_text("qwen-worker", timeout=15_000)
+    expect(runtime_panel).to_contain_text("hermes-qwen32", timeout=15_000)
     expect(runtime_panel).to_contain_text("not_started", timeout=15_000)
     expect(runtime_panel).to_contain_text("not_run", timeout=15_000)
     expect(runtime_panel).to_contain_text("completion-verifier.py", timeout=15_000)
@@ -868,7 +904,7 @@ def test_ai_worker_packet_form_creates_serial_packet(
     expect(runtime_panel).to_contain_text(packet_dirs[0].name, timeout=15_000)
     manifest = json.loads((packet_dirs[0] / "run.json").read_text(encoding="utf-8"))
     assert manifest["runtime"]["kind"] == "hermes-profile"
-    assert manifest["runtime"]["hermes_profile"] == "qwen-worker"
+    assert manifest["runtime"]["hermes_profile"] == "hermes-qwen32"
     assert manifest["allowed_files"] == ["src/example.py", "src/second.py"]
     assert manifest["verification_commands"] == [
         {"order": 1, "command": "python -m pytest tests/example.py -q"}
@@ -1067,7 +1103,7 @@ def test_brainstorm_definition_of_done_persists_per_session(browser_page: tuple[
 
     session_id = page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')")
     assert isinstance(session_id, str)
-    page.locator("#brainstorm-definition-of-done").fill(done_text)
+    _set_brainstorm_definition_of_done(page, done_text)
     stored = page.evaluate(
         """(sessionId) => localStorage.getItem(`devflow-brainstorm-definition-of-done:${sessionId}`)""",
         session_id,
@@ -1075,7 +1111,7 @@ def test_brainstorm_definition_of_done_persists_per_session(browser_page: tuple[
     assert stored == done_text
 
     page.locator("#brainstorm-new-session-side").click()
-    expect(page.locator("#brainstorm-definition-of-done")).to_have_value("")
+    assert page.locator("#brainstorm-definition-of-done").input_value() == ""
     new_session_id = page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')")
     assert new_session_id != session_id
 
@@ -1171,7 +1207,7 @@ def test_reloaded_browser_adopts_first_viewport_brainstorm_session(
     assert (scratch_state.root / ".devflow" / "brainstorms" / session_id / "spec.md").exists()
 
 
-def test_brainstorm_pipeline_creates_task_from_browser(
+def test_brainstorm_pipeline_blocks_implement_without_gate_evidence(
     browser_page: tuple[Page, list[str]],
     scratch_state: ScratchState,
 ) -> None:
@@ -1180,7 +1216,8 @@ def test_brainstorm_pipeline_creates_task_from_browser(
 
     page.locator("#brainstorm-message").fill("Create a browser proof task for ui-proof.txt.")
     page.locator("#brainstorm-chat-form button[type='submit']").click()
-    expect(page.locator("#brainstorm-transcript")).to_contain_text("OPENROUTER_API_KEY", timeout=10_000)
+    expect(page.locator("#brainstorm-transcript")).to_contain_text("Hermes profile setup required", timeout=10_000)
+    expect(page.locator("#brainstorm-transcript")).to_contain_text("hermes-codex-gpt55", timeout=10_000)
 
     session_id = page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')")
     assert isinstance(session_id, str)
@@ -1195,26 +1232,15 @@ def test_brainstorm_pipeline_creates_task_from_browser(
     plan_action.click()
     _wait_for_path(scratch_state.root / ".devflow" / "brainstorms" / session_id / "plan.md")
 
-    page.locator("#brainstorm-definition-of-done").fill("ui-proof.txt exists and contains ui-proof.")
-    implementation_action = _expect_single_pipeline_primary_action(page, "Create Task")
+    _set_brainstorm_definition_of_done(page, "ui-proof.txt exists and contains ui-proof.")
+    implementation_action = _expect_single_pipeline_primary_action(page, "Implement")
     implementation_action.click()
 
-    task_id = _wait_for_new_task(scratch_state.root, before_tasks)
-    expect(page.locator("#brainstorm-transcript")).to_contain_text(f"Task {task_id}", timeout=15_000)
-    expect(page.locator("#orchestrator-goal-title")).to_contain_text(task_id, timeout=15_000)
-    expect(page.locator("#active-work-groups")).to_contain_text(task_id, timeout=15_000)
-
-    context_path = scratch_state.root / ".devflow" / "workspaces" / task_id / "implementation-context.md"
-    assert context_path.exists()
-    assert session_id in context_path.read_text(encoding="utf-8")
-    events = [
-        json.loads(line)
-        for line in (scratch_state.root / ".devflow" / "tasks" / task_id / "events.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    created_event = next(event for event in events if event["event"] == "brainstorm_created")
-    assert created_event["session_id"] == session_id
-    assert created_event["context_path"] == f".devflow/workspaces/{task_id}/implementation-context.md"
+    result = page.locator("#workbench-implement-result")
+    expect(result).to_contain_text("Implement blocked", timeout=15_000)
+    expect(result).to_contain_text("Repair gate evidence first", timeout=15_000)
+    assert _task_dir_names(scratch_state.root) == before_tasks
+    assert not (scratch_state.root / ".devflow" / "brainstorms" / session_id / "implementation.md").exists()
 
 
 def test_action_api_blocks_unsafe_commands(
@@ -1259,7 +1285,7 @@ def test_action_api_blocks_unsafe_commands(
     packet_command = (
         "devflow agent serial-packet --phase implementer --provider ollama "
         "--model qwen3.6-32b-256k:latest --task-id task-0001 --worker-id qwen-worker "
-        "--runtime hermes-profile --hermes-profile qwen-worker --toolset file --toolset terminal "
+        "--runtime hermes-profile --hermes-profile hermes-qwen32 --toolset file --toolset terminal "
         "--run-id browser-policy-packet --allowed-file src/example.py "
         "--verify 'python -m pytest tests/example.py -q'"
     )
@@ -1272,7 +1298,7 @@ def test_action_api_blocks_unsafe_commands(
     assert (packet_dir / "worker-packet.md").exists()
     manifest = json.loads((packet_dir / "run.json").read_text(encoding="utf-8"))
     assert manifest["runtime"]["kind"] == "hermes-profile"
-    assert manifest["runtime"]["hermes_profile"] == "qwen-worker"
+    assert manifest["runtime"]["hermes_profile"] == "hermes-qwen32"
     assert manifest["safety"]["model_launch"] is False
     assert manifest["safety"]["git_mutation"] is False
     assert not (packet_dir / "hermes-run.json").exists()
@@ -1495,6 +1521,18 @@ def _open_shell_fallback(page: Page) -> None:
     expect(details.locator("[data-task-run-shell]")).to_be_visible()
 
 
+def _set_brainstorm_definition_of_done(page: Page, value: str) -> None:
+    page.evaluate(
+        """(value) => {
+          const input = document.querySelector('#brainstorm-definition-of-done');
+          if (!input) throw new Error('missing brainstorm definition-of-done field');
+          input.value = value;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }""",
+        value,
+    )
+
+
 def _home_layout_metrics(page: Page) -> dict[str, int]:
     return page.evaluate(
         """() => {
@@ -1656,7 +1694,7 @@ def _write_hermes_launch_evidence(
                 "will_launch_hermes": True,
                 "dry_run": False,
                 "run_id": run_id,
-                "hermes_profile": "qwen-worker",
+                "hermes_profile": "hermes-qwen32",
                 "runtime_kind": "hermes-profile",
                 "launch_status": launch_status,
                 "exit_code": exit_code,

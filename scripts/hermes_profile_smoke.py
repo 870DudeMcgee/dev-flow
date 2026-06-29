@@ -88,8 +88,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", default=".devflow/reports/hermes-profile-smoke")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--timeout-seconds", type=float, default=90.0)
-    parser.add_argument("--gpt-profile", default="dfcodex55")
-    parser.add_argument("--local-hermes-profile", default="dflocalfast")
+    parser.add_argument("--gpt-profile", default="hermes-codex-gpt55")
+    parser.add_argument("--local-hermes-profile", default="hermes-qwen32")
     parser.add_argument("--local-base-url", default=os.environ.get("LOCAL_MODEL_BASE_URL", "http://127.0.0.1:8080/v1"))
     parser.add_argument("--local-model", default=os.environ.get("LOCAL_MODEL_ID", "qwen35-9b-mtp"))
     parser.add_argument("--skip-gpt", action="store_true")
@@ -171,7 +171,7 @@ def _direct_local_check(
             check_id=check_id,
             kind="local_openai_compatible",
             status="dry_run",
-            profile="local-qwen35-mtp",
+            profile="hermes-qwen32",
             model=model,
             base_url=base_url,
             prompt_path=prompt_path,
@@ -218,7 +218,7 @@ def _direct_local_check(
         check_id=check_id,
         kind="local_openai_compatible",
         status=status,
-        profile="local-qwen35-mtp",
+        profile="hermes-qwen32",
         model=model,
         base_url=base_url,
         prompt_path=prompt_path,

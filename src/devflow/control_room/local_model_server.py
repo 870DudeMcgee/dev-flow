@@ -14,11 +14,28 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 from urllib.parse import urlparse
 
+from devflow.control_room.local_model_readiness import (
+    ExpectedLocalModelLane,
+    LocalModelReadinessError,
+    load_expected_local_model_manifest,
+)
 from devflow.control_room.paths import devflow_dir, relative_path
 
 
 LocalModelServerKind = Literal["llama-server", "ollama"]
+DEFAULT_SERVER_HOST = "127.0.0.1"
+DEFAULT_SERVER_PORT = 8080
 
+_ORNITH_SERVER_RECIPES: dict[str, dict[str, str]] = {
+    "hermes-ornith9b": {
+        "model_path": "~/.hermes/models/gguf/ornith-1.0-9b-q4/ornith-1.0-9b-Q4_K_M.gguf",
+        "ctx_size": "131072",
+    },
+    "hermes-ornith35b": {
+        "model_path": "~/.hermes/models/gguf/ornith-1.0-35b-q4/ornith-1.0-35b-Q4_K_M.gguf",
+        "ctx_size": "65536",
+    },
+}
 
 class LocalModelServerError(ValueError):
     """Raised when a local model server lifecycle action is unsafe."""
@@ -88,8 +105,8 @@ StartProfile = Callable[..., dict[str, Any]]
 
 def qwen35_mtp_profile(
     *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: str = DEFAULT_SERVER_HOST,
+    port: int = DEFAULT_SERVER_PORT,
     binary: str = "llama-server",
 ) -> LocalModelServerProfile:
     model = "qwen35-9b-mtp"
@@ -136,40 +153,40 @@ def qwen35_mtp_profile(
         "--no-webui",
     ]
     return LocalModelServerProfile(
-        profile_id="qwen35-mtp",
+        profile_id="hermes-qwen32",
         provider="qwen35-mtp",
         model=model,
         host=host,
         port=port,
         base_url=f"http://{host}:{port}/v1",
         command=command,
-        aliases=("local-qwen35-mtp", "dflocalfast", "df-local-fast"),
+        aliases=("qwen35-9b-mtp",),
     )
 
 
 def known_local_model_server_profiles(
     *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: str = DEFAULT_SERVER_HOST,
+    port: int = DEFAULT_SERVER_PORT,
     binary: str = "llama-server",
 ) -> dict[str, LocalModelServerProfile]:
-    qwen = qwen35_mtp_profile(host=host, port=port, binary=binary)
-    profiles: dict[str, LocalModelServerProfile] = {qwen.profile_id: qwen}
-    for alias in qwen.aliases:
-        profiles[alias] = qwen
+    profiles: dict[str, LocalModelServerProfile] = {}
+    for profile in _manifest_backed_server_profiles(host=host, port=port, binary=binary):
+        profiles[profile.profile_id] = profile
     return profiles
 
 
 def resolve_local_model_server_profile(
     profile: str,
     *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: str = DEFAULT_SERVER_HOST,
+    port: int = DEFAULT_SERVER_PORT,
     binary: str = "llama-server",
 ) -> LocalModelServerProfile:
+    canonical_profile = str(profile or "").strip()
     profiles = known_local_model_server_profiles(host=host, port=port, binary=binary)
     try:
-        return profiles[profile]
+        return profiles[canonical_profile]
     except KeyError as exc:
         valid = ", ".join(sorted(profiles))
         raise LocalModelServerError(f"Unknown local model server profile '{profile}'. Valid profiles: {valid}") from exc
@@ -306,10 +323,10 @@ def stop_local_model_servers(
 
 def start_local_model_server(
     root: Path,
-    profile: str = "qwen35-mtp",
+    profile: str = "hermes-qwen32",
     *,
-    host: str = "127.0.0.1",
-    port: int = 8080,
+    host: str = DEFAULT_SERVER_HOST,
+    port: int = DEFAULT_SERVER_PORT,
     binary: str = "llama-server",
     replace: bool = False,
     dry_run: bool = False,
@@ -406,7 +423,7 @@ def start_local_model_server(
 
 def restart_local_model_server(
     root: Path,
-    profile: str = "qwen35-mtp",
+    profile: str = "hermes-qwen32",
     **kwargs: Any,
 ) -> dict[str, Any]:
     kwargs["replace"] = True
@@ -566,8 +583,10 @@ def _classify_local_model_process(
         tokens = _split_command(command)
         alias = _arg_after(tokens, "--alias")
         port = _safe_int(_arg_after(tokens, "--port"))
-        provider = "qwen35-mtp" if alias == "qwen35-9b-mtp" else None
-        model = alias or _arg_after(tokens, "--model") or _arg_after(tokens, "--hf-repo")
+        model = alias or _arg_after(tokens, "--model") or _arg_after(tokens, "--hf-repo") or _arg_after(tokens, "-m")
+        matched_profile = _profile_for_llama_process(alias=alias, model=model, port=port)
+        provider = matched_profile.provider if matched_profile else None
+        model = matched_profile.model if matched_profile else model
         return LocalModelServerProcess(
             pid=pid,
             ppid=ppid,
@@ -662,10 +681,147 @@ def _managed_profile_for_model(
     model: str,
     base_url: str | None,
 ) -> LocalModelServerProfile | None:
-    if provider != "qwen35-mtp" or model != "qwen35-9b-mtp":
-        return None
-    host, port = _host_port_from_base_url(base_url, default_host="127.0.0.1", default_port=8080)
-    return qwen35_mtp_profile(host=host, port=port)
+    host, port = _host_port_from_base_url(base_url, default_host=DEFAULT_SERVER_HOST, default_port=DEFAULT_SERVER_PORT)
+    for profile in _unique_profiles(known_local_model_server_profiles(host=host, port=port).values()):
+        if profile.provider == provider and profile.model == model:
+            return profile
+    return None
+
+
+def _manifest_backed_server_profiles(
+    *,
+    host: str,
+    port: int,
+    binary: str,
+) -> list[LocalModelServerProfile]:
+    try:
+        manifest = load_expected_local_model_manifest()
+    except LocalModelReadinessError as exc:
+        raise LocalModelServerError(f"Could not load local model server profile manifest: {exc}") from exc
+
+    profiles: list[LocalModelServerProfile] = []
+    for lane in manifest.lanes.values():
+        if not lane.local_server_backed:
+            continue
+        profile = _profile_from_manifest_lane(lane, host=host, port=port, binary=binary)
+        if profile is not None:
+            profiles.append(profile)
+    return profiles
+
+
+def _profile_from_manifest_lane(
+    lane: ExpectedLocalModelLane,
+    *,
+    host: str,
+    port: int,
+    binary: str,
+) -> LocalModelServerProfile | None:
+    profile_host, profile_port = _lane_server_host_port(lane, host=host, port=port)
+    if lane.provider_id == "qwen35-mtp" and lane.model_id == "qwen35-9b-mtp":
+        return qwen35_mtp_profile(host=profile_host, port=profile_port, binary=binary)
+    if lane.profile_id in _ORNITH_SERVER_RECIPES:
+        return _ornith_profile(lane, host=profile_host, port=profile_port, binary=binary)
+    return None
+
+
+def _ornith_profile(
+    lane: ExpectedLocalModelLane,
+    *,
+    host: str,
+    port: int,
+    binary: str,
+) -> LocalModelServerProfile:
+    recipe = _ORNITH_SERVER_RECIPES[lane.profile_id]
+    model_path = Path(recipe["model_path"]).expanduser().as_posix()
+    command = [
+        binary,
+        "-m",
+        model_path,
+        "--alias",
+        lane.model_id,
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--ctx-size",
+        recipe["ctx_size"],
+        "--gpu-layers",
+        "99",
+        "--flash-attn",
+        "on",
+        "--parallel",
+        "1",
+        "--jinja",
+        "--reasoning",
+        "auto",
+        "--temp",
+        "0.6",
+        "--top-p",
+        "0.95",
+        "--top-k",
+        "20",
+        "--no-webui",
+    ]
+    return LocalModelServerProfile(
+        profile_id=lane.profile_id,
+        provider=lane.provider_id,
+        model=lane.model_id,
+        host=host,
+        port=port,
+        base_url=f"http://{host}:{port}/v1",
+        command=command,
+        aliases=_dedupe_aliases(lane.lane_id, lane.provider_id, lane.model_id),
+    )
+
+
+def _lane_server_host_port(
+    lane: ExpectedLocalModelLane,
+    *,
+    host: str,
+    port: int,
+) -> tuple[str, int]:
+    manifest_host, manifest_port = _host_port_from_base_url(
+        lane.base_url,
+        default_host=DEFAULT_SERVER_HOST,
+        default_port=lane.port or DEFAULT_SERVER_PORT,
+    )
+    resolved_host = host if host != DEFAULT_SERVER_HOST else manifest_host
+    resolved_port = port if port != DEFAULT_SERVER_PORT else manifest_port
+    return resolved_host, resolved_port
+
+
+def _profile_for_llama_process(
+    *,
+    alias: str | None,
+    model: str | None,
+    port: int | None,
+) -> LocalModelServerProfile | None:
+    for profile in _unique_profiles(known_local_model_server_profiles().values()):
+        if port is not None and profile.port != port:
+            continue
+        identity_values = {profile.model, *profile.aliases}
+        if alias in identity_values or model in identity_values:
+            return profile
+    return None
+
+
+def _unique_profiles(profiles: Any) -> list[LocalModelServerProfile]:
+    unique: dict[str, LocalModelServerProfile] = {}
+    for profile in profiles:
+        if isinstance(profile, LocalModelServerProfile):
+            unique.setdefault(profile.profile_id, profile)
+    return list(unique.values())
+
+
+def _dedupe_aliases(*aliases: str | None) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for alias in aliases:
+        if not alias or alias in seen:
+            continue
+        seen.add(alias)
+        result.append(alias)
+    return tuple(result)
 
 
 def _host_port_from_base_url(

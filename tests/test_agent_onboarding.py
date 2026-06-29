@@ -494,7 +494,7 @@ def test_agent_catalog_discovers_configured_hermes_agents_without_leaking_keys(
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     hermes_dir = tmp_path / ".hermes"
-    for profile in ("mini", "dfqwen37plus", "dflocalfast", "dfcodex55"):
+    for profile in ("hermes-qwen37plus", "hermes-qwen32", "hermes-codex-gpt55"):
         (hermes_dir / "profiles" / profile).mkdir(parents=True)
     (hermes_dir / ".env").write_text("OPENROUTER_API_KEY=sk-or-test-secret\n", encoding="utf-8")
     (hermes_dir / "config.yaml").write_text(
@@ -511,15 +511,7 @@ providers:
 """,
         encoding="utf-8",
     )
-    (hermes_dir / "profiles" / "mini" / "config.yaml").write_text(
-        """model:
-  provider: openai-codex
-  default: gpt-5.5
-  base_url: https://chatgpt.com/backend-api/codex
-""",
-        encoding="utf-8",
-    )
-    (hermes_dir / "profiles" / "dfqwen37plus" / "config.yaml").write_text(
+    (hermes_dir / "profiles" / "hermes-qwen37plus" / "config.yaml").write_text(
         """model:
   default: qwen/qwen3.7-plus
   provider: openrouter
@@ -532,7 +524,7 @@ providers:
 """,
         encoding="utf-8",
     )
-    (hermes_dir / "profiles" / "dflocalfast" / "config.yaml").write_text(
+    (hermes_dir / "profiles" / "hermes-qwen32" / "config.yaml").write_text(
         """model:
   default: qwen35-9b-mtp
   provider: qwen35-mtp
@@ -545,7 +537,7 @@ providers:
 """,
         encoding="utf-8",
     )
-    (hermes_dir / "profiles" / "dfcodex55" / "config.yaml").write_text(
+    (hermes_dir / "profiles" / "hermes-codex-gpt55" / "config.yaml").write_text(
         """model:
   provider: openai-codex
   default: gpt-5.5
@@ -562,32 +554,32 @@ providers:
     agents = {agent["id"]: agent for agent in payload["hermes_agents"]}
 
     assert "hermes-default-openrouter-qwen-qwen3-7-plus" not in agents
-    assert "hermes-mini-openai-codex-gpt-5-5" not in agents
+    assert "hermes-profile-mini" not in agents
     assert not any("mini-router" in agent["id"] for agent in payload["hermes_agents"])
     assert not any(agent["model"] == "qwen3:14b" for agent in payload["hermes_agents"])
 
-    openrouter = agents["hermes-dfqwen37plus-openrouter-qwen-qwen3-7-plus"]
-    assert openrouter["label"] == "Hermes OpenRouter - qwen/qwen3.7-plus"
+    openrouter = agents["hermes-qwen37plus"]
+    assert openrouter["label"] == "Hermes Qwen 3.7 Plus"
     assert openrouter["provider"] == "openrouter"
     assert openrouter["model"] == "qwen/qwen3.7-plus"
-    assert openrouter["hermes_profile"] == "dfqwen37plus"
+    assert openrouter["hermes_profile"] == "hermes-qwen37plus"
     assert openrouter["status"] == "available"
     assert openrouter["key_status"] == "available"
     assert openrouter["key_source"] == "hermes_env"
     assert openrouter["adapter"] == "hermes_profile"
-    assert openrouter["runtime_contract"]["execution_surface"] == "hermes_profile_handoff"
-    assert openrouter["runtime_contract"]["task_run_allowed"] is False
+    assert openrouter["runtime_contract"]["runtime_contract"] == "registry_backed_advisory"
+    assert openrouter["runtime_contract"]["execution_surface"] == "agent_advise"
 
-    local_model = agents["hermes-dflocalfast-qwen35-mtp-qwen35-9b-mtp"]
-    assert local_model["label"] == "Hermes qwen35-mtp - qwen35-9b-mtp"
+    local_model = agents["hermes-qwen32"]
+    assert local_model["label"] == "Hermes Qwen 3.2"
     assert local_model["provider"] == "qwen35-mtp"
     assert local_model["model"] == "qwen35-9b-mtp"
     assert local_model["base_url"] == "http://127.0.0.1:8080/v1"
 
-    codex = agents["hermes-dfcodex55-openai-codex-gpt-5-5"]
-    assert codex["label"] == "Hermes Codex - gpt-5.5"
+    codex = agents["hermes-codex-gpt55"]
+    assert codex["label"] == "Hermes Codex GPT 5.5"
     assert codex["provider"] == "openai-codex"
-    assert codex["hermes_profile"] == "dfcodex55"
+    assert codex["hermes_profile"] == "hermes-codex-gpt55"
 
 
 def test_agent_catalog_prefers_qwen35_and_marks_heavy_models_unsafe_on_mac_mini(
@@ -679,6 +671,11 @@ enabled: true
     assert heavy["machine_fit"]["status"] == "not_recommended"
     assert "16 GB" in heavy["machine_fit"]["reason"]
 
+    inventory = build_local_model_inventory(payload)
+    qwen_row = next(row for row in inventory["rows"] if row["row_id"] == "profile:hermes-qwen32")
+    assert qwen_row["status"] == "available"
+    assert qwen_row["action"] is None
+
 
 def test_local_model_inventory_builds_machine_summary_and_rows(
     tmp_path: Path,
@@ -743,15 +740,15 @@ enabled: true
     assert inventory["summary"]["machine_label"] == "16GB mac_mini"
     assert inventory["summary"]["concurrency_label"] == "one local model at a time"
     assert inventory["summary"]["available_profile_count"] >= 1
-    qwen = next(row for row in inventory["rows"] if row["row_id"] == "profile:local-qwen35-mtp")
+    qwen = next(row for row in inventory["rows"] if row["row_id"] == "profile:hermes-qwen32")
     assert qwen == {
-        "row_id": "profile:local-qwen35-mtp",
+        "row_id": "profile:hermes-qwen32",
         "kind": "registered_profile",
         "provider_id": "qwen35-mtp",
         "provider_label": "qwen35-mtp",
         "model": "qwen35-9b-mtp",
-        "profile_id": "local-qwen35-mtp",
-        "selectable_profile_id": "local-qwen35-mtp",
+        "profile_id": "hermes-qwen32",
+        "selectable_profile_id": "hermes-qwen32",
         "status": "available",
         "status_label": "Available",
         "source": "local_openai_compatible",

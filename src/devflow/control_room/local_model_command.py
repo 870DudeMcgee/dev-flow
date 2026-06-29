@@ -28,7 +28,7 @@ def local_model_status_command(
 
 @local_model_app.command("stop")
 def local_model_stop_command(
-    profile: str | None = typer.Argument(None, help="Optional local server profile to stop, such as qwen35-mtp."),
+    profile: str | None = typer.Argument(None, help="Optional local server profile to stop, such as hermes-qwen32."),
     json_output: bool = typer.Option(False, "--json", help="Print stop result as JSON."),
     include_ollama: bool = typer.Option(False, "--include-ollama", help="Also stop Ollama server processes."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be stopped without sending signals."),
@@ -59,7 +59,7 @@ def local_model_stop_command(
 
 @local_model_app.command("start")
 def local_model_start_command(
-    profile: str = typer.Argument("qwen35-mtp", help="Local server profile to start."),
+    profile: str = typer.Argument("hermes-qwen32", help="Local server profile to start."),
     json_output: bool = typer.Option(False, "--json", help="Print start result as JSON."),
     replace: bool = typer.Option(False, "--replace", help="Stop any managed local model server before starting this one."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the launch command without starting anything."),
@@ -96,7 +96,7 @@ def local_model_start_command(
 
 @local_model_app.command("restart")
 def local_model_restart_command(
-    profile: str = typer.Argument("qwen35-mtp", help="Local server profile to restart."),
+    profile: str = typer.Argument("hermes-qwen32", help="Local server profile to restart."),
     json_output: bool = typer.Option(False, "--json", help="Print restart result as JSON."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the launch command without starting anything."),
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host for the local model server."),

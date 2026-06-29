@@ -27,7 +27,7 @@ VIEWPORTS: tuple[dict[str, int | str], ...] = (
 
 
 VISUAL_FLOW = (
-    "app loads -> Idea Greenhouse -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
+    "app loads -> Unified Chat Workbench -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
     "Task Control with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
 )
 
@@ -246,10 +246,11 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
         _check(
             "guided-first-viewport",
             "#idea-greenhouse-section",
-            "Idea Greenhouse is the first main content section after the top bar.",
+            "Unified Chat Workbench is the first panel in the Chat Workbench zone.",
             "pass"
             if (
-                _index_before("idea-greenhouse-section", "pipeline-spine")
+                _index_before("zone-capture-plan", "zone-execute")
+                and _index_before("idea-greenhouse-section", "pipeline-spine")
                 and _index_before("pipeline-spine", "orchestrator-section")
             )
             else "fail",
@@ -257,15 +258,15 @@ def _static_visual_contract_checks() -> list[dict[str, str]]:
         _check(
             "idea-greenhouse-panel",
             "#idea-greenhouse-section",
-            "Idea Greenhouse sits at the top of the Idea-to-Product pipeline with capture form and lanes.",
+            "Unified Chat Workbench sits at the top of the Idea-to-Product pipeline with capture form and lanes.",
             "pass"
             if (
                 _index_before("idea-greenhouse-section", "pipeline-spine")
-                and _index_before("history-panel", "brainstorm-section")
                 and all(
                     token in INDEX_HTML
                     for token in ("idea-capture-form", "idea-greenhouse-lanes")
                 )
+                and all(token in INDEX_HTML for token in ('class="chat-sidebar"', "brainstorm-section"))
             )
             else "fail",
         ),
@@ -329,7 +330,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
         },
         {
             "id": "guided-first-viewport",
-            "script": "document.querySelector('.center-column > section')?.id === 'idea-greenhouse-section'",
+            "script": "document.querySelector('.main-content [data-zone=\"capture-plan\"] section')?.id === 'idea-greenhouse-section'",
         },
         {
             "id": "brainstorm-chat",
@@ -344,7 +345,7 @@ def _playwright_assertions() -> list[dict[str, str]]:
                 "const pipeline = document.querySelector('#pipeline-spine');"
                 "const orchestrator = document.querySelector('#orchestrator-section');"
                 "return Boolean(greenhouse && brainstorm && pipeline && orchestrator && "
-                "document.querySelector('.right-column #brainstorm-section') && "
+                "document.querySelector('.chat-sidebar #brainstorm-section') && "
                 "greenhouse.compareDocumentPosition(pipeline) & Node.DOCUMENT_POSITION_FOLLOWING && "
                 "pipeline.compareDocumentPosition(orchestrator) & Node.DOCUMENT_POSITION_FOLLOWING && "
                 "greenhouse.querySelector('#idea-capture-form') && "
@@ -478,13 +479,13 @@ def _browser_visual_checks(page: Any) -> dict[str, bool]:
           const healthRect = topbarHealth ? topbarHealth.getBoundingClientRect() : null;
           return {
             no_horizontal_overflow: doc.scrollWidth <= doc.clientWidth,
-            guided_first_viewport: document.querySelector('.center-column > section')?.id === 'idea-greenhouse-section',
+            guided_first_viewport: document.querySelector('.main-content [data-zone="capture-plan"] section')?.id === 'idea-greenhouse-section',
             idea_greenhouse_panel: Boolean(
               greenhouseSection &&
               brainstormSection &&
               pipelineSection &&
               orchestratorSection &&
-              document.querySelector('.right-column #brainstorm-section') &&
+              document.querySelector('.chat-sidebar #brainstorm-section') &&
               greenhouseSection.compareDocumentPosition(pipelineSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
               pipelineSection.compareDocumentPosition(orchestratorSection) & Node.DOCUMENT_POSITION_FOLLOWING &&
               greenhouseSection.querySelector('#idea-capture-form') &&

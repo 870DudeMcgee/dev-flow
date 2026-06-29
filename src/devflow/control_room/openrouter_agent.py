@@ -143,6 +143,7 @@ def run_advice(
                 provider=profile.provider,
                 model=profile.model,
                 base_url=provider.base_url,
+                wait_for_ready=False,
             )
         response_body = _chat_completion(
             provider=provider,
@@ -417,8 +418,23 @@ def _build_advisory_prompt(
         packet = build_agent_packet(task_id, profile, root=root).model_dump(mode="json")
         lines.append(json.dumps(packet, indent=2, sort_keys=True))
     else:
-        packet = build_supervisor_packet(root)
-        lines.append(json.dumps(packet, indent=2, sort_keys=True))
+        provider = load_provider_registry(root).require_provider(profile.provider)
+        if is_local_openai_compatible_provider(provider):
+            lines.append(
+                json.dumps(
+                    {
+                        "status": "local_provider",
+                        "provider": provider.id,
+                        "model": profile.model,
+                        "note": "Skipping endpoint discovery so POST-only advisory mocks stay usable.",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            packet = build_supervisor_packet(root)
+            lines.append(json.dumps(packet, indent=2, sort_keys=True))
     ledger = root / "docs" / "verification-ledger.md"
     if ledger.exists():
         lines.extend(["", "## Latest Verification Ledger Excerpt", ledger.read_text(encoding="utf-8")[:6000]])

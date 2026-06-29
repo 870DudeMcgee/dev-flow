@@ -40,12 +40,22 @@ build_task_review, render_task_review = _tr.build_task_review, _tr.render_task_r
 
 
 def build_control_room_status(root: Path) -> dict[str, Any]:
+    from devflow.control_room.agent_catalog import build_agent_catalog
+    from devflow.control_room.local_model_inventory import build_local_model_inventory
+    from devflow.control_room.local_model_readiness import build_local_model_readiness_plan
     from devflow.control_room.operator_readiness import build_operator_readiness_snapshot
 
     projections = list_task_status_projections(root)
     scheduler = build_scheduler_snapshot(root)
     operator_readiness = build_operator_readiness_snapshot(root)
     questions = build_question_snapshot(root)
+    agent_catalog = build_agent_catalog(root)
+    local_model_inventory = build_local_model_inventory(agent_catalog)
+    local_model_readiness = build_local_model_readiness_plan(
+        root,
+        agent_catalog=agent_catalog,
+        inventory=local_model_inventory,
+    )
     task_records = [_compact_task_record(root, projection.task, projection) for projection in projections]
     active_tasks = [record for record in task_records if record["active"]]
     closed_tasks = [record for record in task_records if record["status"] == "closed"]
@@ -83,6 +93,8 @@ def build_control_room_status(root: Path) -> dict[str, Any]:
             "max_parallel_recommendation": scheduler.max_parallel_recommendation,
         },
         "operator_readiness": operator_readiness.model_dump(mode="json"),
+        "local_model_inventory": local_model_inventory,
+        "local_model_readiness": local_model_readiness,
         "questions": {
             "counts": questions.counts,
             "next_safe_action": questions.next_safe_action,

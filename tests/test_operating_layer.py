@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+import devflow.control_room.operating_layer_server as operating_layer_server
 from devflow.cli import app
 from devflow.control_room.browser_action_policy import (
     ACTION_APPROVAL_PHRASE,
@@ -118,12 +119,90 @@ def _post_action(host: str, port: int, command: str, **extra: object) -> tuple[i
     return response.status, payload
 
 
+def _post_json(host: str, port: int, path: str, payload: dict[str, object]) -> tuple[int, dict]:
+    connection = HTTPConnection(host, port, timeout=5)
+    connection.request(
+        "POST",
+        path,
+        body=json.dumps(payload),
+        headers={"Content-Type": "application/json"},
+    )
+    response = connection.getresponse()
+    body = response.read().decode("utf-8")
+    parsed = json.loads(body) if body else {}
+    return response.status, parsed
+
+
+def _get_raw(host: str, port: int, path: str) -> tuple[int, bytes, dict]:
+    connection = HTTPConnection(host, port, timeout=5)
+    connection.request("GET", path)
+    response = connection.getresponse()
+    body = response.read()
+    headers = {k.lower(): v for k, v in response.getheaders()}
+    return response.status, body, headers
+
+
+def _write_graphify_fixture(root: Path) -> None:
+    graphify_dir = root / "graphify-out"
+    graphify_dir.mkdir(parents=True, exist_ok=True)
+    (graphify_dir / "GRAPH_REPORT.md").write_text(
+        "# Graph Report - X  (2026-06-28)\n## Summary\n- 10 nodes\n## Graph Freshness\n- Built from commit: `9fb51f5b`\n",
+        encoding="utf-8",
+    )
+    (graphify_dir / "graph.json").write_text('{"ok": true}', encoding="utf-8")
+    (graphify_dir / "GRAPH_TREE.html").write_text("<html>tree</html>", encoding="utf-8")
+    (graphify_dir / "Local-AI-Dev-Team-callflow.html").write_text("<html>callflow</html>", encoding="utf-8")
+    (graphify_dir / "dev-flow-callflow.html").write_text("<html>callflow</html>", encoding="utf-8")
+
+
+def test_architecture_artifact_route_serves_projected_artifacts(tmp_path: Path) -> None:
+    _write_graphify_fixture(tmp_path)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, body, headers = _get_raw(host, port, "/architecture/artifact?id=graph-report")
+        assert status == 200
+        assert headers["content-type"] == "text/markdown"
+        assert headers.get("x-content-type-options") == "nosniff"
+        assert headers.get("cache-control") == "no-store"
+        assert b"Graph Report" in body
+
+        status, body, headers = _get_raw(host, port, "/architecture/artifact?id=graph-json")
+        assert status == 200
+        assert headers["content-type"] == "application/json"
+
+        status, body, headers = _get_raw(host, port, "/architecture/artifact?id=callflow-dev-flow-callflow")
+        assert status == 200
+        assert headers["content-type"] == "text/html"
+        assert b"callflow" in body
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_architecture_artifact_route_rejects_unsafe_requests(tmp_path: Path) -> None:
+    _write_graphify_fixture(tmp_path)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for path, expected in [
+            ("/architecture/artifact?id=unknown-id", 404),
+            ("/architecture/artifact?id=../etc/passwd", 404),
+            ("/architecture/artifact?id=/etc/passwd", 404),
+            ("/architecture/artifact", 400),
+            ("/architecture/artifact?path=graphify-out/GRAPH_REPORT.md", 400),
+        ]:
+            status, _body, _headers = _get_raw(host, port, path)
+            assert status == expected, (path, status)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
 def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert INDEX_HTML is SPLIT_INDEX_HTML
     assert APP_CSS is SPLIT_APP_CSS
     assert APP_JS is SPLIT_APP_JS
-    assert '<link rel="stylesheet" href="/app.css?v=model-pickers-20260626">' in INDEX_HTML
-    assert '<script src="/app.js?v=model-pickers-20260626"></script>' in INDEX_HTML
+    assert '<link rel="stylesheet" href="/app.css?v=unified-workbench-20260629">' in INDEX_HTML
+    assert '<script src="/app.js?v=unified-workbench-20260629"></script>' in INDEX_HTML
     assert ".focus-overlay" in APP_CSS
     assert "pipeline-section" in INDEX_HTML
     assert ".panel" in APP_CSS
@@ -140,9 +219,16 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "fallbackFirstViewportPresentation" in APP_JS
     assert "older/partial snapshots" in APP_JS
     assert "renderFirstViewport" in APP_JS
+    assert "renderArchitectureEvidence" in APP_JS
+    assert "renderWorkbench" in APP_JS
+    assert "'/api/workbench/implement'" in APP_JS
+    assert "'/api/gates/setup'" in APP_JS
     assert "renderSerialRuntimePanel" in APP_JS
     assert "serial-runtime-panel" in INDEX_HTML
     assert "serial-runtime-panel" in APP_CSS
+    assert "local_model_readiness" in APP_JS
+    assert "localModelReadinessAction" in APP_JS
+    assert "local-model-readiness-actions" in APP_CSS
     assert "first_viewport" in APP_JS
     assert "executeAction" in APP_JS
     assert "rememberApprovedActionResult" not in APP_JS
@@ -151,11 +237,19 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "function taskAction(" not in APP_JS
     assert "renderWorkerLanes" in APP_JS
     assert "task-control-grid" in INDEX_HTML
+    assert "architecture-evidence-section" in INDEX_HTML
+    assert "workbench-stage-path" in INDEX_HTML
+    assert "workbench-gate-strip" in INDEX_HTML
 
 
 def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
-    assert "Idea Greenhouse" in INDEX_HTML
+    assert "Unified Chat Workbench" in INDEX_HTML
+    assert "Idea -> Brainstorm -> Spec -> Plan -> Implement" in INDEX_HTML
     assert "idea-greenhouse-section" in INDEX_HTML
+    assert "workbench-stage-path" in INDEX_HTML
+    assert "workbench-gate-strip" in INDEX_HTML
+    assert "workbench-next-action" in INDEX_HTML
+    assert "workbench-implement-result" in INDEX_HTML
     assert "pipeline-spine" in INDEX_HTML
     assert "product-review-section" in INDEX_HTML
     assert "idea-greenhouse-status" in INDEX_HTML
@@ -169,7 +263,7 @@ def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
 
 def test_operating_layer_task_control_replaces_fixed_review_dock_contract() -> None:
     assert '<section id="product-review-section" class="product-review-section" aria-label="Task Control">' in INDEX_HTML
-    assert '<h2 class="panel-title">Task Control</h2>' in INDEX_HTML
+    assert '<h3 class="panel-title">Task Control</h3>' in INDEX_HTML
     assert 'class="task-control-grid"' in INDEX_HTML
     assert "bottom-dock" not in INDEX_HTML
     assert "Product / Review" not in INDEX_HTML
@@ -181,9 +275,8 @@ def test_operating_layer_task_control_replaces_fixed_review_dock_contract() -> N
     ]
     assert "position: fixed" not in product_review_rules
 
-    desktop_rules = APP_CSS[APP_CSS.index("@media (min-width: 1201px)") : APP_CSS.index("@media (max-width: 1200px)")]
-    layout_column_rules = desktop_rules[
-        desktop_rules.index(".layout-columns {") : desktop_rules.index("}", desktop_rules.index(".layout-columns {"))
+    layout_column_rules = APP_CSS[
+        APP_CSS.index(".layout-columns {") : APP_CSS.index("}", APP_CSS.index(".layout-columns {"))
     ]
     assert "max-height" not in layout_column_rules
     assert "overflow-y: auto" not in layout_column_rules
@@ -220,23 +313,26 @@ def test_operating_layer_css_includes_idea_greenhouse_layout_contract() -> None:
     assert "max-height: 48px" not in idea_lane_rules
 
     mobile_rules = APP_CSS[APP_CSS.index("@media (max-width: 900px)") :]
-    assert ".idea-greenhouse-lanes { grid-template-columns: 1fr; }" in mobile_rules
-    assert mobile_rules.index("#idea-greenhouse-section { order: 1; }") < mobile_rules.index(
-        ".history-panel { order: 2; }"
-    ) < mobile_rules.index("#brainstorm-section") < mobile_rules.index("#pipeline-spine") < mobile_rules.index(
-        "#orchestrator-section"
-    ) < mobile_rules.index("#product-review-section")
+    assert ".idea-greenhouse-lanes { grid-template-columns: repeat(3, minmax(0, 1fr));" in mobile_rules
+    assert ".layout-columns { flex-direction: column; padding: 0 12px; }" in mobile_rules
+    assert INDEX_HTML.index('<div class="zone" id="zone-capture-plan"') < INDEX_HTML.index(
+        '<div class="zone" id="zone-execute"'
+    ) < INDEX_HTML.index('<aside class="chat-sidebar"')
+    assert INDEX_HTML.index('id="idea-greenhouse-section"') < INDEX_HTML.index(
+        'id="pipeline-spine"'
+    ) < INDEX_HTML.index('id="orchestrator-section"') < INDEX_HTML.index('id="product-review-section"')
 
 
 def test_operating_layer_desktop_layout_keeps_primary_panels_from_flex_shrinking() -> None:
     """Primary control-room panels may scroll on desktop, but must never shrink and clip content."""
     desktop_rules = APP_CSS[APP_CSS.index("@media (min-width: 1201px)") : APP_CSS.index("@media (max-width: 1200px)")]
 
-    assert ".center-column > .panel { margin-bottom: 0; flex-shrink: 0; }" in APP_CSS
-    assert ".right-column > .panel { flex-shrink: 0; }" in APP_CSS
-    assert ".layout-columns" in desktop_rules
-    layout_column_rules = desktop_rules[
-        desktop_rules.index(".layout-columns {") : desktop_rules.index("}", desktop_rules.index(".layout-columns {"))
+    assert ".main-content {" in APP_CSS
+    assert ".chat-sidebar {" in APP_CSS
+    assert ".chat-sidebar .brainstorm-section {" in APP_CSS
+    assert ".task-control-grid" in desktop_rules
+    layout_column_rules = APP_CSS[
+        APP_CSS.index(".layout-columns {") : APP_CSS.index("}", APP_CSS.index(".layout-columns {"))
     ]
     assert "max-height" not in layout_column_rules
     assert "overflow-y: auto" not in layout_column_rules
@@ -246,8 +342,9 @@ def test_operating_layer_home_layout_uses_compact_shell_contract() -> None:
     assert "--sidebar-w: 56px;" in APP_CSS
     assert ".sidebar:hover" in APP_CSS
     assert ".sidebar:hover .brand-text" in APP_CSS
-    assert '<a href="#product-review-section" class="nav-item" data-nav="work"' in INDEX_HTML
-    assert '<a href="#product-review-section" class="nav-item" data-nav="review"' in INDEX_HTML
+    assert '<a href="#zone-capture-plan" class="nav-item active" data-nav="home"' in INDEX_HTML
+    assert '<a href="#zone-execute" class="nav-item" data-nav="work"' in INDEX_HTML
+    assert 'data-nav-target="zone-execute"' in INDEX_HTML
     assert "setupNavigation" in APP_JS
     assert "scrollIntoView" in APP_JS
 
@@ -270,24 +367,31 @@ def test_operating_layer_home_layout_uses_compact_shell_contract() -> None:
     ):
         assert token in APP_CSS
 
-    assert 'id="brainstorm-history-details"' in INDEX_HTML
-    assert ".history-panel details" in APP_CSS
+    assert 'id="brainstorm-history-details" class="brainstorm-history-inline"' in INDEX_HTML
+    assert ".brainstorm-history-inline summary" in APP_CSS
     assert ".brainstorm-section" in APP_CSS
     assert "min-height: clamp(340px, 44vh, 520px);" in APP_CSS
     assert "#pipeline-spine .pipeline-step" in APP_CSS
+    assert ".architecture-evidence-section" in APP_CSS
+    assert ".architecture-artifact-chip" in APP_CSS
     assert "min-height: 0;" in APP_CSS
     assert ".orchestrator-section.is-idle" in APP_CSS
     assert "toggle('is-idle'" in APP_JS
 
 
-def test_operating_layer_idle_desktop_moves_brainstorm_to_right_chat_rail() -> None:
-    assert INDEX_HTML.index('class="panel history-panel"') < INDEX_HTML.index('id="brainstorm-section"')
-    right_column = INDEX_HTML[INDEX_HTML.index('<div class="right-column">') : INDEX_HTML.index('</div>\n      </div>', INDEX_HTML.index('<div class="right-column">'))]
-    assert 'id="brainstorm-section"' in right_column
-    assert 'id="brainstorm-transcript"' in right_column
+def test_operating_layer_idle_desktop_keeps_brainstorm_in_chat_sidebar() -> None:
+    assert INDEX_HTML.index('<div class="zone" id="zone-capture-plan"') < INDEX_HTML.index(
+        '<aside class="chat-sidebar"'
+    ) < INDEX_HTML.index('id="brainstorm-section"')
+    chat_sidebar = INDEX_HTML[
+        INDEX_HTML.index('<aside class="chat-sidebar"') :
+        INDEX_HTML.index("</aside>", INDEX_HTML.index('<aside class="chat-sidebar"'))
+    ]
+    assert 'id="brainstorm-section"' in chat_sidebar
+    assert 'id="brainstorm-transcript"' in chat_sidebar
 
-    assert ".right-column .brainstorm-section" in APP_CSS
-    assert ".right-column .brainstorm-transcript" in APP_CSS
+    assert ".chat-sidebar .brainstorm-section" in APP_CSS
+    assert ".chat-sidebar .brainstorm-transcript" in APP_CSS
     assert ".product-review-section.is-empty" in APP_CSS
     assert ".mission-feed-section.is-empty" in APP_CSS
     assert "$('product-review-section')?.classList.toggle" in APP_JS
@@ -322,39 +426,175 @@ def test_operating_layer_js_includes_idea_greenhouse_runtime_contract() -> None:
 
 def test_operating_layer_js_model_selectors_share_all_available_agents_contract() -> None:
     assert "function selectableAgents()" in APP_JS
-    assert "const agentRows = selectableAgents().map(agent =>" in APP_JS
-    assert "const selectorAgents = selectableAgents();" in APP_JS
-    assert "selectorAgents.map(a =>" in APP_JS
-    assert "const ids = selectorAgents.map(a => a.id);" in APP_JS
+    assert "function renderModelPickerDropdown(config)" in APP_JS
+    assert "function setupModelPicker(config" in APP_JS
+    assert "const selectable = selectableAgents();" in APP_JS
+    assert "selectable.filter(agent => !agent.is_local).map(toSelectableModelRow)" in APP_JS
+    assert "selectable.filter(agent => agent.is_local).map(toSelectableModelRow)" in APP_JS
+    assert "builderModelPickerConfig()" in APP_JS
+    assert "judgeModelPickerConfig()" in APP_JS
+    assert "builder_profile_id: builderModel" in APP_JS
+    assert "judge_profile_id: judgeModel" in APP_JS
+    assert "'/api/local-model/ensure'" in APP_JS
+    assert "Starting..." in APP_JS
+    assert "const previousValue = getModelPickerValue(config);" in APP_JS
+    assert "setModelPickerValue(config, previousValue, { persist: false });" in APP_JS
+    assert "setModelPickerValue(config, agent.id, { persist: true });" in APP_JS
     assert "a.adapter === 'openai_compatible' || a.adapter === 'ollama_chat'" not in APP_JS
+
+
+def test_builder_judge_model_pickers_use_hidden_inputs_and_shared_dropdowns() -> None:
+    assert '<select id="bj-builder-model">' not in INDEX_HTML
+    assert '<select id="bj-judge-model">' not in INDEX_HTML
+    assert 'type="hidden" id="bj-builder-model" name="builder_profile_id"' in INDEX_HTML
+    assert 'type="hidden" id="bj-judge-model" name="judge_profile_id"' in INDEX_HTML
+    assert 'id="bj-builder-model-selector"' in INDEX_HTML
+    assert 'id="bj-builder-model-dropdown"' in INDEX_HTML
+    assert 'id="bj-judge-model-selector"' in INDEX_HTML
+    assert 'id="bj-judge-model-dropdown"' in INDEX_HTML
+
+
+def test_builder_judge_api_read_payloads_include_loop_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operating_layer_server._bj_running_loops.clear()
+    operating_layer_server._bj_threads.clear()
+    raw_run = {
+        "loop_id": "bj-file",
+        "run_id": "run-file",
+        "status": "passed",
+        "started_at": "2026-01-01T00:00:00Z",
+        "finished_at": "2026-01-01T00:01:00Z",
+        "evidence_path": ".devflow/builder-judge-loops/bj-file/run.json",
+        "next_safe_action": "Review the final draft.",
+        "rounds": [{"round_number": 1, "score": 91, "passed": True}],
+        "config": {
+            "definition_of_done": "A short test artifact",
+            "builder_profile_id": "builder-a",
+            "judge_profile_id": "judge-a",
+        },
+    }
+    run_path = tmp_path / ".devflow" / "builder-judge-loops" / "bj-file" / "run.json"
+    _write_json(run_path, raw_run)
+
+    class FakeRun:
+        status = "passed"
+
+        def __init__(self, loop_id: str) -> None:
+            self.loop_id = loop_id
+
+        def model_dump(self, *, mode: str) -> dict:
+            assert mode == "json"
+            return {
+                "loop_id": self.loop_id,
+                "run_id": f"{self.loop_id}-run",
+                "status": "passed",
+                "evidence_path": f".devflow/builder-judge-loops/{self.loop_id}/run.json",
+                "next_safe_action": "Review the final draft.",
+                "rounds": [],
+                "config": {
+                    "definition_of_done": "A short test artifact",
+                    "builder_profile_id": "builder-a",
+                    "judge_profile_id": "judge-a",
+                },
+            }
+
+    def fake_run_builder(root: Path, config, *, loop_id: str | None = None, write_evidence: bool = True) -> FakeRun:
+        return FakeRun(loop_id or "bj-start")
+
+    def fake_quality_gate(root: Path, **kwargs) -> FakeRun:
+        return FakeRun("qg-spec-test")
+
+    monkeypatch.setattr("devflow.control_room.builder_judge_loop._generate_loop_id", lambda: "bj-start")
+    monkeypatch.setattr(operating_layer_server, "run_builder_judge_loop", fake_run_builder)
+    monkeypatch.setattr(operating_layer_server, "run_quality_gate", fake_quality_gate)
+    monkeypatch.setattr(
+        "devflow.control_room.brainstorm._read_transcript",
+        lambda path: [{"role": "user", "content": "Build a tiny artifact."}],
+    )
+
+    server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        conn = HTTPConnection(host, port, timeout=5)
+        start_body = {
+            "definition_of_done": "A short test artifact",
+            "builder_profile_id": "builder-a",
+            "judge_profile_id": "judge-a",
+            "async": True,
+        }
+        conn.request(
+            "POST",
+            "/api/builder-judge/start",
+            body=json.dumps(start_body),
+            headers={"Content-Type": "application/json"},
+        )
+        start_payload = json.loads(conn.getresponse().read().decode("utf-8"))
+        assert start_payload["loop_family"] == "builder_judge"
+        assert start_payload["status_label"]
+
+        conn = HTTPConnection(host, port, timeout=5)
+        conn.request("GET", "/api/builder-judge/status?loop_id=bj-file")
+        status_payload = json.loads(conn.getresponse().read().decode("utf-8"))
+        assert status_payload["loop_family"] == "builder_judge"
+        assert status_payload["status_label"] == "Passed"
+        assert status_payload["evidence_path"] == raw_run["evidence_path"]
+
+        conn = HTTPConnection(host, port, timeout=5)
+        conn.request("GET", "/api/builder-judge/list")
+        list_payload = json.loads(conn.getresponse().read().decode("utf-8"))
+        assert list_payload["loops"][0]["loop_family"] == "builder_judge"
+        assert list_payload["loops"][0]["status_label"] == "Passed"
+
+        conn = HTTPConnection(host, port, timeout=5)
+        conn.request(
+            "POST",
+            "/api/builder-judge/quality-gate",
+            body=json.dumps({"session_id": "session-1", "stage": "spec"}),
+            headers={"Content-Type": "application/json"},
+        )
+        quality_payload = json.loads(conn.getresponse().read().decode("utf-8"))
+        assert quality_payload["loop_family"] == "builder_judge"
+        assert quality_payload["status_label"] == "Passed"
+        assert quality_payload["evidence_path"] == ".devflow/builder-judge-loops/qg-spec-test/run.json"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        operating_layer_server._bj_running_loops.clear()
+        operating_layer_server._bj_threads.clear()
 
 
 def test_operating_layer_css_prevents_right_rail_brainstorm_controls_from_overlapping_transcript() -> None:
     header_rules = APP_CSS[
-        APP_CSS.index(".right-column .brainstorm-section .panel-header {") :
-        APP_CSS.index(".right-column .brainstorm-section .panel-header-controls {")
+        APP_CSS.index(".chat-sidebar .brainstorm-section .panel-header {") :
+        APP_CSS.index(".chat-sidebar .brainstorm-section .panel-header-controls {")
     ]
     controls_rules = APP_CSS[
-        APP_CSS.index(".right-column .brainstorm-section .panel-header-controls {") :
-        APP_CSS.index(".right-column .brainstorm-section .model-selector-wrap {")
+        APP_CSS.index(".chat-sidebar .brainstorm-section .panel-header-controls {") :
+        APP_CSS.index(".chat-sidebar .brainstorm-section .model-selector-wrap {")
     ]
-    selector_rules = APP_CSS[
-        APP_CSS.index(".right-column .brainstorm-section .model-selector {") :
-        APP_CSS.index(".right-column .brainstorm-section .model-dropdown {")
+    wrapper_rules = APP_CSS[
+        APP_CSS.index(".chat-sidebar .brainstorm-section .model-selector-wrap {") :
+        APP_CSS.index(".chat-sidebar .brainstorm-section .model-dropdown {")
     ]
-    label_rules = APP_CSS[
-        APP_CSS.index(".right-column .brainstorm-section #model-selector-label {") :
-        APP_CSS.index(".right-column .brainstorm-section .model-dropdown {")
+    dropdown_rules = APP_CSS[
+        APP_CSS.index(".chat-sidebar .brainstorm-section .model-dropdown {") :
+        APP_CSS.index(".chat-sidebar .brainstorm-transcript {")
     ]
 
     assert "min-height: auto;" in header_rules
     assert "overflow: visible;" in header_rules
-    assert "display: grid;" in controls_rules
-    assert "grid-template-columns: minmax(0, 1fr);" in controls_rules
-    assert "align-self: stretch;" in selector_rules
-    assert "overflow: hidden;" in label_rules
-    assert "text-overflow: ellipsis;" in label_rules
-    assert "white-space: nowrap;" in label_rules
+    assert "display: flex;" in controls_rules
+    assert "flex-wrap: wrap;" in controls_rules
+    assert "width: 100%;" in controls_rules
+    assert "flex: 1 1 auto;" in wrapper_rules
+    assert "min-width: 0;" in wrapper_rules
+    assert "min-width: 260px;" in dropdown_rules
 
 
 def test_operating_layer_css_includes_park_archive_form_tokens() -> None:
@@ -528,6 +768,16 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert payload["mission_feed"][0]["task_id"] == "task-0001"
     assert payload["mission_feed"][0]["detail"] == "2/5 required steps done. Next: run a worker."
     assert payload["freshness"]["snapshot_path"] == ".devflow/freshness/latest.json"
+    assert payload["architecture_evidence"]["status"] == "missing"
+    assert payload["architecture_evidence"]["read_only"] is True
+    assert "architecture audit --write-doc" in payload["architecture_evidence"]["next_safe_action"]
+    assert payload["local_model_readiness"]["schema_version"] == 1
+    assert "lanes" in payload["local_model_readiness"]
+    assert payload["local_model_readiness"]["summary"]["lane_count"] >= 1
+    assert payload["workbench"]["stage"] in payload["workbench"]["stages"]
+    assert payload["workbench"]["gate_status"]["ready"] is False
+    assert [item["id"] for item in payload["workbench"]["gate_status"]["items"]] == ["graphify", "ponytail"]
+    assert "Repair gate evidence first" in payload["workbench"]["gate_status"]["next_action"]
 
     assert not (tmp_path / ".devflow" / "freshness" / "latest.json").exists()
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
@@ -611,6 +861,18 @@ def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
     monkeypatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    home_dir = tmp_path.parent / f"{tmp_path.name}-home"
+    monkeypatch.setenv("HOME", home_dir.as_posix())
+    hermes_profile = home_dir / ".hermes" / "profiles" / "hermes-qwen32" / "config.yaml"
+    hermes_profile.parent.mkdir(parents=True, exist_ok=True)
+    hermes_profile.write_text(
+        """model:
+  provider: qwen35-mtp
+  default: qwen35-9b-mtp
+  base_url: http://127.0.0.1:8080/v1
+""",
+        encoding="utf-8",
+    )
     assert runner.invoke(app, ["task", "create", "browser packet defaults"]).exit_code == 0
     routing = {
         "routing_decision": {
@@ -629,7 +891,7 @@ def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
 
     payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
     options = payload["tasks"][0]["worker_options"]
-    worker = next(option for option in options if option["worker_id"] == "qwen-worker")
+    worker = next(option for option in options if option["worker_id"] == "hermes-qwen32")
 
     assert worker["action_kind"] == "serial_packet"
     assert worker["recommended_allowed_files"] == [".devflow/workspaces/task-0001/implementation-context.md"]
@@ -985,7 +1247,7 @@ def test_operating_layer_snapshot_projects_hermes_launch_evidence(
                 "will_launch_hermes": True,
                 "dry_run": False,
                 "run_id": "snapshot-hermes-launch",
-                "hermes_profile": "qwen-worker",
+                "hermes_profile": "hermes-qwen32",
                 "runtime_kind": "hermes-profile",
                 "launch_status": "completed",
                 "exit_code": 0,
@@ -1009,14 +1271,14 @@ def test_operating_layer_snapshot_projects_hermes_launch_evidence(
     assert serial["run_state"] == "ready_for_verifier"
     assert serial["status_source"] == "hermes_run"
     assert serial["runtime_kind"] == "hermes-profile"
-    assert serial["hermes_profile"] == "qwen-worker"
+    assert serial["hermes_profile"] == "hermes-qwen32"
     assert serial["launch_status"] == "completed"
     assert serial["exit_code"] == 0
     assert serial["browser_actions"] == []
     assert serial["next_safe_action"] == "Run completion-verifier.py from the packet directory."
     latest = serial["latest_run"]
     assert latest["runtime_kind"] == "hermes-profile"
-    assert latest["hermes_profile"] == "qwen-worker"
+    assert latest["hermes_profile"] == "hermes-qwen32"
     assert latest["launch_status"] == "completed"
     assert latest["exit_code"] == 0
     assert ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-run.json" in latest["evidence_paths"]
@@ -1605,7 +1867,7 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "Brainstorm" in body
         assert "DeepSeek V4 Flash Free" in body
         assert "pipeline-stages-container" in body
-        assert "Idea Greenhouse" in body
+        assert "Unified Chat Workbench" in body
         assert "idea-capture-form" in body
         assert "idea-greenhouse-lanes" in body
         assert "Local evidence only" in body
@@ -1670,7 +1932,8 @@ def test_operating_layer_server_serves_app_and_snapshot(
         assert "pipeline_detail" in js
         assert "taskActionFromPipelinePayload" in js
         assert "Legacy Brainstorm payload fallback" in js
-        assert "if (typedTaskAction)" in js
+        assert "createTaskFromAcceptedImplementation" in js
+        assert "Implementation artifact is ready. Use Create Task after builder-judge acceptance." in js
         assert "implContext?.text && implContext.text.trim()" not in js
         assert "renderBrainstormTranscript" in js
         assert "renderWorkerLanes" in js
@@ -1734,7 +1997,7 @@ def test_operating_layer_server_serves_app_and_snapshot(
         thread.join(timeout=5)
 
 
-def test_operating_layer_agents_marks_local_openai_compatible_profiles_as_local(
+def test_operating_layer_agents_keeps_raw_local_profiles_out_of_model_pickers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1778,23 +2041,207 @@ def test_operating_layer_agents_marks_local_openai_compatible_profiles_as_local(
         response = connection.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
         assert response.status == HTTPStatus.OK
-        qwen = next(agent for agent in payload["agents"] if agent["id"] == "local-qwen35-mtp")
-        assert qwen["is_local"] is True
-        assert qwen["adapter"] == "openai_compatible"
-        assert qwen["role"] == "frontier_planner_architect_reviewer"
-        assert qwen["authority"] == "advisory"
-        assert qwen["availability"]["status"] == "available"
-        assert qwen["availability"]["source"] == "local_openai_compatible"
-        assert qwen["runtime_contract"]["execution_surface"] == "agent_advise"
+        assert all(agent["adapter"] == "hermes_profile" for agent in payload["agents"])
+        assert "local-qwen35-mtp" not in {agent["id"] for agent in payload["agents"]}
         assert payload["local_model_inventory"]["schema_version"] == 1
         assert any(
-            row["row_id"] == "profile:local-qwen35-mtp"
+            row["row_id"] == "profile:hermes-qwen32"
             for row in payload["local_model_inventory"]["rows"]
         )
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_local_model_ensure_managed_qwen_profile_calls_lifecycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    calls: list[dict[str, object]] = []
+
+    def fake_ensure(root: Path, **kwargs: object) -> dict[str, object]:
+        calls.append({"root": root, **kwargs})
+        return {
+            "action": "ensure",
+            "status": "already_running",
+            "will_manage_local_server": True,
+            "profile": "qwen35-mtp",
+            "provider": kwargs["provider"],
+            "model": kwargs["model"],
+            "base_url": kwargs["base_url"],
+            "pid": 12345,
+        }
+
+    monkeypatch.setattr(operating_layer_server, "ensure_local_model_server_for_profile", fake_ensure)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/local-model/ensure", {"profile_id": "hermes-qwen32"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.OK
+    assert calls == [
+        {
+            "root": tmp_path.resolve(),
+            "provider": "qwen35-mtp",
+            "model": "qwen35-9b-mtp",
+            "base_url": "http://127.0.0.1:8080/v1",
+        }
+    ]
+    assert payload["status"] == "already_running"
+    assert payload["will_manage_local_server"] is True
+    assert payload["management"] == "devflow_managed_local_server"
+    assert payload["lifecycle"]["pid"] == 12345
+
+
+def test_local_model_ensure_canonical_hermes_local_profile_calls_lifecycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    hermes_profile = tmp_path / ".hermes" / "profiles" / "hermes-qwen32"
+    hermes_profile.mkdir(parents=True)
+    (hermes_profile / "config.yaml").write_text(
+        """model:
+  default: qwen35-9b-mtp
+  provider: qwen35-mtp
+  base_url: http://127.0.0.1:8080/v1
+""",
+        encoding="utf-8",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_ensure(root: Path, **kwargs: object) -> dict[str, object]:
+        calls.append({"root": root, **kwargs})
+        return {
+            "action": "ensure",
+            "status": "already_running",
+            "will_manage_local_server": True,
+            "profile": "qwen35-mtp",
+            "provider": kwargs["provider"],
+            "model": kwargs["model"],
+            "base_url": kwargs["base_url"],
+            "pid": 12345,
+        }
+
+    monkeypatch.setattr(operating_layer_server, "ensure_local_model_server_for_profile", fake_ensure)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/local-model/ensure", {"profile_id": "hermes-qwen32"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.OK
+    assert calls == [
+        {
+            "root": tmp_path.resolve(),
+            "provider": "qwen35-mtp",
+            "model": "qwen35-9b-mtp",
+            "base_url": "http://127.0.0.1:8080/v1",
+        }
+    ]
+    assert payload["requested_profile_id"] == "hermes-qwen32"
+    assert payload["hermes_profile"] == "hermes-qwen32"
+    assert payload["status"] == "already_running"
+
+
+def test_local_model_ensure_rejects_retired_hermes_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        operating_layer_server,
+        "ensure_local_model_server_for_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("retired alias should not boot a local server")),
+    )
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for profile_id in ("hermes-profile-dflocalfast", "qwen-worker"):
+            status, payload = _post_json(host, port, "/api/local-model/ensure", {"profile_id": profile_id})
+            assert status == HTTPStatus.NOT_FOUND
+            assert f"Unknown profile_id '{profile_id}'" in payload["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_local_model_ensure_remote_profile_skips_server_boot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        operating_layer_server,
+        "ensure_local_model_server_for_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("remote profile should not boot a local server")),
+    )
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/local-model/ensure", {"profile_id": "hermes-qwen37plus"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.OK
+    assert payload["status"] == "skipped"
+    assert payload["will_manage_local_server"] is False
+    assert payload["management"] == "provider_managed_remote"
+    assert payload["provider"] == "openrouter"
+
+
+def test_local_model_ensure_ollama_profile_reports_unmanaged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        operating_layer_server,
+        "ensure_local_model_server_for_profile",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("ollama profile should not boot a managed server")),
+    )
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/local-model/ensure", {"profile_id": "local-gemma4-qat"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.OK
+    assert payload["status"] == "unmanaged"
+    assert payload["will_manage_local_server"] is False
+    assert payload["management"] == "managed_by_ollama"
+    assert payload["provider"] == "ollama"
+    assert payload["model"] == "gemma4:12b-it-qat"
+
+
+def test_local_model_ensure_unknown_profile_errors(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/local-model/ensure", {"profile_id": "missing-profile"})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.NOT_FOUND
+    assert "Unknown profile_id 'missing-profile'" in payload["error"]
 
 
 def test_operating_layer_agents_exposes_hermes_codex_gpt55_to_shared_model_pickers(
@@ -1820,7 +2267,7 @@ def test_operating_layer_agents_exposes_hermes_codex_gpt55_to_shared_model_picke
         assert codex["role"] == "frontier_planner_architect_reviewer"
         assert codex["authority"] == "advisory"
         assert codex["is_local"] is False
-        assert codex["availability"]["status"] == "not_checked"
+        assert codex["availability"]["status"] in {"available", "setup_required"}
         assert codex["runtime_contract"]["execution_surface"] == "hermes_profile_handoff"
         assert codex["runtime_contract"]["task_run_allowed"] is False
         assert codex["runtime_contract"]["agent_run_allowed"] is False
@@ -2047,7 +2494,7 @@ def test_operating_layer_visual_qa_cli_renders_json_plan(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["visual_flow"] == (
-        "app loads -> Idea Greenhouse -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
+        "app loads -> Unified Chat Workbench -> Brainstorm chat -> Pipeline stages -> Next Task launchpad -> "
         "Task Control with Worker lanes, Review queue, and Evidence stream without horizontal overflow"
     )
     assert payload["browser_runtime"] == "codex-in-app-browser"

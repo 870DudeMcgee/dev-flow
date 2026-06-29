@@ -36,6 +36,7 @@ def builder_judge_run(
         BuilderJudgeConfig,
         BuilderJudgeConfigError,
         BuilderJudgeRunError,
+        project_builder_judge_run,
         run_builder_judge_loop,
     )
 
@@ -55,7 +56,7 @@ def builder_judge_run(
         raise typer.Exit(code=1) from exc
 
     if json_output:
-        typer.echo(json.dumps(run.model_dump(mode="json"), indent=2, sort_keys=False))
+        typer.echo(json.dumps(project_builder_judge_run(run, root=Path.cwd()), indent=2, sort_keys=False))
     else:
         typer.echo(f"Builder-Judge Loop: {run.loop_id}")
         typer.echo(f"  Status: {run.status}")

@@ -18,7 +18,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from devflow.control_room.agent_catalog import configured_hermes_agents
+from devflow.control_room.agent_catalog_hermes import configured_hermes_agents
+from devflow.control_room.hermes_profile_resolver import resolve_hermes_profile_for_historical_cleanup
 from devflow.control_room.paths import relative_path, task_dir, workspace_path
 
 
@@ -389,7 +390,7 @@ def _inject_configured_hermes_agents(
     packet_contract: dict[str, list[str]],
 ) -> None:
     existing_ids = {option.worker_id for option in ai_options} | set(blocked)
-    for agent in configured_hermes_agents():
+    for agent in configured_hermes_agents(root):
         worker_id = str(agent.get("id") or "")
         if not worker_id or worker_id in existing_ids:
             continue
@@ -605,14 +606,13 @@ def _worker_option(
     command = None
     action_kind = None
     runtime_kind = None
-    hermes_profile = None
+    hermes_profile = _canonical_hermes_profile(worker_id)
     toolsets: list[str] = []
     recommended_allowed_files: list[str] = []
     recommended_verification_commands: list[str] = []
     needs_operator_inputs: list[str] = []
     if enabled and is_local:
         runtime_kind = "hermes-profile"
-        hermes_profile = worker_id
         toolsets = ["file", "terminal"]
         action_kind = "serial_packet"
         command = _serial_packet_command(
@@ -661,6 +661,7 @@ def _hermes_worker_option(
     reason: str,
     packet_contract: dict[str, list[str]],
 ) -> WorkerOption:
+    hermes_profile = _canonical_hermes_profile(hermes_profile) or hermes_profile
     toolsets = ["file", "terminal"]
     command = _serial_packet_command(
         task_id=task_id,
@@ -723,6 +724,14 @@ def _serial_packet_command(
         parts.extend(["--toolset", toolset])
     parts.extend(["--allowed-file", "<allowed-file>", "--verify", "<verification-command>"])
     return " ".join(_quote_command_part(part) for part in parts)
+
+
+def _canonical_hermes_profile(profile_id: str | None) -> str | None:
+    candidate = _optional_text(profile_id)
+    if not candidate:
+        return None
+    profile = resolve_hermes_profile_for_historical_cleanup(candidate)
+    return profile.hermes_profile if profile is not None else candidate
 
 
 def _quote_command_part(value: str) -> str:

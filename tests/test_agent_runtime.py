@@ -122,3 +122,10 @@ def test_resolve_disabled_agent_is_not_runnable_or_packetable(tmp_path: Path) ->
     assert runtime.packet_allowed is False
     assert runtime.next_command is None
     assert "disabled" in runtime.refusal_reason
+
+
+def test_resolve_hermes_profile_handoff_uses_canonical_command() -> None:
+    runtime = resolve_agent_runtime(Path.cwd(), "hermes-codex-gpt55")
+
+    assert runtime.execution_surface == "hermes_profile_handoff"
+    assert runtime.next_command == "hermes -p hermes-codex-gpt55 chat -q <prompt>"

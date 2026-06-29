@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +47,14 @@ class GraphMetrics(BaseModel):
     ambiguous_edge_percent: int | None = None
 
 
+class GraphifyUltraStatus(BaseModel):
+    enabled: bool = False
+    ran: bool = False
+    backend: str | None = None
+    model: str | None = None
+    env_vars: list[str] = Field(default_factory=list)
+
+
 class DiagnosticStatus(BaseModel):
     status: str = "not_run"
     issue_count: int | None = None
@@ -62,6 +72,7 @@ class HotspotRow(BaseModel):
 
 class ArchitectureAuditResult(BaseModel):
     graphify: GraphifyStatus
+    ultra: GraphifyUltraStatus = Field(default_factory=GraphifyUltraStatus)
     graph_metrics: GraphMetrics = Field(default_factory=GraphMetrics)
     diagnostic: DiagnosticStatus = Field(default_factory=DiagnosticStatus)
     hotspots: list[HotspotRow] = Field(default_factory=list)
@@ -72,7 +83,8 @@ class ArchitectureAuditResult(BaseModel):
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
-GraphifyFinder = Callable[[], Path | None]
+GraphifyCommand = list[str]
+GraphifyFinder = Callable[[], Path | GraphifyCommand | None]
 
 _METRIC_FIELDS = {
     "files": "files",
@@ -131,7 +143,7 @@ def run_architecture_audit(
 ) -> ArchitectureAuditResult:
     """Run the Dev-Flow architecture audit and optionally write the checkpoint doc."""
     root = root.resolve()
-    find_graphify = graphify_finder or _find_graphify
+    find_graphify = graphify_finder or (lambda: _find_graphify(root))
     run_command = command_runner or _run_command
 
     install_status = "not_requested"
@@ -140,28 +152,27 @@ def run_architecture_audit(
         if install_result.returncode != 0:
             detail = _command_failure_detail(install_result)
             raise ArchitectureAuditError(f"Failed to install Graphify with {GRAPHIFY_REQUIREMENT}. {detail}")
-        graphify_path = find_graphify()
-        if graphify_path is None:
+        graphify_command = _graphify_command(find_graphify())
+        if graphify_command is None:
             raise ArchitectureAuditError(
                 f"Installed {GRAPHIFY_REQUIREMENT}, but the 'graphify' executable was not found on PATH "
-                "or beside the active Python executable."
+                "or as an importable graphify module in the active Python executable."
             )
         install_status = "installed"
     else:
-        graphify_path = find_graphify()
-        if graphify_path is None:
+        graphify_command = _graphify_command(find_graphify())
+        if graphify_command is None:
             raise ArchitectureAuditError(
                 "Graphify is not installed. Default audit mode is read-only and will not mutate the environment. "
                 f"Run 'devflow architecture audit --install-graphify' to install {GRAPHIFY_REQUIREMENT}, "
                 "or install it manually in the active Python environment."
             )
 
-    graphify_executable = graphify_path.as_posix()
     command_specs = [
-        [graphify_executable, "update", "."],
-        [graphify_executable, "export", "callflow-html"],
-        [graphify_executable, "tree", "--label", "Dev-Flow"],
-        [graphify_executable, "diagnose", "multigraph", "--json"],
+        [*graphify_command, "update", "."],
+        [*graphify_command, "export", "callflow-html"],
+        [*graphify_command, "tree", "--label", "Dev-Flow"],
+        [*graphify_command, "diagnose", "multigraph", "--json"],
     ]
     completed: list[subprocess.CompletedProcess[str]] = []
     for command in command_specs:
@@ -176,7 +187,7 @@ def run_architecture_audit(
     result = ArchitectureAuditResult(
         graphify=GraphifyStatus(
             available=True,
-            path=graphify_executable,
+            path=" ".join(graphify_command),
             install_status=install_status,
         ),
         graph_metrics=graph_metrics,
@@ -345,14 +356,33 @@ def render_architecture_audit_lines(result: ArchitectureAuditResult) -> list[str
     return lines
 
 
-def _find_graphify() -> Path | None:
+def _find_graphify(root: Path | None = None) -> Path | GraphifyCommand | None:
+    if root is not None:
+        local_venv = root / ".venv" / "bin" / "graphify"
+        if local_venv.exists():
+            return local_venv
+        local_venv_exe = root / ".venv" / "Scripts" / "graphify.exe"
+        if local_venv_exe.exists():
+            return local_venv_exe
     executable_dir = Path(sys.executable).resolve().parent
     candidates = [executable_dir / "graphify", executable_dir / "graphify.exe"]
     for candidate in candidates:
         if candidate.exists():
             return candidate
     discovered = shutil.which("graphify")
-    return Path(discovered) if discovered else None
+    if discovered:
+        return Path(discovered)
+    if importlib.util.find_spec("graphify") is not None:
+        return [sys.executable, "-m", "graphify"]
+    return None
+
+
+def _graphify_command(value: Path | GraphifyCommand | None) -> GraphifyCommand | None:
+    if value is None:
+        return None
+    if isinstance(value, Path):
+        return [value.as_posix()]
+    return [str(part) for part in value if str(part)]
 
 
 def _run_command(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:

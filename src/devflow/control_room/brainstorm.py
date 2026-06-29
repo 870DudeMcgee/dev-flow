@@ -23,6 +23,10 @@ from devflow.control_room.brainstorm_pipeline import (
     write_brainstorm_pipeline_detail,
 )
 from devflow.control_room.env_loader import resolve_api_key
+from devflow.control_room.hermes_profile_resolver import (
+    hermes_direct_handoff_state,
+    load_hermes_picker_runtime,
+)
 from devflow.control_room.local_model_server import ensure_local_model_server_for_profile
 from devflow.control_room.openrouter_agent import (
     OpenRouterAgentError,
@@ -174,7 +178,7 @@ def _chat_completion_for_profile(
     api_key: str | None = None,
 ) -> dict[str, Any]:
     """Route to OpenRouter or Ollama depending on the provider."""
-    if is_hermes_subscription_agent(profile, provider=provider):
+    if profile.adapter == "hermes_profile" or provider.adapter == "hermes_profile" or is_hermes_subscription_agent(profile, provider=provider):
         raise OpenRouterAgentError(HERMES_PROFILE_HANDOFF_ERROR)
     if _is_ollama_provider(provider):
         return _ollama_chat_completion(
@@ -185,11 +189,12 @@ def _chat_completion_for_profile(
             timeout_seconds=provider.default_timeout_seconds,
         )
     if is_local_openai_compatible_provider(provider) and not api_key:
-        return _local_openai_compatible_chat_completion(
+        return _chat_completion(
             provider=provider,
             model=profile.model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            api_key=api_key,
             timeout_seconds=provider.default_timeout_seconds,
         )
     if not api_key:
@@ -251,18 +256,20 @@ def run_brainstorm_message(
         },
     )
 
-    is_hermes_profile = is_hermes_subscription_agent(profile, provider=provider)
+    handoff_state = hermes_direct_handoff_state(profile, provider)
+    is_hermes_profile = handoff_state is not None or is_hermes_subscription_agent(profile, provider=provider)
     is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
     local_model_server_lifecycle: dict[str, Any] | None = None
     if is_hermes_profile:
+        handoff_error = (handoff_state or {}).get("error") or HERMES_PROFILE_HANDOFF_ERROR
         _append_transcript(
             transcript_path,
             {
                 "created_at": _now(),
                 "role": "system",
                 "kind": "provider_error",
-                "content": HERMES_PROFILE_HANDOFF_ERROR,
+                "content": handoff_error,
             },
         )
         payload = _run_payload(
@@ -276,8 +283,9 @@ def run_brainstorm_message(
             raw_response_path=None,
             assistant_message=None,
             usage=None,
-            error=HERMES_PROFILE_HANDOFF_ERROR,
+            error=handoff_error,
             will_call_provider=False,
+            handoff_state=handoff_state,
         )
         atomic_write_text(run_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
         return payload
@@ -319,6 +327,7 @@ def run_brainstorm_message(
                 provider=profile.provider,
                 model=profile.model,
                 base_url=provider.base_url,
+                wait_for_ready=False,
             )
         response_body = _chat_completion_for_profile(
             profile=profile,
@@ -503,12 +512,16 @@ def _generate_stage_with_model(
 ) -> dict[str, Any]:
     """Call a model to produce a structured spec/plan from the brainstorm transcript."""
     profile, provider = _load_brainstorm_profile(root, profile_id=profile_id)
-    if is_hermes_subscription_agent(profile, provider=provider):
+    handoff_state = hermes_direct_handoff_state(profile, provider)
+    if handoff_state is not None or is_hermes_subscription_agent(profile, provider=provider):
         return {
             "used_model": False,
-            "error": HERMES_PROFILE_HANDOFF_ERROR,
+            "error": (handoff_state or {}).get("error") or HERMES_PROFILE_HANDOFF_ERROR,
             "profile_id": profile.id,
             "model": profile.model,
+            "handoff_state": handoff_state,
+            "runtime_contract": (handoff_state or {}).get("runtime_contract"),
+            "next_command": (handoff_state or {}).get("next_command"),
         }
     is_local_provider = _is_ollama_provider(provider) or is_local_openai_compatible_provider(provider)
     api_key: str | None = None
@@ -632,6 +645,9 @@ def _parse_stage_content(content: str, stage: str) -> str:
 
 def _load_brainstorm_profile(root: Path, *, profile_id: str | None = None) -> tuple[AgentDefinition, ProviderDefinition]:
     agent_id = profile_id or BRAINSTORM_PROFILE_ID
+    hermes_runtime = load_hermes_picker_runtime(root, agent_id)
+    if hermes_runtime is not None:
+        return hermes_runtime
     profile = load_agent_registry(root).require_agent(agent_id)
     provider = load_provider_registry(root).require_provider(profile.provider)
     is_ollama = _is_ollama_provider(provider)
@@ -708,6 +724,7 @@ def _run_payload(
     error: str | None,
     will_call_provider: bool,
     local_model_server_lifecycle: dict[str, Any] | None = None,
+    handoff_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": 1,
@@ -723,6 +740,10 @@ def _run_payload(
         "local_model_server_lifecycle": local_model_server_lifecycle,
         "created_at": _now(),
     }
+    if handoff_state is not None:
+        payload["handoff_state"] = handoff_state
+        payload["runtime_contract"] = handoff_state.get("runtime_contract")
+        payload["next_command"] = handoff_state.get("next_command")
     if raw_response_path is not None:
         payload["raw_response_path"] = relative_path(root, raw_response_path)
     if assistant_message is not None:
