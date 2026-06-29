@@ -213,14 +213,14 @@ def test_hermes_profile_smoke_script_dry_run_writes_evidence(tmp_path: Path) -> 
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["overall_status"] == "dry_run"
     assert [check["id"] for check in manifest["checks"]] == [
-        "dfcodex55",
+        "hermes-codex-gpt55",
         "qwen35-direct",
-        "dflocalfast",
+        "hermes-qwen32",
     ]
     assert all(check["status"] == "dry_run" for check in manifest["checks"])
-    assert (run_dir / "dfcodex55.prompt.txt").exists()
+    assert (run_dir / "hermes-codex-gpt55.prompt.txt").exists()
     assert (run_dir / "qwen35-direct.prompt.txt").exists()
-    assert (run_dir / "dflocalfast.prompt.txt").exists()
+    assert (run_dir / "hermes-qwen32.prompt.txt").exists()
     assert (run_dir / "summary.md").exists()
 
 

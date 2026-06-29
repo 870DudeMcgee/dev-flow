@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from devflow.control_room.hermes_profile_resolver import resolve_hermes_profile_for_historical_cleanup
 from devflow.control_room.local_model_runtime_lock import (
     LocalModelRuntimeLockError,
     local_model_runtime_lock,
@@ -162,7 +163,7 @@ def _prepare_hermes_worker_runtime(
 ) -> dict[str, Any]:
     repo_root = root.resolve()
     run_id_value = _required_text(run_id, "run_id")
-    profile_value = _required_text(hermes_profile, "hermes_profile")
+    profile_value = _canonical_hermes_runtime_profile(_required_text(hermes_profile, "hermes_profile"))
     executable_value = _required_text(hermes_executable, "hermes_executable")
     run_dir = serial_local_run_dir(repo_root, run_id_value)
     manifest_path = run_dir / "run.json"
@@ -312,6 +313,14 @@ def _timeout_output_text(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _canonical_hermes_runtime_profile(profile_id: str) -> str:
+    value = str(profile_id or "").strip()
+    if value == "default":
+        return "default"
+    profile = resolve_hermes_profile_for_historical_cleanup(value)
+    return profile.hermes_profile if profile is not None else value
 
 
 __all__ = [

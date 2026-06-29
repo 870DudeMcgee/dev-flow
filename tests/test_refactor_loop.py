@@ -47,9 +47,11 @@ def _approval(worker: str = "codex55") -> dict[str, object]:
 
 def _hermes_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "home"
-    sessions = home / ".hermes" / "sessions"
+    hermes_home = home / ".hermes"
+    sessions = hermes_home / "sessions"
     sessions.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HOME", home.as_posix())
+    monkeypatch.setenv("HERMES_HOME", hermes_home.as_posix())
     return sessions
 
 

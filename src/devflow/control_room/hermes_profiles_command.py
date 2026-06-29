@@ -13,7 +13,6 @@ import typer
 
 from devflow.control_room.agent_registry import load_agent_registry
 from devflow.control_room.hermes_profile_resolver import (
-    CANONICAL_HERMES_PROFILES,
     CANONICAL_PROFILE_IDS,
     HERMES_GLOBAL_FALLBACK_IDS,
     HERMES_RETIRED_ALIAS_TO_CANONICAL_ID,

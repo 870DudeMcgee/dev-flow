@@ -921,6 +921,8 @@ def _runtime_payload(
 
 
 def _canonical_hermes_profile(profile_id: str) -> str:
+    if str(profile_id or "").strip() == "default":
+        return "default"
     profile = resolve_hermes_profile_for_historical_cleanup(profile_id)
     if profile is None:
         raise SerialLocalAgentRunError(

@@ -22,6 +22,7 @@ from devflow.control_room.agent_registry import (
     load_agent_registry,
     load_provider_registry,
 )
+from devflow.control_room.hermes_profile_resolver import resolve_hermes_profile_for_historical_cleanup
 from devflow.control_room.local_model_server import ensure_local_model_server_for_profile
 from devflow.control_room.models import TaskRecord
 from devflow.control_room.patch_applier import (
@@ -362,7 +363,14 @@ def _load_patch_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, P
 
 def _load_remote_profile(root: Path, profile_id: str) -> tuple[AgentDefinition, ProviderDefinition]:
     try:
-        profile = load_agent_registry(root).require_agent(profile_id)
+        registry = load_agent_registry(root)
+        try:
+            profile = registry.require_agent(profile_id)
+        except KeyError:
+            canonical = resolve_hermes_profile_for_historical_cleanup(profile_id)
+            if canonical is None:
+                raise
+            profile = registry.require_agent(canonical.id)
         provider = load_provider_registry(root).require_provider(profile.provider)
     except (AgentRegistryError, KeyError) as exc:
         raise OpenRouterAgentError(str(exc)) from exc
