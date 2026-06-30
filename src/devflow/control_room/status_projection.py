@@ -250,8 +250,12 @@ class TaskStatusProjection(BaseModel):
         )
 
 
-def list_task_status_projections(root: Path) -> list[TaskStatusProjection]:
-    return [build_task_status_projection(root, task.id, task=task) for task in list_tasks(root)]
+def list_task_status_projections(
+    root: Path,
+    *,
+    warnings: list[str] | None = None,
+) -> list[TaskStatusProjection]:
+    return [build_task_status_projection(root, task.id, task=task) for task in list_tasks(root, warnings=warnings)]
 
 
 def choose_task_focus_projection(projections: list[TaskStatusProjection]) -> TaskStatusProjection | None:

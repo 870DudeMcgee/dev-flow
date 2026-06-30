@@ -33,13 +33,23 @@ def get_task(root: Path, task_id: str) -> TaskRecord:
     return load_task(path)
 
 
-def list_tasks(root: Path) -> list[TaskRecord]:
+def list_tasks(
+    root: Path,
+    *,
+    warnings: list[str] | None = None,
+) -> list[TaskRecord]:
     if not tasks_dir(root).exists():
         return []
     records = []
     for path in sorted(tasks_dir(root).iterdir()):
         if path.is_dir() and (path / "task.yaml").exists():
-            records.append(load_task(path))
+            try:
+                records.append(load_task(path))
+            except Exception as exc:
+                if warnings is not None:
+                    warnings.append(
+                        f"Skipping malformed task manifest at {path.relative_to(root)}/task.yaml: {exc}"
+                    )
     return records
 
 

@@ -1059,6 +1059,35 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
 
 
+def test_operating_layer_snapshot_skips_corrupt_task_and_surfaces_warning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert runner.invoke(app, ["task", "create", "healthy task"]).exit_code == 0
+    assert runner.invoke(app, ["task", "create", "bad task"]).exit_code == 0
+
+    bad_task_yaml = tmp_path / ".devflow" / "tasks" / "task-0002" / "task.yaml"
+    bad_task_yaml.write_text("schema_version: 1\nid: task-0002\n", encoding="utf-8")
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    assert [task["id"] for task in payload["tasks"]] == ["task-0001"]
+    assert any("task-0002" in warning and "task.yaml" in warning for warning in payload["warnings"])
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, body, _ = _get_raw(host, port, "/api/snapshot")
+        assert status == HTTPStatus.OK
+        response_payload = json.loads(body.decode("utf-8"))
+        assert response_payload["tasks"] == payload["tasks"]
+        assert response_payload["warnings"] == payload["warnings"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields(
     tmp_path: Path,
     monkeypatch,

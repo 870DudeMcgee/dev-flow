@@ -337,9 +337,13 @@ def _collect_recent_activity(projections: list[TaskStatusProjection]) -> list[di
 
 # --- Public API Functions ---
 
-def collect_dashboard_state(repo_root: Path | None = None) -> DashboardState:
+def collect_dashboard_state(
+    repo_root: Path | None = None,
+    *,
+    task_projection_warnings: list[str] | None = None,
+) -> DashboardState:
     root = (repo_root or Path.cwd()).resolve()
-    projections = list_task_status_projections(root)
+    projections = list_task_status_projections(root, warnings=task_projection_warnings)
     operator_readiness = build_operator_readiness_snapshot(root)
     
     branch = _git_branch(root)

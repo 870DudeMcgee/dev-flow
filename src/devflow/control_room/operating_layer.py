@@ -211,8 +211,11 @@ class OperatingLayerSnapshot(BaseModel):
 
 def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id: str | None = None) -> OperatingLayerSnapshot:
     root = (repo_root or Path.cwd()).resolve()
-    dashboard = collect_dashboard_state(root)
     warnings: list[str] = []
+    dashboard = collect_dashboard_state(
+        root,
+        task_projection_warnings=warnings,
+    )
     project_id = project_id or _project_id(root, warnings)
     freshness = _try_freshness(root, warnings)
     scheduler = _try_scheduler(root, warnings)
