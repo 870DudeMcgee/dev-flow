@@ -15,6 +15,7 @@ from devflow.control_room.dashboard import (
     collect_multi_project_dashboard_state,
 )
 from devflow.control_room.agent_catalog import build_agent_catalog
+from devflow.control_room.agent_catalog_hermes import configured_hermes_agents
 from devflow.control_room.architecture_evidence import (
     ArchitectureEvidenceProjection,
     build_architecture_evidence,
@@ -216,7 +217,13 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     freshness = _try_freshness(root, warnings)
     scheduler = _try_scheduler(root, warnings)
     question_snapshot = build_question_snapshot(root)
-    task_workbench = build_task_workbench(root, project_id=project_id, projections=dashboard.tasks)
+    configured_hermes_agent_rows = configured_hermes_agents(root)
+    task_workbench = build_task_workbench(
+        root,
+        project_id=project_id,
+        projections=dashboard.tasks,
+        configured_hermes_agent_rows=configured_hermes_agent_rows,
+    )
     warnings.extend(task_workbench.warnings)
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(question_snapshot, dashboard.tasks)
@@ -229,7 +236,11 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     dashboard_next_action = DashboardNextAction(**dashboard.next_action.model_dump())
     if dashboard_next_action.command:
         dashboard_next_action.command = scope_task_command(dashboard_next_action.command, project_id)
-    agent_catalog = _agent_catalog_card(root, warnings)
+    agent_catalog = _agent_catalog_card(
+        root,
+        warnings,
+        configured_hermes_agent_rows=configured_hermes_agent_rows,
+    )
     local_model_inventory = build_local_model_inventory(agent_catalog)
     local_model_readiness = _local_model_readiness_card(
         root,
@@ -343,9 +354,17 @@ def _scheduler_card(snapshot: SchedulerSnapshot | None) -> OperatingLayerSchedul
     )
 
 
-def _agent_catalog_card(root: Path, warnings: list[str]) -> dict[str, Any]:
+def _agent_catalog_card(
+    root: Path,
+    warnings: list[str],
+    *,
+    configured_hermes_agent_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     try:
-        return build_agent_catalog(root)
+        return build_agent_catalog(
+            root,
+            configured_hermes_agent_rows=configured_hermes_agent_rows,
+        )
     except Exception as exc:  # pragma: no cover - defensive dashboard projection
         warnings.append(f"agent catalog unavailable: {exc}")
         return {

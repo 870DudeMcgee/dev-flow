@@ -17,6 +17,7 @@ from devflow.control_room.git_worktree import git_worker_lane_summary
 from devflow.control_room.local_worker_lane import local_worker_lane_summary
 from devflow.control_room.review_readiness import build_review_readiness_projection
 from devflow.control_room.status_projection import TaskStatusProjection, list_task_status_projections
+from devflow.control_room.worker_options import build_worker_options
 from devflow.control_room.task_workbench_review import (
     TaskWorkbenchGateReceipt,
     TaskWorkbenchReviewLoop,
@@ -28,7 +29,7 @@ from devflow.control_room.task_workbench_review import (
     _worker_activity,
     _worker_model_label,
 )
-from devflow.control_room.worker_options import build_worker_options
+from devflow.control_room.agent_catalog_hermes import configured_hermes_agents
 
 
 LANE_ORDER: tuple[tuple[str, str], ...] = (
@@ -233,12 +234,23 @@ def build_task_workbench(
     *,
     project_id: str | None = None,
     projections: list[TaskStatusProjection] | None = None,
+    configured_hermes_agent_rows: list[dict[str, Any]] | None = None,
 ) -> TaskWorkbench:
     """Build the read-only task-centered operating-layer projection."""
     root = root.resolve()
     warnings: list[str] = []
     projections = projections if projections is not None else list_task_status_projections(root)
-    tasks = [_task_card(root, projection, project_id=project_id) for projection in projections]
+    if configured_hermes_agent_rows is None:
+        configured_hermes_agent_rows = configured_hermes_agents(root)
+    tasks = [
+        _task_card(
+            root,
+            projection,
+            project_id=project_id,
+            configured_hermes_agent_rows=configured_hermes_agent_rows,
+        )
+        for projection in projections
+    ]
     lane_lookup = {name: [] for name, _label in LANE_ORDER}
     for task in tasks:
         lane_lookup.setdefault(task.lane, []).append(task.id)
@@ -281,7 +293,13 @@ def build_task_workbench(
     )
 
 
-def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str | None) -> TaskWorkbenchTask:
+def _task_card(
+    root: Path,
+    projection: TaskStatusProjection,
+    *,
+    project_id: str | None,
+    configured_hermes_agent_rows: list[dict[str, Any]] | None = None,
+) -> TaskWorkbenchTask:
     task = projection.task
     next_action = DashboardNextAction(**projection.dashboard_next_action.model_dump())
     if next_action.command:
@@ -325,7 +343,12 @@ def _task_card(root: Path, projection: TaskStatusProjection, *, project_id: str 
         ready_to_promote=projection.ready_to_promote,
     )
     local_lane = TaskWorkbenchLocalWorkerLane(**local_worker_lane) if local_worker_lane else None
-    worker_opts_raw = build_worker_options(root, task.id, project_id=project_id)
+    worker_opts_raw = build_worker_options(
+        root,
+        task.id,
+        project_id=project_id,
+        configured_hermes_agent_rows=configured_hermes_agent_rows,
+    )
     # Flatten to serializable dicts: ai workers + blocked details.
     wo_dicts: list[dict[str, object]] = []
     for w in worker_opts_raw.get("ai_workers", []):

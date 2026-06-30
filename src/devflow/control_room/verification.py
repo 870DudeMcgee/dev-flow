@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from devflow.control_room.log_sanitizer import latest_visible_log_line
-from devflow.control_room.processes import kill_process_tree, start_process
+from devflow.control_room.processes import cleanup_process_tree, start_process
 
 
 @dataclass(frozen=True)
@@ -34,8 +34,8 @@ def run_verification_command(workspace: Path, command: list[str], log_file: Path
         try:
             proc.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            kill_process_tree(proc)
-            proc.wait()
+            if not cleanup_process_tree(proc, timeout_seconds=1.0):
+                log.write("\n[DEVFLOW WARNING] Verification process did not terminate within 1.0s after timeout.\n")
             log.write(f"\nVerification timed out after {timeout_seconds} seconds.\n")
             log.flush()
             return VerificationResult(

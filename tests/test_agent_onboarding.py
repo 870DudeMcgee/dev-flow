@@ -846,6 +846,39 @@ def test_agent_catalog_local_discovery_skips_endpoints_when_disabled(
     assert provider["error"] == "live_discovery_disabled"
 
 
+def test_agent_catalog_uses_precomputed_hermes_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    from devflow.control_room import agent_catalog
+
+    monkeypatch.setattr(
+        agent_catalog,
+        "configured_hermes_agents",
+        lambda _root: (_ for _ in ()).throw(RuntimeError("recomputed")),
+    )
+
+    payload = agent_catalog.build_agent_catalog(
+        tmp_path,
+        live_discovery=False,
+        configured_hermes_agent_rows=[
+            {
+                "id": "hermes-codex-gpt55",
+                "label": "Hermes Codex GPT-5.5",
+                "provider": "openrouter",
+                "model": "openai/gpt-5.5",
+                "hermes_profile": "hermes-codex-gpt55",
+                "status": "available",
+            }
+        ],
+    )
+
+    assert payload["hermes_agents"][0]["id"] == "hermes-codex-gpt55"
+
+
 def test_operating_layer_snapshot_exposes_agent_catalog_and_model_actions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

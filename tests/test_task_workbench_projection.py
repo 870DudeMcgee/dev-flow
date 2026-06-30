@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
+from devflow.control_room import task_workbench as task_workbench_module
 from devflow.control_room.task_workbench import build_task_workbench
 
 
@@ -154,3 +155,23 @@ def test_task_workbench_names_local_worker_model_and_scopes_commands(
     assert any(artifact.kind == "patch proposal" for artifact in task.review_detail.artifacts)
     assert controls["start_shell"].command == "devflow task run task-0001 --worker shell --project demo -- <command>"
     assert controls["inspect"].command == "devflow task show task-0001 --project demo"
+
+
+def test_task_workbench_prefetches_hermes_agents_once_per_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "first"]).exit_code == 0
+    assert runner.invoke(app, ["task", "create", "second"]).exit_code == 0
+
+    call_count = {"count": 0}
+
+    def fake_configured_hermes_agents(_root):
+        call_count["count"] += 1
+        return []
+
+    monkeypatch.setattr(task_workbench_module, "configured_hermes_agents", fake_configured_hermes_agents)
+
+    task_workbench_module.build_task_workbench(tmp_path)
+    assert call_count["count"] == 1

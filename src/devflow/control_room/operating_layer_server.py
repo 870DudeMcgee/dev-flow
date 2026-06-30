@@ -87,6 +87,8 @@ from devflow.control_room.unified_workbench import (
 
 ACTION_TIMEOUT_SECONDS = 20
 ACTION_OUTPUT_LIMIT = 12000
+BROWSE_MAX_DIRECTORY_ENTRIES = 120
+BROWSE_MAX_FILE_BYTES = 64 * 1024
 
 # In-memory registry of running builder-judge loops (loop_id → BuilderJudgeRun)
 _bj_running_loops: dict[str, dict] = {}
@@ -141,6 +143,20 @@ class OperatingLayerHTTPServer(ThreadingHTTPServer):
 
 class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
     server: OperatingLayerHTTPServer
+
+    def do_HEAD(self) -> None:
+        request = urlsplit(self.path)
+        path = request.path
+        if path in {"/", "/index.html"}:
+            self._send_text_headers(INDEX_HTML, "text/html; charset=utf-8")
+            return
+        if path == "/app.css":
+            self._send_text_headers(APP_CSS, "text/css; charset=utf-8")
+            return
+        if path == "/app.js":
+            self._send_text_headers(APP_JS, "application/javascript; charset=utf-8")
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
 
     def do_GET(self) -> None:
         request = urlsplit(self.path)
@@ -254,19 +270,19 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json_body()
         except ValueError as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "invalid_json", exc)
             return
 
         command = payload.get("command")
         if not isinstance(command, str) or not command.strip():
-            self._send_json_error("command is required", HTTPStatus.BAD_REQUEST)
+            self._send_action_error("command is required", HTTPStatus.BAD_REQUEST, "missing_command", ValueError("command is required"))
             return
 
         classification = classify_supervisor_command(command)
         try:
             browser_action = resolve_browser_action_command(payload, command, classification)
         except ValueError as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "resolver_failure", exc)
             return
         if browser_action is None:
             self._send_json(
@@ -289,7 +305,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             args = browser_action.args
             context_path = _write_promotion_context(root, command, payload) if browser_action.writes_promotion_context else None
         except (ProjectRegistryError, OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "resolver_failure", exc)
             return
 
         env = _devflow_subprocess_env()
@@ -304,6 +320,22 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 timeout=ACTION_TIMEOUT_SECONDS,
                 check=False,
             )
+        except FileNotFoundError as exc:
+            self._send_action_error(
+                f"failed to execute command: {exc}",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "command_execution_failed",
+                exc,
+            )
+            return
+        except OSError as exc:
+            self._send_action_error(
+                f"failed to execute command: {exc}",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "command_execution_failed",
+                exc,
+            )
+            return
         except subprocess.TimeoutExpired as exc:
             self._send_json(
                 {
@@ -404,19 +436,58 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             # If it's a file, return its content
             if browse_path.is_file():
                 try:
-                    content = browse_path.read_text(encoding="utf-8")
-                    self._send_json({"path": str(browse_path), "content": content, "is_file": True}, HTTPStatus.OK)
+                    file_size = browse_path.stat().st_size
+                    file_bytes, truncated = _read_file_bytes_with_limit(
+                        browse_path,
+                        BROWSE_MAX_FILE_BYTES,
+                    )
+                    content = _decode_browse_file_content(file_bytes, truncated=truncated)
+                    self._send_json(
+                        {
+                            "path": str(browse_path),
+                            "content": content,
+                            "is_file": True,
+                            "content_truncated": truncated,
+                            "content_limit": BROWSE_MAX_FILE_BYTES,
+                            "content_size": file_size,
+                            "returned_bytes": len(file_bytes),
+                        },
+                        HTTPStatus.OK,
+                    )
                 except UnicodeDecodeError:
-                    self._send_json({"path": str(browse_path), "content": "(binary file)", "is_file": True}, HTTPStatus.OK)
+                    self._send_json(
+                        {
+                            "path": str(browse_path),
+                            "content": "(binary file)",
+                            "is_file": True,
+                            "content_truncated": truncated,
+                            "content_limit": BROWSE_MAX_FILE_BYTES,
+                            "content_size": file_size,
+                            "returned_bytes": len(file_bytes),
+                        },
+                        HTTPStatus.OK,
+                    )
                 return
 
             if not browse_path.is_dir():
                 self._send_json_error(f"Not a directory: {browse_path}", HTTPStatus.BAD_REQUEST)
                 return
-            entries = []
-            for entry in sorted(browse_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+
+            visible_entries: list[Path] = []
+            entries_truncated = False
+            for entry in browse_path.iterdir():
                 if entry.name.startswith("."):
                     continue
+                visible_entries.append(entry)
+                if len(visible_entries) > BROWSE_MAX_DIRECTORY_ENTRIES:
+                    entries_truncated = True
+                    break
+            sorted_entries = sorted(
+                visible_entries[:BROWSE_MAX_DIRECTORY_ENTRIES],
+                key=lambda e: (not e.is_dir(), e.name.lower()),
+            )
+            entries: list[dict[str, object]] = []
+            for entry in sorted_entries:
                 is_dir = entry.is_dir()
                 has_devflow = is_dir and (entry / ".devflow").is_dir()
                 entries.append({
@@ -429,6 +500,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 "current_path": str(browse_path),
                 "parent_path": str(browse_path.parent) if browse_path != browse_path.parent else None,
                 "entries": entries,
+                "entries_truncated": entries_truncated,
+                "entry_limit": BROWSE_MAX_DIRECTORY_ENTRIES,
             }, HTTPStatus.OK)
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -1077,15 +1150,19 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
 
     def _send_text(self, body: str, content_type: str) -> None:
         encoded = body.encode("utf-8")
+        self._send_text_headers(body, content_type)
+        try:
+            self.wfile.write(encoded)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def _send_text_headers(self, body: str, content_type: str) -> None:
+        encoded = body.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
-        try:
-            self.wfile.write(encoded)
-        except (BrokenPipeError, ConnectionResetError):
-            return
 
     def _send_artifact(self, body: bytes, content_type: str) -> None:
         # Architecture evidence artifacts are served inline-only with strict,
@@ -1129,6 +1206,22 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(encoded)
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def _send_action_error(
+        self,
+        message: str,
+        status: HTTPStatus,
+        error_code: str,
+        exc: Exception,
+    ) -> None:
+        self._send_json(
+            {
+                "error": message,
+                "error_code": error_code,
+                "error_type": type(exc).__name__,
+            },
+            status,
+        )
 
 
 def _resolve_local_model_ensure_profile(root: Path, profile_id: str) -> LocalModelEnsureProfile:
@@ -1452,6 +1545,26 @@ def _truncate_text(value: str) -> str:
     if len(value) <= ACTION_OUTPUT_LIMIT:
         return value
     return value[:ACTION_OUTPUT_LIMIT] + "\n...[truncated]"
+
+
+def _read_file_bytes_with_limit(path: Path, max_bytes: int) -> tuple[bytes, bool]:
+    with path.open("rb") as handle:
+        data = handle.read(max_bytes + 1)
+    return data[:max_bytes], len(data) > max_bytes
+
+
+def _decode_browse_file_content(data: bytes, *, truncated: bool) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        if not truncated:
+            raise
+    for trim_count in range(1, min(4, len(data) + 1)):
+        try:
+            return data[:-trim_count].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeDecodeError("utf-8", data, 0, 1, "invalid truncated utf-8")
 
 
 def _output_was_truncated(stdout: str, stderr: str) -> bool:

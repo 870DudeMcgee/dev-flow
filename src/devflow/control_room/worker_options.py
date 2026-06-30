@@ -60,6 +60,7 @@ def build_worker_options(
     task_id: str,
     *,
     project_id: str | None = None,
+    configured_hermes_agent_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return worker options for *task_id* separated by category.
 
@@ -80,7 +81,14 @@ def build_worker_options(
     _inject_routing_decision(task_path, ai_options, blocked, packet_contract=packet_contract)
     _inject_agent_selection(task_path, ai_options, blocked, packet_contract=packet_contract)
     _inject_local_worker_evidence(root, task_id, task_path, ai_options, blocked, packet_contract=packet_contract)
-    _inject_configured_hermes_agents(root, task_id, ai_options, blocked, packet_contract=packet_contract)
+    _inject_configured_hermes_agents(
+        root,
+        task_id,
+        ai_options,
+        blocked,
+        configured_hermes_agent_rows=configured_hermes_agent_rows,
+        packet_contract=packet_contract,
+    )
 
     # Always present fallback shell (right below AI workers in render order).
     shell_cmd = f"devflow task run {task_id} --worker shell -- <command>"
@@ -387,10 +395,16 @@ def _inject_configured_hermes_agents(
     ai_options: list[WorkerOption],
     blocked: dict[str, WorkerOption],
     *,
+    configured_hermes_agent_rows: list[dict[str, Any]] | None = None,
     packet_contract: dict[str, list[str]],
 ) -> None:
     existing_ids = {option.worker_id for option in ai_options} | set(blocked)
-    for agent in configured_hermes_agents(root):
+    agents = (
+        configured_hermes_agent_rows
+        if configured_hermes_agent_rows is not None
+        else configured_hermes_agents(root)
+    )
+    for agent in agents:
         worker_id = str(agent.get("id") or "")
         if not worker_id or worker_id in existing_ids:
             continue

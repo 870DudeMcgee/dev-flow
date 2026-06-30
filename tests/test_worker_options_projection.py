@@ -472,6 +472,36 @@ def test_fallback_shell_is_not_an_ai_worker(tmp_root: Path) -> None:
     assert fallback.worker_id == "shell"
 
 
+def test_build_worker_options_uses_precomputed_hermes_rows(
+    tmp_root: Path,
+    monkeypatch,
+) -> None:
+    # If build_worker_options recomputes Hermes rows internally, this should fail.
+    monkeypatch.setattr(
+        "devflow.control_room.worker_options.configured_hermes_agents",
+        lambda _root: (_ for _ in ()).throw(RuntimeError("recomputed")),
+    )
+
+    options = build_worker_options(
+        tmp_root,
+        "test-001",
+        configured_hermes_agent_rows=[
+            {
+                "id": "hermes-qwen37plus",
+                "label": "Hermes Qwen 3.7 Plus",
+                "provider": "openrouter",
+                "model": "qwen/qwen3.7-plus",
+                "base_url": "https://openrouter.ai/api/v1",
+                "hermes_profile": "hermes-qwen37plus",
+                "status": "available",
+            }
+        ],
+    )
+
+    ids = {option.worker_id for option in options["ai_workers"]}
+    assert "hermes-qwen37plus" in ids
+
+
 def test_task_workbench_surfaces_worker_options(tmp_path: Path, monkeypatch) -> None:
     """Task workbench must return the canonical worker options it builds."""
     monkeypatch.chdir(tmp_path)

@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import tempfile
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,21 @@ from devflow.control_room.models import WorkerInput
 from devflow.control_room.verification import run_verification_command
 
 pytestmark = pytest.mark.slow
+
+
+class _TimeoutNoopProcess:
+    def __init__(self, exit_code: int | None = None) -> None:
+        self.returncode = exit_code
+        self.pid = 42
+
+    def poll(self) -> int | None:
+        return None
+
+    def wait(self, timeout: float | None = None) -> None:
+        raise subprocess.TimeoutExpired(
+            ["python", "-c", "timeout-noop"],
+            timeout if timeout is not None else 0.0,
+        )
 
 
 def _wait_for_file_absence(target: Path, *, timeout_seconds: float = 2.0, interval: float = 0.05) -> None:
@@ -184,6 +200,43 @@ def test_shell_worker_timeout_terminates_child_processes() -> None:
         _wait_for_file_absence(child_marker)
 
 
+def test_shell_worker_timeout_cleanup_stubborn_process_logs_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir()
+        log_file = tmp_path / "worker.log"
+        result_file = tmp_path / "result.md"
+
+        def fake_start_process(*_args: object, **_kwargs: object) -> _TimeoutNoopProcess:
+            return _TimeoutNoopProcess()
+
+        monkeypatch.setattr("devflow.control_room.shell_worker.start_process", fake_start_process)
+        monkeypatch.setattr("devflow.control_room.shell_worker.cleanup_process_tree", lambda *_args, **_kwargs: False)
+
+        worker_input = WorkerInput(
+            task_id="task-timeout-cleanup-failed",
+            repo_root=tmp_path,
+            workspace_path=workspace_path,
+            task_file=tmp_path / "task.yaml",
+            context_file=tmp_path / "events.jsonl",
+            status_file=tmp_path / "task.yaml",
+            questions_file=tmp_path / "questions.jsonl",
+            result_file=result_file,
+            log_file=log_file,
+            command=["/bin/sh", "-c", "echo should not run"],
+            timeout_seconds=1,
+        )
+
+        monkeypatch.setattr("devflow.control_room.shell_worker.time.time", iter([0.0, 2.0]).__next__)
+
+        adapter = ShellWorkerAdapter()
+        result = adapter.run(worker_input)
+
+        assert result.status == "timeout"
+        assert "cleanup did not finish within 1.0s after timeout" in log_file.read_text(encoding="utf-8")
+
+
 def test_verification_timeout_terminates_child_processes() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
@@ -212,3 +265,22 @@ def test_verification_timeout_terminates_child_processes() -> None:
 
         assert result.status == "timeout"
         _wait_for_file_absence(child_marker)
+
+
+def test_verification_timeout_stuck_cleanup_logs_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir()
+        log_file = tmp_path / "verify.log"
+
+        def fake_start_process(*_args: object, **_kwargs: object) -> _TimeoutNoopProcess:
+            return _TimeoutNoopProcess()
+
+        monkeypatch.setattr("devflow.control_room.verification.start_process", fake_start_process)
+        monkeypatch.setattr("devflow.control_room.verification.cleanup_process_tree", lambda *_args, **_kwargs: False)
+
+        result = run_verification_command(workspace_path, ["python", "-c", "pass"], log_file, timeout_seconds=1)
+
+        assert result.status == "timeout"
+        assert "Verification process did not terminate within 1.0s after timeout" in log_file.read_text(encoding="utf-8")

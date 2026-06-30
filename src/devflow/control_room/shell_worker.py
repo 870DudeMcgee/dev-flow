@@ -7,7 +7,7 @@ from pathlib import Path
 
 from devflow.control_room.log_sanitizer import latest_visible_log_line
 from devflow.control_room.models import WorkerInput, WorkerResult
-from devflow.control_room.processes import kill_process_tree, start_process
+from devflow.control_room.processes import cleanup_process_tree, start_process
 
 
 class ShellWorkerAdapter:
@@ -48,7 +48,6 @@ class ShellWorkerAdapter:
             
             start_time = time.time()
             limit_bytes = 10 * 1024 * 1024 # 10 MB limit
-            limit_exceeded = False
             timeout = worker_input.timeout_seconds or 300
 
             while proc.poll() is None:
@@ -56,14 +55,24 @@ class ShellWorkerAdapter:
                 if worker_input.log_file.exists():
                     current_size = worker_input.log_file.stat().st_size
                     if current_size > limit_bytes:
-                        limit_exceeded = True
-                        kill_process_tree(proc)
-                        break
+                        if not cleanup_process_tree(proc, timeout_seconds=1.0):
+                            log.write("\n[DEVFLOW WARNING] Shell worker cleanup did not finish within 1.0s after output size limit.\n")
+                        log.write("\n[DEVFLOW ERROR] Shell execution output exceeded limit of 10MB. Process terminated.\n")
+                        log.flush()
+                        latest = _latest_log_line(worker_input.log_file)
+                        return WorkerResult(
+                            status="worker_failed",
+                            summary="Shell execution output exceeded limit of 10MB",
+                            exit_code=proc.returncode,
+                            latest_log_line=latest,
+                            result_file=worker_input.result_file,
+                            log_file=worker_input.log_file,
+                        )
                 
                 # Check timeout
                 if time.time() - start_time > timeout:
-                    kill_process_tree(proc)
-                    proc.wait()
+                    if not cleanup_process_tree(proc, timeout_seconds=1.0):
+                        log.write("\n[DEVFLOW WARNING] Shell worker cleanup did not finish within 1.0s after timeout.\n")
                     log.write(f"\nTimed out after {timeout} seconds.\n")
                     log.flush()
                     latest = _latest_log_line(worker_input.log_file)
@@ -80,19 +89,6 @@ class ShellWorkerAdapter:
 
             # Ensure process is fully reaped
             proc.wait()
-
-            if limit_exceeded:
-                log.write("\n[DEVFLOW ERROR] Shell execution output exceeded limit of 10MB. Process terminated.\n")
-                log.flush()
-                latest = _latest_log_line(worker_input.log_file)
-                return WorkerResult(
-                    status="worker_failed",
-                    summary="Shell execution output exceeded limit of 10MB",
-                    exit_code=proc.returncode,
-                    latest_log_line=latest,
-                    result_file=worker_input.result_file,
-                    log_file=worker_input.log_file,
-                )
 
         latest = _latest_log_line(worker_input.log_file)
         if proc.returncode == 0:

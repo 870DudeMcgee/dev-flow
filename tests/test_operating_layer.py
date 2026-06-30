@@ -142,6 +142,15 @@ def _get_raw(host: str, port: int, path: str) -> tuple[int, bytes, dict]:
     return response.status, body, headers
 
 
+def _head_raw(host: str, port: int, path: str) -> tuple[int, bytes, dict]:
+    connection = HTTPConnection(host, port, timeout=5)
+    connection.request("HEAD", path)
+    response = connection.getresponse()
+    body = response.read()
+    headers = {k.lower(): v for k, v in response.getheaders()}
+    return response.status, body, headers
+
+
 def _write_graphify_fixture(root: Path) -> None:
     graphify_dir = root / "graphify-out"
     graphify_dir.mkdir(parents=True, exist_ok=True)
@@ -240,6 +249,24 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "architecture-evidence-section" in INDEX_HTML
     assert "workbench-stage-path" in INDEX_HTML
     assert "workbench-gate-strip" in INDEX_HTML
+
+
+def test_operating_layer_server_serves_head_for_static_assets(tmp_path: Path) -> None:
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for path, content_type in (
+            ("/", "text/html; charset=utf-8"),
+            ("/app.css", "text/css; charset=utf-8"),
+            ("/app.js", "application/javascript; charset=utf-8"),
+        ):
+            status, body, headers = _head_raw(host, port, path)
+            assert status == HTTPStatus.OK
+            assert body == b""
+            assert headers["content-type"] == content_type
+            assert int(headers["content-length"]) > 0
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def test_operating_layer_html_includes_idea_greenhouse_asset_contract() -> None:
@@ -3065,6 +3092,124 @@ def test_operating_layer_server_blocks_disallowed_browser_mutations(
 
             assert status == HTTPStatus.CONFLICT
             assert payload["executed"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_action_run_resolver_errors_return_stable_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        monkeypatch.setattr(
+            operating_layer_server,
+            "resolve_browser_action_command",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("resolver failure")),
+        )
+        status, payload = _post_action(host, port, 'devflow idea capture "resolver-only"')
+        assert status == HTTPStatus.BAD_REQUEST
+        assert payload["error"] == "resolver failure"
+        assert payload["error_code"] == "resolver_failure"
+        assert payload["error_type"] == "ValueError"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_action_run_file_not_found_is_stable_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        monkeypatch.setattr(
+            operating_layer_server.subprocess,
+            "run",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError("no-such-command")),
+        )
+        status, payload = _post_action(host, port, 'devflow idea capture "missing executable"')
+        assert status == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert payload["error_code"] == "command_execution_failed"
+        assert payload["error_type"] == "FileNotFoundError"
+        assert payload["error"].startswith("failed to execute command:")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_action_run_os_error_is_stable_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        monkeypatch.setattr(
+            operating_layer_server.subprocess,
+            "run",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError(13, "permission denied")),
+        )
+        status, payload = _post_action(host, port, 'devflow idea capture "os error"')
+        assert status == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert payload["error_code"] == "command_execution_failed"
+        assert payload["error_type"] == "PermissionError"
+        assert "failed to execute command" in payload["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_browse_directory_is_bounded_with_truncation_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    monkeypatch.setattr(operating_layer_server, "BROWSE_MAX_DIRECTORY_ENTRIES", 2)
+    try:
+        for name in (".hidden", "alpha", "beta", "gamma", "delta"):
+            if name.startswith("."):
+                (tmp_path / name).mkdir()
+            else:
+                (tmp_path / name).mkdir()
+        status, body, _headers = _get_raw(host, port, "/api/browse?path=" + str(tmp_path))
+        assert status == HTTPStatus.OK
+        payload = json.loads(body.decode("utf-8"))
+        assert payload["entries_truncated"] is True
+        assert payload["entry_limit"] == 2
+        assert len(payload["entries"]) == 2
+        assert all(not entry["name"].startswith(".") for entry in payload["entries"])
+        assert payload["current_path"] == str(tmp_path)
+        assert payload["parent_path"] == str(tmp_path.parent)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_browse_file_is_bounded_with_truncation_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "big.txt"
+    target.write_text("0123456789", encoding="utf-8")
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    monkeypatch.setattr(operating_layer_server, "BROWSE_MAX_FILE_BYTES", 4)
+    try:
+        status, body, _headers = _get_raw(host, port, f"/api/browse?path={target}")
+        assert status == HTTPStatus.OK
+        payload = json.loads(body.decode("utf-8"))
+        assert payload["is_file"] is True
+        assert payload["content"] == "0123"
+        assert payload["content_size"] == 10
+        assert payload["returned_bytes"] == 4
+        assert payload["content_limit"] == 4
+        assert payload["content_truncated"] is True
     finally:
         server.shutdown()
         server.server_close()
