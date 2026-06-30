@@ -11,9 +11,9 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Metric | Value |
 |---|---:|
-| Nodes | 10,518 |
-| Edges | 23,419 |
-| Communities | 667 |
+| Nodes | 10,530 |
+| Edges | 23,489 |
+| Communities | 671 |
 | Extracted edges | 83% |
 | Inferred edges | 17% |
 | Ambiguous edges | 0% |
@@ -35,11 +35,11 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Rank | Path | Lines | Definitions | Local imports | Boundary target |
 |---:|---|---:|---:|---:|---|
-| 1 | `tests/test_operating_layer.py` | 3,444 | 126 | 25 | no |
+| 1 | `tests/test_operating_layer.py` | 3,693 | 137 | 25 | no |
 | 2 | `src/devflow/cli.py` | 2,570 | 99 | 79 | yes |
 | 3 | `src/devflow/control_room/operating_layer_script.py` | 5,396 | 0 | 0 | yes |
 | 4 | `src/devflow/control_room/operating_layer_styles.py` | 3,923 | 0 | 0 | yes |
-| 5 | `src/devflow/control_room/operating_layer_server.py` | 1,571 | 61 | 21 | yes |
+| 5 | `src/devflow/control_room/operating_layer_server.py` | 1,616 | 65 | 21 | yes |
 | 6 | `tests/test_operator_ui_browser.py` | 1,756 | 60 | 5 | no |
 | 7 | `src/devflow/control_room/dogfood.py` | 1,768 | 36 | 30 | yes |
 | 8 | `src/devflow/control_room/hyperplane_harness.py` | 1,228 | 55 | 5 | no |

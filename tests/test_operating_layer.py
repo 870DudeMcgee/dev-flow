@@ -97,6 +97,37 @@ def _serve_operating_layer(root: Path) -> tuple[OperatingLayerHTTPServer, thread
     return server, thread, host, port
 
 
+def _clear_builder_judge_state() -> None:
+    with operating_layer_server._bj_state_lock:
+        operating_layer_server._bj_running_loops.clear()
+        operating_layer_server._bj_threads.clear()
+
+
+class _FakeBuilderJudgeRun:
+    def __init__(self, loop_id: str, status: str, *, next_safe_action: str = "") -> None:
+        self.loop_id = loop_id
+        self.status = status
+        self.next_safe_action = next_safe_action
+
+    def model_dump(self, *, mode: str) -> dict[str, object]:
+        assert mode == "json"
+        return {
+            "loop_id": self.loop_id,
+            "run_id": f"{self.loop_id}-run",
+            "status": self.status,
+            "started_at": "2026-06-29T00:00:00Z",
+            "finished_at": "2026-06-29T00:00:01Z",
+            "evidence_path": f".devflow/builder-judge-loops/{self.loop_id}/run.json",
+            "next_safe_action": self.next_safe_action,
+            "rounds": [{"round_number": 1, "score": 90, "passed": self.status == "passed"}],
+            "config": {
+                "definition_of_done": "A short test artifact",
+                "builder_profile_id": "builder-a",
+                "judge_profile_id": "judge-a",
+            },
+        }
+
+
 def _post_action(host: str, port: int, command: str, **extra: object) -> tuple[int, dict]:
     connection = HTTPConnection(host, port, timeout=5)
     body = json.dumps(
@@ -485,8 +516,7 @@ def test_builder_judge_api_read_payloads_include_loop_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    operating_layer_server._bj_running_loops.clear()
-    operating_layer_server._bj_threads.clear()
+    _clear_builder_judge_state()
     raw_run = {
         "loop_id": "bj-file",
         "run_id": "run-file",
@@ -592,8 +622,227 @@ def test_builder_judge_api_read_payloads_include_loop_envelope(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-        operating_layer_server._bj_running_loops.clear()
-        operating_layer_server._bj_threads.clear()
+        _clear_builder_judge_state()
+
+
+def test_builder_judge_async_start_status_and_list_are_consistent_under_concurrency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _clear_builder_judge_state()
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_run_builder(
+        root: Path,
+        config,
+        *,
+        loop_id: str | None = None,
+        write_evidence: bool = True,
+    ) -> _FakeBuilderJudgeRun:
+        started.set()
+        release.wait(timeout=5)
+        return _FakeBuilderJudgeRun(loop_id or "bj-race", "passed")
+
+    monkeypatch.setattr("devflow.control_room.builder_judge_loop._generate_loop_id", lambda: "bj-race")
+    monkeypatch.setattr(operating_layer_server, "run_builder_judge_loop", fake_run_builder)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, start_payload = _post_json(
+            host,
+            port,
+            "/api/builder-judge/start",
+            {
+                "definition_of_done": "A short test artifact",
+                "builder_profile_id": "builder-a",
+                "judge_profile_id": "judge-a",
+                "async": True,
+            },
+        )
+        assert status == HTTPStatus.OK
+        assert start_payload["loop_id"] == "bj-race"
+        assert start_payload["status"] == "running"
+        assert started.wait(timeout=5)
+        with operating_layer_server._bj_state_lock:
+            assert operating_layer_server._bj_threads["bj-race"].is_alive()
+
+        barrier = threading.Barrier(6)
+        results: list[tuple[str, int, dict[str, object]]] = []
+
+        def _request(path: str) -> None:
+            barrier.wait(timeout=5)
+            response_status, body, _headers = _get_raw(host, port, path)
+            results.append((path, response_status, json.loads(body.decode("utf-8"))))
+
+        request_threads = [
+            threading.Thread(target=_request, args=("/api/builder-judge/status?loop_id=bj-race",), daemon=True)
+            for _ in range(3)
+        ] + [
+            threading.Thread(target=_request, args=("/api/builder-judge/list",), daemon=True)
+            for _ in range(3)
+        ]
+        for request_thread in request_threads:
+            request_thread.start()
+        for request_thread in request_threads:
+            request_thread.join(timeout=5)
+
+        assert len(results) == 6
+        for path, response_status, payload in results:
+            assert response_status == HTTPStatus.OK
+            if path.endswith("/status?loop_id=bj-race"):
+                assert payload["loop_id"] == "bj-race"
+                assert payload["status"] == "running"
+            else:
+                assert any(loop["loop_id"] == "bj-race" and loop["status"] == "running" for loop in payload["loops"])
+
+        release.set()
+        final_payload = None
+        for _ in range(100):
+            status_code, body, _headers = _get_raw(host, port, "/api/builder-judge/status?loop_id=bj-race")
+            final_payload = json.loads(body.decode("utf-8"))
+            if final_payload.get("status") == "passed":
+                assert status_code == HTTPStatus.OK
+                break
+            threading.Event().wait(0.05)
+        assert final_payload is not None
+        assert final_payload["status"] == "passed"
+
+        status_code, body, _headers = _get_raw(host, port, "/api/builder-judge/list")
+        assert status_code == HTTPStatus.OK
+        list_payload = json.loads(body.decode("utf-8"))
+        assert any(loop["loop_id"] == "bj-race" and loop["status"] == "passed" for loop in list_payload["loops"])
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        _clear_builder_judge_state()
+
+
+def test_builder_judge_completed_thread_entries_are_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _clear_builder_judge_state()
+    monkeypatch.setattr(operating_layer_server, "_bj_completed_thread_retention", 1)
+    loop_ids = iter(["bj-one", "bj-two"])
+
+    def fake_run_builder(
+        root: Path,
+        config,
+        *,
+        loop_id: str | None = None,
+        write_evidence: bool = True,
+    ) -> _FakeBuilderJudgeRun:
+        return _FakeBuilderJudgeRun(loop_id or "bj-loop", "passed")
+
+    monkeypatch.setattr(operating_layer_server, "run_builder_judge_loop", fake_run_builder)
+    monkeypatch.setattr("devflow.control_room.builder_judge_loop._generate_loop_id", lambda: next(loop_ids))
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        for expected_loop_id in ("bj-one", "bj-two"):
+            status, start_payload = _post_json(
+                host,
+                port,
+                "/api/builder-judge/start",
+                {
+                    "definition_of_done": "A short test artifact",
+                    "builder_profile_id": "builder-a",
+                    "judge_profile_id": "judge-a",
+                    "async": True,
+                },
+            )
+            assert status == HTTPStatus.OK
+            assert start_payload["loop_id"] == expected_loop_id
+            for _ in range(100):
+                status_code, body, _headers = _get_raw(host, port, f"/api/builder-judge/status?loop_id={expected_loop_id}")
+                payload = json.loads(body.decode("utf-8"))
+                if payload.get("status") == "passed":
+                    assert status_code == HTTPStatus.OK
+                    break
+                threading.Event().wait(0.02)
+            else:
+                pytest.fail(f"loop {expected_loop_id} never reached passed")
+
+        with operating_layer_server._bj_state_lock:
+            assert list(operating_layer_server._bj_threads) == ["bj-two"]
+            assert all(not thread_obj.is_alive() for thread_obj in operating_layer_server._bj_threads.values())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        _clear_builder_judge_state()
+
+
+def test_builder_judge_background_failure_stays_visible_in_status_and_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    _clear_builder_judge_state()
+    started = threading.Event()
+    release = threading.Event()
+
+    def fake_run_builder(
+        root: Path,
+        config,
+        *,
+        loop_id: str | None = None,
+        write_evidence: bool = True,
+    ) -> _FakeBuilderJudgeRun:
+        started.set()
+        release.wait(timeout=5)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("devflow.control_room.builder_judge_loop._generate_loop_id", lambda: "bj-fail")
+    monkeypatch.setattr(operating_layer_server, "run_builder_judge_loop", fake_run_builder)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, start_payload = _post_json(
+            host,
+            port,
+            "/api/builder-judge/start",
+            {
+                "definition_of_done": "A short test artifact",
+                "builder_profile_id": "builder-a",
+                "judge_profile_id": "judge-a",
+                "async": True,
+            },
+        )
+        assert status == HTTPStatus.OK
+        assert start_payload["loop_id"] == "bj-fail"
+        assert start_payload["status"] == "running"
+        assert started.wait(timeout=5)
+
+        release.set()
+        failed_payload = None
+        for _ in range(100):
+            status_code, body, _headers = _get_raw(host, port, "/api/builder-judge/status?loop_id=bj-fail")
+            failed_payload = json.loads(body.decode("utf-8"))
+            if failed_payload.get("status") == "failed":
+                assert status_code == HTTPStatus.OK
+                break
+            threading.Event().wait(0.05)
+        assert failed_payload is not None
+        assert failed_payload["status"] == "failed"
+        assert failed_payload["stop_reason"] == "background_thread_error"
+        assert failed_payload["next_safe_action"] == "boom"
+
+        status_code, body, _headers = _get_raw(host, port, "/api/builder-judge/list")
+        assert status_code == HTTPStatus.OK
+        list_payload = json.loads(body.decode("utf-8"))
+        assert any(loop["loop_id"] == "bj-fail" and loop["status"] == "failed" for loop in list_payload["loops"])
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        _clear_builder_judge_state()
 
 
 def test_operating_layer_css_prevents_right_rail_brainstorm_controls_from_overlapping_transcript() -> None:

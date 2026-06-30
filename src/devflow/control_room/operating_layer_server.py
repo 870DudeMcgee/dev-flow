@@ -90,9 +90,52 @@ ACTION_OUTPUT_LIMIT = 12000
 BROWSE_MAX_DIRECTORY_ENTRIES = 120
 BROWSE_MAX_FILE_BYTES = 64 * 1024
 
-# In-memory registry of running builder-judge loops (loop_id → BuilderJudgeRun)
+# In-memory registry of live builder-judge loop payloads plus finished thread objects.
 _bj_running_loops: dict[str, dict] = {}
 _bj_threads: dict[str, threading.Thread] = {}
+# ponytail: one global lock for this small shared registry; split later only if contention shows up.
+_bj_state_lock = threading.Lock()
+_bj_completed_thread_retention = 32
+
+
+def _bj_prune_completed_threads_locked() -> None:
+    completed_loop_ids = [loop_id for loop_id, thread in _bj_threads.items() if not thread.is_alive()]
+    excess = len(completed_loop_ids) - _bj_completed_thread_retention
+    for loop_id in completed_loop_ids[: max(excess, 0)]:
+        _bj_threads.pop(loop_id, None)
+
+
+def _bj_store_running_loop(
+    loop_id: str,
+    payload: dict[str, Any],
+    thread: threading.Thread | None = None,
+    *,
+    prune: bool = True,
+) -> None:
+    with _bj_state_lock:
+        if thread is not None:
+            _bj_threads[loop_id] = thread
+        _bj_running_loops[loop_id] = payload
+        if prune:
+            _bj_prune_completed_threads_locked()
+
+
+def _bj_get_running_loop(loop_id: str) -> dict[str, Any] | None:
+    with _bj_state_lock:
+        _bj_prune_completed_threads_locked()
+        payload = _bj_running_loops.get(loop_id)
+        return dict(payload) if payload is not None else None
+
+
+def _bj_list_visible_loops(root: Path) -> list[dict[str, Any]]:
+    loops_by_id = {str(loop.get("loop_id") or ""): loop for loop in list_builder_judge_loops(root)}
+    with _bj_state_lock:
+        _bj_prune_completed_threads_locked()
+        for loop_id, payload in _bj_running_loops.items():
+            loops_by_id[loop_id] = project_builder_judge_run(payload, root=root)
+    loops = list(loops_by_id.values())
+    loops.sort(key=lambda loop: loop.get("started_at", ""), reverse=True)
+    return loops
 
 
 @dataclass(frozen=True)
@@ -735,9 +778,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             def _run_bj_loop():
                 try:
                     run = run_builder_judge_loop(root, config, loop_id=loop_id)
-                    _bj_running_loops[loop_id] = project_builder_judge_run(run, root=root)
+                    payload = project_builder_judge_run(run, root=root)
                 except Exception as exc:
-                    _bj_running_loops[loop_id] = project_builder_judge_run(
+                    payload = project_builder_judge_run(
                         {
                             "loop_id": loop_id,
                             "status": "failed",
@@ -751,10 +794,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                         },
                         root=root,
                     )
+                _bj_store_running_loop(loop_id, payload, threading.current_thread())
 
             thread = threading.Thread(target=_run_bj_loop, daemon=True)
-            _bj_threads[loop_id] = thread
-            _bj_running_loops[loop_id] = project_builder_judge_run(
+            start_payload = project_builder_judge_run(
                 {
                     "loop_id": loop_id,
                     "run_id": "",
@@ -768,9 +811,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 },
                 root=root,
             )
+            _bj_store_running_loop(loop_id, start_payload, thread, prune=False)
             thread.start()
 
-            self._send_json(_bj_running_loops[loop_id], HTTPStatus.OK)
+            self._send_json(start_payload, HTTPStatus.OK)
         else:
             # Synchronous mode (for CLI or testing)
             try:
@@ -787,7 +831,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
     def _handle_builder_judge_list(self) -> None:
         try:
             root = self.server.repo_root
-            loops = list_builder_judge_loops(root)
+            loops = _bj_list_visible_loops(root)
         except (OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
@@ -804,8 +848,8 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
         # Check in-memory registry first (for running loops)
-        if loop_id in _bj_running_loops:
-            run_data = _bj_running_loops[loop_id]
+        run_data = _bj_get_running_loop(loop_id)
+        if run_data is not None:
             # If still running, also try to read incremental file state
             if run_data.get("status") == "running":
                 file_run = get_builder_judge_run(root, loop_id)
@@ -961,9 +1005,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     "next_action": final["next_action"],
                     "package": package.model_dump(mode="json"),
                 }
-                _bj_running_loops[loop_id] = payload
+                _bj_store_running_loop(loop_id, payload)
             except Exception as exc:
-                _bj_running_loops[loop_id] = project_builder_judge_run(
+                payload = project_builder_judge_run(
                     {
                         "loop_id": loop_id,
                         "status": "failed",
@@ -981,10 +1025,10 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                     },
                     root=root,
                 )
+                _bj_store_running_loop(loop_id, payload, threading.current_thread())
 
         thread = threading.Thread(target=_run_workbench_loop, daemon=True)
-        _bj_threads[loop_id] = thread
-        _bj_running_loops[loop_id] = project_builder_judge_run(
+        running_payload = project_builder_judge_run(
             workbench_running_payload(
                 root,
                 session_id=session_id,
@@ -994,8 +1038,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             ),
             root=root,
         )
+        _bj_store_running_loop(loop_id, running_payload, thread, prune=False)
         thread.start()
-        self._send_json(_bj_running_loops[loop_id], HTTPStatus.OK)
+        self._send_json(running_payload, HTTPStatus.OK)
 
     def _handle_gates_setup(self) -> None:
         try:
