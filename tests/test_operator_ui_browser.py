@@ -1380,18 +1380,31 @@ def test_worker_lanes_are_overview_not_primary_action_surface(browser_page: tupl
 
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
     lane_card = page.locator("#active-work-groups .worker-card", has_text="Browser active work").first
+    lane_next_safe_action = lane_card.get_attribute("data-next-safe-action") or ""
+    assert lane_next_safe_action
+    assert "<command>" not in lane_next_safe_action
     expect(lane_card.locator(".worker-quick-actions")).to_be_visible()
     start_chip = lane_card.locator('[data-worker-quick-action][data-card-action-intent="start_shell"]')
     expect(start_chip).to_be_visible()
     assert start_chip.get_attribute("data-command") is None
     assert lane_card.locator(".worker-quick-actions [data-command]").count() >= 1
     assert "<command>" not in lane_card.inner_text()
+    expect(lane_card.locator(".worker-event").filter(has_text="Next safe action")).to_be_visible()
     assert page.locator("#active-work-groups input").count() == 0
     assert page.locator("#active-work-groups textarea").count() == 0
     promote_card = page.locator("#active-work-groups .worker-card", has_text="Browser promotion candidate").first
+    promote_next_safe_action = promote_card.get_attribute("data-next-safe-action") or ""
+    assert promote_next_safe_action
+    assert "<command>" not in promote_next_safe_action
     expect(promote_card.locator('[data-worker-quick-action][data-card-action-intent="promote"]')).to_be_visible()
     assert promote_card.locator('[data-worker-quick-action][data-card-action-intent="promote"]').get_attribute("data-command") is None
     expect(promote_card.locator('[data-worker-quick-action][data-card-action-intent="review_preview"][data-command]')).to_be_visible()
+    expect(promote_card.locator(".worker-event").filter(has_text="Next safe action")).to_be_visible()
+    review_card = page.locator("#guided-review-queue .review-card", has_text="Browser promotion candidate").first
+    review_next_safe_action = review_card.get_attribute("data-next-safe-action") or ""
+    assert review_next_safe_action
+    assert "<command>" not in review_next_safe_action
+    expect(review_card.locator("button.review-main span").filter(has_text="Next safe action")).to_be_visible()
     assert page.locator("#active-work-groups [data-task-run-shell]").count() == 0
     assert page.locator("#active-work-groups [data-task-verify]").count() == 0
     expect(page.locator("#active-work-groups [data-select-task]").first).to_be_visible()

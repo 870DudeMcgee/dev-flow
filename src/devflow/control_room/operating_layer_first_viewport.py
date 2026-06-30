@@ -111,6 +111,7 @@ class FirstViewportTaskCard(BaseModel):
     latest: str = ""
     action_label: str
     command: str | None = None
+    next_safe_action: str | None = None
     latest_event: FirstViewportLatestEvent | None = None
 
 
@@ -129,6 +130,7 @@ class FirstViewportReviewCard(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     changed_files: list[str] = Field(default_factory=list)
     evidence_count: int = 0
+    next_safe_action: str | None = None
 
 
 class FirstViewportEvidenceCard(BaseModel):
@@ -212,6 +214,7 @@ def build_first_viewport_presentation(
                 reason=item.reason,
                 action_label=_action_label(task_lookup.get(item.task_id)),
                 command=item.command,
+                next_safe_action=item.command,
                 evidence_paths=item.evidence_paths,
                 review_state=item.review_state,
                 review_score=item.review_score,
@@ -344,6 +347,7 @@ def _task_card(task: TaskWorkbenchTask) -> FirstViewportTaskCard:
         latest=task.latest,
         action_label=_action_label(task),
         command=primary.command if primary else task.next_action.command,
+        next_safe_action=_task_next_safe_action(task, primary),
         latest_event=_event_card(latest_event),
     )
 
@@ -368,6 +372,15 @@ def _next_task(
         reason=task.next_action.reason,
         evidence_paths=task.evidence_paths or task.detail.evidence_paths,
     )
+
+
+def _task_next_safe_action(
+    task: TaskWorkbenchTask | None,
+    primary: TaskWorkbenchControl | None,
+) -> str | None:
+    if task is None:
+        return None
+    return task.next_safe_action or (primary.command if primary else None) or task.next_action.command
 
 
 def _evidence_card(

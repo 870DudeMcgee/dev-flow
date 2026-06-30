@@ -1036,6 +1036,9 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
     assert first_viewport["worker_lanes"][0]["task_id"] == "task-0001"
     assert first_viewport["worker_lanes"][0]["worker_model_label"] == "shell"
     assert first_viewport["worker_lanes"][0]["action_label"] == "Start shell"
+    assert first_viewport["worker_lanes"][0]["next_safe_action"] == (
+        "devflow task run task-0001 --worker shell -- <command>"
+    )
     assert first_viewport["launchpad"]["selected_task_id"] == "task-0001"
     assert first_viewport["launchpad"]["command"] == "devflow task run task-0001 --worker shell -- <command>"
     assert payload["gate_receipts"][0]["task_id"] == "task-0001"
@@ -1159,6 +1162,11 @@ def test_operating_layer_reuses_task_workbench_for_task_centered_snapshot_fields
         "task-0002": "needs_verification",
         "task-0003": "ready_to_promote",
     }
+    assert all(item["next_safe_action"] for item in snapshot_first_viewport["worker_lanes"])
+    assert (
+        {item["task_id"]: item["next_safe_action"] for item in snapshot_first_viewport["worker_lanes"]}
+        == {task["id"]: task["next_safe_action"] for task in snapshot_payload["tasks"]}
+    )
 
 
 def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
@@ -1244,6 +1252,7 @@ def test_first_viewport_module_shapes_brainstorm_pipeline_and_launchpad(
     assert payload["next_task"]["task_id"] == "task-0001"
     assert payload["next_task"]["action_label"] == "Start shell"
     assert payload["worker_lanes"][0]["task_id"] == "task-0001"
+    assert payload["worker_lanes"][0]["next_safe_action"] == payload["worker_lanes"][0]["command"]
     assert payload["launchpad"]["selected_task_id"] == "task-0001"
 
 
@@ -1459,6 +1468,11 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     first_viewport = payload["first_viewport"]
     assert first_viewport["review_queue"][0]["task_id"] == "task-0001"
     assert first_viewport["review_queue"][0]["action_label"] == "Verify"
+    assert (
+        first_viewport["review_queue"][0]["next_safe_action"]
+        == first_viewport["review_queue"][0]["command"]
+        == 'devflow task verify task-0001 --shell "<command>"'
+    )
     assert first_viewport["review_queue"][0]["review_state"] == "needs_verification"
     assert first_viewport["review_queue"][0]["evidence_count"] >= 3
     assert "verification has not passed" in first_viewport["review_queue"][0]["operator_summary"]

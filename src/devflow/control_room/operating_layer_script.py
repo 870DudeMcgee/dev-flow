@@ -296,6 +296,7 @@ function taskLookupById(tasks) {
 function fallbackTaskCardFromSnapshotTask(task) {
   const status = task.lane || 'new';
   const latestEvent = lastTaskEvent(task);
+  const command = primaryTaskCommand(task);
   return {
     task_id: task.id,
     title: task.title || 'Untitled task',
@@ -306,7 +307,8 @@ function fallbackTaskCardFromSnapshotTask(task) {
     verification_status: task.verification_status || 'not_run',
     latest: taskFreshness(task),
     action_label: taskActionLabel(task),
-    command: primaryTaskCommand(task),
+    command,
+    next_safe_action: task.next_safe_action || command,
     latest_event: latestEvent,
   };
 }
@@ -314,6 +316,7 @@ function fallbackTaskCardFromSnapshotTask(task) {
 function fallbackReviewCardFromSnapshotTask(task) {
   const command = primaryTaskCommand(task);
   const detail = task.review_detail || {};
+  const reviewCommand = detail.review_command || task.review_next_command || command || '';
   const blockers = detail.blockers || task.review_blockers || task.promotion_blockers || [];
   const changedFiles = detail.changed_files || [];
   const priority = task.lane === 'ready_to_promote' || task.lane === 'failed' || task.lane === 'blocked'
@@ -326,7 +329,8 @@ function fallbackReviewCardFromSnapshotTask(task) {
     priority: detail.review_priority || priority,
     reason: detail.review_reason || blockers[0] || task.next_action?.reason || task.display_status || '',
     action_label: taskActionLabel(task),
-    command: detail.review_command || command || task.review_next_command || '',
+    command: reviewCommand,
+    next_safe_action: reviewCommand,
     evidence_paths: detail.evidence_paths || task.evidence_paths || task.detail?.evidence_paths || [],
     review_state: detail.review_state || task.review_state || 'not_ready',
     review_score: detail.review_score || task.review_score || 0,
@@ -464,6 +468,21 @@ function shortCommand(command, limit) {
   if (!value) return '';
   const max = limit || 96;
   return value.length > max ? value.slice(0, max - 1) + '…' : value;
+}
+function nextSafeActionDisplay(raw, fallbackLabel, limit) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (/<[^>]+>/.test(value)) return fallbackLabel ? `${fallbackLabel} in launchpad` : 'Use launchpad input';
+  return shortCommand(value, limit || 96);
+}
+function nextSafeActionAttribute(raw, fallbackLabel) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (/<[^>]+>/.test(value)) return fallbackLabel ? `${fallbackLabel} in launchpad` : 'Use launchpad input';
+  return value;
+}
+function nextSafeActionForCard(primaryAction, fallbackAction) {
+  return String(primaryAction || fallbackAction || '').trim();
 }
 // Brainstorm response adapter helpers: current payloads use pipeline_detail; fallbacks support older partial responses.
 function pipelineDetailFromPayload(payload) {
@@ -2555,17 +2574,22 @@ function renderWorkerLanes(input) {
     const workerLabel = item.worker_model_label || 'unassigned';
     const task = presentation.task_lookup?.get(taskId)
       || (Array.isArray(presentation.tasks) ? presentation.tasks.find(itemTask => itemTask?.id === taskId) : null);
+    const nextSafeAction = nextSafeActionForCard(item.next_safe_action, task?.next_safe_action || task?.next_action?.command || item.command || '');
     const quickActions = workerLaneQuickActionChips(task);
     const quickActionHtml = quickActions
       ? `<span class="worker-quick-actions" aria-label="Quick actions">${quickActions}</span>`
       : `<span class="worker-next">${esc(item.action_label || 'Inspect task')}</span>`;
-    return `<div class="worker-card guided-task-card task-card ${info.toneClass} ${info.railClass} ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" role="listitem">
+    const nextSafeActionText = nextSafeActionDisplay(nextSafeAction, item.action_label || 'Select task', 120);
+    const nextSafeActionAttr = nextSafeActionAttribute(nextSafeAction, item.action_label || 'Select task');
+    const nextSafeActionLine = nextSafeActionText ? `<span class="worker-event">Next safe action · ${esc(nextSafeActionText)}</span>` : '';
+    return `<div class="worker-card guided-task-card task-card ${info.toneClass} ${info.railClass} ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" data-next-safe-action="${esc(nextSafeActionAttr)}" role="listitem">
       <button class="worker-card-main" type="button" data-select-task="${esc(taskId)}">
         <span class="worker-light ${tone}"></span>
         <span class="worker-copy">
           <strong><span class="task-id">${esc(taskId)}</span> ${esc(item.title || 'Untitled task')}</strong>
           <span class="worker-meta"><span class="${info.badgeClass}">${esc(info.label)}</span><span class="worker-meta-text">${esc(workerLabel)} · ${esc(verifyInfo.label)}</span></span>
           ${latestEvent ? `<span class="worker-event">${esc(latestEvent.event)}${latestEvent.summary ? ': ' + esc(latestEvent.summary) : ''}</span>` : ''}
+          ${nextSafeActionLine}
         </span>
       </button>
       ${quickActions ? '' : quickActionHtml}
@@ -2598,6 +2622,8 @@ function renderReviewQueue(reviewLoop, tasks) {
   }
   container.innerHTML = items.slice(0, 12).map(item => {
     const taskId = item.task_id || item.id || '';
+    const task = presentation.task_lookup?.get(taskId)
+      || (Array.isArray(presentation.tasks) ? presentation.tasks.find(itemTask => itemTask?.id === taskId) : null);
     const laneInfo = taskStatusInfo(item.lane || 'needs_review');
     const priority = item.priority || (item.lane === 'ready_to_promote' || item.lane === 'failed' || item.lane === 'blocked' ? 'high' : 'medium');
     const command = item.command || '';
@@ -2608,11 +2634,17 @@ function renderReviewQueue(reviewLoop, tasks) {
     if (changed.length) details.push(changed.length + ' changed file' + (changed.length === 1 ? '' : 's'));
     if (item.evidence_count) details.push(item.evidence_count + ' evidence path' + (item.evidence_count === 1 ? '' : 's'));
     if (blockers.length) details.push(blockers[0]);
-    return `<div class="review-card task-card ${laneInfo.toneClass} ${laneInfo.railClass}" data-task-id="${esc(taskId)}">
+    const nextSafeAction = nextSafeActionForCard(item.next_safe_action, task?.next_safe_action || task?.next_action?.command || command || '');
+    const nextSafeActionText = nextSafeActionDisplay(nextSafeAction, item.action_label || 'Select task', 110);
+    const nextSafeActionAttr = nextSafeActionAttribute(nextSafeAction, item.action_label || 'Select task');
+    const nextSafeActionLine = nextSafeActionText ? `<span>${esc('Next safe action · ' + nextSafeActionText)}</span>` : '';
+    const commandSummary = nextSafeActionDisplay(command, item.action_label || 'Inspect task', 96) || 'Inspect task';
+    return `<div class="review-card task-card ${laneInfo.toneClass} ${laneInfo.railClass}" data-task-id="${esc(taskId)}" data-next-safe-action="${esc(nextSafeActionAttr)}">
       <span class="review-priority ${priority === 'medium' ? 'med' : priority}">${esc(sentenceCase(priority))}</span>
       <button type="button" class="review-main" data-select-task="${esc(taskId)}">
         <strong>${esc(taskId)} · ${esc(item.title || 'Untitled task')} <span class="${laneInfo.badgeClass}">${esc(laneInfo.label)}</span></strong>
-        <span>${esc(item.reason || 'Review task')} · ${esc(shortCommand(command || 'Inspect task', 96))}</span>
+        <span>${esc(item.reason || 'Review task')} · ${esc(commandSummary)}</span>
+        ${nextSafeActionLine}
         ${details.length ? `<em>${esc(details.slice(0, 3).join(' · '))}</em>` : ''}
       </button>
       <button type="button" class="btn btn-sm btn-secondary task-row-btn" data-select-task="${esc(taskId)}">${esc(item.action_label || 'Inspect')}</button>
