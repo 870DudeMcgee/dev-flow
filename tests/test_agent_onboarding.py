@@ -14,6 +14,7 @@ from devflow.cli import app
 from devflow.control_room.agent_registry import load_agent_registry, load_provider_registry
 from devflow.control_room.agent_runtime import agent_runtime_contract
 from devflow.control_room.local_model_inventory import build_local_model_inventory
+from devflow.control_room.local_agent_discovery import InstalledLocalModel, LocalDiscoveryReport
 from devflow.control_room.operating_layer import build_operating_layer_snapshot
 from tests.helpers import setup_temp_git_repo
 
@@ -877,6 +878,43 @@ def test_agent_catalog_uses_precomputed_hermes_rows(
     )
 
     assert payload["hermes_agents"][0]["id"] == "hermes-codex-gpt55"
+
+
+def test_build_agent_catalog_reuses_local_ollama_discovery_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    from devflow.control_room import agent_catalog
+    from devflow.control_room import agent_catalog_local
+
+    def fail_discovery() -> LocalDiscoveryReport:
+        raise AssertionError("discover_local_ollama_models should not be called when report is provided")
+
+    monkeypatch.setattr(agent_catalog_local, "discover_local_ollama_models", fail_discovery)
+
+    payload = agent_catalog.build_agent_catalog(
+        tmp_path,
+        local_discovery_report=LocalDiscoveryReport(
+            installed_models=[
+                InstalledLocalModel(
+                    name="qwopus:latest",
+                    model_id="qwopus:latest",
+                    size="1.0 GB",
+                    modified="2026-06-30",
+                )
+            ],
+            manifests=[],
+            capability_profiles=[],
+            errors=[],
+        ),
+        live_discovery=False,
+    )
+
+    assert payload["local_ollama"]["status"] == "ready"
+    assert payload["local_ollama"]["installed_models"][0]["name"] == "qwopus:latest"
 
 
 def test_operating_layer_snapshot_exposes_agent_catalog_and_model_actions(

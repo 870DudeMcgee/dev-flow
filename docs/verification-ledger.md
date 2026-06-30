@@ -47,6 +47,20 @@ Use this ledger before running expensive verification. If the question can be an
 
 ## Focused Operating-Layer Evidence
 
+- Browser control-room verification fast path: passed, `11 passed in 23.69s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operator_ui_browser.py --durations=10 -k "browser_model_catalog_hydrates_from_snapshot_without_agents_fetch_on_first_load or browser_model_catalog_falls_back_to_agents_when_snapshot_catalog_is_empty_or_missing or local_model_inventory_and_dropdown_show_fake_ollama_models or builder_judge_model_pickers_update_hidden_inputs_with_keyboard or home_prioritizes_brainstorm_workbench_without_closed_history_noise or home_exposes_idea_to_task_flow_and_task_control or product_stage_contains_task_launchpad_review_and_evidence or pipeline_spine_buttons_do_not_overlap or visible_controls_and_primary_cards_fit_without_horizontal_clipping or idea_greenhouse_lanes_wrap_at_mobile_width"`.
+  - Scope: lean-only browser fixtures that validate smoke/layout and model-catalog API behavior without rich seeding.
+  - Proof tier: lightweight browser smoke proof.
+- Rich seeded control-room baseline for interaction/layout regression: passed, `2 passed in 10.27s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operator_ui_browser.py --durations=10 -k "test_idea_greenhouse_shows_lane_header_and_useful_card_height or test_home_shell_is_compact_and_topbar_health_replaces_side_panel"`.
+  - Scope: representative seeded controls and layout checks that still require the full fixture.
+- Browser control-room regression proof (rich seeded, interaction-heavy): passed, `1 passed in 6.23s` (single test command sample).
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operator_ui_browser.py --durations=10 -k "test_worker_row_selects_launchpad_and_runs_inline_shell_worker"`.
+  - Scope: seeded task lifecycle and runtime action surface remain covered under the rich fixture.
+- Browser control-room visual QA: passed.
+  - Command: `PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json`.
+  - Proof tier: fast automated screenshot/probe pass for desktop+mobile with current evidence.
+
 - Brainstorm workbench + DeepSeek advisory chat UI: passed, `80 passed, 11 skipped, 2 warnings in 82.19s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_openrouter_advisory.py tests/test_operating_layer.py tests/test_operator_ui_browser.py -q`.
   - Scope: DeepSeek V4 Flash Free brainstorm profile, missing-key failure without fake assistant output, mocked OpenRouter chat transcript evidence, spec/plan/task escalation artifacts, operating-layer API/UI contracts, registry visibility, and browser UI selectors.

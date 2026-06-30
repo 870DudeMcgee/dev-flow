@@ -5,6 +5,7 @@ import subprocess
 import threading
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.client import HTTPConnection
 from pathlib import Path
@@ -87,6 +88,25 @@ def _write_local_patch_worker_evidence(root: Path, task_id: str) -> None:
         },
     )
     (agent_dir / "proposal.patch").write_text("diff --git a/hello.txt b/hello.txt\n", encoding="utf-8")
+
+
+def _write_stale_task_lock(root: Path, task_id: str) -> None:
+    lock_dir = root / ".devflow" / "tasks" / task_id / ".lock"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    (lock_dir / "owner.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "operation": "stale-run",
+                "pid": 1,
+                "host": "other-host",
+                "acquired_at": old_time.isoformat(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _serve_operating_layer(root: Path) -> tuple[OperatingLayerHTTPServer, threading.Thread, str, int]:
@@ -280,6 +300,13 @@ def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
     assert "architecture-evidence-section" in INDEX_HTML
     assert "workbench-stage-path" in INDEX_HTML
     assert "workbench-gate-strip" in INDEX_HTML
+
+
+def test_operating_layer_client_renders_stale_lock_warning() -> None:
+    assert "lockStatusWarning" in APP_JS
+    assert "const lockWarningLine = lockStatusWarning(item);" in APP_JS
+    assert "const lockWarning = lockStatusWarning(task);" in APP_JS
+    assert "Read-only stale lock visibility" in APP_JS
 
 
 def test_operating_layer_server_serves_head_for_static_assets(tmp_path: Path) -> None:
@@ -721,6 +748,46 @@ def test_builder_judge_async_start_status_and_list_are_consistent_under_concurre
         _clear_builder_judge_state()
 
 
+def test_builder_judge_start_validation_returns_action_error_envelope(
+    tmp_path: Path,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/builder-judge/start", {})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.BAD_REQUEST
+    assert payload["error"] == "definition_of_done is required"
+    assert payload["error_code"] == "validation_error"
+    assert payload["error_type"] == "ValueError"
+    assert payload["retriable"] is False
+
+
+def test_operating_layer_server_workbench_implement_missing_session_is_stable_action_error(
+    tmp_path: Path,
+) -> None:
+    setup_temp_git_repo(tmp_path)
+
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        status, payload = _post_json(host, port, "/api/workbench/implement", {})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert status == HTTPStatus.CONFLICT
+    assert payload["error"] == "session_id is required"
+    assert payload["error_code"] == "workbench_conflict"
+    assert payload["error_type"] == "WorkbenchError"
+    assert payload["retriable"] is False
+
+
 def test_builder_judge_completed_thread_entries_are_bounded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1060,6 +1127,22 @@ def test_operating_layer_snapshot_json_is_read_only_contract(
 
     assert not (tmp_path / ".devflow" / "freshness" / "latest.json").exists()
     assert not (tmp_path / ".devflow" / "freshness" / "events.jsonl").exists()
+
+
+def test_operating_layer_snapshot_exposes_stale_lock_status_as_read_only(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["task", "create", "stale lock visible"]).exit_code == 0
+    _write_stale_task_lock(tmp_path, "task-0001")
+
+    payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    task_payload = next(item for item in payload["tasks"] if item["id"] == "task-0001")
+    first_viewport = payload["first_viewport"]
+
+    assert task_payload["lock_status"]["is_stale"] is True
+    assert task_payload["lock_status"]["status"] == "stale"
+    assert task_payload["lock_status"]["operation"] == "stale-run"
+    assert first_viewport["next_task"]["lock_status"]["is_stale"] is True
+    assert (tmp_path / ".devflow" / "tasks" / "task-0001" / ".lock").exists()
 
 
 def test_operating_layer_snapshot_skips_corrupt_task_and_surfaces_warning(
@@ -2616,6 +2699,9 @@ def test_local_model_ensure_unknown_profile_errors(tmp_path: Path) -> None:
 
     assert status == HTTPStatus.NOT_FOUND
     assert "Unknown profile_id 'missing-profile'" in payload["error"]
+    assert payload["error_code"] == "missing_profile"
+    assert payload["error_type"] == "KeyError"
+    assert payload["retriable"] is False
 
 
 def test_operating_layer_agents_exposes_hermes_codex_gpt55_to_shared_model_pickers(
@@ -3460,6 +3546,7 @@ def test_operating_layer_server_action_run_resolver_errors_return_stable_json(tm
         assert payload["error"] == "resolver failure"
         assert payload["error_code"] == "resolver_failure"
         assert payload["error_type"] == "ValueError"
+        assert payload["retriable"] is False
     finally:
         server.shutdown()
         server.server_close()
@@ -3483,6 +3570,7 @@ def test_operating_layer_server_action_run_file_not_found_is_stable_json(
         assert payload["error_code"] == "command_execution_failed"
         assert payload["error_type"] == "FileNotFoundError"
         assert payload["error"].startswith("failed to execute command:")
+        assert payload["retriable"] is True
     finally:
         server.shutdown()
         server.server_close()
@@ -3506,6 +3594,43 @@ def test_operating_layer_server_action_run_os_error_is_stable_json(
         assert payload["error_code"] == "command_execution_failed"
         assert payload["error_type"] == "PermissionError"
         assert "failed to execute command" in payload["error"]
+        assert payload["retriable"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_operating_layer_server_action_run_timeout_is_stable_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    server, thread, host, port = _serve_operating_layer(tmp_path)
+    try:
+        monkeypatch.setattr(
+            operating_layer_server.subprocess,
+            "run",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired(
+                    cmd=["devflow", "idea", "capture"],
+                    timeout=operating_layer_server.ACTION_TIMEOUT_SECONDS,
+                    output="partial stdout",
+                    stderr="partial stderr",
+                )
+            ),
+        )
+        status, payload = _post_action(host, port, 'devflow idea capture "timeout"')
+        assert status == HTTPStatus.REQUEST_TIMEOUT
+        assert payload["error"] == f"command timed out after {operating_layer_server.ACTION_TIMEOUT_SECONDS}s"
+        assert payload["error_code"] == "command_timed_out"
+        assert payload["error_type"] == "TimeoutExpired"
+        assert payload["retriable"] is True
+        assert payload["executed"] is True
+        assert payload["timed_out"] is True
+        assert payload["exit_code"] is None
+        assert payload["stdout"] == "partial stdout"
+        assert payload["stderr"] == "partial stderr"
     finally:
         server.shutdown()
         server.server_close()

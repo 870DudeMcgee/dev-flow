@@ -4,13 +4,57 @@ from pathlib import Path
 
 import pytest
 
+import devflow.control_room.hermes_profile_resolver as hermes_profile_resolver
 from devflow.control_room.hermes_profile_resolver import (
     CANONICAL_HERMES_PROFILES,
+    configured_hermes_agent_rows,
     discover_hermes_profiles,
     resolve_hermes_profile,
     resolve_hermes_profile_for_historical_cleanup,
     resolve_hermes_profile_with_global_fallback,
 )
+
+
+def _write_canonical_profile_configs(root: Path) -> None:
+    for profile in CANONICAL_HERMES_PROFILES:
+        config_path = root / ".hermes" / "profiles" / profile.hermes_profile / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            "\n".join(
+                [
+                    "model:",
+                    f"  provider: {profile.provider}",
+                    f"  default: {profile.model}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+
+def _write_hermes_registry_providers(root: Path) -> None:
+    providers = root / ".devflow" / "providers"
+    providers.mkdir(parents=True, exist_ok=True)
+    (providers / "openrouter.yaml").write_text(
+        """provider: openrouter
+adapter: openai_compatible
+base_url: https://openrouter.ai/api/v1
+""",
+        encoding="utf-8",
+    )
+    (providers / "qwen35-mtp.yaml").write_text(
+        """provider: qwen35-mtp
+adapter: openai_compatible
+base_url: http://127.0.0.1:11434/v1
+""",
+        encoding="utf-8",
+    )
+    (providers / "openai-codex.yaml").write_text(
+        """provider: openai-codex
+adapter: hermes_profile
+""",
+        encoding="utf-8",
+    )
 
 
 @pytest.mark.parametrize(
@@ -150,3 +194,50 @@ def test_global_fallback_prefers_codex_then_qwen32(tmp_path: Path, monkeypatch: 
     assert any("no-such-profile: not a canonical Hermes profile id" in reason for reason in resolved.failure_reasons)
     assert any("hermes-codex-gpt55" in reason for reason in resolved.failure_reasons)
     assert any("hermes-qwen32" in reason for reason in resolved.failure_reasons)
+
+
+def test_configured_hermes_agent_rows_reuses_registry_loads_and_preserves_row_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", tmp_path.as_posix())
+    _write_canonical_profile_configs(tmp_path)
+    _write_hermes_registry_providers(tmp_path)
+
+    load_calls = {
+        "agent_registry": 0,
+        "provider_registry": 0,
+    }
+
+    original_load_agent_registry = hermes_profile_resolver.load_agent_registry
+    original_load_provider_registry = hermes_profile_resolver.load_provider_registry
+
+    def counted_load_agent_registry(root: Path):
+        load_calls["agent_registry"] += 1
+        return original_load_agent_registry(root)
+
+    def counted_load_provider_registry(root: Path):
+        load_calls["provider_registry"] += 1
+        return original_load_provider_registry(root)
+
+    monkeypatch.setattr(hermes_profile_resolver, "load_agent_registry", counted_load_agent_registry)
+    monkeypatch.setattr(hermes_profile_resolver, "load_provider_registry", counted_load_provider_registry)
+
+    rows = configured_hermes_agent_rows(tmp_path)
+
+    assert load_calls == {"agent_registry": 1, "provider_registry": 1}
+    assert len(rows) == len(CANONICAL_HERMES_PROFILES)
+
+    advisory_row = next(row for row in rows if row["id"] == "hermes-qwen37plus")
+    contract = advisory_row["runtime_contract"]
+    assert contract["runtime_contract"] == "registry_backed_advisory"
+    assert contract["execution_surface"] == "agent_advise"
+    assert contract["next_command"].startswith("devflow agent advise")
+    assert "hermes-qwen37plus" in contract["next_command"]
+
+    codex_row = next(row for row in rows if row["id"] == "hermes-codex-gpt55")
+    assert codex_row["runtime_contract"]["runtime_contract"] == "handoff_v1"
+    assert all(
+        row["runtime_contract"]["runtime_contract"] in {"handoff_v1", "registry_backed_advisory"}
+        for row in rows
+    )

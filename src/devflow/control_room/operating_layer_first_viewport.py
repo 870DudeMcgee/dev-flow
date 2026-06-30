@@ -16,6 +16,7 @@ from devflow.control_room.task_workbench import (
     TaskWorkbench,
     TaskWorkbenchControl,
     TaskWorkbenchEvidencePointer,
+    TaskWorkbenchTaskLockStatus,
     TaskWorkbenchTask,
     TaskWorkbenchTaskEvent,
 )
@@ -113,6 +114,7 @@ class FirstViewportTaskCard(BaseModel):
     command: str | None = None
     next_safe_action: str | None = None
     latest_event: FirstViewportLatestEvent | None = None
+    lock_status: TaskWorkbenchTaskLockStatus | None = None
 
 
 class FirstViewportReviewCard(BaseModel):
@@ -165,6 +167,7 @@ class FirstViewportNextTask(BaseModel):
     command: str | None = None
     reason: str | None = None
     evidence_paths: list[str] = Field(default_factory=list)
+    lock_status: TaskWorkbenchTaskLockStatus | None = None
 
 
 class FirstViewportPresentation(BaseModel):
@@ -349,6 +352,7 @@ def _task_card(task: TaskWorkbenchTask) -> FirstViewportTaskCard:
         command=primary.command if primary else task.next_action.command,
         next_safe_action=_task_next_safe_action(task, primary),
         latest_event=_event_card(latest_event),
+        lock_status=task.lock_status,
     )
 
 
@@ -371,6 +375,7 @@ def _next_task(
         command=primary.command if primary else task.next_action.command,
         reason=task.next_action.reason,
         evidence_paths=task.evidence_paths or task.detail.evidence_paths,
+        lock_status=task.lock_status,
     )
 
 

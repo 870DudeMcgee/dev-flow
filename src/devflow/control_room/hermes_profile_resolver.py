@@ -11,7 +11,9 @@ import yaml
 
 from devflow.control_room.agent_registry import (
     AgentDefinition,
+    AgentRegistry,
     ProviderDefinition,
+    ProviderRegistry,
     SAFE_AGENT_ID_PATTERN,
     is_local_openai_compatible_provider,
     is_remote_advisory_agent,
@@ -214,12 +216,30 @@ def discover_hermes_profiles() -> list[HermesProfile]:
     return sorted(rows, key=lambda profile: profile.id)
 
 
+_MISSING_REGISTRY = object()
+
+
 def configured_hermes_agent_rows(root: Path | None = None) -> list[dict[str, Any]]:
+    agent_registry: object = _MISSING_REGISTRY
+    provider_registry: object = _MISSING_REGISTRY
+    if root is not None:
+        try:
+            agent_registry = load_agent_registry(root)
+            provider_registry = load_provider_registry(root)
+        except Exception:
+            agent_registry = None
+            provider_registry = None
+
     rows = []
     for profile in discover_hermes_profiles():
         contract = None
         if root is not None:
-            approved = approved_registry_runtime(root, profile)
+            approved = approved_registry_runtime(
+                root,
+                profile,
+                agent_registry=agent_registry,
+                provider_registry=provider_registry,
+            )
             if approved is not None:
                 agent, _provider = approved
                 contract = agent_runtime_contract(root, agent)
@@ -312,13 +332,22 @@ def load_hermes_picker_runtime(
 def approved_registry_runtime(
     root: Path,
     profile: HermesProfile,
+    *,
+    agent_registry: AgentRegistry | object = _MISSING_REGISTRY,
+    provider_registry: ProviderRegistry | object = _MISSING_REGISTRY,
 ) -> tuple[AgentDefinition, ProviderDefinition] | None:
     registry_id = profile.registry_profile_id
     if not registry_id:
         return None
     try:
-        agent = load_agent_registry(root).require_agent(registry_id)
-        provider = load_provider_registry(root).require_provider(agent.provider)
+        if agent_registry is _MISSING_REGISTRY:
+            agent = load_agent_registry(root).require_agent(registry_id)
+        else:
+            agent = agent_registry.require_agent(registry_id)
+        if provider_registry is _MISSING_REGISTRY:
+            provider = load_provider_registry(root).require_provider(agent.provider)
+        else:
+            provider = provider_registry.require_provider(agent.provider)
     except Exception:
         return None
     if profile.provider and agent.provider != profile.provider:

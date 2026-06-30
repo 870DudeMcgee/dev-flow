@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
+import devflow.control_room.task_worker_run as task_worker_run
 from devflow.control_room.service import create_task, get_task, run_shell_task
+from devflow.control_room.agent_registry import AgentDefinition
+from devflow.control_room.models import WorkerResult
 from devflow.control_room.task_worker_run import run_task_worker
 
 
@@ -72,6 +75,59 @@ def test_run_task_worker_writes_packet_and_result_evidence(tmp_path: Path) -> No
     assert f"# Result: {task.id}" in result_text
     assert "Worker completed successfully" in result_text
     assert "## Command" in result_text
+
+
+def test_run_task_worker_agent_backed_writes_result_evidence_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    task = create_task(tmp_path, "agent backed run dedup")
+    task_path = tmp_path / ".devflow" / "tasks" / task.id
+
+    write_calls = 0
+    original_write_result_evidence = task_worker_run._write_result_evidence
+
+    def counted_write_result_evidence(task_id: str, command: list[str], result: WorkerResult) -> None:
+        nonlocal write_calls
+        write_calls += 1
+        original_write_result_evidence(task_id, command, result)
+
+    monkeypatch.setattr(task_worker_run, "_write_result_evidence", counted_write_result_evidence)
+
+    fake_agent = AgentDefinition(
+        id="agent-backed",
+        provider="shell",
+        model="shell",
+        adapter="shell",
+        role="implementation_worker",
+        tier="small",
+        default_mode="workspace_write",
+        execution_mode="automated",
+        workspace="isolated_task_workspace",
+        can_use_network=False,
+    )
+
+    class FakeAdapter:
+        def run(self, worker_input: task_worker_run.WorkerInput) -> WorkerResult:
+            worker_input.log_file.write_text("agent log\n", encoding="utf-8")
+            return WorkerResult(
+                status="complete",
+                summary="Agent worker simulation",
+                exit_code=0,
+                latest_log_line=None,
+                log_file=worker_input.log_file,
+                result_file=worker_input.result_file,
+            )
+
+    monkeypatch.setattr(task_worker_run, "_resolve_worker_runtime", lambda root, worker_adapter: (fake_agent, None, "shell"))
+    monkeypatch.setattr(task_worker_run, "get_worker_adapter", lambda resolved_adapter_name, agent=None, provider=None: FakeAdapter())
+
+    result = run_task_worker(tmp_path, task.id, ["/bin/sh", "-c", "echo noop"])
+
+    assert write_calls == 1
+    assert result.status == "complete"
+    assert result.result_path == f".devflow/tasks/{task.id}/agents/agent-backed/result.md"
+    assert (task_path / "agents" / "agent-backed" / "result.md").exists()
+    compat_log = task_path / "logs" / "worker.log"
+    assert compat_log.exists()
+    assert compat_log.read_text(encoding="utf-8") == "agent log\n"
 
 
 def _replace_workspace(root: Path, task_id: str, workspace: str) -> None:

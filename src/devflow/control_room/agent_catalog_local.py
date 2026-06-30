@@ -11,7 +11,7 @@ from devflow.control_room.agent_catalog_hermes import (
     configured_hermes_local_provider_rows,
 )
 from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
-from devflow.control_room.local_agent_discovery import discover_local_ollama_models
+from devflow.control_room.local_agent_discovery import LocalDiscoveryReport, discover_local_ollama_models
 from devflow.control_room.machine_capability import (
     LOCAL_DEFAULT_MODEL_ID,
     LOCAL_DEFAULT_PROVIDER_ID,
@@ -24,9 +24,12 @@ from devflow.control_room.machine_capability import (
 LOCAL_ENDPOINT_TIMEOUT_SECONDS = 1.0
 
 
-def _local_ollama_catalog(registry: Any) -> dict[str, Any]:
+def _local_ollama_catalog(
+    registry: Any,
+    local_discovery_report: LocalDiscoveryReport | None = None,
+) -> dict[str, Any]:
     try:
-        report = discover_local_ollama_models()
+        report = local_discovery_report or discover_local_ollama_models()
     except Exception as exc:
         return {
             "status": "unavailable",

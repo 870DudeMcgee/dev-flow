@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.locks import TaskLockError, task_mutation_lock
+from devflow.control_room.locks import TaskLockError, inspect_task_lock_status, task_mutation_lock
 from devflow.control_room.service import apply_task_patch, create_task, promote_task, run_shell_task, verify_task
 
 
@@ -96,3 +96,32 @@ def test_lock_cleanup_preserves_replaced_owner(tmp_path: Path) -> None:
 
     owner = json.loads((lock_dir / "owner.json").read_text(encoding="utf-8"))
     assert owner["operation"] == "newer-run"
+
+
+def test_inspect_task_lock_status_is_read_only_and_stale_does_not_delete_lock(tmp_path: Path) -> None:
+    task = create_task(tmp_path, "inspect-only stale lock")
+    lock_dir = tmp_path / ".devflow" / "tasks" / task.id / ".lock"
+    lock_dir.mkdir()
+    old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    (lock_dir / "owner.json").write_text(
+        json.dumps(
+            {
+                "task_id": task.id,
+                "operation": "stale-run",
+                "pid": 1,
+                "host": "other-host",
+                "acquired_at": old_time.isoformat(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    lock_status = inspect_task_lock_status(tmp_path, task.id)
+
+    assert lock_status is not None
+    assert lock_status["status"] == "stale"
+    assert lock_status["is_stale"] is True
+    assert lock_status["operation"] == "stale-run"
+    assert lock_status["host"] == "other-host"
+    assert lock_dir.exists()

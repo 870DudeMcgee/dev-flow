@@ -369,6 +369,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 "command_execution_failed",
                 exc,
+                retriable=True,
             )
             return
         except OSError as exc:
@@ -377,17 +378,23 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 "command_execution_failed",
                 exc,
+                retriable=True,
             )
             return
         except subprocess.TimeoutExpired as exc:
+            timeout_message = f"command timed out after {ACTION_TIMEOUT_SECONDS}s"
             self._send_json(
                 {
+                    "error": timeout_message,
+                    "error_code": "command_timed_out",
+                    "error_type": type(exc).__name__,
+                    "retriable": True,
                     "executed": True,
                     "timed_out": True,
                     "exit_code": None,
                     "classification": classification,
                     "stdout": _truncate_text(exc.stdout or ""),
-                    "stderr": _truncate_text(exc.stderr or f"Command timed out after {ACTION_TIMEOUT_SECONDS}s"),
+                    "stderr": _truncate_text(exc.stderr or timeout_message),
                     "output_truncated": _output_was_truncated(exc.stdout or "", exc.stderr or ""),
                 },
                 HTTPStatus.REQUEST_TIMEOUT,
@@ -756,11 +763,18 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 max_rounds=max_rounds if max_rounds is not None else DEFAULT_MAX_ROUNDS,
                 escalate_on_max_rounds=escalate_on_max_rounds,
             )
-        except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+        except ValueError as exc:
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
             return
+        except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError) as exc:
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
+            return
+        except OSError as exc:
+            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
+            return
+
         except Exception as exc:
-            self._send_json_error(f"Builder-judge config failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            self._send_action_error(f"Builder-judge config failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
             return
 
         # Validate config before starting
@@ -768,7 +782,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         try:
             _validate_config(config)
         except BuilderJudgeConfigError as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
             return
 
         if async_mode:
@@ -820,11 +834,14 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             try:
                 run = run_builder_judge_loop(root, config)
                 result = project_builder_judge_run(run, root=root)
-            except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, OSError, ValueError) as exc:
-                self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, ValueError) as exc:
+                self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
+                return
+            except OSError as exc:
+                self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
                 return
             except Exception as exc:
-                self._send_json_error(f"Builder-judge loop failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._send_action_error(f"Builder-judge loop failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
                 return
             self._send_json(result, HTTPStatus.OK)
 
@@ -985,12 +1002,17 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 max_rounds=max_rounds,
             )
             loop_id = new_workbench_loop_id()
-        except (BuilderJudgeConfigError, BuilderJudgeRunError, WorkbenchError, ProjectRegistryError, OSError, ValueError) as exc:
-            status = HTTPStatus.CONFLICT if isinstance(exc, WorkbenchError) else HTTPStatus.BAD_REQUEST
-            self._send_json_error(str(exc), status)
+        except WorkbenchError as exc:
+            self._send_action_error(str(exc), HTTPStatus.CONFLICT, "workbench_conflict", exc, retriable=False)
+            return
+        except (BuilderJudgeConfigError, BuilderJudgeRunError, ProjectRegistryError, ValueError) as exc:
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
+            return
+        except OSError as exc:
+            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
             return
         except Exception as exc:
-            self._send_json_error(f"Workbench implement failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            self._send_action_error(f"Workbench implement failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
             return
 
         def _run_workbench_loop() -> None:
@@ -1061,15 +1083,18 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             root = self._payload_project_root(payload)
             profile_id = payload.get("profile_id")
             if not isinstance(profile_id, str) or not profile_id.strip():
-                self._send_json_error("profile_id is required", HTTPStatus.BAD_REQUEST)
+                self._send_action_error("profile_id is required", HTTPStatus.BAD_REQUEST, "validation_error", ValueError("profile_id is required"))
                 return
             resolved = _resolve_local_model_ensure_profile(root, profile_id.strip())
         except (ProjectRegistryError, ValueError, AgentRegistryError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
+            return
+        except OSError as exc:
+            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
             return
         except KeyError as exc:
             message = str(exc.args[0]) if exc.args else str(exc)
-            self._send_json_error(message, HTTPStatus.NOT_FOUND)
+            self._send_action_error(message, HTTPStatus.NOT_FOUND, "missing_profile", exc, retriable=False)
             return
 
         if resolved.is_ollama:
@@ -1104,10 +1129,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 base_url=resolved.base_url,
             )
         except LocalModelServerError as exc:
-            self._send_json_error(str(exc), HTTPStatus.CONFLICT)
+            self._send_action_error(str(exc), HTTPStatus.CONFLICT, "local_model_server_error", exc, retriable=True)
+            return
+        except OSError as exc:
+            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
             return
         except Exception as exc:
-            self._send_json_error(f"Local model ensure failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            self._send_action_error(f"Local model ensure failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
             return
 
         self._send_json(_local_model_ensure_payload(resolved, lifecycle), HTTPStatus.OK)
@@ -1258,12 +1286,14 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         status: HTTPStatus,
         error_code: str,
         exc: Exception,
+        retriable: bool = False,
     ) -> None:
         self._send_json(
             {
                 "error": message,
                 "error_code": error_code,
                 "error_type": type(exc).__name__,
+                "retriable": bool(retriable),
             },
             status,
         )

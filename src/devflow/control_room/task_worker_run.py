@@ -56,8 +56,6 @@ def run_task_worker(
             _write_result_evidence(task_id, command, result)
         if agent is not None:
             _write_agent_directory_compatibility(task_path, worker_input.log_file)
-            if resolved_adapter_name not in {"manual", "ollama_chat"}:
-                _write_result_evidence(task_id, command, result)
 
         return _mark_worker_finished(root, task, result, worker_input.log_file, worker_input.result_file)
 

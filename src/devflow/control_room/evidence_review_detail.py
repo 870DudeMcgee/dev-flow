@@ -93,6 +93,8 @@ def build_evidence_review_detail(
     worker_lane: dict[str, Any] | None = None,
     local_worker_lane: dict[str, Any] | None = None,
     project_id: str | None = None,
+    workspace_scan_cache: dict[tuple[str, int], list[str]] | None = None,
+    workspace_preview_cache: dict[str, dict[str, str]] | None = None,
 ) -> EvidenceReviewDetail:
     """Build the operator-facing story for task evidence and review readiness."""
     root = root.resolve()
@@ -121,7 +123,12 @@ def build_evidence_review_detail(
     proposal_patch_paths = _proposal_patch_paths(root, task.id)
     patch_review_path = _latest_payload_path(patch_review, "_review_path")
     patch_dry_run_path = _latest_payload_path(patch_dry_run, "_dry_run_path")
-    workspace_changed_files = _changed_workspace_files(root, task.workspace, notes)
+    workspace_changed_files = _changed_workspace_files(
+        root,
+        task.workspace,
+        notes,
+        workspace_scan_cache=workspace_scan_cache,
+    )
     changed_files = _changed_files(
         root,
         promotion_preview=promotion_preview,
@@ -129,7 +136,13 @@ def build_evidence_review_detail(
         patch_dry_run=patch_dry_run,
         workspace_changed_files=workspace_changed_files,
     )
-    changed_file_preview = _changed_file_contents(root, task.workspace, workspace_changed_files, notes)
+    changed_file_preview = _changed_file_contents(
+        root,
+        task.workspace,
+        workspace_changed_files,
+        notes,
+        workspace_preview_cache=workspace_preview_cache,
+    )
     missing_evidence: list[str] = []
     evidence_paths = _evidence_paths(
         root,
@@ -678,31 +691,53 @@ def _metadata_file_value(root: Path, value: Any) -> str:
     return text
 
 
-def _changed_workspace_files(root: Path, workspace_value: str, notes: list[str], *, limit: int = 20) -> list[str]:
+def _changed_workspace_files(
+    root: Path,
+    workspace_value: str,
+    notes: list[str],
+    *,
+    limit: int = 20,
+    workspace_scan_cache: dict[tuple[str, int], list[str]] | None = None,
+) -> list[str]:
     workspace = absolute_path(root, workspace_value).resolve()
+    workspace_key = _workspace_key(root, workspace)
+    cache_key = (workspace_key, limit)
+    if workspace_scan_cache is not None and cache_key in workspace_scan_cache:
+        return list(workspace_scan_cache[cache_key])
     if not workspace.is_dir():
         notes.append(f"workspace unavailable for review summary: {workspace_value}")
         return []
+    else:
+        result: list[str] = []
+        for path in sorted(workspace.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                name = path.relative_to(workspace).as_posix()
+            except ValueError:
+                continue
+            if _is_ignored_review_name(name):
+                continue
+            target = root / name
+            try:
+                if not target.exists() or (target.is_file() and path.read_bytes() != target.read_bytes()):
+                    result.append(name)
+            except OSError:
+                result.append(name)
+            if len(result) >= limit:
+                break
+    if workspace_scan_cache is not None:
+        workspace_scan_cache[cache_key] = list(result)
+    return list(result)
 
-    changed: list[str] = []
-    for path in sorted(workspace.rglob("*")):
-        if not path.is_file():
-            continue
-        try:
-            name = path.relative_to(workspace).as_posix()
-        except ValueError:
-            continue
-        if _is_ignored_review_name(name):
-            continue
-        target = root / name
-        try:
-            if not target.exists() or (target.is_file() and path.read_bytes() != target.read_bytes()):
-                changed.append(name)
-        except OSError:
-            changed.append(name)
-        if len(changed) >= limit:
-            break
-    return changed
+
+def _workspace_key(root: Path, workspace: Path) -> str:
+    root = root.resolve()
+    candidate = workspace.resolve()
+    try:
+        return candidate.relative_to(root).as_posix()
+    except ValueError:
+        return candidate.as_posix()
 
 
 def _changed_file_contents(
@@ -712,10 +747,23 @@ def _changed_file_contents(
     notes: list[str],
     *,
     limit: int = 5,
+    workspace_preview_cache: dict[str, dict[str, str]] | None = None,
 ) -> str:
     workspace = absolute_path(root, workspace_value).resolve()
+    workspace_key = _workspace_key(root, workspace)
     previews: list[str] = []
+    file_cache = (
+        workspace_preview_cache.setdefault(workspace_key, {})
+        if workspace_preview_cache is not None
+        else None
+    )
     for name in changed_files[:limit]:
+        if file_cache is not None:
+            cached_preview = file_cache.get(name)
+            if cached_preview is not None:
+                if cached_preview:
+                    previews.append(f"{name}: " + cached_preview)
+                continue
         path = workspace / name
         try:
             raw = path.read_text(encoding="utf-8", errors="replace")
@@ -728,7 +776,12 @@ def _changed_file_contents(
             if preview:
                 lines.append(preview)
         if lines:
-            previews.append(f"{name}: " + "\n".join(lines[:4]))
+            preview = "\n".join(lines[:4])
+            previews.append(f"{name}: " + preview)
+            if file_cache is not None:
+                file_cache[name] = preview
+        elif file_cache is not None:
+            file_cache[name] = ""
     return "\n".join(previews)
 
 

@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,35 @@ class ScratchState:
 
 
 @pytest.fixture()
-def scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchState:
+def scratch_state(rich_scratch_state: ScratchState) -> ScratchState:
+    return rich_scratch_state
+
+
+@pytest.fixture()
+def lean_scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchState:
+    root = tmp_path / "operator-ui"
+    root.mkdir()
+    init_test_git_repo(root)
+    brief = root / "goal.md"
+    brief.write_text("# Browser automation goal\n\nShip UI confidence.\n", encoding="utf-8")
+    subprocess.run(["git", "add", "goal.md"], cwd=root, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "add browser goal"], cwd=root, capture_output=True, text=True, check=True)
+    devflow_home = tmp_path / "home"
+    monkeypatch.setenv("DEVFLOW_HOME", devflow_home.as_posix())
+
+    _run_devflow(root, devflow_home, "init")
+    _run_devflow(root, devflow_home, "task", "create", "Browser active work")
+
+    return ScratchState(
+        root=root,
+        devflow_home=devflow_home,
+        project_root=tmp_path / "registered-project",
+        missing_project=tmp_path / "missing-project",
+    )
+
+
+@pytest.fixture()
+def rich_scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchState:
     root = tmp_path / "operator-ui"
     root.mkdir()
     init_test_git_repo(root)
@@ -155,10 +184,11 @@ def scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ScratchSta
     return ScratchState(root=root, devflow_home=devflow_home, project_root=project_root, missing_project=missing_project)
 
 
-@pytest.fixture()
-def operating_layer_url(scratch_state: ScratchState) -> str:
+def _serve_operating_layer(state: ScratchState, env_overrides: dict[str, str] | None = None) -> tuple[subprocess.Popen[str], str]:
     port = _free_port()
-    env = _devflow_env(scratch_state.devflow_home)
+    env = _devflow_env(state.devflow_home)
+    if env_overrides:
+        env.update(env_overrides)
     process = subprocess.Popen(
         [
             PYTHON.as_posix(),
@@ -171,7 +201,7 @@ def operating_layer_url(scratch_state: ScratchState) -> str:
             "--port",
             str(port),
         ],
-        cwd=scratch_state.root,
+        cwd=state.root,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -180,52 +210,69 @@ def operating_layer_url(scratch_state: ScratchState) -> str:
     base_url = f"http://127.0.0.1:{port}"
     try:
         _wait_for_healthz(base_url, process)
-        yield base_url
-    finally:
+        return process, base_url
+    except Exception:
         process.terminate()
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
+        raise
+
+
+def _stop_operating_layer(process: subprocess.Popen[str]) -> None:
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
 
 
 @pytest.fixture()
-def operating_layer_url_with_fake_ollama(scratch_state: ScratchState, tmp_path: Path) -> str:
-    port = _free_port()
+def operating_layer_url(rich_scratch_state: ScratchState) -> str:
+    process, base_url = _serve_operating_layer(rich_scratch_state)
+    try:
+        yield base_url
+    finally:
+        _stop_operating_layer(process)
+
+
+@pytest.fixture()
+def operating_layer_url_lean(lean_scratch_state: ScratchState) -> str:
+    process, base_url = _serve_operating_layer(lean_scratch_state)
+    try:
+        yield base_url
+    finally:
+        _stop_operating_layer(process)
+
+
+@pytest.fixture()
+def operating_layer_url_with_fake_ollama(lean_scratch_state: ScratchState, tmp_path: Path) -> str:
     fake_bin = _write_fake_ollama(tmp_path)
-    env = _devflow_env(scratch_state.devflow_home)
-    env["PATH"] = f"{fake_bin.as_posix()}:{env.get('PATH', '')}"
-    env["DEVFLOW_MACHINE_RAM_GB"] = "16"
-    process = subprocess.Popen(
-        [
-            PYTHON.as_posix(),
-            "-m",
-            "devflow.cli",
-            "operating-layer",
-            "serve",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-        ],
-        cwd=scratch_state.root,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+    env = {
+        "PATH": f"{fake_bin.as_posix()}:{_devflow_env(lean_scratch_state.devflow_home).get('PATH', '')}",
+        "DEVFLOW_MACHINE_RAM_GB": "16",
+    }
+    process, base_url = _serve_operating_layer(
+        lean_scratch_state,
+        env_overrides=env,
     )
-    base_url = f"http://127.0.0.1:{port}"
     try:
-        _wait_for_healthz(base_url, process)
         yield base_url
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+        _stop_operating_layer(process)
+
+
+@pytest.fixture()
+def operating_layer_url_with_stale_task_lock(lean_scratch_state: ScratchState) -> str:
+    _write_stale_task_lock(lean_scratch_state.root, "task-0001")
+    process, base_url = _serve_operating_layer(lean_scratch_state)
+    try:
+        yield base_url
+    finally:
+        _stop_operating_layer(process)
 
 
 @pytest.fixture()
@@ -247,6 +294,24 @@ def browser_page(operating_layer_url: str):
 
 
 @pytest.fixture()
+def browser_page_lean(operating_layer_url_lean: str):
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.goto(operating_layer_url_lean, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+        yield page, console_errors
+        browser.close()
+
+
+@pytest.fixture()
 def browser_page_with_fake_ollama(operating_layer_url_with_fake_ollama: str):
     if sync_playwright is None:
         pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
@@ -261,6 +326,159 @@ def browser_page_with_fake_ollama(operating_layer_url_with_fake_ollama: str):
         page.goto(operating_layer_url_with_fake_ollama, wait_until="domcontentloaded")
         _wait_for_hydration(page)
         yield page, console_errors
+        browser.close()
+
+
+@pytest.fixture()
+def browser_page_with_stale_task_lock(operating_layer_url_with_stale_task_lock: str):
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.goto(operating_layer_url_with_stale_task_lock, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+        yield page, console_errors
+        browser.close()
+
+
+@pytest.fixture()
+def browser_page_with_fake_ollama_and_api_request_log(operating_layer_url_with_fake_ollama: str):
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        api_requests: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.on("request", lambda request: request.url.find("/api/") != -1 and api_requests.append(request.url))
+        page.goto(operating_layer_url_with_fake_ollama, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+        yield page, console_errors, api_requests
+        browser.close()
+
+
+@pytest.fixture()
+def browser_page_with_api_request_log(operating_layer_url: str):
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        api_requests: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.on("request", lambda request: request.url.find("/api/") != -1 and api_requests.append(request.url))
+        page.goto(operating_layer_url, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+        yield page, console_errors, api_requests
+        browser.close()
+
+
+@pytest.fixture()
+def browser_page_with_api_request_log_lean(operating_layer_url_lean: str):
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        api_requests: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.on("request", lambda request: request.url.find("/api/") != -1 and api_requests.append(request.url))
+        page.goto(operating_layer_url_lean, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+        yield page, console_errors, api_requests
+        browser.close()
+
+
+def test_browser_model_catalog_hydrates_from_snapshot_without_agents_fetch_on_first_load(
+    browser_page_with_api_request_log_lean: tuple[Page, list[str], list[str]],
+    operating_layer_url_lean: str,
+) -> None:
+    page, console_errors, api_requests = browser_page_with_api_request_log_lean
+
+    assert all("/api/agents" not in url for url in api_requests)
+
+    snapshot = page.request.get(f"{operating_layer_url_lean}/api/snapshot").json()
+    snapshot_agents = snapshot.get("agent_catalog", {}).get("hermes_agents", [])
+    assert snapshot_agents
+    snapshot_agent = snapshot_agents[0]
+    assert snapshot_agent.get("label") or snapshot_agent.get("id")
+
+    page.locator("#model-selector").click()
+    expect(page.locator("#model-dropdown")).to_be_visible()
+    expect(page.locator("#model-dropdown [data-agent-id]").first).to_be_visible()
+
+    page.locator('[data-tools-tab="builder-judge"]').click()
+    expect(page.locator("#builder-judge-section")).to_be_visible()
+    page.locator("#bj-builder-model-selector").click()
+    expect(page.locator("#bj-builder-model-dropdown [data-agent-id]").first).to_be_visible()
+    page.locator("#bj-builder-model-selector").click()
+
+    page.locator("#bj-judge-model-selector").click()
+    expect(page.locator("#bj-judge-model-dropdown [data-agent-id]").first).to_be_visible()
+    page.locator("#bj-judge-model-selector").click()
+
+    before_agents_call_count = len([url for url in api_requests if "/api/agents" in url])
+    page.evaluate("() => loadAgents()")
+    page.wait_for_timeout(300)
+    assert len([url for url in api_requests if "/api/agents" in url]) == before_agents_call_count + 1
+    assert page.locator("#model-dropdown [data-agent-id]").count() >= 1
+    assert console_errors == []
+
+
+@pytest.mark.parametrize("catalog_variant", ["empty", "missing"])
+def test_browser_model_catalog_falls_back_to_agents_when_snapshot_catalog_is_empty_or_missing(
+    operating_layer_url_lean: str,
+    catalog_variant: str,
+) -> None:
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        api_requests: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.on("request", lambda request: request.url.find("/api/") != -1 and api_requests.append(request.url))
+
+        def empty_snapshot_agents(route):
+            response = route.fetch()
+            payload = response.json()
+            catalog = payload.setdefault("agent_catalog", {})
+            if catalog_variant == "missing":
+                catalog.pop("hermes_agents", None)
+            else:
+                catalog["hermes_agents"] = []
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+        page.route("**/api/snapshot", empty_snapshot_agents)
+        page.goto(operating_layer_url_lean, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+
+        assert any("/api/agents" in url for url in api_requests)
+        page.locator("#model-selector").click()
+        expect(page.locator("#model-dropdown [data-agent-id]").first).to_be_visible()
+        assert console_errors == []
         browser.close()
 
 
@@ -296,6 +514,18 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
     expect(page.locator("#guided-review-queue")).to_contain_text("Browser promotion candidate")
     assert _no_horizontal_overflow(page)
+    assert console_errors == []
+
+
+def test_stale_task_lock_warning_is_visible_without_cleanup_action(
+    browser_page_with_stale_task_lock: tuple[Page, list[str]],
+) -> None:
+    page, console_errors = browser_page_with_stale_task_lock
+
+    worker_card = page.locator('#active-work-groups [data-task-id="task-0001"]')
+    expect(worker_card).to_contain_text("Read-only stale lock visibility")
+    expect(worker_card).to_contain_text("stale-run")
+    expect(worker_card).not_to_contain_text("Cleanup")
     assert console_errors == []
 
 
@@ -351,10 +581,31 @@ def test_local_model_inventory_and_dropdown_show_fake_ollama_models(
     assert console_errors == []
 
 
-def test_builder_judge_model_pickers_update_hidden_inputs_with_keyboard(
-    browser_page: tuple[Page, list[str]],
+def test_local_model_setup_actions_refresh_snapshot_without_agents_api(
+    browser_page_with_fake_ollama_and_api_request_log: tuple[Page, list[str], list[str]],
 ) -> None:
-    page, console_errors = browser_page
+    page, console_errors, api_requests = browser_page_with_fake_ollama_and_api_request_log
+
+    assert all("/api/agents" not in url for url in api_requests)
+
+    page.locator(".topbar-health-details summary").click()
+    setup_button = page.locator("#local-model-inventory [data-local-model-command]").first
+    expect(setup_button).to_be_visible()
+
+    before_agents = len([url for url in api_requests if "/api/agents" in url])
+    before_snapshot = len([url for url in api_requests if "/api/snapshot" in url])
+    with page.expect_response(lambda response: "/api/snapshot" in response.url and response.status == 200, timeout=10_000):
+        setup_button.click()
+
+    assert len([url for url in api_requests if "/api/agents" in url]) == before_agents
+    assert len([url for url in api_requests if "/api/snapshot" in url]) > before_snapshot
+    assert console_errors == []
+
+
+def test_builder_judge_model_pickers_update_hidden_inputs_with_keyboard(
+    browser_page_lean: tuple[Page, list[str]],
+) -> None:
+    page, console_errors = browser_page_lean
 
     page.locator('[data-tools-tab="builder-judge"]').click()
     expect(page.locator("#builder-judge-section")).to_be_visible()
@@ -384,9 +635,9 @@ def test_builder_judge_model_pickers_update_hidden_inputs_with_keyboard(
 
 
 def test_home_prioritizes_brainstorm_workbench_without_closed_history_noise(
-    browser_page: tuple[Page, list[str]],
+    browser_page_lean: tuple[Page, list[str]],
 ) -> None:
-    page, _console_errors = browser_page
+    page, _console_errors = browser_page_lean
 
     desktop = _home_layout_metrics(page)
     assert desktop["scroll_y"] == 0
@@ -477,8 +728,8 @@ def test_home_shell_is_compact_and_topbar_health_replaces_side_panel(
     assert metrics["scrollRatio"] <= 3.2
 
 
-def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Page, list[str]]) -> None:
-    page, _console_errors = browser_page
+def test_home_exposes_idea_to_task_flow_and_task_control(browser_page_lean: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page_lean
     metrics = page.evaluate(
         """() => {
           const mainFlow = [
@@ -533,8 +784,8 @@ def test_home_exposes_idea_to_task_flow_and_task_control(browser_page: tuple[Pag
     assert all(item["top"] is not None for item in metrics["lanes"])
 
 
-def test_product_stage_contains_task_launchpad_review_and_evidence(browser_page) -> None:
-    page, _console_errors = browser_page
+def test_product_stage_contains_task_launchpad_review_and_evidence(browser_page_lean: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page_lean
     product = page.locator("#product-review-section")
     expect(product).to_be_visible()
     expect(product).to_contain_text("Task Control")
@@ -544,8 +795,8 @@ def test_product_stage_contains_task_launchpad_review_and_evidence(browser_page)
     assert product.evaluate("element => getComputedStyle(element).position") != "fixed"
 
 
-def test_pipeline_spine_buttons_do_not_overlap(browser_page: tuple[Page, list[str]]) -> None:
-    page, _console_errors = browser_page
+def test_pipeline_spine_buttons_do_not_overlap(browser_page_lean: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page_lean
 
     overlaps = page.evaluate(
         """() => {
@@ -585,9 +836,9 @@ def test_pipeline_spine_buttons_do_not_overlap(browser_page: tuple[Page, list[st
 
 
 def test_visible_controls_and_primary_cards_fit_without_horizontal_clipping(
-    browser_page: tuple[Page, list[str]],
+    browser_page_lean: tuple[Page, list[str]],
 ) -> None:
-    page, _console_errors = browser_page
+    page, _console_errors = browser_page_lean
 
     failures = page.evaluate(
         """() => {
@@ -637,8 +888,8 @@ def test_idea_greenhouse_shows_lane_header_and_useful_card_height(browser_page: 
 
 
 
-def test_idea_greenhouse_lanes_wrap_at_mobile_width(browser_page: tuple[Page, list[str]]) -> None:
-    page, _console_errors = browser_page
+def test_idea_greenhouse_lanes_wrap_at_mobile_width(browser_page_lean: tuple[Page, list[str]]) -> None:
+    page, _console_errors = browser_page_lean
 
     page.set_viewport_size({"width": 390, "height": 900})
     expect(page.locator("#idea-greenhouse-lanes")).to_be_visible()
@@ -1652,6 +1903,26 @@ def _write_question(root: Path, task_id: str) -> None:
                 "question": "Which UI path should the worker preserve?",
                 "blocking_reason": "Two operator flows overlap.",
                 "required_decision": "Choose the browser-first path.",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_stale_task_lock(root: Path, task_id: str) -> None:
+    lock_dir = root / ".devflow" / "tasks" / task_id / ".lock"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    acquired_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    (lock_dir / "owner.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "operation": "stale-run",
+                "pid": 1,
+                "host": "other-host",
+                "acquired_at": acquired_at.isoformat(),
             },
             sort_keys=True,
         )

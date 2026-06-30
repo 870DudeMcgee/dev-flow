@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from devflow.control_room.locks import inspect_task_lock_status
 from devflow.control_room.browser_task_capabilities import (
     build_task_action_capabilities,
     build_task_capability,
@@ -107,6 +108,16 @@ class TaskWorkbenchTaskDetail(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class TaskWorkbenchTaskLockStatus(BaseModel):
+    status: str
+    operation: str
+    acquired_at: str
+    pid: int | None = None
+    host: str
+    age_seconds: int | None = None
+    is_stale: bool
+
+
 class TaskWorkbenchWorkerLane(BaseModel):
     workspace_mode: str
     worker_id: str
@@ -183,6 +194,7 @@ class TaskWorkbenchTask(BaseModel):
     review_detail: EvidenceReviewDetail
     detail: TaskWorkbenchTaskDetail
     worker_options: list[dict[str, object]] = Field(default_factory=list)
+    lock_status: TaskWorkbenchTaskLockStatus | None = None
 
 
 class TaskWorkbenchPromotionCandidate(BaseModel):
@@ -242,12 +254,16 @@ def build_task_workbench(
     projections = projections if projections is not None else list_task_status_projections(root)
     if configured_hermes_agent_rows is None:
         configured_hermes_agent_rows = configured_hermes_agents(root)
+    workspace_scan_cache: dict[tuple[str, int], list[str]] = {}
+    workspace_preview_cache: dict[str, dict[str, str]] = {}
     tasks = [
         _task_card(
             root,
             projection,
             project_id=project_id,
             configured_hermes_agent_rows=configured_hermes_agent_rows,
+            workspace_scan_cache=workspace_scan_cache,
+            workspace_preview_cache=workspace_preview_cache,
         )
         for projection in projections
     ]
@@ -299,6 +315,8 @@ def _task_card(
     *,
     project_id: str | None,
     configured_hermes_agent_rows: list[dict[str, Any]] | None = None,
+    workspace_scan_cache: dict[tuple[str, int], list[str]] | None = None,
+    workspace_preview_cache: dict[str, dict[str, str]] | None = None,
 ) -> TaskWorkbenchTask:
     task = projection.task
     next_action = DashboardNextAction(**projection.dashboard_next_action.model_dump())
@@ -328,6 +346,8 @@ def _task_card(
         worker_lane=worker_lane,
         local_worker_lane=local_worker_lane,
         project_id=project_id,
+        workspace_scan_cache=workspace_scan_cache,
+        workspace_preview_cache=workspace_preview_cache,
     )
     detail = _task_detail(evidence_review_detail)
     actions = _task_actions(
@@ -365,6 +385,7 @@ def _task_card(
     fo = worker_opts_raw.get("fallback_shell")
     if fo:
         wo_dicts.append({k: v for k, v in fo.model_dump().items() if not k.startswith("_")})
+    lock_status = inspect_task_lock_status(root, task.id)
 
     return TaskWorkbenchTask(
         id=task.id,
@@ -401,6 +422,7 @@ def _task_card(
         review_detail=evidence_review_detail,
         detail=detail,
         worker_options=wo_dicts,
+        lock_status=TaskWorkbenchTaskLockStatus(**lock_status) if lock_status else None,
     )
 
 

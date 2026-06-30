@@ -53,6 +53,14 @@ function taskFreshness(task) {
   const ts = taskTimestamp(task);
   return ts ? ago(ts) : (task?.latest || '');
 }
+function lockStatusWarning(taskOrCard) {
+  const lock = taskOrCard?.lock_status;
+  if (!lock || lock.is_stale !== true) return '';
+  const op = lock.operation || 'task lock';
+  const acquired = lock.acquired_at || 'unknown';
+  const pid = lock.pid || 'unknown';
+  return `Read-only stale lock visibility: ${op} (pid: ${pid}, acquired_at: ${acquired})`;
+}
 function shortTaskLatest(item, latestEvent) {
   const value = String(item?.latest || '').trim();
   if (value && value.length <= 18 && !value.includes('/')) return value;
@@ -310,6 +318,7 @@ function fallbackTaskCardFromSnapshotTask(task) {
     command,
     next_safe_action: task.next_safe_action || command,
     latest_event: latestEvent,
+    lock_status: task.lock_status || null,
   };
 }
 
@@ -414,6 +423,7 @@ function fallbackFirstViewportPresentation(source) {
     command: primary?.command || selected.next_action?.command || '',
     reason: selected.next_action?.reason || null,
     evidence_paths: selected.evidence_paths || selected.detail?.evidence_paths || [],
+    lock_status: selected.lock_status || null,
   } : null;
   const reviewTasks = tasks.filter(t => ['needs_verification', 'needs_review', 'ready_to_promote', 'failed', 'blocked'].includes(t.lane));
   const switcherIds = Array.isArray(serverLaunchpad.switcher_task_ids) && serverLaunchpad.switcher_task_ids.length
@@ -589,6 +599,8 @@ async function loadSnapshot(project) {
     localModelInventory = snapshot.local_model_inventory || localModelInventory || {};
     localModelReadiness = snapshot.local_model_readiness || localModelReadiness || {};
     adoptFirstViewportBrainstormSession(snapshot);
+    const hasCatalogAgents = seedAvailableAgentsFromSnapshot(snapshot);
+    if (!hasCatalogAgents) await loadAgents();
     render();
   } catch (e) {
     snapshot = null;
@@ -947,6 +959,22 @@ function judgeModelPickerConfig() {
   };
 }
 
+function seedAvailableAgentsFromSnapshot(snap) {
+  const catalog = snap?.agent_catalog;
+  const agents = Array.isArray(catalog?.hermes_agents) ? catalog.hermes_agents : null;
+  const selectableAgents = Array.isArray(agents) ? agents.filter(agent => agent && agent.id) : [];
+  const hasInventory = snap?.local_model_inventory && typeof snap.local_model_inventory === 'object';
+  const hasReadiness = snap?.local_model_readiness && typeof snap.local_model_readiness === 'object';
+  const schemaVersion = Number(catalog?.schema_version || 0);
+
+  if (!selectableAgents.length || !hasInventory || !hasReadiness || (schemaVersion > 0 && schemaVersion < 1)) return false;
+
+  availableAgents = selectableAgents;
+  reconcileSelectedProfile();
+  populateBJModelSelectors();
+  return true;
+}
+
 async function loadAgents() {
   try {
     const resp = await fetch('/api/agents');
@@ -1042,7 +1070,6 @@ function renderModelPickerDropdown(config) {
       button.disabled = true;
       try {
         await runApprovedCommand(command, {});
-        await loadAgents();
         await loadSnapshot(selectedProjectId);
       } catch(err) {
         if (!err?.actionRendered) renderActionError({ message: err.message || 'Onboarding failed', command });
@@ -1272,7 +1299,7 @@ function renderInventoryModelRow(row) {
 }
 
 function setupModelSelector() {
-  setupModelPicker(brainstormModelPickerConfig(), { load: true });
+  setupModelPicker(brainstormModelPickerConfig());
 }
 
 function setupModelPicker(config, options = {}) {
@@ -2582,6 +2609,7 @@ function renderWorkerLanes(input) {
     const nextSafeActionText = nextSafeActionDisplay(nextSafeAction, item.action_label || 'Select task', 120);
     const nextSafeActionAttr = nextSafeActionAttribute(nextSafeAction, item.action_label || 'Select task');
     const nextSafeActionLine = nextSafeActionText ? `<span class="worker-event">Next safe action · ${esc(nextSafeActionText)}</span>` : '';
+    const lockWarningLine = lockStatusWarning(item);
     return `<div class="worker-card guided-task-card task-card ${info.toneClass} ${info.railClass} ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" data-next-safe-action="${esc(nextSafeActionAttr)}" role="listitem">
       <button class="worker-card-main" type="button" data-select-task="${esc(taskId)}">
         <span class="worker-light ${tone}"></span>
@@ -2590,6 +2618,7 @@ function renderWorkerLanes(input) {
           <span class="worker-meta"><span class="${info.badgeClass}">${esc(info.label)}</span><span class="worker-meta-text">${esc(workerLabel)} · ${esc(verifyInfo.label)}</span></span>
           ${latestEvent ? `<span class="worker-event">${esc(latestEvent.event)}${latestEvent.summary ? ': ' + esc(latestEvent.summary) : ''}</span>` : ''}
           ${nextSafeActionLine}
+          ${lockWarningLine ? `<span class="worker-event">${esc(lockWarningLine)}</span>` : ''}
         </span>
       </button>
       ${quickActions ? '' : quickActionHtml}
@@ -2763,6 +2792,7 @@ function renderTaskMetadata(task) {
   const worker = taskWorkerLabel(task);
   const workerShort = worker.length > 30 ? worker.slice(0, 28) + '…' : worker;
   const runtime = `${local.adapter || task.worker || '—'}${local.permission_mode ? ' · ' + local.permission_mode : ''}`;
+  const lockWarning = lockStatusWarning(task);
   const primary = [
     { key: 'status', label: 'Status', html: laneBadge(lane), info: statusInfo },
     { key: 'verification', label: 'Verification', html: verificationBadge(task.verification_status), info: verifyInfo },
@@ -2773,6 +2803,9 @@ function renderTaskMetadata(task) {
     { label: 'Workspace', value: task.workspace || '—' },
     { label: 'Runtime', value: runtime },
   ];
+  if (lockWarning) {
+    secondary.push({ label: 'Task lock', value: lockWarning, title: lockWarning, info: taskStatusInfo('blocked') });
+  }
   const primaryHtml = primary.map(item => {
     const content = item.html || `<strong title="${esc(item.title || '')}">${esc(item.value || '—')}</strong>`;
     return `<div class="nt-meta-card nt-meta-${esc(item.key)} ${item.info.toneClass} ${item.info.railClass}"><span>${esc(item.label)}</span>${content}</div>`;
@@ -3590,7 +3623,6 @@ function attachLocalModelActionHandlers(root) {
       button.disabled = true;
       try {
         await runApprovedCommand(command, {});
-        await loadAgents();
         await loadSnapshot(selectedProjectId);
       } catch(err) {
         if (!err?.actionRendered) renderActionError({ message: err.message || 'Onboarding failed', command });

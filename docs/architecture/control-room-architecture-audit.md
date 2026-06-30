@@ -11,9 +11,9 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Metric | Value |
 |---|---:|
-| Nodes | 10,544 |
-| Edges | 23,563 |
-| Communities | 670 |
+| Nodes | 10,556 |
+| Edges | 23,615 |
+| Communities | 667 |
 | Extracted edges | 83% |
 | Inferred edges | 17% |
 | Ambiguous edges | 0% |

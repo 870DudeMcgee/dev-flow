@@ -20,6 +20,54 @@ class TaskLockError(ValueError):
     """Raised when a task-local mutation lock cannot be acquired."""
 
 
+def inspect_task_lock_status(
+    root: Path,
+    task_id: str,
+    *,
+    stale_after_seconds: int = TASK_LOCK_STALE_AFTER_SECONDS,
+) -> dict[str, object] | None:
+    task_path = task_dir(root, task_id)
+    if not task_path.is_dir():
+        return None
+
+    lock_dir = task_path / ".lock"
+    if not lock_dir.is_dir():
+        return None
+
+    owner_path = lock_dir / "owner.json"
+    payload = _safe_read_owner_payload(owner_path)
+    acquired_at = _parse_acquired_at(payload)
+    if acquired_at is None:
+        try:
+            acquired_at = datetime.fromtimestamp(lock_dir.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            return {
+                "status": "active",
+                "operation": str(payload.get("operation") or "unknown"),
+                "acquired_at": "unknown",
+                "pid": _safe_int(payload.get("pid")),
+                "host": str(payload.get("host") or "unknown"),
+                "age_seconds": None,
+                "is_stale": False,
+            }
+
+    if acquired_at.tzinfo is None:
+        acquired_at = acquired_at.replace(tzinfo=timezone.utc)
+    age_seconds = max(0, int((datetime.now(timezone.utc) - acquired_at).total_seconds()))
+    is_active = _owner_process_is_active(payload)
+    is_stale = (not is_active) and age_seconds > stale_after_seconds
+
+    return {
+        "status": "stale" if is_stale else "active",
+        "operation": str(payload.get("operation") or "unknown"),
+        "acquired_at": acquired_at.isoformat(),
+        "pid": _safe_int(payload.get("pid")),
+        "host": str(payload.get("host") or "unknown"),
+        "age_seconds": age_seconds,
+        "is_stale": is_stale,
+    }
+
+
 @contextmanager
 def task_mutation_lock(
     root: Path,
@@ -128,3 +176,28 @@ def _locked_message(task_id: str, lock_dir: Path) -> str:
         f"Task {task_id} is locked by operation '{operation}' "
         f"(pid: {pid}, host: {host}, acquired_at: {acquired_at})."
     )
+
+
+def _safe_read_owner_payload(owner_path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(owner_path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _parse_acquired_at(payload: dict[str, object]) -> datetime | None:
+    raw_value = payload.get("acquired_at")
+    if raw_value is None:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw_value))
+    except Exception:
+        return None
+
+
+def _safe_int(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
