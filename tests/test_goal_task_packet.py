@@ -332,3 +332,100 @@ def test_12_no_worker_model_registry_side_effects(tmp_path: Path, monkeypatch: p
     # Assert no worker log is written or runs
     worker_log = tmp_path / ".devflow" / "tasks" / "task-0001" / "logs" / "worker.log"
     assert worker_log.read_text(encoding="utf-8") == ""
+
+
+def test_13_non_list_context_pointer_warnings_field_warns_and_keeps_packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0001"])
+
+    cp_path = goal_dir(tmp_path, "G-0001") / "context-pointers.yaml"
+    data = yaml.safe_load(cp_path.read_text(encoding="utf-8"))
+    data["warnings"] = "nope"
+    cp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    packet_res = runner.invoke(app, ["task", "packet", "task-0001"])
+    assert packet_res.exit_code == 0
+
+    packet = json.loads(packet_res.output)
+    assert packet["context_budget"] is not None
+    assert packet["bounded_sources"] is not None
+    assert any(w == "warning: context-pointers.yaml warnings must be a list" for w in packet["operator_warnings"])
+
+
+def test_14_non_list_required_context_warns_and_preserves_bounded_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0001"])
+
+    cp_path = goal_dir(tmp_path, "G-0001") / "context-pointers.yaml"
+    data = yaml.safe_load(cp_path.read_text(encoding="utf-8"))
+    data["required_context"] = 123
+    cp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    packet_res = runner.invoke(app, ["task", "packet", "task-0001"])
+    assert packet_res.exit_code == 0
+
+    packet = json.loads(packet_res.output)
+    assert packet["bounded_sources"] is not None
+    assert any(w == "warning: context-pointers.yaml required_context must be a list" for w in packet["operator_warnings"])
+
+
+def test_15_non_list_forbidden_context_warns_and_keeps_default_forbidden_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0001"])
+
+    cp_path = goal_dir(tmp_path, "G-0001") / "context-pointers.yaml"
+    data = yaml.safe_load(cp_path.read_text(encoding="utf-8"))
+    data["forbidden_context"] = "nope"
+    cp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    packet_res = runner.invoke(app, ["task", "packet", "task-0001"])
+    assert packet_res.exit_code == 0
+
+    packet = json.loads(packet_res.output)
+    assert "archived_docs" in packet["context_budget"]["forbidden_context"]
+    assert any(w == "warning: context-pointers.yaml forbidden_context must be a list" for w in packet["operator_warnings"])
+
+
+def test_16_null_context_pointer_field_warns_as_non_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    runner.invoke(app, ["goal", "create-task", "G-0001", "TS-0001"])
+
+    cp_path = goal_dir(tmp_path, "G-0001") / "context-pointers.yaml"
+    data = yaml.safe_load(cp_path.read_text(encoding="utf-8"))
+    data["optional_context"] = None
+    cp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+    packet_res = runner.invoke(app, ["task", "packet", "task-0001"])
+    assert packet_res.exit_code == 0
+
+    packet = json.loads(packet_res.output)
+    assert packet["context_budget"]["optional_context"] == []
+    assert any(w == "warning: context-pointers.yaml optional_context must be a list" for w in packet["operator_warnings"])

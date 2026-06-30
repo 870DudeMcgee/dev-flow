@@ -82,6 +82,8 @@ def load_context_pointers(goal_dir: Path, warnings: list[str]) -> dict[str, Any]
             return default_budget
 
         budget = data.get("context_budget") or {}
+        if not isinstance(budget, dict):
+            budget = {}
         estimated_tokens = budget.get("estimated_tokens")
         risk = budget.get("risk") or budget.get("context_risk") or budget.get("context risk") or "medium"
         strategy = budget.get("strategy") or "focused_task_packet"
@@ -90,15 +92,30 @@ def load_context_pointers(goal_dir: Path, warnings: list[str]) -> dict[str, Any]
             "estimated_tokens": estimated_tokens,
             "risk": risk,
             "strategy": strategy,
-            "required_context": data.get("required_context") or [],
-            "optional_context": data.get("optional_context") or [],
-            "forbidden_context": data.get("forbidden_context") or default_budget["forbidden_context"],
-            "stale_or_archived_context": data.get("stale_or_archived_context") or [],
-            "warnings": data.get("warnings") or default_budget["warnings"]
+            "required_context": _normalize_context_pointer_list(data, "required_context", default_budget["required_context"], warnings),
+            "optional_context": _normalize_context_pointer_list(data, "optional_context", default_budget["optional_context"], warnings),
+            "forbidden_context": _normalize_context_pointer_list(data, "forbidden_context", default_budget["forbidden_context"], warnings),
+            "stale_or_archived_context": _normalize_context_pointer_list(data, "stale_or_archived_context", default_budget["stale_or_archived_context"], warnings),
+            "warnings": _normalize_context_pointer_list(data, "warnings", default_budget["warnings"], warnings),
         }
     except Exception as exc:
         warnings.append(f"warning: failed to parse context-pointers.yaml: {exc}")
         return default_budget
+
+
+def _normalize_context_pointer_list(
+    data: dict[str, Any],
+    field: str,
+    default: list[str],
+    warnings: list[str],
+) -> list[str]:
+    if field not in data:
+        return list(default)
+    value = data[field]
+    if isinstance(value, list):
+        return value
+    warnings.append(f"warning: context-pointers.yaml {field} must be a list")
+    return list(default)
 
 
 def is_path_excluded(path_str: str) -> bool:
