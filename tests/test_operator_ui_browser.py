@@ -683,7 +683,12 @@ def test_worker_row_selects_launchpad_and_runs_inline_shell_worker(
 ) -> None:
     page, _console_errors = browser_page
 
-    page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator("[data-select-task]").first.click()
+    start_chip = page.locator("#active-work-groups .worker-card", has_text="Browser active work").locator(
+        '[data-worker-quick-action][data-card-action-intent="start_shell"]'
+    )
+    expect(start_chip).to_be_visible()
+    assert start_chip.get_attribute("data-command") is None
+    start_chip.click()
     expect(page.locator("#orchestrator-goal-title")).to_contain_text("task-0001")
     expect(page.locator("#orchestrator-goal-title")).to_contain_text("Browser active work")
     expect(page.locator("#next-task-meta")).to_contain_text("shell")
@@ -792,6 +797,14 @@ def test_worker_cards_are_keyboard_accessible_and_copyable(
     ai_card.focus()
     page.keyboard.press("Space")
     expect(packet_panel).to_be_visible()
+
+    evidence_item = page.locator("#guided-evidence-stream .evidence-item", has_text="task-0004").first
+    expect(evidence_item.locator('.evidence-actions [data-select-task="task-0004"]')).to_be_visible()
+    expect(evidence_item.locator('[data-inspect-task="task-0004"]')).to_be_visible()
+    evidence_copy = evidence_item.locator('[data-copy-command][data-copy-kind="evidence_path"]').first
+    expect(evidence_copy).to_be_visible()
+    evidence_copy.click()
+    assert page.evaluate("window.__copiedText")
 
 
 def test_action_buttons_use_semantic_affordance_classes_and_copy_helpers(
@@ -1347,6 +1360,13 @@ def test_task_switcher_and_seeded_evidence_lane(browser_page: tuple[Page, list[s
 
     expect(page.locator("#active-work-groups")).to_contain_text("Local model evidence lane")
     expect(page.locator("#guided-evidence-stream")).to_contain_text("task-0004")
+    first_evidence = page.locator("#guided-evidence-stream .evidence-item").first
+    _install_clipboard_spy(page)
+    copy_button = first_evidence.locator(".evidence-actions [data-copy-command]").first
+    expect(copy_button).to_be_visible()
+    copy_button.click()
+    copied = page.evaluate("window.__copiedText")
+    assert copied
     page.locator("#active-work-groups .worker-card", has_text="Local model evidence lane").locator("[data-select-task]").first.click()
     expect(page.locator("#orchestrator-goal-title")).to_contain_text("task-0004")
     expect(page.locator("#next-task-meta")).to_contain_text("local-gemma4-qat")
@@ -1359,6 +1379,19 @@ def test_worker_lanes_are_overview_not_primary_action_surface(browser_page: tupl
     page, _console_errors = browser_page
 
     expect(page.locator("#active-work-groups")).to_contain_text("Browser active work")
+    lane_card = page.locator("#active-work-groups .worker-card", has_text="Browser active work").first
+    expect(lane_card.locator(".worker-quick-actions")).to_be_visible()
+    start_chip = lane_card.locator('[data-worker-quick-action][data-card-action-intent="start_shell"]')
+    expect(start_chip).to_be_visible()
+    assert start_chip.get_attribute("data-command") is None
+    assert lane_card.locator(".worker-quick-actions [data-command]").count() >= 1
+    assert "<command>" not in lane_card.inner_text()
+    assert page.locator("#active-work-groups input").count() == 0
+    assert page.locator("#active-work-groups textarea").count() == 0
+    promote_card = page.locator("#active-work-groups .worker-card", has_text="Browser promotion candidate").first
+    expect(promote_card.locator('[data-worker-quick-action][data-card-action-intent="promote"]')).to_be_visible()
+    assert promote_card.locator('[data-worker-quick-action][data-card-action-intent="promote"]').get_attribute("data-command") is None
+    expect(promote_card.locator('[data-worker-quick-action][data-card-action-intent="review_preview"][data-command]')).to_be_visible()
     assert page.locator("#active-work-groups [data-task-run-shell]").count() == 0
     assert page.locator("#active-work-groups [data-task-verify]").count() == 0
     expect(page.locator("#active-work-groups [data-select-task]").first).to_be_visible()

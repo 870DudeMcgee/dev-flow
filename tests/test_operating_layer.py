@@ -1805,6 +1805,30 @@ def test_operating_layer_goal_board_exposes_lifecycle(tmp_path: Path, monkeypatc
     assert snapshot.goal_board[0].lifecycle_reason == "waiting"
 
 
+def test_operating_layer_goal_board_lifecycle_projection_failure_appends_warning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_goal(tmp_path)
+
+    def _broken_projection(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("projection failed")
+
+    monkeypatch.setattr(
+        "devflow.control_room.goal_projection.build_goal_status_projection",
+        _broken_projection,
+    )
+
+    snapshot = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+    fallback = snapshot["goals"][0]["goal_state"]
+    expected_lifecycle = "missing" if fallback == "missing_lifecycle" else fallback
+
+    assert snapshot["goal_board"][0]["goal_id"] == "G-0001"
+    assert snapshot["goal_board"][0]["lifecycle"] == expected_lifecycle
+    assert any("goal lifecycle projection failed for G-0001" in warning for warning in snapshot["warnings"])
+
+
 def test_operating_layer_groups_verification_and_promotion_lanes(
     tmp_path: Path,
     monkeypatch,

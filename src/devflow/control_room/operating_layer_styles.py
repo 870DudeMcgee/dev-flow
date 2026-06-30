@@ -2906,7 +2906,7 @@ summary:focus-visible {
 .worker-lanes-list { max-height: 260px; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 7px; }
 .worker-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(120px, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 11px;
@@ -2986,6 +2986,18 @@ summary:focus-visible {
 .worker-branch { font-size: 10px; color: var(--text-soft); flex-shrink: 0; margin-left: 0; overflow-wrap: anywhere; }
 .worker-time { font-size: 10px; color: var(--text-muted); flex-shrink: 0; width: auto; text-align: left; }
 .worker-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; justify-content: flex-start; }
+.worker-quick-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; justify-content: flex-start; }
+.worker-action-chip {
+  border-radius: 999px;
+  line-height: 1.15;
+  padding: 2px 8px;
+  white-space: nowrap;
+  font-size: 11px;
+  max-width: 100%;
+}
+.worker-action-chip.btn-readonly {
+  border: 1px solid rgba(100, 128, 172, 0.35);
+}
 .task-row-btn { white-space: normal; }
 
 /* Review queue */
@@ -3099,6 +3111,8 @@ summary:focus-visible {
   padding: 1px 5px;
 }
 .evidence-path { font-size: 10px; color: var(--text-muted); }
+.evidence-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.evidence-action-btn { margin: 0; }
 .evidence-time { font-size: 10px; color: var(--text-muted); flex-shrink: 0; margin-left: 24px; }
 .empty-panel-note {
   display: flex;

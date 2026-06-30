@@ -231,7 +231,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
     focus_goal_id = dashboard.goals.focus_goal.goal_id if dashboard.goals and dashboard.goals.focus_goal else None
     questions = _questions(question_snapshot, dashboard.tasks)
     inbox = _inbox_items(dashboard.tasks, freshness, question_snapshot=question_snapshot, project_id=project_id)
-    goal_board = build_goal_board(root, freshness, project_id=project_id)
+    goal_board = build_goal_board(root, freshness, project_id=project_id, warnings=warnings)
     first_viewport = build_first_viewport_presentation(task_workbench, root=root)
     architecture_evidence = build_architecture_evidence(root)
     idea_greenhouse = build_idea_greenhouse(root, warnings)

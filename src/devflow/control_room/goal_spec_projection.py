@@ -119,12 +119,23 @@ def build_operating_layer_action(label: str, command: str, scope: str) -> Operat
     )
 
 
-def build_goal_board(root: Path, freshness: FreshnessReport | None, *, project_id: str | None) -> list[OperatingLayerGoalBoardGoal]:
+def build_goal_board(
+    root: Path,
+    freshness: FreshnessReport | None,
+    *,
+    project_id: str | None,
+    warnings: list[str] | None = None,
+) -> list[OperatingLayerGoalBoardGoal]:
     if not freshness:
         return []
     goals: list[OperatingLayerGoalBoardGoal] = []
     for goal in freshness.goal_loop:
-        lifecycle, lifecycle_reason = _goal_board_lifecycle(root, goal.goal_id, fallback=goal.goal_state)
+        lifecycle, lifecycle_reason = _goal_board_lifecycle(
+            root,
+            goal.goal_id,
+            fallback=goal.goal_state,
+            warnings=warnings,
+        )
         goals.append(
             OperatingLayerGoalBoardGoal(
                 goal_id=goal.goal_id,
@@ -200,13 +211,22 @@ def build_spec_board(
     return board
 
 
-def _goal_board_lifecycle(root: Path, goal_id: str, *, fallback: str) -> tuple[str, str]:
+def _goal_board_lifecycle(
+    root: Path,
+    goal_id: str,
+    *,
+    fallback: str,
+    warnings: list[str] | None = None,
+) -> tuple[str, str]:
     try:
         from devflow.control_room.goal_projection import build_goal_status_projection
 
         projection = build_goal_status_projection(root, goal_id)
         return projection.lifecycle, projection.lifecycle_reason
     except Exception:
+        if warnings is not None:
+            goal_state_path = root / ".devflow" / "goals" / goal_id / "goal-state.yaml"
+            _append_read_warning(warnings, root, goal_state_path, f"goal lifecycle projection failed for {goal_id}")
         if fallback in {"active", "paused", "blocked", "complete", "archived", "missing_lifecycle"}:
             return ("missing" if fallback == "missing_lifecycle" else fallback), ""
         return "unknown", ""

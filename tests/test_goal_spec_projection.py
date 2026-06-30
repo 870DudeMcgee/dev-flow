@@ -66,6 +66,33 @@ task_slices:
     assert linked_lane.actions[-1].command == "devflow task show task-0001 --project demo"
 
 
+def test_build_goal_board_with_lifecycle_projection_failure_appends_warning_and_uses_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _create_goal(tmp_path)
+
+    def _broken_projection(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("projection failed")
+
+    monkeypatch.setattr(
+        "devflow.control_room.goal_projection.build_goal_status_projection",
+        _broken_projection,
+    )
+
+    freshness = run_freshness_loop(tmp_path, write_snapshot=False)
+    fallback = next(goal.goal_state for goal in freshness.goal_loop if goal.goal_id == "G-0001")
+    expected = "missing" if fallback == "missing_lifecycle" else fallback
+    warnings: list[str] = []
+    board = build_goal_board(tmp_path, freshness, project_id="demo", warnings=warnings)
+
+    assert board[0].goal_id == "G-0001"
+    assert board[0].lifecycle == expected
+    assert board[0].lifecycle_reason == ""
+    assert any("goal lifecycle projection failed for G-0001" in warning for warning in warnings)
+
+
 def test_build_spec_board_projects_slices_and_references(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     goal_dir = _create_goal(tmp_path)

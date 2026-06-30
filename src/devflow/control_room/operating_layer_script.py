@@ -2487,6 +2487,51 @@ function setupPipelineButtons(scope) {
 }
 
 // === Worker lanes ===
+function workerLaneQuickActionChips(task) {
+  if (!task) return '';
+  const controls = taskCapabilities(task).filter(cap => cap.enabled);
+  const directIntents = new Set([
+    'review_preview',
+    'cleanup_preview',
+    'inspect_log',
+    'task_packet',
+    'review_capsule',
+  ]);
+  const shellInputIntents = new Set(['start_shell', 'retry']);
+  const verifyIntents = new Set(['verify']);
+  const seen = new Set();
+  const orderedIntents = ['start_shell', 'retry', 'verify', 'promote', 'close', 'review_preview', 'cleanup_preview', 'inspect_log', 'task_packet', 'review_capsule'];
+  const chips = [];
+  for (const intent of orderedIntents) {
+    const cap = controls.find(candidate => String(candidate.intent || intentForCommand(candidate.command)).toLowerCase() === intent);
+    if (!cap || !cap.command) continue;
+    const label = cap.label || labelForIntent(intent);
+    if (!label || seen.has(cap.command)) continue;
+    seen.add(cap.command);
+    const concreteNoInput = !cap.command.includes('<') && (cap.required_inputs || []).length === 0 && !cap.command.includes('<reason>');
+    const direct = concreteNoInput
+      && !cap.requires_human_approval
+      && (cap.supervisor_may_auto_run || cap.safety_class === 'pure_read_only')
+      && directIntents.has(intent);
+    if (direct) {
+      chips.push(
+        `<button class="btn btn-sm btn-readonly worker-action-chip" type="button" data-worker-quick-action data-card-action-intent="${esc(intent)}" data-command="${esc(cap.command)}" data-action-intent="readonly" aria-label="${esc(label)}">${esc(label)}</button>`
+      );
+    } else {
+      const focus = shellInputIntents.has(intent)
+        ? ' data-focus-shell="true"'
+        : verifyIntents.has(intent)
+          ? ' data-focus-verify="true"'
+          : '';
+      chips.push(
+        `<button class="btn btn-sm btn-secondary worker-action-chip" type="button" data-worker-quick-action data-card-action-intent="${esc(intent)}" data-select-task="${esc(task.id)}"${focus} aria-label="${esc(label)} from launchpad">${esc(label)}</button>`
+      );
+    }
+    if (chips.length >= 3) break;
+  }
+  return chips.join('');
+}
+
 function renderWorkerLanes(input) {
   const container = $('active-work-groups');
   if (!container) return;
@@ -2505,10 +2550,15 @@ function renderWorkerLanes(input) {
     const info = taskStatusInfo(item.display_status || status);
     const verifyInfo = taskStatusInfo(item.verification_status || 'not_run');
     const tone = item.tone || info.tone;
-    const actionLabel = item.action_label || 'Inspect task';
     const latestEvent = item.latest_event || null;
     const latest = shortTaskLatest(item, latestEvent);
     const workerLabel = item.worker_model_label || 'unassigned';
+    const task = presentation.task_lookup?.get(taskId)
+      || (Array.isArray(presentation.tasks) ? presentation.tasks.find(itemTask => itemTask?.id === taskId) : null);
+    const quickActions = workerLaneQuickActionChips(task);
+    const quickActionHtml = quickActions
+      ? `<span class="worker-quick-actions" aria-label="Quick actions">${quickActions}</span>`
+      : `<span class="worker-next">${esc(item.action_label || 'Inspect task')}</span>`;
     return `<div class="worker-card guided-task-card task-card ${info.toneClass} ${info.railClass} ${esc(status)}${selectedTaskId === taskId ? ' selected' : ''}" data-task-id="${esc(taskId)}" role="listitem">
       <button class="worker-card-main" type="button" data-select-task="${esc(taskId)}">
         <span class="worker-light ${tone}"></span>
@@ -2518,12 +2568,13 @@ function renderWorkerLanes(input) {
           ${latestEvent ? `<span class="worker-event">${esc(latestEvent.event)}${latestEvent.summary ? ': ' + esc(latestEvent.summary) : ''}</span>` : ''}
         </span>
       </button>
-      <span class="worker-next">${esc(actionLabel)}</span>
+      ${quickActions ? '' : quickActionHtml}
       <span class="worker-time">${esc(latest)}</span>
       <span class="worker-actions">
         <button type="button" class="icon-btn task-row-btn" data-select-task="${esc(taskId)}" title="Select in launchpad">Select</button>
         <button type="button" class="icon-btn task-row-btn" data-inspect-task="${esc(taskId)}" title="Inspect task">Inspect</button>
       </span>
+      ${quickActions ? quickActionHtml : ''}
     </div>`;
   }).join('');
 }
@@ -2590,6 +2641,12 @@ function renderEvidenceStream(evidence, tasks) {
     const evidenceInfo = evidenceStatusInfo(kind, text);
     const ts = item.timestamp || item.created_at || item.generated_at;
     const path = item.path || item.command || '';
+    const pathCopy = item.path && item.path === String(item.path).trim() && !/<[^>]+>/.test(item.path)
+      ? `<button class="btn btn-sm btn-readonly evidence-action-btn" type="button" data-copy-command="${esc(item.path)}" data-copy-kind="evidence_path" aria-label="Copy evidence path">Copy path</button>`
+      : '';
+    const commandCopy = item.command && item.command === String(item.command).trim() && !/<[^>]+>/.test(item.command)
+      ? `<button class="btn btn-sm btn-readonly evidence-action-btn" type="button" data-copy-command="${esc(item.command)}" data-copy-kind="evidence_command" aria-label="Copy evidence command">Copy command</button>`
+      : '';
     return `<div class="evidence-item task-card ${evidenceInfo.toneClass} ${evidenceInfo.railClass}" data-task-id="${esc(taskId)}">
       <button type="button" class="evidence-main" data-select-task="${esc(taskId)}">
         <span class="evidence-icon ${evidenceInfo.toneClass}">></span>
@@ -2598,6 +2655,11 @@ function renderEvidenceStream(evidence, tasks) {
           ${path && path !== text ? `<span class="evidence-path">${esc(shortCommand(path, 120))}</span>` : ''}
         </span>
       </button>
+      <span class="evidence-actions">
+        ${taskId ? `<button class="btn btn-sm btn-secondary evidence-action-btn" type="button" data-select-task="${esc(taskId)}" aria-label="Select ${esc(taskId)} in launchpad">Select</button>` : ''}
+        ${taskId ? `<button class="btn btn-sm btn-secondary evidence-action-btn" type="button" data-inspect-task="${esc(taskId)}" aria-label="Open ${esc(taskId)} detail">Open</button>` : ''}
+        ${pathCopy}${commandCopy}
+      </span>
       <span class="evidence-time">${ts ? ago(ts) : ''}</span>
     </div>`;
   }).join('');
@@ -4439,7 +4501,12 @@ function setupTaskSurfaceActions() {
       e.preventDefault();
       e.stopPropagation();
       const id = selectButton.dataset.selectTask;
-      if (id) selectTaskInLaunchpad(id);
+      if (id) {
+        selectTaskInLaunchpad(id, {
+          focusShell: selectButton.dataset.focusShell === 'true',
+          focusVerify: selectButton.dataset.focusVerify === 'true',
+        });
+      }
       return;
     }
 
