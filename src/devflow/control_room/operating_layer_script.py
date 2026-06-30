@@ -610,6 +610,22 @@ function _clearSnapshotError() {
   document.querySelectorAll('.df-error-banner').forEach(el => el.remove());
 }
 
+function renderSnapshotWarnings(warnings) {
+  const strip = $('snapshot-warning-strip');
+  if (!strip) return;
+  const items = Array.isArray(warnings) ? warnings.filter(Boolean).map(String) : [];
+  if (!items.length) {
+    strip.hidden = true;
+    strip.innerHTML = '';
+    return;
+  }
+  const shown = items.slice(0, 5);
+  const hiddenCount = items.length - shown.length;
+  strip.hidden = false;
+  strip.innerHTML = `<strong>${items.length} snapshot warning${items.length === 1 ? '' : 's'}</strong>
+    <ul>${shown.map(item => `<li>${esc(item)}</li>`).join('')}${hiddenCount > 0 ? `<li>${hiddenCount} more warning${hiddenCount === 1 ? '' : 's'} in /api/snapshot.</li>` : ''}</ul>`;
+}
+
 // === NAVIGATION ===
 function setActiveNav(navId) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -4670,6 +4686,7 @@ function render() {
 
   // Brainstorm transcript is managed by the chat form, not the snapshot.
   // The first viewport consumes renderable presentation slices with snapshot fallbacks.
+  renderSnapshotWarnings(snapshot?.warnings || []);
   renderWorkbench(snapshot?.workbench || null);
   renderIdeaGreenhouse(snapshot?.idea_greenhouse || null);
   renderFirstViewport(firstViewportPresentationFromSnapshot(snapshot));

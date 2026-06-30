@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -15,6 +16,7 @@ from devflow.control_room.status_projection import (
     list_task_status_projections,
 )
 from devflow.control_room.task_closure import close_task
+from tests.helpers import setup_temp_repo
 
 
 runner = CliRunner()
@@ -128,3 +130,29 @@ def test_projection_manual_agent_states_drive_dashboard_actions(
     assert state.next_action.task_id == task.id
     assert state.next_action.label == "Run verification"
     assert state.health.needs_verification == 1
+
+
+def test_collect_dashboard_state_collects_goal_projection_warnings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    goal_md = tmp_path / "my_goal.md"
+    goal_md.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+    init_res = runner.invoke(app, ["goal", "init", "--from", goal_md.name])
+    assert init_res.exit_code == 0, init_res.output
+
+    from devflow.control_room import goal_projection
+
+    original = goal_projection.build_goal_status_projection
+
+    def _broken(root: Path, goal_id: str) -> Any:
+        if goal_id == "G-0001":
+            raise RuntimeError("projection is intentionally broken")
+        return original(root, goal_id)
+
+    monkeypatch.setattr(goal_projection, "build_goal_status_projection", _broken)
+
+    warnings: list[str] = []
+    collect_dashboard_state(tmp_path, task_projection_warnings=warnings)
+
+    assert any("failed to project goal" in warning for warning in warnings)

@@ -48,7 +48,11 @@ class GoalStatusProjection(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
-def list_goal_status_projections(root: Path) -> list[GoalStatusProjection]:
+def list_goal_status_projections(
+    root: Path,
+    *,
+    warnings: list[str] | None = None,
+) -> list[GoalStatusProjection]:
     """Scan and return status projections for all durable goals, ordered by ID."""
     dir_path = goals_dir(root)
     if not dir_path.exists():
@@ -61,8 +65,12 @@ def list_goal_status_projections(root: Path) -> list[GoalStatusProjection]:
             try:
                 proj = build_goal_status_projection(root, item.name)
                 projections.append(proj)
-            except Exception:
-                pass
+            except Exception as exc:
+                if warnings is not None:
+                    warnings.append(
+                        f"warning: failed to project goal at {item.as_posix()}: {exc}"
+                    )
+                continue
 
     return projections
 

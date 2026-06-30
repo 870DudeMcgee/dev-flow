@@ -435,7 +435,7 @@ def collect_dashboard_state(
     recent_activity = _collect_recent_activity(projections)
 
     from devflow.control_room.goal_projection import list_goal_status_projections
-    goal_projections = list_goal_status_projections(root)
+    goal_projections = list_goal_status_projections(root, warnings=task_projection_warnings)
 
     focus_goal_proj = choose_focus_goal_projection(goal_projections, projections)
     focus_goal = None

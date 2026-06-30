@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
 from devflow.control_room.goals import goal_dir
-from devflow.control_room.goal_projection import build_goal_status_projection
+from devflow.control_room.goal_projection import (
+    build_goal_status_projection,
+    list_goal_status_projections,
+)
 from tests.helpers import setup_temp_repo
 
 
@@ -198,6 +202,61 @@ def test_malformed_yaml_does_not_crash_dashboard(tmp_path: Path, monkeypatch: py
     # Run dashboard - must exit 0
     dash_res = runner.invoke(app, ["dashboard"])
     assert dash_res.exit_code == 0
+
+
+def test_list_goal_status_projections_forwards_warnings_on_projection_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+
+    from devflow.control_room import goal_projection
+
+    original = goal_projection.build_goal_status_projection
+
+    def _broken(root: Path, goal_id: str) -> Any:
+        if goal_id == "G-0001":
+            raise RuntimeError("projection is intentionally broken")
+        return original(root, goal_id)
+
+    monkeypatch.setattr(goal_projection, "build_goal_status_projection", _broken)
+
+    warnings: list[str] = []
+    projects = list_goal_status_projections(tmp_path, warnings=warnings)
+
+    assert projects == []
+    assert len(warnings) == 1
+    assert "G-0001" in warnings[0]
+    assert "failed to project goal" in warnings[0]
+
+
+def test_list_goal_status_projections_without_warnings_stays_compatible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+
+    from devflow.control_room import goal_projection
+
+    original = goal_projection.build_goal_status_projection
+
+    def _broken(root: Path, goal_id: str) -> Any:
+        if goal_id == "G-0001":
+            raise RuntimeError("projection is intentionally broken")
+        return original(root, goal_id)
+
+    monkeypatch.setattr(goal_projection, "build_goal_status_projection", _broken)
+
+    projects = list_goal_status_projections(tmp_path)
+    assert projects == []
 
 
 def test_no_scheduler_or_generation_side_effects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

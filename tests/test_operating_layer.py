@@ -2073,6 +2073,37 @@ task_slices:
     assert snapshot.goal_board[0].actions[0].supervisor_may_auto_run is True
 
 
+def test_operating_layer_snapshot_with_malformed_standards_index_reports_warning(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    _create_goal(tmp_path)
+    goal_dir = tmp_path / ".devflow" / "goals" / "G-0001"
+    (goal_dir / "task-slices.yaml").write_text(
+        """
+task_slices:
+  - task_id: TS-0001
+    title: "Snapshot contract"
+    risk: "medium"
+    execution_mode: "HITL"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    standards_dir = tmp_path / ".devflow" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / "index.yml").write_text("standards: [", encoding="utf-8")
+
+    snapshot = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
+
+    assert snapshot["spec_board"][0]["slice_count"] == 1
+    assert any(
+        "standards" in warning and "failed to parse" in warning and "index.yml" in warning
+        for warning in snapshot["warnings"]
+    )
+
+
 def test_operating_layer_includes_multi_project_overview(
     tmp_path: Path,
     monkeypatch,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
@@ -135,3 +136,81 @@ task_slices:
     assert "docs/mvp-contract.md" in reference_paths
     assert board[0].references[0].kind == "goal_reference"
     assert any(reference.title == "Python Control Room Standard" for reference in board[0].references)
+
+
+def test_build_spec_board_with_malformed_task_slices_yaml_does_not_crash_and_warns(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    goal_dir = _create_goal(tmp_path)
+    (goal_dir / "task-slices.yaml").write_text("task_slices: [\n  - task_id: TS-0001\n", encoding="utf-8")
+    warnings: list[str] = []
+
+    freshness = run_freshness_loop(tmp_path, write_snapshot=False)
+    board = build_spec_board(tmp_path, freshness, warnings=warnings)
+
+    assert board[0].goal_id == "G-0001"
+    assert board[0].slice_count == 0
+    assert board[0].slices == []
+    assert any("task-slices.yaml" in warning and "failed to parse" in warning for warning in warnings)
+
+
+def test_build_spec_board_with_wrong_task_slices_shape_warns(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    goal_dir = _create_goal(tmp_path)
+    (goal_dir / "task-slices.yaml").write_text("task_slices:\n  bad: shape\n", encoding="utf-8")
+    warnings: list[str] = []
+
+    freshness = run_freshness_loop(tmp_path, write_snapshot=False)
+    board = build_spec_board(tmp_path, freshness, warnings=warnings)
+
+    assert board[0].slice_count == 0
+    assert any("task-slices.yaml task_slices must be a list" in warning for warning in warnings)
+
+
+@pytest.mark.parametrize("standards_path", ("index.yml", "index.json"))
+def test_build_spec_board_with_malformed_standards_index_yaml_or_json(
+    tmp_path: Path,
+    monkeypatch,
+    standards_path: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    goal_dir = _create_goal(tmp_path)
+    (goal_dir / "task-slices.yaml").write_text(
+        """
+task_slices:
+  - task_id: TS-0001
+    title: "Snapshot contract"
+    summary: "Project the spec board."
+    risk: "medium"
+""".lstrip(),
+        encoding="utf-8",
+    )
+    standards_dir = tmp_path / ".devflow" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / standards_path).write_text("standards: [", encoding="utf-8")
+    warnings: list[str] = []
+
+    freshness = run_freshness_loop(tmp_path, write_snapshot=False)
+    board = build_spec_board(tmp_path, freshness, warnings=warnings)
+
+    assert board[0].goal_id == "G-0001"
+    assert board[0].slice_count == 1
+    assert board[0].references == []
+    assert any("standards" in warning and "failed to parse" in warning for warning in warnings)
+
+
+def test_build_spec_board_with_wrong_standards_index_shape_warns(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    goal_dir = _create_goal(tmp_path)
+    (goal_dir / "task-slices.yaml").write_text("task_slices: []\n", encoding="utf-8")
+    standards_dir = tmp_path / ".devflow" / "standards"
+    standards_dir.mkdir(parents=True)
+    (standards_dir / "index.yml").write_text("standards: not-a-list\n", encoding="utf-8")
+    warnings: list[str] = []
+
+    freshness = run_freshness_loop(tmp_path, write_snapshot=False)
+    board = build_spec_board(tmp_path, freshness, warnings=warnings)
+
+    assert board[0].references == []
+    assert any("standards index entries must be a list" in warning for warning in warnings)

@@ -136,6 +136,7 @@ INDEX_HTML = """<!doctype html>
 
         <!-- ===== MAIN CONTENT — zones ===== -->
         <div class="main-content">
+          <section id="snapshot-warning-strip" class="snapshot-warning-strip" aria-label="Snapshot warnings" aria-live="polite" hidden></section>
 
         <!-- ================================================================ -->
         <!-- ZONE 1: CAPTURE & PLAN -->

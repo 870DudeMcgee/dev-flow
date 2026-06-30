@@ -269,7 +269,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         evidence=task_workbench.evidence_stream,
         freshness=_freshness_card(freshness),
         goal_board=goal_board,
-        spec_board=build_spec_board(root, freshness),
+        spec_board=build_spec_board(root, freshness, warnings=warnings),
         gate_receipts=task_workbench.gate_receipts,
         multi_project=_multi_project_card(warnings),
         worker_activity=task_workbench.worker_activity,

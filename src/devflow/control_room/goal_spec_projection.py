@@ -171,7 +171,12 @@ def build_goal_board(root: Path, freshness: FreshnessReport | None, *, project_i
     return goals
 
 
-def build_spec_board(root: Path, freshness: FreshnessReport | None) -> list[OperatingLayerSpecBoardGoal]:
+def build_spec_board(
+    root: Path,
+    freshness: FreshnessReport | None,
+    *,
+    warnings: list[str] | None = None,
+) -> list[OperatingLayerSpecBoardGoal]:
     title_by_goal = {goal.goal_id: goal.title for goal in freshness.goal_loop} if freshness else {}
     state_by_goal = {goal.goal_id: goal.loop_state for goal in freshness.goal_loop} if freshness else {}
     board: list[OperatingLayerSpecBoardGoal] = []
@@ -180,7 +185,7 @@ def build_spec_board(root: Path, freshness: FreshnessReport | None) -> list[Oper
         return board
     for goal_path in sorted(path for path in base.iterdir() if path.is_dir()):
         goal_id = goal_path.name
-        slices = _goal_slices(goal_path)
+        slices = _goal_slices(root, goal_path, warnings)
         board.append(
             OperatingLayerSpecBoardGoal(
                 goal_id=goal_id,
@@ -189,7 +194,7 @@ def build_spec_board(root: Path, freshness: FreshnessReport | None) -> list[Oper
                 spec_path=relative_path(root, goal_path),
                 slice_count=len(slices),
                 slices=slices,
-                references=_spec_references(root, goal_path),
+                references=_spec_references(root, goal_path, warnings),
             )
         )
     return board
@@ -287,10 +292,23 @@ def _goal_title(goal_path: Path, fallback: str) -> str:
     return fallback
 
 
-def _goal_slices(goal_path: Path) -> list[OperatingLayerSpecSlice]:
-    data = _read_yaml(goal_path / "task-slices.yaml")
+def _goal_slices(
+    root: Path,
+    goal_path: Path,
+    warnings: list[str] | None = None,
+) -> list[OperatingLayerSpecSlice]:
+    path = goal_path / "task-slices.yaml"
+    data = _read_yaml(
+        path,
+        warnings=warnings,
+        root=root,
+        label="task-slices.yaml",
+    )
+    if not data:
+        return []
     raw_slices = data.get("task_slices") if isinstance(data, dict) else []
     if not isinstance(raw_slices, list):
+        _append_read_warning(warnings, root, path, "task-slices.yaml task_slices must be a list")
         return []
     slices: list[OperatingLayerSpecSlice] = []
     for item in raw_slices:
@@ -316,10 +334,12 @@ def _goal_slices(goal_path: Path) -> list[OperatingLayerSpecSlice]:
     return slices
 
 
-def _spec_references(root: Path, goal_path: Path) -> list[OperatingLayerSpecReference]:
+def _spec_references(
+    root: Path, goal_path: Path, warnings: list[str] | None = None
+) -> list[OperatingLayerSpecReference]:
     references: list[OperatingLayerSpecReference] = []
     references.extend(_goal_context_references(root, goal_path))
-    references.extend(_standards_index_references(root))
+    references.extend(_standards_index_references(root, warnings=warnings))
     references.extend(_architecture_contract_references(root))
 
     seen: set[str] = set()
@@ -344,7 +364,7 @@ def _goal_context_references(root: Path, goal_path: Path) -> list[OperatingLayer
     return references
 
 
-def _standards_index_references(root: Path) -> list[OperatingLayerSpecReference]:
+def _standards_index_references(root: Path, warnings: list[str] | None = None) -> list[OperatingLayerSpecReference]:
     path = root / ".devflow" / "standards" / "index.yml"
     if not path.exists():
         path = root / ".devflow" / "standards" / "index.yaml"
@@ -352,11 +372,12 @@ def _standards_index_references(root: Path) -> list[OperatingLayerSpecReference]
         path = root / ".devflow" / "standards" / "index.json"
     if not path.exists():
         return []
-    data = _read_yaml(path)
+    data = _read_yaml(path, warnings=warnings, root=root, label=f"standards index ({relative_path(root, path)})")
     raw_items: Any = data.get("standards") or data.get("references") or data.get("items") or data
     if isinstance(raw_items, dict):
         raw_items = list(raw_items.values())
     if not isinstance(raw_items, list):
+        _append_read_warning(warnings, root, path, "standards index entries must be a list")
         return []
     references: list[OperatingLayerSpecReference] = []
     for item in raw_items:
@@ -478,11 +499,33 @@ def _slice_state(item: dict[str, Any]) -> str:
     return "planned"
 
 
-def _read_yaml(path: Path) -> dict[str, Any]:
+def _read_yaml(
+    path: Path,
+    *,
+    warnings: list[str] | None = None,
+    root: Path | None = None,
+    label: str | None = None,
+) -> dict[str, Any]:
     if not path.exists():
         return {}
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return loaded if isinstance(loaded, dict) else {}
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        context = label or path.name
+        _append_read_warning(warnings, root or path.parent, path, f"malformed {context}; failed to parse: {exc}")
+        return {}
+    if not isinstance(loaded, dict):
+        context = label or path.name
+        _append_read_warning(warnings, root or path.parent, path, f"{context} must be a mapping")
+        return {}
+    return loaded
+
+
+def _append_read_warning(warnings: list[str] | None, root: Path, path: Path, detail: str) -> None:
+    if warnings is None:
+        return
+    warning_path = _scrub_project_root(root, str(path))
+    warnings.append(f"warning: {detail} at {warning_path}")
 
 
 def _scrub_quarantined_checkout(value: str) -> str:

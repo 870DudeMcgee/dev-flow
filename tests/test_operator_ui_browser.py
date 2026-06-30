@@ -299,6 +299,30 @@ def test_app_loads_assets_snapshot_health_without_console_errors_or_overflow(
     assert console_errors == []
 
 
+def test_snapshot_warnings_are_visible_without_hiding_workbench_surfaces(
+    browser_page: tuple[Page, list[str]],
+    scratch_state: ScratchState,
+) -> None:
+    page, console_errors = browser_page
+    goal_slices = scratch_state.root / ".devflow" / "goals" / "G-0001" / "task-slices.yaml"
+    goal_slices.write_text("task_slices: [\n", encoding="utf-8")
+
+    page.reload(wait_until="domcontentloaded")
+    _wait_for_hydration(page)
+
+    warning_strip = page.locator("#snapshot-warning-strip")
+    expect(warning_strip).to_be_visible()
+    expect(warning_strip).to_contain_text("snapshot warning")
+    expect(warning_strip).to_contain_text("task-slices.yaml")
+    expect(warning_strip).to_contain_text("malformed")
+    expect(page.get_by_role("heading", name="Brainstorm")).to_be_visible()
+    expect(page.get_by_role("heading", name="Pipeline")).to_be_visible()
+    expect(page.get_by_role("heading", name="Worker lanes")).to_be_visible()
+    expect(page.get_by_role("heading", name="Review queue")).to_be_visible()
+    expect(page.get_by_role("heading", name="Evidence stream")).to_be_visible()
+    assert console_errors == []
+
+
 def test_local_model_inventory_and_dropdown_show_fake_ollama_models(
     browser_page_with_fake_ollama: tuple[Page, list[str]],
 ) -> None:
