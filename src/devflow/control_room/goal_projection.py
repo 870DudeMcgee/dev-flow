@@ -65,6 +65,8 @@ def list_goal_status_projections(
             try:
                 proj = build_goal_status_projection(root, item.name)
                 projections.append(proj)
+                if warnings is not None:
+                    warnings.extend(proj.warnings)
             except Exception as exc:
                 if warnings is not None:
                     warnings.append(
@@ -73,6 +75,26 @@ def list_goal_status_projections(
                 continue
 
     return projections
+
+
+def _load_goal_yaml_mapping(
+    path: Path,
+    warnings: list[str],
+    file_name: str,
+) -> tuple[dict[str, Any], bool]:
+    """Load a YAML file that is expected to be a mapping."""
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        warnings.append(f"warning: {file_name} is malformed: {exc}")
+        return {}, False
+
+    if data is None:
+        return {}, True
+    if not isinstance(data, dict):
+        warnings.append(f"warning: {file_name} must be a mapping")
+        return {}, False
+    return data, True
 
 
 def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjection:
@@ -149,10 +171,11 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     open_question_count = 0
     implementation_blocked = False
     if (g_dir / "open-questions.yaml").exists():
-        try:
-            open_questions_data = yaml.safe_load((g_dir / "open-questions.yaml").read_text(encoding="utf-8")) or {}
-        except Exception as exc:
-            warnings.append(f"warning: open-questions.yaml is malformed: {exc}")
+        open_questions_data, _ = _load_goal_yaml_mapping(
+            g_dir / "open-questions.yaml",
+            warnings,
+            "open-questions.yaml",
+        )
     
     questions = open_questions_data.get("questions")
     if isinstance(questions, list):
@@ -161,6 +184,7 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
 
     # 5. Parse task slices safely
     task_slices_data: dict[str, Any] = {}
+    task_slices_is_mapping = False
     task_slice_count = 0
     blocked_slice_count = 0
     afk_slice_count = 0
@@ -168,36 +192,38 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     high_risk_slice_count = 0
 
     if (g_dir / "task-slices.yaml").exists():
-        try:
-            task_slices_data = yaml.safe_load((g_dir / "task-slices.yaml").read_text(encoding="utf-8")) or {}
-        except Exception as exc:
-            warnings.append(f"warning: task-slices.yaml is malformed: {exc}")
-            
-    slices = task_slices_data.get("task_slices")
-    if isinstance(slices, list):
-        task_slice_count = len(slices)
-        for s in slices:
-            if not isinstance(s, dict):
-                continue
-            
-            # Check blocked_by
-            blocked_by = s.get("blocked_by")
-            if isinstance(blocked_by, list) and len(blocked_by) > 0:
-                blocked_slice_count += 1
-            
-            # Check execution mode
-            mode = str(s.get("execution_mode") or "").strip().upper()
-            if mode == "AFK":
-                afk_slice_count += 1
-            elif mode == "HITL":
-                hitl_slice_count += 1
-                
-            # Check risk
-            risk = str(s.get("risk") or "").strip().lower()
-            if risk == "high":
-                high_risk_slice_count += 1
-    elif (g_dir / "task-slices.yaml").exists() and not isinstance(slices, list):
-        warnings.append("warning: task-slices.yaml task_slices must be a list")
+        task_slices_data, task_slices_is_mapping = _load_goal_yaml_mapping(
+            g_dir / "task-slices.yaml",
+            warnings,
+            "task-slices.yaml",
+        )
+
+    if task_slices_is_mapping:
+        slices = task_slices_data.get("task_slices")
+        if isinstance(slices, list):
+            task_slice_count = len(slices)
+            for s in slices:
+                if not isinstance(s, dict):
+                    continue
+
+                # Check blocked_by
+                blocked_by = s.get("blocked_by")
+                if isinstance(blocked_by, list) and len(blocked_by) > 0:
+                    blocked_slice_count += 1
+
+                # Check execution mode
+                mode = str(s.get("execution_mode") or "").strip().upper()
+                if mode == "AFK":
+                    afk_slice_count += 1
+                elif mode == "HITL":
+                    hitl_slice_count += 1
+
+                # Check risk
+                risk = str(s.get("risk") or "").strip().lower()
+                if risk == "high":
+                    high_risk_slice_count += 1
+        elif (g_dir / "task-slices.yaml").exists() and not isinstance(slices, list):
+            warnings.append("warning: task-slices.yaml task_slices must be a list")
 
     # 6. Parse context pointers safely
     context_data: dict[str, Any] = {}
@@ -209,10 +235,11 @@ def build_goal_status_projection(root: Path, goal_id: str) -> GoalStatusProjecti
     stale_or_archived_context_count = 0
 
     if (g_dir / "context-pointers.yaml").exists():
-        try:
-            context_data = yaml.safe_load((g_dir / "context-pointers.yaml").read_text(encoding="utf-8")) or {}
-        except Exception as exc:
-            warnings.append(f"warning: context-pointers.yaml is malformed: {exc}")
+        context_data, _ = _load_goal_yaml_mapping(
+            g_dir / "context-pointers.yaml",
+            warnings,
+            "context-pointers.yaml",
+        )
             
     budget = context_data.get("context_budget") or {}
     if isinstance(budget, dict):

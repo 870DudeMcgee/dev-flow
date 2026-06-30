@@ -204,6 +204,110 @@ def test_malformed_yaml_does_not_crash_dashboard(tmp_path: Path, monkeypatch: py
     assert dash_res.exit_code == 0
 
 
+@pytest.mark.parametrize(
+    ("file_name", "root_yaml"),
+    [
+        ("open-questions.yaml", "- a\n"),
+        ("open-questions.yaml", "scalar-value"),
+        ("task-slices.yaml", "- task_id: TS-0001\n"),
+        ("task-slices.yaml", "scalar-value"),
+        ("context-pointers.yaml", "- required_context:\n  - docs/one.md\n"),
+        ("context-pointers.yaml", "scalar-value"),
+    ],
+)
+def test_goal_projection_root_shape_violations_fall_back_to_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    file_name: str,
+    root_yaml: str,
+) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner = CliRunner()
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+
+    target = goal_dir(tmp_path, "G-0001") / file_name
+    target.write_text(root_yaml, encoding="utf-8")
+
+    proj = build_goal_status_projection(tmp_path, "G-0001")
+
+    assert any(f"warning: {file_name} must be a mapping" in w for w in proj.warnings)
+    assert proj.open_question_count == 0
+    assert proj.implementation_blocked is False
+    assert proj.context_risk == "medium"
+    if file_name == "task-slices.yaml":
+        assert proj.task_slice_count == 0
+    else:
+        assert proj.task_slice_count >= 0
+
+
+def test_goal_projection_warns_for_each_wrong_shaped_goal_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    g_dir = goal_dir(tmp_path, "G-0001")
+    (g_dir / "open-questions.yaml").write_text("- question one\n", encoding="utf-8")
+    (g_dir / "task-slices.yaml").write_text("not-a-mapping\n", encoding="utf-8")
+    (g_dir / "context-pointers.yaml").write_text("- docs/one.md\n", encoding="utf-8")
+
+    proj = build_goal_status_projection(tmp_path, "G-0001")
+
+    assert "warning: open-questions.yaml must be a mapping" in proj.warnings
+    assert "warning: task-slices.yaml must be a mapping" in proj.warnings
+    assert "warning: context-pointers.yaml must be a mapping" in proj.warnings
+    assert proj.open_question_count == 0
+    assert proj.implementation_blocked is False
+    assert proj.task_slice_count == 0
+    assert proj.context_risk == "medium"
+
+
+def test_list_goal_status_projections_forwards_projection_warnings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    target = goal_dir(tmp_path, "G-0001") / "open-questions.yaml"
+    target.write_text("- question one\n", encoding="utf-8")
+
+    warnings: list[str] = []
+    projections = list_goal_status_projections(tmp_path, warnings=warnings)
+
+    assert len(projections) == 1
+    assert "warning: open-questions.yaml must be a mapping" in warnings
+
+
+def test_goal_projection_keeps_task_slices_wrong_field_shape_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    setup_temp_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    brief_path = tmp_path / "my_goal.md"
+    brief_path.write_text("## Goal Brief\nImplement durables.", encoding="utf-8")
+
+    runner.invoke(app, ["goal", "init", "--from", "my_goal.md"])
+    target = goal_dir(tmp_path, "G-0001") / "task-slices.yaml"
+    target.write_text("task_slices: { id: TS-0001 }\n", encoding="utf-8")
+
+    proj = build_goal_status_projection(tmp_path, "G-0001")
+
+    assert "warning: task-slices.yaml task_slices must be a list" in proj.warnings
+    assert proj.task_slice_count == 0
+
+
 def test_list_goal_status_projections_forwards_warnings_on_projection_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
