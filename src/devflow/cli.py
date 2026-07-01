@@ -124,6 +124,7 @@ from devflow.control_room.local_model_command import local_model_app
 from devflow.control_room.loop_command import loop_app
 from devflow.control_room.agent_command import agent_app
 from devflow.control_room.operating_layer_command import operating_layer_app
+from devflow.control_room.training_command import training_app
 from devflow.control_room.question_command import (  # noqa: F401
     question_answer, question_app, question_list, question_resolve, question_show,
 )
@@ -203,6 +204,7 @@ app.add_typer(operating_layer_app, name="operating-layer")
 app.add_typer(local_ai_app, name="local-ai")
 app.add_typer(local_model_app, name="local-model")
 app.add_typer(loop_app, name="loop")
+app.add_typer(training_app, name="training")
 app.add_typer(builder_judge_app, name="builder-judge")
 app.add_typer(architecture_app, name="architecture")
 
