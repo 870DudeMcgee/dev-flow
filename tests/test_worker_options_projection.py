@@ -189,14 +189,14 @@ def test_local_hermes_worker_option_builds_serial_packet_action(tmp_root: Path) 
     assert entry.label == "Hermes Qwen Implementer"
     assert entry.is_local is True
     assert entry.runtime_kind == "hermes-profile"
-    assert entry.hermes_profile == "hermes-qwen32"
+    assert entry.hermes_profile == "hermes-qwen32-latest"
     assert entry.action_kind == "serial_packet"
     assert entry.command is not None
     assert entry.command.startswith("devflow agent serial-packet ")
     assert " --task-id test-001" in entry.command
     assert " --worker-id qwen-worker" in entry.command
     assert " --runtime hermes-profile" in entry.command
-    assert " --hermes-profile hermes-qwen32" in entry.command
+    assert " --hermes-profile hermes-qwen32-latest" in entry.command
     assert " --toolset file" in entry.command
     assert " --toolset terminal" in entry.command
     assert "devflow agent hermes-run" not in entry.command
@@ -247,7 +247,7 @@ def test_configured_hermes_agents_appear_as_packet_only_worker_options(
     monkeypatch.setenv("HOME", tmp_root.as_posix())
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     hermes_dir = tmp_root / ".hermes"
-    for profile in ("hermes-qwen37plus", "hermes-qwen32", "hermes-ornith9b", "hermes-ornith35b"):
+    for profile in ("hermes-qwen37plus", "hermes-qwen32-latest", "hermes-ornith-9b", "hermes-ornith-35b"):
         (hermes_dir / "profiles" / profile).mkdir(parents=True)
     (hermes_dir / ".env").write_text("OPENROUTER_API_KEY=sk-or-worker-secret\n", encoding="utf-8")
     (hermes_dir / "config.yaml").write_text(
@@ -256,18 +256,18 @@ def test_configured_hermes_agents_appear_as_packet_only_worker_options(
   provider: openrouter
   base_url: https://openrouter.ai/api/v1
 providers:
-  qwen35-mtp:
-    api: http://127.0.0.1:8080/v1
+  ollama:
+    api: http://127.0.0.1:11434/v1
     models:
-      qwen35-9b-mtp: {}
-  local-ornith-9b:
-    api: http://127.0.0.1:8084/v1
-    models:
-      ornith-1.0-9b-q4: {}
-  local-ornith-35b:
+      qwen32:latest: {}
+  ornith-9b:
     api: http://127.0.0.1:8085/v1
     models:
-      ornith-1.0-35b-q4: {}
+      ornith-9b: {}
+  ornith-35b:
+    api: http://127.0.0.1:8084/v1
+    models:
+      ornith-35b: {}
 """,
         encoding="utf-8",
     )
@@ -279,27 +279,27 @@ providers:
 """,
         encoding="utf-8",
     )
-    (hermes_dir / "profiles" / "hermes-qwen32" / "config.yaml").write_text(
+    (hermes_dir / "profiles" / "hermes-qwen32-latest" / "config.yaml").write_text(
         """model:
-  default: qwen35-9b-mtp
-  provider: qwen35-mtp
-  base_url: http://127.0.0.1:8080/v1
+  default: qwen32:latest
+  provider: ollama
+  base_url: http://127.0.0.1:11434/v1
 """,
         encoding="utf-8",
     )
-    (hermes_dir / "profiles" / "hermes-ornith9b" / "config.yaml").write_text(
+    (hermes_dir / "profiles" / "hermes-ornith-9b" / "config.yaml").write_text(
         """model:
-  default: ornith-1.0-9b-q4
-  provider: local-ornith-9b
-  base_url: http://127.0.0.1:8084/v1
-""",
-        encoding="utf-8",
-    )
-    (hermes_dir / "profiles" / "hermes-ornith35b" / "config.yaml").write_text(
-        """model:
-  default: ornith-1.0-35b-q4
-  provider: local-ornith-35b
+  default: ornith-9b
+  provider: ornith-9b
   base_url: http://127.0.0.1:8085/v1
+""",
+        encoding="utf-8",
+    )
+    (hermes_dir / "profiles" / "hermes-ornith-35b" / "config.yaml").write_text(
+        """model:
+  default: ornith-35b
+  provider: ornith-35b
+  base_url: http://127.0.0.1:8084/v1
 """,
         encoding="utf-8",
     )
@@ -326,45 +326,45 @@ providers:
     assert "devflow task run" not in openrouter.command
     assert "sk-or-worker-secret" not in openrouter.command
 
-    local = options["hermes-qwen32"]
-    assert local.label == "Hermes Qwen 3.2"
-    assert local.provider == "qwen35-mtp"
+    local = options["hermes-qwen32-latest"]
+    assert local.label == "Hermes qwen32:latest"
+    assert local.provider == "ollama"
     assert local.is_local is True
-    assert local.hermes_profile == "hermes-qwen32"
+    assert local.hermes_profile == "hermes-qwen32-latest"
     assert local.command is not None
-    assert " --provider qwen35-mtp" in local.command
-    assert " --model qwen35-9b-mtp" in local.command
-    assert " --hermes-profile hermes-qwen32" in local.command
+    assert " --provider ollama" in local.command
+    assert " --model qwen32:latest" in local.command
+    assert " --hermes-profile hermes-qwen32-latest" in local.command
 
-    ornith9b = options["hermes-ornith9b"]
-    assert ornith9b.label == "Hermes Ornith 9B"
-    assert ornith9b.provider == "local-ornith-9b"
-    assert ornith9b.model == "ornith-1.0-9b-q4"
+    ornith9b = options["hermes-ornith-9b"]
+    assert ornith9b.label == "Hermes ornith-9b"
+    assert ornith9b.provider == "ornith-9b"
+    assert ornith9b.model == "ornith-9b"
     assert ornith9b.is_local is True
     assert ornith9b.runtime_kind == "hermes-profile"
-    assert ornith9b.hermes_profile == "hermes-ornith9b"
+    assert ornith9b.hermes_profile == "hermes-ornith-9b"
     assert ornith9b.action_kind == "serial_packet"
     assert ornith9b.command is not None
-    assert " --provider local-ornith-9b" in ornith9b.command
-    assert " --model ornith-1.0-9b-q4" in ornith9b.command
+    assert " --provider ornith-9b" in ornith9b.command
+    assert " --model ornith-9b" in ornith9b.command
     assert " --runtime hermes-profile" in ornith9b.command
-    assert " --hermes-profile hermes-ornith9b" in ornith9b.command
+    assert " --hermes-profile hermes-ornith-9b" in ornith9b.command
     assert "devflow agent hermes-run" not in ornith9b.command
     assert "devflow task run" not in ornith9b.command
 
-    ornith35b = options["hermes-ornith35b"]
-    assert ornith35b.label == "Hermes Ornith 35B"
-    assert ornith35b.provider == "local-ornith-35b"
-    assert ornith35b.model == "ornith-1.0-35b-q4"
+    ornith35b = options["hermes-ornith-35b"]
+    assert ornith35b.label == "Hermes ornith-35b"
+    assert ornith35b.provider == "ornith-35b"
+    assert ornith35b.model == "ornith-35b"
     assert ornith35b.is_local is True
     assert ornith35b.runtime_kind == "hermes-profile"
-    assert ornith35b.hermes_profile == "hermes-ornith35b"
+    assert ornith35b.hermes_profile == "hermes-ornith-35b"
     assert ornith35b.action_kind == "serial_packet"
     assert ornith35b.command is not None
-    assert " --provider local-ornith-35b" in ornith35b.command
-    assert " --model ornith-1.0-35b-q4" in ornith35b.command
+    assert " --provider ornith-35b" in ornith35b.command
+    assert " --model ornith-35b" in ornith35b.command
     assert " --runtime hermes-profile" in ornith35b.command
-    assert " --hermes-profile hermes-ornith35b" in ornith35b.command
+    assert " --hermes-profile hermes-ornith-35b" in ornith35b.command
     assert "devflow agent hermes-run" not in ornith35b.command
     assert "devflow task run" not in ornith35b.command
 

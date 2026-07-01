@@ -93,12 +93,12 @@ def test_dry_run_previews_argv_without_invoking_hermes(tmp_path: Path) -> None:
     assert payload["will_launch_hermes"] is False
     assert payload["launch_allowed"] is True
     assert payload["run_id"] == "hermes-runtime"
-    assert payload["hermes_profile"] == "hermes-qwen32"
+    assert payload["hermes_profile"] == "hermes-qwen32-latest"
     assert payload["runtime_kind"] == "hermes-profile"
     assert payload["preflight_state"] == "free"
     assert payload["packet_path"] == ".devflow/local-agent-runs/hermes-runtime/worker-packet.md"
     assert payload["run_manifest_path"] == ".devflow/local-agent-runs/hermes-runtime/run.json"
-    assert payload["command_preview"][:5] == ["hermes", "-p", "hermes-qwen32", "chat", "-q"]
+    assert payload["command_preview"][:5] == ["hermes", "-p", "hermes-qwen32-latest", "chat", "-q"]
     assert all(isinstance(part, str) for part in payload["command_preview"])
     assert "worker-packet.md" in payload["command_preview"][5]
     assert not (result.run_dir / "hermes-run.json").exists()
@@ -244,7 +244,7 @@ def test_real_launch_fake_hermes_captures_evidence_and_releases_lock(tmp_path: P
     assert evidence["verification_ran"] is False
 
     fake_payload = json.loads((tmp_path / "fake-hermes-argv.json").read_text(encoding="utf-8"))
-    assert fake_payload["argv"][1:5] == ["-p", "hermes-qwen32", "chat", "-q"]
+    assert fake_payload["argv"][1:5] == ["-p", "hermes-qwen32-latest", "chat", "-q"]
     assert "worker-packet.md" in fake_payload["argv"][5]
     assert fake_payload["cwd"] == tmp_path.as_posix()
     assert fake_payload["lock_exists_during_launch"] is True

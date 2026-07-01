@@ -17,8 +17,8 @@ from devflow.control_room.service import create_task
 from devflow.control_room.task_packet import build_agent_packet
 
 
-LOCAL_ENDPOINT_PROFILES = [
-    "hermes-qwen32",
+LOCAL_ADVISORY_OLLAMA_PROFILES = [
+    "hermes-qwen32-latest",
 ]
 
 LOCAL_OLLAMA_PROFILES = [
@@ -38,11 +38,21 @@ OPENROUTER_FRONTIER_PROFILES = [
     "hermes-minimaxm3",
 ]
 
+MULTI_AGENT_PROFILES = [
+    "glm-supervisor",
+    "gpt-scout",
+    "gpt-vision",
+    "or-coder",
+    "or-scout",
+    "or-vision",
+]
+
 SIMPLIFIED_PROFILE_SET = [
     *HERMES_SUBSCRIPTION_PROFILES,
     *OPENROUTER_FRONTIER_PROFILES,
-    *LOCAL_ENDPOINT_PROFILES,
+    *LOCAL_ADVISORY_OLLAMA_PROFILES,
     *LOCAL_OLLAMA_PROFILES,
+    *MULTI_AGENT_PROFILES,
 ]
 
 PRUNED_PROFILE_IDS = [
@@ -343,7 +353,7 @@ def test_provider_registry_disabled_default_seed_behavior(tmp_path: Path) -> Non
         "grok",
         "openrouter",
         "openai-codex",
-        "qwen35-mtp",
+        "qwen36-27b-q5-mtp",
     ])
 
 
@@ -690,11 +700,11 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert not any("<workspace>" in path or "proposal.patch" in path for path in agent.allowed_writes)
             assert agent.machine_class in {"mac_mini", "mac_studio", "either"}
             assert agent.weight_class in {"tiny", "small", "medium", "heavy"}
-        elif agent_id in LOCAL_ENDPOINT_PROFILES:
-            assert agent.provider == "qwen35-mtp"
-            assert agent.model == "qwen35-9b-mtp"
-            assert agent.adapter == "openai_compatible"
-            assert agent.adapter_maturity == "experimental_readonly"
+        elif agent_id in LOCAL_ADVISORY_OLLAMA_PROFILES:
+            assert agent.provider == "ollama"
+            assert agent.model == "qwen32:latest"
+            assert agent.adapter == "ollama_chat"
+            assert agent.adapter_maturity == "local_patch_runtime"
             assert agent.default_mode == "frontier_read_only"
             assert agent.can_use_network is False
             assert agent.can_promote is False
@@ -729,6 +739,10 @@ def test_preseeded_agent_presets_load_and_validate(tmp_path: Path) -> None:
             assert agent.execution_mode == "automated"
             assert agent.role == "frontier_planner_architect_reviewer"
             assert agent.can_use_network is True
+        elif agent_id in MULTI_AGENT_PROFILES:
+            assert agent.execution_mode == "automated"
+            assert agent.model_role_name
+            assert agent.can_promote is False
         else:
             assert agent.tier == "strong_local"
             assert agent.execution_mode == "automated"
@@ -803,10 +817,10 @@ def test_preseeded_providers_load_and_validate(tmp_path: Path) -> None:
             assert prov.base_url == "https://chatgpt.com/backend-api/codex"
             assert prov.api_key_env is None
             assert prov.default_timeout_seconds == 900
-        elif prov_id == "qwen35-mtp":
-            assert prov.provider == "qwen35-mtp"
+        elif prov_id == "qwen36-27b-q5-mtp":
+            assert prov.provider == "qwen36-27b-q5-mtp"
             assert prov.adapter == "openai_compatible"
-            assert prov.base_url == "http://127.0.0.1:8080/v1"
+            assert prov.base_url == "http://127.0.0.1:8083/v1"
             assert prov.api_key_env is None
 
 
@@ -816,7 +830,7 @@ def test_simplified_local_profiles_are_registry_visible_and_safe(tmp_path: Path)
     registry = load_agent_registry(tmp_path)
     manual = registry.require_agent("devflow-manual-codex-worker")
     qwopus_patch_worker = registry.require_agent("qwopus-implementer")
-    qwen35 = registry.require_agent("hermes-qwen32")
+    qwen_profile = registry.require_agent("hermes-qwen32-latest")
     gemma_long = registry.require_agent("local-gemma4-qat")
     qwen_code = registry.require_agent("local-qwen25-coder-14b")
 
@@ -824,12 +838,12 @@ def test_simplified_local_profiles_are_registry_visible_and_safe(tmp_path: Path)
     assert qwopus_patch_worker.enabled is False
     assert qwopus_patch_worker.hermes_delegable is False
 
-    assert qwen35.provider == "qwen35-mtp"
-    assert qwen35.model == "qwen35-9b-mtp"
-    assert qwen35.adapter == "openai_compatible"
-    assert qwen35.default_mode == "frontier_read_only"
-    assert qwen35.model_role_name == "Hermes Qwen 3.2"
-    assert qwen35.hermes_delegable is False
+    assert qwen_profile.provider == "ollama"
+    assert qwen_profile.model == "qwen32:latest"
+    assert qwen_profile.adapter == "ollama_chat"
+    assert qwen_profile.default_mode == "frontier_read_only"
+    assert qwen_profile.model_role_name == "Hermes qwen32:latest"
+    assert qwen_profile.hermes_delegable is False
 
     assert gemma_long.provider == "ollama"
     assert gemma_long.model == "gemma4:12b-it-qat"

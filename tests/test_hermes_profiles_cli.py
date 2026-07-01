@@ -109,16 +109,16 @@ def test_hermes_profiles_validate_reports_aliases_stale_entries_and_fallback_cha
     )
 
     retired = {item["alias"]: item for item in payload["retired_aliases"]}
-    assert retired["fast_local"]["canonical_id"] == "hermes-qwen32"
+    assert retired["fast_local"]["canonical_id"] == "hermes-qwen32-latest"
 
     stale = next(
         item for item in payload["stale_registry_entries"] if item["agent_id"] == "fast_local"
     )
     assert any("id is not a canonical Hermes profile id" in reason for reason in stale["reasons"])
-    assert payload["effective_fallback_chain"]["chain"] == ["hermes-codex-gpt55", "hermes-qwen32"]
+    assert payload["effective_fallback_chain"]["chain"] == ["hermes-codex-gpt55", "hermes-qwen32-latest"]
     assert payload["effective_fallback_chain"]["evaluations"]
     assert any(
-        entry["requested_profile_id"] == "hermes-codex-gpt55" and entry["selected_profile_id"] == "hermes-qwen32"
+        entry["requested_profile_id"] == "hermes-codex-gpt55" and entry["selected_profile_id"] == "hermes-qwen32-latest"
         for entry in payload["effective_fallback_chain"]["evaluations"]
     )
 
@@ -230,7 +230,7 @@ def test_hermes_profiles_cleanup_apply_performs_previewed_safe_rewrite(tmp_path:
                         "kind": "replace_text",
                         "path": "docs/sample.md",
                         "old": "dflocalfast",
-                        "new": "hermes-qwen32",
+                        "new": "hermes-qwen32-latest",
                     }
                 ],
             }
@@ -247,7 +247,7 @@ def test_hermes_profiles_cleanup_apply_performs_previewed_safe_rewrite(tmp_path:
         {"index": 0, "kind": "replace_text", "path": "docs/sample.md"}
     ]
     assert payload["safe_rewrites_blocked"] == []
-    assert target.read_text(encoding="utf-8") == "use hermes-qwen32 for status\n"
+    assert target.read_text(encoding="utf-8") == "use hermes-qwen32-latest for status\n"
 
 
 def test_hermes_profiles_cleanup_apply_requires_preview_id(tmp_path: Path) -> None:

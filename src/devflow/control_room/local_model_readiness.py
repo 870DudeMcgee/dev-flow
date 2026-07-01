@@ -18,13 +18,13 @@ from devflow.control_room.persistence import atomic_write_text, utc_now
 
 DEFAULT_MANIFEST_PATH = Path(__file__).with_name("data") / "local_model_expected_profiles.yaml"
 EXPECTED_LANE_IDS = (
-    "hermes-qwen32",
-    "hermes-gemma12b",
-    "hermes-qwen36-27b-mtp",
-    "hermes-qwen36-27b-mlx4bit",
-    "hermes-qwen36-27b-mlx8bit",
-    "hermes-ornith9b",
-    "hermes-ornith35b",
+    "hermes-qwen32-latest",
+    "hermes-gemma12b-latest",
+    "hermes-qwopus-35b",
+    "hermes-qwen36-27b-q5-mtp",
+    "hermes-gemma4-e4b",
+    "hermes-ornith-9b",
+    "hermes-ornith-35b",
     "hermes-minimaxm3",
     "hermes-qwen37plus",
     "hermes-sonnet46",

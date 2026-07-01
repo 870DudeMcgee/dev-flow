@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 
-LOCAL_DEFAULT_PROVIDER_ID = "custom:qwen35-mtp"
-LOCAL_DEFAULT_MODEL_ID = "qwen35-9b-mtp"
+LOCAL_DEFAULT_PROVIDER_ID: str | None = None
+LOCAL_DEFAULT_MODEL_ID: str | None = None
 
 WEIGHT_ORDER = {"tiny": 0, "small": 1, "medium": 2, "heavy": 3}
 

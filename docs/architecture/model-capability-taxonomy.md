@@ -47,7 +47,7 @@ model_capability_profile:
   # Identity
   model_id: qwopus:latest
   provider: ollama
-  architecture: qwen35moe           # qwen35moe | qwen2 | gemma4 | deepseek_v4 | …
+  architecture: qwen-moe           # qwen-moe | qwen2 | gemma4 | deepseek_v4 | …
   architecture_class: moe             # dense | moe | unknown
   parameter_count_billions: 36.0
   active_parameters_billions: ~       # null for dense; ~3.0 for Qwen36 MoE

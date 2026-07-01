@@ -68,7 +68,7 @@ Identical Ollama IDs must be flagged as aliases or duplicate tags until `ollama 
 
 Current starter profiles are registry entries, not a second config file:
 
-- `local-qwen35-mtp`
+- `hermes-qwen36-27b-q5-mtp`
 - `local-gemma4-qat`
 - `local-qwen25-coder-14b`
 
@@ -78,7 +78,7 @@ Operator reviewer guidance:
 
 - Prefer `local-gemma4-qat` when long context, screenshot/vision evidence, or broad local review matters.
 - Use `local-qwen25-coder-14b` as the retained installed code-specialist fallback.
-- Use `local-qwen35-mtp` for fast text/status/planning/operator loops when the local OpenAI-compatible server is active.
+- Use `hermes-qwen36-27b-q5-mtp` for fast text/status/planning/operator loops when the local OpenAI-compatible server is active.
 - Keep this as operator guidance only. It does not update routing policy, auto-select workers, apply patches, verify, promote, commit, merge, push, or bypass fresh audition evidence when model manifests or task shape change.
 
 Conservative defaults:

@@ -299,7 +299,7 @@ def build_supervisor_policy() -> dict[str, Any]:
             },
         },
         "telegram_routing": {
-            "provider": "local",
+            "provider": None,
             "provider_id": DEFAULT_TELEGRAM_PROVIDER_ID,
             "default_model": DEFAULT_TELEGRAM_MODEL,
             "route_message_command": 'devflow supervisor route-message "<raw Telegram text>" --json',

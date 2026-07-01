@@ -75,8 +75,8 @@ def _planner_payload(*, provision_commands: list[dict[str, Any]] | None = None) 
                         "provider_id": "local-gateway",
                         "profile_id": "local-gateway-model",
                         "supported": True,
-                        "command": "devflow local-model start hermes-qwen32 --replace --json",
-                        "argv": ["devflow", "local-model", "start", "hermes-qwen32", "--replace", "--json"],
+                        "command": "devflow local-model start qwen36-27b-q5-mtp --replace --json",
+                        "argv": ["devflow", "local-model", "start", "qwen36-27b-q5-mtp", "--replace", "--json"],
                         "reason": "Start managed local model server for lane 'missing_local'.",
                     }
                 ],
@@ -90,8 +90,8 @@ def _planner_payload(*, provision_commands: list[dict[str, Any]] | None = None) 
                 "provider_id": "local-gateway",
                 "profile_id": "local-gateway-model",
                 "supported": True,
-                "command": "devflow local-model start hermes-qwen32 --replace --json",
-                "argv": ["devflow", "local-model", "start", "hermes-qwen32", "--replace", "--json"],
+                "command": "devflow local-model start qwen36-27b-q5-mtp --replace --json",
+                "argv": ["devflow", "local-model", "start", "qwen36-27b-q5-mtp", "--replace", "--json"],
                 "reason": "Start managed local model server for lane 'missing_local'.",
             }
         ],
@@ -119,7 +119,7 @@ def test_doctor_provision_dry_run_prints_readiness_and_exact_commands(
     assert "readiness: 1/2 lanes ready; 0 blocked; 1 need onboarding" in result.output
     assert "missing_local: needs_provider" in result.output
     assert "devflow agent add-provider local-gateway --adapter openai_compatible" in result.output
-    assert "devflow local-model start hermes-qwen32 --replace --json" in result.output
+    assert "devflow local-model start qwen36-27b-q5-mtp --replace --json" in result.output
     assert not (tmp_path / ".devflow" / "local-model-readiness").exists()
 
 
@@ -194,7 +194,7 @@ def test_doctor_provision_apply_runs_supported_commands_and_records_evidence(
         "devflow.cli",
         "local-model",
         "start",
-        "hermes-qwen32",
+        "qwen36-27b-q5-mtp",
         "--replace",
         "--json",
     ]
@@ -260,8 +260,8 @@ def test_doctor_provision_apply_blocks_unmanaged_start_command_shape(
             "provider_id": "local-gateway",
             "profile_id": "local-gateway-model",
             "supported": True,
-            "command": "devflow local-model start hermes-qwen32 --binary custom-llama --json",
-            "argv": ["devflow", "local-model", "start", "hermes-qwen32", "--binary", "custom-llama", "--json"],
+                "command": "devflow local-model start qwen36-27b-q5-mtp --binary custom-llama --json",
+                "argv": ["devflow", "local-model", "start", "qwen36-27b-q5-mtp", "--binary", "custom-llama", "--json"],
             "reason": "Unsafe command shape should never run.",
         }
     ]

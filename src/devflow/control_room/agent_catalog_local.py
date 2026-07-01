@@ -13,8 +13,6 @@ from devflow.control_room.agent_catalog_hermes import (
 from devflow.control_room.agent_registry import AgentDefinition, ProviderDefinition
 from devflow.control_room.local_agent_discovery import LocalDiscoveryReport, discover_local_ollama_models
 from devflow.control_room.machine_capability import (
-    LOCAL_DEFAULT_MODEL_ID,
-    LOCAL_DEFAULT_PROVIDER_ID,
     MachineCapability,
     classify_model_fit,
     local_model_concurrency_policy,
@@ -54,57 +52,12 @@ def _local_model_policy(
     local_ollama: dict[str, Any],
     machine: MachineCapability,
 ) -> dict[str, Any]:
-    default_provider: dict[str, Any] | None = None
-    default_model: dict[str, Any] | None = None
-    ready_providers = [
-        provider
-        for provider in local_openai_compatible.get("providers", [])
-        if isinstance(provider, dict) and provider.get("status") == "ready"
-    ]
-    for provider in ready_providers:
-        models = _provider_model_rows(provider)
-        preferred = [model for model in models if model.get("id") == LOCAL_DEFAULT_MODEL_ID]
-        if preferred:
-            default_provider = provider
-            default_model = preferred[0]
-            break
-    if default_provider is None:
-        for provider in ready_providers:
-            models = _provider_model_rows(provider)
-            if provider.get("hermes_default_model"):
-                for model in models:
-                    if model.get("id") == provider.get("hermes_default_model"):
-                        default_provider = provider
-                        default_model = model
-                        break
-            if default_model is not None:
-                break
-    if default_provider is None:
-        for provider in ready_providers:
-            models = _provider_model_rows(provider)
-            if models:
-                default_provider = provider
-                default_model = models[0]
-                break
-
-    ollama_default = None
-    if default_model is None:
-        installed = [
-            model
-            for model in local_ollama.get("installed_models", [])
-            if isinstance(model, dict) and model.get("name")
-        ]
-        if installed:
-            ollama_default = installed[0]
-
-    model_id = str(default_model.get("id")) if default_model else str(ollama_default.get("name")) if ollama_default else LOCAL_DEFAULT_MODEL_ID
-    provider_id = str(default_provider.get("id")) if default_provider else "ollama" if ollama_default else LOCAL_DEFAULT_PROVIDER_ID
     machine_payload = machine.to_payload()
     machine_payload.pop("local_model_concurrency", None)
     return {
-        "default_model": model_id,
-        "default_provider_id": provider_id,
-        "default_source": default_provider.get("source") if default_provider else "ollama" if ollama_default else "configured_default",
+        "default_model": None,
+        "default_provider_id": None,
+        "default_source": "none",
         "machine": machine_payload,
         "local_model_concurrency": local_model_concurrency_policy(),
     }
@@ -294,7 +247,7 @@ def _annotate_model_fit(
     for row in rows:
         item = dict(row)
         model_id = str(item.get("id") or "")
-        preferred = model_id == LOCAL_DEFAULT_MODEL_ID or (bool(preferred_model) and model_id == preferred_model)
+        preferred = bool(preferred_model) and model_id == preferred_model
         item["machine_fit"] = classify_model_fit(item, machine=machine, preferred=preferred)
         annotated.append(item)
     return annotated

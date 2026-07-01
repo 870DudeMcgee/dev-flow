@@ -46,21 +46,21 @@ Dev-Flow has two separate protections:
 - `local_model_runtime_lock` prevents two Dev-Flow local model calls from running at the same time.
 - `devflow local-model ...` manages resident local model server processes so a heavy server can be stopped before another one starts.
 
-When Dev-Flow runs a managed local OpenAI-compatible profile, it automatically ensures the resident server matches the selected model before calling it. For `qwen35-mtp/qwen35-9b-mtp`, Dev-Flow reuses an already matching server or starts it with `replace=true`, which stops any mismatched managed `llama-server` first. The lifecycle result is recorded in the run metadata as `local_model_server_lifecycle`.
+When Dev-Flow runs a managed local OpenAI-compatible profile, it automatically ensures the resident server matches the selected model before calling it. For `qwen36-27b-q5-mtp/qwen36-27b-q5-mtp`, Dev-Flow reuses an already matching server or starts it with `replace=true`, which stops any mismatched managed `llama-server` first. The lifecycle result is recorded in the run metadata as `local_model_server_lifecycle`.
 
 Use the lifecycle commands before switching large local profiles:
 
 ```bash
 devflow local-model status
 devflow local-model stop --dry-run
-devflow local-model stop qwen35-mtp
-devflow local-model start qwen35-mtp --replace
+devflow local-model stop qwen36-27b-q5-mtp
+devflow local-model start qwen36-27b-q5-mtp --replace
 ```
 
 The shortest stop-before-start path is:
 
 ```bash
-devflow local-model restart qwen35-mtp
+devflow local-model restart qwen36-27b-q5-mtp
 ```
 
 By default, Dev-Flow manages `llama-server` processes such as the Qwen 35 MTP endpoint on `127.0.0.1:8080`. Ollama can be included in status or stop output only when explicitly requested:

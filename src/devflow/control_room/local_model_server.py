@@ -26,14 +26,20 @@ LocalModelServerKind = Literal["llama-server", "ollama"]
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 8080
 
-_ORNITH_SERVER_RECIPES: dict[str, dict[str, str]] = {
-    "hermes-ornith9b": {
+_MANAGED_SERVER_RECIPES: dict[str, dict[str, str]] = {
+    "ornith-9b": {
         "model_path": "~/.hermes/models/gguf/ornith-1.0-9b-q4/ornith-1.0-9b-Q4_K_M.gguf",
         "ctx_size": "131072",
     },
-    "hermes-ornith35b": {
+    "ornith-35b": {
         "model_path": "~/.hermes/models/gguf/ornith-1.0-35b-q4/ornith-1.0-35b-Q4_K_M.gguf",
         "ctx_size": "65536",
+    },
+    "qwen36-27b-q5-mtp": {
+        "model_path": "~/.hermes/models/gguf/qwen3.6-27b-mtp-q5/Qwen3.6-27B-Q5_K_M.gguf",
+        "ctx_size": "65536",
+        "spec_type": "draft-mtp",
+        "spec_draft_n_max": "2",
     },
 }
 
@@ -43,6 +49,7 @@ class LocalModelServerError(ValueError):
 
 @dataclass(frozen=True)
 class LocalModelServerProfile:
+    server_id: str
     profile_id: str
     provider: str
     model: str
@@ -54,6 +61,7 @@ class LocalModelServerProfile:
 
     def model_dump(self) -> dict[str, Any]:
         return {
+            "server_id": self.server_id,
             "profile_id": self.profile_id,
             "provider": self.provider,
             "model": self.model,
@@ -103,67 +111,6 @@ PopenFactory = Callable[..., Any]
 StartProfile = Callable[..., dict[str, Any]]
 
 
-def qwen35_mtp_profile(
-    *,
-    host: str = DEFAULT_SERVER_HOST,
-    port: int = DEFAULT_SERVER_PORT,
-    binary: str = "llama-server",
-) -> LocalModelServerProfile:
-    model = "qwen35-9b-mtp"
-    command = [
-        binary,
-        "--hf-repo",
-        "unsloth/Qwen3.5-9B-MTP-GGUF:UD-Q4_K_XL",
-        "--no-mmproj",
-        "--alias",
-        model,
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--ctx-size",
-        "65536",
-        "--gpu-layers",
-        "99",
-        "--flash-attn",
-        "on",
-        "--parallel",
-        "1",
-        "--cache-type-k",
-        "q8_0",
-        "--cache-type-v",
-        "q8_0",
-        "--cache-type-k-draft",
-        "q8_0",
-        "--cache-type-v-draft",
-        "q8_0",
-        "--cache-ram",
-        "4096",
-        "--ctx-checkpoints",
-        "8",
-        "--checkpoint-min-step",
-        "2048",
-        "--cache-idle-slots",
-        "--spec-type",
-        "draft-mtp",
-        "--spec-draft-n-max",
-        "6",
-        "--chat-template-kwargs",
-        '{"enable_thinking":false}',
-        "--no-webui",
-    ]
-    return LocalModelServerProfile(
-        profile_id="hermes-qwen32",
-        provider="qwen35-mtp",
-        model=model,
-        host=host,
-        port=port,
-        base_url=f"http://{host}:{port}/v1",
-        command=command,
-        aliases=("qwen35-9b-mtp",),
-    )
-
-
 def known_local_model_server_profiles(
     *,
     host: str = DEFAULT_SERVER_HOST,
@@ -172,7 +119,7 @@ def known_local_model_server_profiles(
 ) -> dict[str, LocalModelServerProfile]:
     profiles: dict[str, LocalModelServerProfile] = {}
     for profile in _manifest_backed_server_profiles(host=host, port=port, binary=binary):
-        profiles[profile.profile_id] = profile
+        profiles[profile.server_id] = profile
     return profiles
 
 
@@ -189,7 +136,7 @@ def resolve_local_model_server_profile(
         return profiles[canonical_profile]
     except KeyError as exc:
         valid = ", ".join(sorted(profiles))
-        raise LocalModelServerError(f"Unknown local model server profile '{profile}'. Valid profiles: {valid}") from exc
+        raise LocalModelServerError(f"Unknown local model server '{profile}'. Valid servers: {valid}") from exc
 
 
 def list_local_model_server_processes(*, include_ollama: bool = False) -> list[LocalModelServerProcess]:
@@ -244,13 +191,33 @@ def local_model_server_status(*, include_ollama: bool = False) -> dict[str, Any]
         "managed_profiles": [
             profile.model_dump()
             for key, profile in known_local_model_server_profiles().items()
-            if key == profile.profile_id
+            if key == profile.server_id
         ],
         "notes": [
             "Default stop/start management targets llama-server processes.",
             "Ollama is shown only with --include-ollama and is not stopped by default.",
         ],
     }
+
+
+def build_local_model_server_inventory(
+    *,
+    include_ollama: bool = False,
+    process_lister: ProcessLister | None = None,
+) -> dict[str, Any]:
+    processes = (process_lister or (lambda: list_local_model_server_processes(include_ollama=include_ollama)))()
+    profiles = _unique_profiles(known_local_model_server_profiles().values())
+    manifest = _load_local_model_manifest_for_inventory()
+    rows = [_inventory_profile_row(profile, processes) for profile in profiles]
+    rows.extend(
+        _inventory_ollama_lane_row(lane, processes)
+        for lane in manifest.lanes.values()
+        if lane.provider_id == "ollama" and not lane.local_server_backed
+    )
+    rows.sort(key=lambda row: str(row.get("profile") or ""))
+    if include_ollama:
+        rows.extend(_inventory_process_row(process) for process in processes if process.kind == "ollama")
+    return {"action": "inventory", "profiles": rows}
 
 
 def stop_local_model_servers(
@@ -323,7 +290,7 @@ def stop_local_model_servers(
 
 def start_local_model_server(
     root: Path,
-    profile: str = "hermes-qwen32",
+    profile: str,
     *,
     host: str = DEFAULT_SERVER_HOST,
     port: int = DEFAULT_SERVER_PORT,
@@ -348,7 +315,7 @@ def start_local_model_server(
             "Use --replace to stop the existing local model server before starting a new one."
         )
 
-    run_dir = _server_profile_dir(root, server_profile.profile_id)
+    run_dir = _server_profile_dir(root, server_profile.server_id)
     stop_result: dict[str, Any] | None = None
     if existing and replace:
         stop_result = stop_local_model_servers(
@@ -365,6 +332,7 @@ def start_local_model_server(
         "action": "start",
         "status": "would_start" if dry_run else "started",
         "started_at": _utc_now(),
+        "server": server_profile.server_id,
         "profile": server_profile.profile_id,
         "provider": server_profile.provider,
         "model": server_profile.model,
@@ -423,7 +391,7 @@ def start_local_model_server(
 
 def restart_local_model_server(
     root: Path,
-    profile: str = "hermes-qwen32",
+    profile: str,
     **kwargs: Any,
 ) -> dict[str, Any]:
     kwargs["replace"] = True
@@ -472,6 +440,7 @@ def ensure_local_model_server_for_profile(
             "action": "ensure",
             "status": "already_running",
             "will_manage_local_server": True,
+            "server": target.server_id,
             "profile": target.profile_id,
             "provider": target.provider,
             "model": target.model,
@@ -484,7 +453,7 @@ def ensure_local_model_server_for_profile(
     starter = start_profile or start_local_model_server
     result = starter(
         root,
-        target.profile_id,
+        target.server_id,
         host=target.host,
         port=target.port,
         replace=True,
@@ -538,6 +507,7 @@ def render_local_model_server_lines(payload: dict[str, Any]) -> list[str]:
     if action == "start":
         return [
             f"status: {payload.get('status', 'unknown')}",
+            f"server: {payload.get('server') or payload.get('profile')}",
             f"profile: {payload.get('profile')}",
             f"model: {payload.get('provider')}/{payload.get('model')}",
             f"pid: {payload.get('pid') or 'not-started'}",
@@ -545,6 +515,50 @@ def render_local_model_server_lines(payload: dict[str, Any]) -> list[str]:
             f"log: {payload.get('log_path')}",
         ]
     return [json.dumps(payload, sort_keys=True)]
+
+
+def render_local_model_inventory_lines(payload: dict[str, Any]) -> list[str]:
+    rows = payload.get("profiles") if isinstance(payload.get("profiles"), list) else []
+    columns = [
+        ("profile", 22),
+        ("server", 18),
+        ("provider", 18),
+        ("model", 24),
+        ("backend/kind", 13),
+        ("port", 5),
+        ("base_url", 26),
+        ("running", 7),
+        ("pid", 7),
+        ("file_exists", 11),
+        ("aliases", 18),
+    ]
+    rendered_rows: list[dict[str, str]] = []
+    widths = {label: len(label) for label, _ in columns}
+    for label, minimum in columns:
+        widths[label] = max(widths[label], minimum)
+    for row in rows:
+        aliases = row.get("aliases") if isinstance(row.get("aliases"), list) else []
+        rendered = {
+            "profile": _display(row.get("profile")),
+            "server": _display(row.get("server")),
+            "provider": _display(row.get("provider")),
+            "model": _display(row.get("model")),
+            "backend/kind": _display(row.get("backend_kind")),
+            "port": _display(row.get("port")),
+            "base_url": _display(row.get("base_url")),
+            "running": "yes" if row.get("running") else "no",
+            "pid": _display(row.get("pid")),
+            "file_exists": _display_bool(row.get("file_exists")),
+            "aliases": ",".join(str(item) for item in aliases if item) or "-",
+        }
+        rendered_rows.append(rendered)
+        for label, value in rendered.items():
+            widths[label] = max(widths[label], len(value))
+    header = " ".join(label.ljust(widths[label]) for label, _ in columns)
+    lines = [header, "-" * len(header)]
+    for values in rendered_rows:
+        lines.append(" ".join(values[label].ljust(widths[label]) for label, _ in columns))
+    return lines
 
 
 def _parse_ps_line(raw_line: str) -> tuple[int, int | None, str, int | None, str] | None:
@@ -583,7 +597,7 @@ def _classify_local_model_process(
         tokens = _split_command(command)
         alias = _arg_after(tokens, "--alias")
         port = _safe_int(_arg_after(tokens, "--port"))
-        model = alias or _arg_after(tokens, "--model") or _arg_after(tokens, "--hf-repo") or _arg_after(tokens, "-m")
+        model = alias or _arg_after(tokens, "--model") or _arg_after(tokens, "-m")
         matched_profile = _profile_for_llama_process(alias=alias, model=model, port=port)
         provider = matched_profile.provider if matched_profile else None
         model = matched_profile.model if matched_profile else model
@@ -717,21 +731,19 @@ def _profile_from_manifest_lane(
     binary: str,
 ) -> LocalModelServerProfile | None:
     profile_host, profile_port = _lane_server_host_port(lane, host=host, port=port)
-    if lane.provider_id == "qwen35-mtp" and lane.model_id == "qwen35-9b-mtp":
-        return qwen35_mtp_profile(host=profile_host, port=profile_port, binary=binary)
-    if lane.profile_id in _ORNITH_SERVER_RECIPES:
-        return _ornith_profile(lane, host=profile_host, port=profile_port, binary=binary)
+    if lane.provider_id in _MANAGED_SERVER_RECIPES:
+        return _managed_manifest_profile(lane, host=profile_host, port=profile_port, binary=binary)
     return None
 
 
-def _ornith_profile(
+def _managed_manifest_profile(
     lane: ExpectedLocalModelLane,
     *,
     host: str,
     port: int,
     binary: str,
 ) -> LocalModelServerProfile:
-    recipe = _ORNITH_SERVER_RECIPES[lane.profile_id]
+    recipe = _MANAGED_SERVER_RECIPES[lane.provider_id]
     model_path = Path(recipe["model_path"]).expanduser().as_posix()
     command = [
         binary,
@@ -762,7 +774,12 @@ def _ornith_profile(
         "20",
         "--no-webui",
     ]
+    if recipe.get("spec_type"):
+        command.extend(["--spec-type", recipe["spec_type"]])
+    if recipe.get("spec_draft_n_max"):
+        command.extend(["--spec-draft-n-max", recipe["spec_draft_n_max"]])
     return LocalModelServerProfile(
+        server_id=lane.provider_id,
         profile_id=lane.profile_id,
         provider=lane.provider_id,
         model=lane.model_id,
@@ -805,12 +822,95 @@ def _profile_for_llama_process(
     return None
 
 
+def _inventory_profile_row(
+    profile: LocalModelServerProfile,
+    processes: list[LocalModelServerProcess],
+) -> dict[str, Any]:
+    process = _running_process_for_profile(profile, processes)
+    return {
+        "profile": profile.profile_id,
+        "server": profile.server_id,
+        "provider": profile.provider,
+        "model": profile.model,
+        "backend_kind": "llama-server",
+        "port": profile.port,
+        "base_url": profile.base_url,
+        "running": process is not None,
+        "pid": process.pid if process else None,
+        "file_exists": _profile_file_exists(profile),
+        "aliases": list(profile.aliases),
+    }
+
+
+def _inventory_process_row(process: LocalModelServerProcess) -> dict[str, Any]:
+    return {
+        "profile": process.alias or process.model or process.kind,
+        "server": None,
+        "provider": process.provider,
+        "model": process.model,
+        "backend_kind": process.kind,
+        "port": process.port,
+        "base_url": f"http://127.0.0.1:{process.port}" if process.port else None,
+        "running": True,
+        "pid": process.pid,
+        "file_exists": None,
+        "aliases": [process.alias] if process.alias else [],
+    }
+
+
+def _inventory_ollama_lane_row(
+    lane: ExpectedLocalModelLane,
+    processes: list[LocalModelServerProcess],
+) -> dict[str, Any]:
+    process = next((item for item in processes if item.kind == "ollama"), None)
+    return {
+        "profile": lane.profile_id,
+        "server": None,
+        "provider": lane.provider_id,
+        "model": lane.model_id,
+        "backend_kind": "ollama",
+        "port": lane.port,
+        "base_url": lane.base_url,
+        "running": process is not None,
+        "pid": process.pid if process else None,
+        "file_exists": None,
+        "aliases": list(_dedupe_aliases(lane.lane_id, lane.profile_id, lane.model_id)),
+    }
+
+
+def _running_process_for_profile(
+    profile: LocalModelServerProfile,
+    processes: list[LocalModelServerProcess],
+) -> LocalModelServerProcess | None:
+    identities = {profile.model, *profile.aliases}
+    for process in processes:
+        if process.provider == profile.provider and process.model == profile.model:
+            return process
+        if process.port == profile.port and (process.model in identities or process.alias in identities):
+            return process
+    return None
+
+
+def _profile_file_exists(profile: LocalModelServerProfile) -> bool | None:
+    model_path = _arg_after(profile.command, "-m")
+    if not model_path:
+        return None
+    return Path(model_path).expanduser().exists()
+
+
 def _unique_profiles(profiles: Any) -> list[LocalModelServerProfile]:
     unique: dict[str, LocalModelServerProfile] = {}
     for profile in profiles:
         if isinstance(profile, LocalModelServerProfile):
-            unique.setdefault(profile.profile_id, profile)
+            unique.setdefault(profile.server_id, profile)
     return list(unique.values())
+
+
+def _load_local_model_manifest_for_inventory() -> Any:
+    try:
+        return load_expected_local_model_manifest()
+    except LocalModelReadinessError as exc:
+        raise LocalModelServerError(f"Could not load local model server inventory manifest: {exc}") from exc
 
 
 def _dedupe_aliases(*aliases: str | None) -> tuple[str, ...]:
@@ -855,16 +955,29 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _display(value: object) -> str:
+    if value is None:
+        return "-"
+    return str(value)
+
+
+def _display_bool(value: object) -> str:
+    if value is None:
+        return "-"
+    return "yes" if bool(value) else "no"
+
+
 __all__ = [
     "LocalModelServerError",
     "LocalModelServerProcess",
     "LocalModelServerProfile",
     "known_local_model_server_profiles",
+    "build_local_model_server_inventory",
     "ensure_local_model_server_for_profile",
     "list_local_model_server_processes",
     "local_model_server_status",
     "parse_local_model_server_processes",
-    "qwen35_mtp_profile",
+    "render_local_model_inventory_lines",
     "render_local_model_server_lines",
     "resolve_local_model_server_profile",
     "restart_local_model_server",

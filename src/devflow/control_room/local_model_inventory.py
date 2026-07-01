@@ -4,7 +4,7 @@ import re
 import shlex
 from typing import Any
 
-from devflow.control_room.agent_registry import derive_profile_id
+from devflow.control_room.agent_registry import slug_id_part
 
 
 LOCAL_DISCOVERY_SOURCES = {"ollama", "local_openai_compatible"}
@@ -41,8 +41,8 @@ def build_local_model_inventory(agent_catalog: dict[str, Any]) -> dict[str, Any]
     for provider in endpoint_providers:
         rows.extend(_endpoint_rows(provider, registered_profile_keys, seen_endpoint_identity_keys))
 
-    default_model = _text(policy.get("default_model")) or "unknown"
-    default_provider_id = _text(policy.get("default_provider_id")) or "unknown"
+    default_model = _text_or_none(policy.get("default_model"))
+    default_provider_id = _text_or_none(policy.get("default_provider_id"))
     rows.sort(key=lambda row: _row_sort_key(row, default_model))
     actions = [row["action"] for row in rows if isinstance(row.get("action"), dict)]
 
@@ -254,9 +254,11 @@ def _endpoint_model_action(provider_id: str, model_id: str, base_url: str) -> di
 
 
 def _endpoint_profile_id(provider_id: str, model_id: str) -> str | None:
-    if model_id == "qwen35-9b-mtp":
-        return "hermes-qwen32"
-    return derive_profile_id(provider_id, model_id, "advisory", "frontier_planner_architect_reviewer")
+    return _local_profile_id(model_id)
+
+
+def _local_profile_id(model_id: str) -> str:
+    return f"hermes-{slug_id_part(model_id)}"
 
 
 def _provider_action(provider_id: str, base_url: str) -> dict[str, Any] | None:
@@ -360,7 +362,7 @@ def _profile_detail(status: str, availability: dict[str, Any]) -> str:
     return reason or "Registered profile availability is not confirmed."
 
 
-def _row_sort_key(row: dict[str, Any], default_model: str) -> tuple[int, int, str]:
+def _row_sort_key(row: dict[str, Any], default_model: str | None) -> tuple[int, int, str]:
     kind = row.get("kind")
     status = row.get("status")
     if kind == "registered_profile" and status == "available":
@@ -373,7 +375,7 @@ def _row_sort_key(row: dict[str, Any], default_model: str) -> tuple[int, int, st
         group = 3
     else:
         group = 4
-    default_rank = 0 if row.get("model") == default_model else 1
+    default_rank = 0 if default_model and row.get("model") == default_model else 1
     return (default_rank, group, _text(row.get("row_id")))
 
 
@@ -457,3 +459,8 @@ def _first_int(*values: object) -> int | None:
 
 def _text(value: object) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def _text_or_none(value: object) -> str | None:
+    text = _text(value)
+    return text or None

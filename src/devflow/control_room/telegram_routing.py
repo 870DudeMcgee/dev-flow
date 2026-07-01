@@ -11,8 +11,8 @@ from devflow.control_room.persistence import get_task
 
 
 TELEGRAM_ROUTING_SCHEMA_VERSION = 1
-DEFAULT_TELEGRAM_PROVIDER_ID = "custom:qwen35-mtp"
-DEFAULT_TELEGRAM_MODEL = "qwen35-9b-mtp"
+DEFAULT_TELEGRAM_PROVIDER_ID: str | None = "custom:hermes-qwen32-latest"
+DEFAULT_TELEGRAM_MODEL: str | None = "qwen36-27b-q5-mtp"
 PLANNING_MODEL = DEFAULT_TELEGRAM_MODEL
 DEEP_REVIEW_MODEL = DEFAULT_TELEGRAM_MODEL
 
@@ -68,7 +68,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             route=DEVFLOW_READ,
             model=DEFAULT_TELEGRAM_MODEL,
             action=RUN_SAFE_COMMAND,
-            reason="DevFlow read-only status/list/next-action request; use the Qwen35 local default model.",
+            reason="DevFlow read-only status/list/next-action request; route through the local Qwen supervisor default.",
             requested_action="devflow_read",
             risk_level="low",
             repo_state=repo_state,
@@ -102,7 +102,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             route=DEEP_REVIEW,
             model=DEEP_REVIEW_MODEL,
             action=ANSWER,
-            reason="Deep architecture or hard reasoning request; route to the Qwen35 local default model.",
+            reason="Deep architecture or hard reasoning request; route through the local Qwen supervisor default.",
             requested_action="deep_review",
             risk_level="high",
             repo_state=repo_state,
@@ -115,7 +115,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
             route=PLAN,
             model=PLANNING_MODEL,
             action=ANSWER,
-            reason="Planning, review, design, or risk-analysis request; route to the Qwen35 local default model.",
+            reason="Planning, review, design, or risk-analysis request; route through the local Qwen supervisor default.",
             requested_action="plan",
             risk_level="medium",
             repo_state=repo_state,
@@ -146,7 +146,7 @@ def route_telegram_message(root: Path, raw_message: str) -> dict[str, Any]:
         route=SIMPLE_CHAT,
         model=DEFAULT_TELEGRAM_MODEL,
         action=ANSWER,
-        reason="Default Telegram/simple chat request; use the Qwen35 local default model.",
+        reason="Default Telegram/simple chat request; route through the local Qwen supervisor default.",
         requested_action="chat",
         risk_level="low",
         repo_state=repo_state,

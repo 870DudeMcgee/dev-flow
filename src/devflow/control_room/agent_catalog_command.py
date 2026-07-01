@@ -58,10 +58,10 @@ def render_agent_catalog_lines(payload: dict[str, Any]) -> tuple[str, ...]:
     local_policy = payload.get("local_model_policy", {})
     if local_policy:
         concurrency = local_policy.get("local_model_concurrency", {})
-        lines.append(
-            f"local_model_default: {local_policy.get('default_provider_id', 'unknown')}/"
-            f"{local_policy.get('default_model', 'unknown')}"
-        )
+        default_provider = local_policy.get("default_provider_id")
+        default_model = local_policy.get("default_model")
+        default_text = f"{default_provider}/{default_model}" if default_provider and default_model else "none"
+        lines.append(f"local_model_default: {default_text}")
         lines.append(f"local_model_concurrency: {concurrency.get('mode', 'unknown')}")
 
     for provider_row in local_openai.get("providers", []):

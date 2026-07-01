@@ -313,10 +313,10 @@ base_url: https://chatgpt.com/backend-api/codex
 default_timeout_seconds: 900
 enabled: true
 """,
-    ".devflow/providers/qwen35-mtp.yaml": """id: qwen35-mtp
-provider: qwen35-mtp
+    ".devflow/providers/qwen36-27b-q5-mtp.yaml": """id: qwen36-27b-q5-mtp
+provider: qwen36-27b-q5-mtp
 adapter: openai_compatible
-base_url: http://127.0.0.1:8080/v1
+base_url: http://127.0.0.1:8083/v1
 enabled: true
 """,
     ".devflow/providers/openai_compatible.yaml": """id: openai_compatible

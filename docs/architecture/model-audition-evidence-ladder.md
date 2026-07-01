@@ -37,13 +37,13 @@ Each job type has at most three default candidates. Candidate names are stable j
 
 | Job type | Candidate aliases | Current safe profiles |
 | --- | --- | --- |
-| `planning` | `local-planner`, `local-planner-64k`, `local-fast` | `local-qwen35-mtp`, `local-gemma4-qat` |
+| `planning` | `local-planner`, `local-planner-64k`, `local-fast` | `hermes-qwen36-27b-q5-mtp`, `local-gemma4-qat` |
 | `small-code` | `local-coder-medium`, `local-code-fallback` | `local-qwen25-coder-14b`, `local-gemma4-qat` |
 | `hard-code` | `local-coder-medium`, `local-long-reviewer` | `local-qwen25-coder-14b`, `local-gemma4-qat` |
 | `review-debug` | `local-reviewer-deep`, `local-code-reviewer` | `local-gemma4-qat`, `local-qwen25-coder-14b` |
-| `summary-status` | `local-worker-fast`, `local-long-summary` | `local-qwen35-mtp`, `local-gemma4-qat` |
+| `summary-status` | `local-worker-fast`, `local-long-summary` | `hermes-qwen36-27b-q5-mtp`, `local-gemma4-qat` |
 
-For operator-led review/debug work, current guidance is to prefer `local-gemma4-qat` when long context, screenshot evidence, or broad review matters. Treat `local-qwen25-coder-14b` as the installed code-specialist fallback and `local-qwen35-mtp` as the fast text/status/planning endpoint, not as automatic routing policy.
+For operator-led review/debug work, current guidance is to prefer `local-gemma4-qat` when long context, screenshot evidence, or broad review matters. Treat `local-qwen25-coder-14b` as the installed code-specialist fallback and `hermes-qwen36-27b-q5-mtp` as the fast text/status/planning endpoint, not as automatic routing policy.
 
 Eligibility requires:
 

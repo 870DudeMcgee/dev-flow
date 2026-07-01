@@ -19,7 +19,7 @@ Set up Hermes/Telegram so Josh can use the Mac mini M1 for lightweight local mod
 - Real local-model worker-pool runs require explicit human approval and write only WorkerEvidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`.
 - Mac mini model availability is verified from the active Hermes config and local `/v1/models` response before a profile is trusted.
 - DevFlow classifies current machine RAM and marks discovered models as preferred, allowed, or not recommended.
-- DevFlow exposes `qwen35-9b-mtp` on provider `custom:qwen35-mtp` as the preferred Mac mini local default when ready.
+- DevFlow exposes `qwen36-27b-q5-mtp` on provider `custom:qwen36-27b-q5-mtp` as the preferred Mac mini local default when ready.
 - DevFlow enforces one local model run at a time across all local providers/models.
 - Mac Studio heavy profiles remain assigned to `mac_studio` unless real evidence supports moving them.
 - No Hermes path hardcodes Mac Studio checkout folders as portable authority.
@@ -28,7 +28,7 @@ Set up Hermes/Telegram so Josh can use the Mac mini M1 for lightweight local mod
 
 Mac mini small-worker class:
 
-- `qwen35-9b-mtp` via Hermes provider `custom:qwen35-mtp`: default local chat, Brainstorm, short planning, status brief, summary, docs review.
+- `qwen36-27b-q5-mtp` via Hermes provider `custom:qwen36-27b-q5-mtp`: default local chat, Brainstorm, short planning, status brief, summary, docs review.
 - `qwen2.5-coder:7b-instruct`: small code review, syntax fixes, small test help.
 - `qwen2.5-coder:1.5b`: classifier/router utility and short extraction.
 
@@ -71,11 +71,11 @@ curl http://127.0.0.1:8080/v1/models
 
 Expected result:
 
-- `local_model_policy.default_model` is `qwen35-9b-mtp`.
+- `local_model_policy.default_model` is `qwen36-27b-q5-mtp`.
 - `local_model_policy.default_provider_id` points at the discovered Hermes Qwen provider.
 - `local_model_policy.machine.total_memory_gb` reflects the current Mac.
 - `local_model_policy.local_model_concurrency.mode` is `single_flight`.
-- `/v1/models` advertises `qwen35-9b-mtp`.
+- `/v1/models` advertises `qwen36-27b-q5-mtp`.
 
 If the endpoint is not ready, do not fall back to a copied Mac Studio local model config. Fix Hermes/Qwen or use a remote advisory model until DevFlow marks a local model ready.
 
@@ -108,7 +108,7 @@ Expected result: read-only commands return `operator_plan.next_step: run_recomme
 
 ### 5. First Local Qwen Smoke
 
-If the catalog offers registration actions for `qwen35-mtp`, approve and run the exact `devflow agent add-provider ...` and `devflow agent add-model ...` commands shown by the catalog. Then validate the canonical Hermes profile surface and run a bounded smoke against profile `hermes-qwen32`.
+If the catalog offers registration actions for `qwen36-27b-q5-mtp`, approve and run the exact `devflow agent add-provider ...` and `devflow agent add-model ...` commands shown by the catalog. Then validate the canonical Hermes profile surface and run a bounded smoke against profile `hermes-qwen32-latest`.
 
 For task-local worker-pool smoke, create a low-risk task:
 
@@ -119,13 +119,13 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli task create "Hermes Mac mini loca
 Preview the packet-only Hermes handoff:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m devflow.cli agent serial-packet --phase implementer --provider qwen35-mtp --model qwen35-9b-mtp --task-id <task-id> --worker-id hermes-qwen32 --runtime hermes-profile --hermes-profile hermes-qwen32 --allowed-file docs/integrations/hermes-telegram-mac-mini-rollout.md --verify 'git diff --check'
+PYTHONPATH=src .venv/bin/python -m devflow.cli agent serial-packet --phase implementer --provider qwen36-27b-q5-mtp --model qwen36-27b-q5-mtp --task-id <task-id> --worker-id hermes-qwen32-latest --runtime hermes-profile --hermes-profile hermes-qwen32-latest --allowed-file docs/integrations/hermes-telegram-mac-mini-rollout.md --verify 'git diff --check'
 ```
 
 After explicit approval, run the bounded Hermes profile smoke:
 
 ```bash
-PYTHONPATH=src:. .venv/bin/python scripts/hermes_profile_smoke.py --skip-gpt --skip-direct-local --try-local-hermes --local-hermes-profile hermes-qwen32
+PYTHONPATH=src:. .venv/bin/python scripts/hermes_profile_smoke.py --skip-gpt --skip-direct-local --try-local-hermes --local-hermes-profile hermes-qwen32-latest
 ```
 
 Expected result: DevFlow writes packet or smoke evidence only under `.devflow/`. It must not edit source, write `proposal.patch`, apply patches, verify, commit, merge, push, or promote.
@@ -163,4 +163,4 @@ action: <action>
 
 ## Next Safe Action
 
-Run `devflow agent catalog --json`, confirm `qwen35-9b-mtp` is the ready default with `single_flight` local concurrency, then perform one packet preview with `hermes-qwen32` before enabling Telegram-triggered read-only auto-runs.
+Run `devflow agent catalog --json`, confirm `qwen36-27b-q5-mtp` is the ready default with `single_flight` local concurrency, then perform one packet preview with `hermes-qwen32-latest` before enabling Telegram-triggered read-only auto-runs.

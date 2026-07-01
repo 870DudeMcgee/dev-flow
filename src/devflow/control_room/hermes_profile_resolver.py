@@ -40,17 +40,18 @@ CANONICAL_HERMES_PROFILES: tuple[HermesCatalogProfile, ...] = (
     HermesCatalogProfile("hermes-qwen37max", "hermes-qwen37max", "Hermes Qwen 3.7 Max", "openrouter", "qwen/qwen3.7-max"),
     HermesCatalogProfile("hermes-sonnet46", "hermes-sonnet46", "Hermes Sonnet 4.6", "openrouter", "anthropic/claude-sonnet-4.6"),
     HermesCatalogProfile("hermes-opus48", "hermes-opus48", "Hermes Opus 4.8", "openrouter", "anthropic/claude-opus-4.8"),
-    HermesCatalogProfile("hermes-qwen32", "hermes-qwen32", "Hermes Qwen 3.2", "qwen35-mtp", "qwen35-9b-mtp"),
-    HermesCatalogProfile("hermes-gemma12b", "hermes-gemma12b", "Hermes Gemma 12B", "local", "gemma4:12b-it-qat"),
-    HermesCatalogProfile("hermes-qwen36-27b-mtp", "hermes-qwen36-27b-mtp", "Hermes Qwen 36B MTP", "qwen35-mtp", "qwen3.6-27b-mtp"),
+    HermesCatalogProfile("hermes-qwen32-latest", "hermes-qwen32-latest", "Hermes qwen32:latest", "ollama", "qwen32:latest"),
+    HermesCatalogProfile("hermes-gemma12b-latest", "hermes-gemma12b-latest", "Hermes gemma12b:latest", "ollama", "gemma12b:latest"),
+    HermesCatalogProfile("hermes-qwopus-35b", "hermes-qwopus-35b", "Hermes qwopus-35b", "ollama", "qwopus-35b"),
+    HermesCatalogProfile("hermes-qwen36-27b-q5-mtp", "hermes-qwen36-27b-q5-mtp", "Hermes qwen36-27b-q5-mtp", "qwen36-27b-q5-mtp", "qwen36-27b-q5-mtp"),
     HermesCatalogProfile("hermes-qwen36-27b-mlx4bit", "hermes-qwen36-27b-mlx4bit", "Hermes Qwen 36B MLP 4bit", "local", "qwen3.6-27b-mlxf4bit"),
     HermesCatalogProfile("hermes-qwen36-27b-mlx8bit", "hermes-qwen36-27b-mlx8bit", "Hermes Qwen 36B MLP 8bit", "local", "qwen3.6-27b-mlxf8bit"),
-    HermesCatalogProfile("hermes-ornith9b", "hermes-ornith9b", "Hermes Ornith 9B", "local-ornith-9b", "ornith-1.0-9b-q4"),
-    HermesCatalogProfile("hermes-ornith35b", "hermes-ornith35b", "Hermes Ornith 35B", "local-ornith-35b", "ornith-1.0-35b-q4"),
+    HermesCatalogProfile("hermes-ornith-9b", "hermes-ornith-9b", "Hermes ornith-9b", "ornith-9b", "ornith-9b"),
+    HermesCatalogProfile("hermes-ornith-35b", "hermes-ornith-35b", "Hermes ornith-35b", "ornith-35b", "ornith-35b"),
 )
 
 
-HERMES_GLOBAL_FALLBACK_IDS: tuple[str, ...] = ("hermes-codex-gpt55", "hermes-qwen32")
+HERMES_GLOBAL_FALLBACK_IDS: tuple[str, ...] = ("hermes-codex-gpt55", "hermes-qwen32-latest")
 
 CANONICAL_PROFILE_BY_ID: dict[str, HermesCatalogProfile] = {
     profile.id: profile for profile in CANONICAL_HERMES_PROFILES
@@ -66,16 +67,15 @@ HERMES_PROFILE_PICKER_IDS: dict[str, str] = {
 _PICKER_ID_TO_PROFILE = {picker_id: profile for profile, picker_id in HERMES_PROFILE_PICKER_IDS.items()}
 
 HERMES_RETIRED_ALIAS_TO_CANONICAL_ID: dict[str, str] = {
-    "fast_local": "hermes-qwen32",
-    "long_local": "hermes-gemma12b",
-    "code_local": "hermes-qwen36-27b-mtp",
-    "dflocalfast": "hermes-qwen32",
-    "dflocallong": "hermes-gemma12b",
-    "dflocalcode": "hermes-qwen36-27b-mtp",
-    "local-qwen35-mtp": "hermes-qwen32",
-    "qwen-worker": "hermes-qwen32",
-    "ornith9b": "hermes-ornith9b",
-    "ornith35b": "hermes-ornith35b",
+    "fast_local": "hermes-qwen32-latest",
+    "long_local": "hermes-gemma12b-latest",
+    "code_local": "hermes-qwen36-27b-q5-mtp",
+    "dflocalfast": "hermes-qwen32-latest",
+    "dflocallong": "hermes-gemma12b-latest",
+    "dflocalcode": "hermes-qwen36-27b-q5-mtp",
+    "qwen-worker": "hermes-qwen32-latest",
+    "ornith9b": "hermes-ornith-9b",
+    "ornith35b": "hermes-ornith-35b",
     "dfcodex55": "hermes-codex-gpt55",
     "dfminimaxm3": "hermes-minimaxm3",
     "dfqwen37plus": "hermes-qwen37plus",

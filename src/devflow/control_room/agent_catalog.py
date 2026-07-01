@@ -16,13 +16,13 @@ from devflow.control_room.agent_registry import (
     AgentDefinition,
     AgentRegistryError,
     SAFE_AGENT_ID_PATTERN as SAFE_ID_PATTERN,
-    derive_profile_id,
     load_agent_registry,
     load_provider_registry,
+    slug_id_part,
     slug_id_part as _slug,
 )
 from devflow.control_room.agent_runtime import agent_runtime_contract
-from devflow.control_room.machine_capability import LOCAL_DEFAULT_MODEL_ID, discover_machine_capability
+from devflow.control_room.machine_capability import discover_machine_capability
 from devflow.control_room.local_agent_discovery import LocalDiscoveryReport
 
 
@@ -188,9 +188,7 @@ def _local_openai_onboarding_actions(local_openai_compatible: dict[str, Any]) ->
             model_id = str(model.get("id") or "").strip()
             if not model_id:
                 continue
-            profile_id = "hermes-qwen32" if model_id == LOCAL_DEFAULT_MODEL_ID else derive_profile_id(
-                provider_id, model_id, "advisory", "frontier_planner_architect_reviewer"
-            )
+            profile_id = f"hermes-{slug_id_part(model_id)}"
             actions.append(
                 {
                     "label": f"Add {model_id}",

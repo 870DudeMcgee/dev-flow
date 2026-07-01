@@ -89,9 +89,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", default="")
     parser.add_argument("--timeout-seconds", type=float, default=90.0)
     parser.add_argument("--gpt-profile", default="hermes-codex-gpt55")
-    parser.add_argument("--local-hermes-profile", default="hermes-qwen32")
+    parser.add_argument("--local-hermes-profile", default="hermes-qwen32-latest")
     parser.add_argument("--local-base-url", default=os.environ.get("LOCAL_MODEL_BASE_URL", "http://127.0.0.1:8080/v1"))
-    parser.add_argument("--local-model", default=os.environ.get("LOCAL_MODEL_ID", "qwen35-9b-mtp"))
+    parser.add_argument("--local-model", default=os.environ.get("LOCAL_MODEL_ID", "qwen32:latest"))
     parser.add_argument("--skip-gpt", action="store_true")
     parser.add_argument("--skip-direct-local", action="store_true")
     parser.add_argument("--try-local-hermes", action="store_true")
@@ -158,7 +158,7 @@ def _direct_local_check(
     timeout_seconds: float,
     dry_run: bool,
 ) -> dict[str, Any]:
-    check_id = "qwen35-direct"
+    check_id = "qwen-direct"
     prompt = "Reply with exactly: local model smoke test ok"
     prompt_path = run_dir / f"{check_id}.prompt.txt"
     output_path = run_dir / f"{check_id}.output.txt"
@@ -171,7 +171,7 @@ def _direct_local_check(
             check_id=check_id,
             kind="local_openai_compatible",
             status="dry_run",
-            profile="hermes-qwen32",
+            profile="hermes-qwen32-latest",
             model=model,
             base_url=base_url,
             prompt_path=prompt_path,
@@ -218,7 +218,7 @@ def _direct_local_check(
         check_id=check_id,
         kind="local_openai_compatible",
         status=status,
-        profile="hermes-qwen32",
+        profile="hermes-qwen32-latest",
         model=model,
         base_url=base_url,
         prompt_path=prompt_path,

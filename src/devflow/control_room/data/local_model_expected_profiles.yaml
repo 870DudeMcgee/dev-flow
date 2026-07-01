@@ -1,26 +1,26 @@
 schema_version: 1
 lanes:
-  hermes-qwen32:
-    profile_id: hermes-qwen32
-    provider_id: qwen35-mtp
-    model_id: qwen35-9b-mtp
-    adapter: openai_compatible
+  hermes-qwen32-latest:
+    profile_id: hermes-qwen32-latest
+    provider_id: ollama
+    model_id: qwen32:latest
+    adapter: ollama_chat
     role: frontier_planner_architect_reviewer
     authority: advisory
     min_ram_gb: 12
     ideal_ram_gb: 16
     weight_class: medium
-    quant_policy: ud-q4-k-xl
-    base_url: http://127.0.0.1:8080/v1
-    port: 8080
-    local_server_backed: true
+    quant_policy: provider-managed
+    base_url: http://127.0.0.1:11434
+    port: 11434
+    local_server_backed: false
     fallback_lanes:
-      - hermes-gemma12b
+      - hermes-gemma12b-latest
       - hermes-minimaxm3
-  hermes-gemma12b:
-    profile_id: hermes-gemma12b
+  hermes-gemma12b-latest:
+    profile_id: hermes-gemma12b-latest
     provider_id: ollama
-    model_id: gemma4:12b-it-qat
+    model_id: gemma12b:latest
     adapter: ollama_chat
     role: local_senior_worker
     authority: read-only
@@ -32,63 +32,64 @@ lanes:
     port: 11434
     local_server_backed: false
     fallback_lanes:
-      - hermes-qwen36-27b-mtp
+      - hermes-qwen36-27b-q5-mtp
       - hermes-minimaxm3
-  hermes-qwen36-27b-mtp:
-    profile_id: hermes-qwen36-27b-mtp
-    provider_id: qwen35-mtp
-    model_id: qwen3.6-27b-mtp
-    adapter: openai_compatible
+  hermes-qwopus-35b:
+    profile_id: hermes-qwopus-35b
+    provider_id: ollama
+    model_id: qwopus-35b
+    adapter: ollama_chat
     role: implementation_worker
     authority: read-only
     min_ram_gb: 32
     ideal_ram_gb: 64
     weight_class: heavy
-    quant_policy: q4-k-m
-    base_url: http://127.0.0.1:8092/v1
-    port: 8092
-    local_server_backed: true
+    quant_policy: provider-managed
+    base_url: http://127.0.0.1:11434
+    port: 11434
+    local_server_backed: false
     fallback_lanes:
-      - hermes-gemma12b
+      - hermes-gemma12b-latest
       - hermes-minimaxm3
-  hermes-qwen36-27b-mlx4bit:
-    profile_id: hermes-qwen36-27b-mlx4bit
-    provider_id: local
-    model_id: qwen3.6-27b-mlxf4bit
+  hermes-qwen36-27b-q5-mtp:
+    profile_id: hermes-qwen36-27b-q5-mtp
+    provider_id: qwen36-27b-q5-mtp
+    model_id: qwen36-27b-q5-mtp
     adapter: openai_compatible
-    role: implementation_worker
-    authority: read-only
-    min_ram_gb: 48
-    ideal_ram_gb: 96
+    role: frontier_planner_architect_reviewer
+    authority: advisory
+    min_ram_gb: 32
+    ideal_ram_gb: 64
     weight_class: heavy
-    quant_policy: mlxf4bit
-    base_url: http://127.0.0.1:8093/v1
-    port: 8093
+    quant_policy: q5-k-m
+    base_url: http://127.0.0.1:8083/v1
+    port: 8083
     local_server_backed: true
     fallback_lanes:
-      - hermes-qwen36-27b-mtp
+      - hermes-qwopus-35b
+      - hermes-gemma12b-latest
       - hermes-minimaxm3
-  hermes-qwen36-27b-mlx8bit:
-    profile_id: hermes-qwen36-27b-mlx8bit
-    provider_id: local
-    model_id: qwen3.6-27b-mlxf8bit
-    adapter: openai_compatible
-    role: implementation_worker
+  hermes-gemma4-e4b:
+    profile_id: hermes-gemma4-e4b
+    provider_id: ollama
+    model_id: gemma4-e4b:latest
+    adapter: ollama_chat
+    role: scout
     authority: read-only
-    min_ram_gb: 64
-    ideal_ram_gb: 128
-    weight_class: heavy
-    quant_policy: mlxf8bit
-    base_url: http://127.0.0.1:8094/v1
-    port: 8094
-    local_server_backed: true
+    min_ram_gb: 0
+    ideal_ram_gb: 0
+    weight_class: medium
+    quant_policy: provider-managed
+    base_url: http://127.0.0.1:11434
+    port: 11434
+    local_server_backed: false
     fallback_lanes:
-      - hermes-qwen36-27b-mlx4bit
+      - hermes-gemma12b-latest
       - hermes-minimaxm3
-  hermes-ornith9b:
-    profile_id: hermes-ornith9b
-    provider_id: local-ornith-9b
-    model_id: ornith-1.0-9b-q4
+  hermes-ornith-9b:
+    profile_id: hermes-ornith-9b
+    provider_id: ornith-9b
+    model_id: ornith-9b
     adapter: openai_compatible
     role: frontier_planner_architect_reviewer
     authority: advisory
@@ -96,16 +97,16 @@ lanes:
     ideal_ram_gb: 48
     weight_class: medium
     quant_policy: q4-k-m
-    base_url: http://127.0.0.1:8084/v1
-    port: 8084
+    base_url: http://127.0.0.1:8085/v1
+    port: 8085
     local_server_backed: true
     fallback_lanes:
-      - hermes-qwen32
+      - hermes-qwen32-latest
       - hermes-minimaxm3
-  hermes-ornith35b:
-    profile_id: hermes-ornith35b
-    provider_id: local-ornith-35b
-    model_id: ornith-1.0-35b-q4
+  hermes-ornith-35b:
+    profile_id: hermes-ornith-35b
+    provider_id: ornith-35b
+    model_id: ornith-35b
     adapter: openai_compatible
     role: frontier_planner_architect_reviewer
     authority: advisory
@@ -113,12 +114,12 @@ lanes:
     ideal_ram_gb: 96
     weight_class: heavy
     quant_policy: q4-k-m
-    base_url: http://127.0.0.1:8085/v1
-    port: 8085
+    base_url: http://127.0.0.1:8084/v1
+    port: 8084
     local_server_backed: true
     fallback_lanes:
-      - hermes-ornith9b
-      - hermes-gemma12b
+      - hermes-ornith-9b
+      - hermes-gemma12b-latest
       - hermes-minimaxm3
   hermes-minimaxm3:
     profile_id: hermes-minimaxm3
@@ -136,7 +137,7 @@ lanes:
     api_key_env: OPENROUTER_API_KEY
     fallback_lanes:
       - hermes-codex-gpt55
-      - hermes-qwen32
+      - hermes-qwen32-latest
   hermes-qwen37plus:
     profile_id: hermes-qwen37plus
     provider_id: openrouter
@@ -154,7 +155,7 @@ lanes:
     fallback_lanes:
       - hermes-minimaxm3
       - hermes-codex-gpt55
-      - hermes-qwen32
+      - hermes-qwen32-latest
   hermes-sonnet46:
     profile_id: hermes-sonnet46
     provider_id: openrouter
@@ -172,7 +173,7 @@ lanes:
     fallback_lanes:
       - hermes-qwen37plus
       - hermes-codex-gpt55
-      - hermes-qwen32
+      - hermes-qwen32-latest
   hermes-opus48:
     profile_id: hermes-opus48
     provider_id: openrouter
@@ -191,7 +192,7 @@ lanes:
       - hermes-sonnet46
       - hermes-qwen37plus
       - hermes-codex-gpt55
-      - hermes-qwen32
+      - hermes-qwen32-latest
   hermes-codex-gpt55:
     profile_id: hermes-codex-gpt55
     provider_id: openai-codex
@@ -206,4 +207,4 @@ lanes:
     base_url: https://chatgpt.com/backend-api/codex
     local_server_backed: false
     fallback_lanes:
-      - hermes-qwen32
+      - hermes-qwen32-latest

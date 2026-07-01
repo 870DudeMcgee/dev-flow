@@ -19,6 +19,7 @@ from devflow.control_room.supervisor_surface import (
     PURE_READ_ONLY,
     classify_supervisor_command,
 )
+from devflow.control_room.telegram_routing import DEFAULT_TELEGRAM_MODEL, DEFAULT_TELEGRAM_PROVIDER_ID
 
 
 runner = CliRunner()
@@ -365,12 +366,14 @@ def test_supervisor_policy_json_is_versioned_and_declares_boundaries(tmp_path: P
     assert "agent hermes-run" in boundary["browser_blocked_runtime_launch"]
     assert "completion-verifier.py" in boundary["final_proof"]
     assert boundary["local_model_concurrency"]["mode"] == "single_flight"
-    assert payload["telegram_routing"]["provider"] == "local"
-    assert payload["telegram_routing"]["provider_id"] == "custom:qwen35-mtp"
-    assert payload["telegram_routing"]["default_model"] == "qwen35-9b-mtp"
+    assert payload["telegram_routing"]["provider"] is None
+    assert payload["telegram_routing"]["provider_id"] == DEFAULT_TELEGRAM_PROVIDER_ID
+    assert payload["telegram_routing"]["default_model"] == DEFAULT_TELEGRAM_MODEL
     assert payload["telegram_routing"]["footer_required"] is True
-    assert payload["telegram_routing"]["routes"]["simple_chat"]["model"] == "qwen35-9b-mtp"
-    assert payload["telegram_routing"]["routes"]["devflow_read"]["model"] == "qwen35-9b-mtp"
+    assert payload["telegram_routing"]["routes"]["simple_chat"]["model"] == DEFAULT_TELEGRAM_MODEL
+    assert payload["telegram_routing"]["routes"]["devflow_read"]["model"] == DEFAULT_TELEGRAM_MODEL
+    assert payload["telegram_routing"]["routes"]["plan"]["model"] == DEFAULT_TELEGRAM_MODEL
+    assert payload["telegram_routing"]["routes"]["deep_review"]["model"] == DEFAULT_TELEGRAM_MODEL
     assert payload["telegram_routing"]["routes"]["implementation"]["model"] is None
     assert payload["path_authority"]["josh_canonical_checkout"] == "<repo-root>"
     assert "actual repo root" in payload["path_authority"]["portable_guidance"]

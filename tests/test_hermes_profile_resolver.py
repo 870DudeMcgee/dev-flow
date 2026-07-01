@@ -42,8 +42,8 @@ base_url: https://openrouter.ai/api/v1
 """,
         encoding="utf-8",
     )
-    (providers / "qwen35-mtp.yaml").write_text(
-        """provider: qwen35-mtp
+    (providers / "qwen36-27b-q5-mtp.yaml").write_text(
+        """provider: qwen36-27b-q5-mtp
 adapter: openai_compatible
 base_url: http://127.0.0.1:11434/v1
 """,
@@ -66,7 +66,6 @@ adapter: hermes_profile
         "dflocalfast",
         "dflocallong",
         "dflocalcode",
-        "local-qwen35-mtp",
         "qwen-worker",
         "hermes-profile-dflocalfast",
         "ornith9b",
@@ -133,11 +132,11 @@ def test_historical_cleanup_helper_resolves_retired_aliases(tmp_path: Path, monk
 
     alias_resolved = resolve_hermes_profile_for_historical_cleanup("fast_local")
     assert alias_resolved is not None
-    assert alias_resolved.id == "hermes-qwen32"
+    assert alias_resolved.id == "hermes-qwen32-latest"
 
     alias_resolved = resolve_hermes_profile_for_historical_cleanup("hermes-profile-ornith9b")
     assert alias_resolved is not None
-    assert alias_resolved.id == "hermes-ornith9b"
+    assert alias_resolved.id == "hermes-ornith-9b"
 
     alias_resolved = resolve_hermes_profile_for_historical_cleanup("dfqwen37plus")
     assert alias_resolved is not None
@@ -152,7 +151,7 @@ def test_global_fallback_prefers_codex_then_qwen32(tmp_path: Path, monkeypatch: 
     monkeypatch.setenv("HOME", tmp_path.as_posix())
 
     codex = next(p for p in CANONICAL_HERMES_PROFILES if p.id == "hermes-codex-gpt55")
-    qwen32 = next(p for p in CANONICAL_HERMES_PROFILES if p.id == "hermes-qwen32")
+    qwen32 = next(p for p in CANONICAL_HERMES_PROFILES if p.id == "hermes-qwen32-latest")
     codex_path = tmp_path / ".hermes" / "profiles" / codex.hermes_profile / "config.yaml"
     qwen32_path = tmp_path / ".hermes" / "profiles" / qwen32.hermes_profile / "config.yaml"
     codex_path.parent.mkdir(parents=True)
@@ -177,23 +176,23 @@ def test_global_fallback_prefers_codex_then_qwen32(tmp_path: Path, monkeypatch: 
     resolved = resolve_hermes_profile_with_global_fallback("no-such-profile")
     assert resolved.status == "available"
     assert resolved.profile is not None
-    assert resolved.profile.id == "hermes-qwen32"
+    assert resolved.profile.id == "hermes-qwen32-latest"
     assert any("hermes-codex-gpt55" in reason for reason in resolved.failure_reasons)
 
     resolved = resolve_hermes_profile_with_global_fallback("hermes-codex-gpt55")
     assert resolved.status == "available"
     assert resolved.profile is not None
-    assert resolved.profile.id == "hermes-qwen32"
+    assert resolved.profile.id == "hermes-qwen32-latest"
     assert any("hermes-codex-gpt55" in reason for reason in resolved.failure_reasons)
 
     qwen32_path.unlink()
     resolved = resolve_hermes_profile_with_global_fallback("no-such-profile")
     assert resolved.status == "failed"
     assert resolved.profile is None
-    assert resolved.fallback_chain == ("hermes-codex-gpt55", "hermes-qwen32")
+    assert resolved.fallback_chain == ("hermes-codex-gpt55", "hermes-qwen32-latest")
     assert any("no-such-profile: not a canonical Hermes profile id" in reason for reason in resolved.failure_reasons)
     assert any("hermes-codex-gpt55" in reason for reason in resolved.failure_reasons)
-    assert any("hermes-qwen32" in reason for reason in resolved.failure_reasons)
+    assert any("hermes-qwen32-latest" in reason for reason in resolved.failure_reasons)
 
 
 def test_configured_hermes_agent_rows_reuses_registry_loads_and_preserves_row_contract(

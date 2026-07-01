@@ -119,6 +119,7 @@ from devflow.control_room.freshness_command import (  # noqa: F401
 )
 from devflow.control_room.goal_command import goal_app
 from devflow.control_room.idea_command import idea_app
+from devflow.control_room.local_ai_command import local_ai_app
 from devflow.control_room.local_model_command import local_model_app
 from devflow.control_room.loop_command import loop_app
 from devflow.control_room.agent_command import agent_app
@@ -199,6 +200,7 @@ app.add_typer(freshness_app, name="freshness")
 app.add_typer(scheduler_app, name="scheduler")
 app.add_typer(question_app, name="question")
 app.add_typer(operating_layer_app, name="operating-layer")
+app.add_typer(local_ai_app, name="local-ai")
 app.add_typer(local_model_app, name="local-model")
 app.add_typer(loop_app, name="loop")
 app.add_typer(builder_judge_app, name="builder-judge")

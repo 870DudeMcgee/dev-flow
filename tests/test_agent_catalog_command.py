@@ -41,16 +41,16 @@ def test_render_agent_catalog_lines_owns_cli_text_sections() -> None:
             "status": "ready",
             "providers": [
                 {
-                    "id": "qwen35-mtp",
+                    "id": "qwen36-27b-q5-mtp",
                     "status": "ready",
-                    "advertised_models": [{"id": "qwen35-9b-mtp"}],
+                    "advertised_models": [{"id": "qwen36-27b-q5-mtp"}],
                     "base_url": "http://127.0.0.1:1234/v1",
                 }
             ],
         },
         "local_model_policy": {
-            "default_provider_id": "qwen35-mtp",
-            "default_model": "qwen35-9b-mtp",
+            "default_provider_id": None,
+            "default_model": None,
             "local_model_concurrency": {"mode": "single-flight"},
         },
     }
@@ -66,8 +66,8 @@ def test_render_agent_catalog_lines_owns_cli_text_sections() -> None:
         "unregistered_local_models:",
         "- qwen3:14b",
         "local_openai_compatible: ready",
-        "local_model_default: qwen35-mtp/qwen35-9b-mtp",
+        "local_model_default: none",
         "local_model_concurrency: single-flight",
-        "- qwen35-mtp: ready (1 models, http://127.0.0.1:1234/v1)",
+        "- qwen36-27b-q5-mtp: ready (1 models, http://127.0.0.1:1234/v1)",
     )
     assert json.loads(render_agent_catalog_json(payload))["providers"][0]["id"] == "openrouter"

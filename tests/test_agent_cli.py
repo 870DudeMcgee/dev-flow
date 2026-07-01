@@ -32,7 +32,7 @@ def test_openrouter_profile_aliases_normalize_to_canonical_for_remote_load(tmp_p
     init_test_git_repo(tmp_path)
 
     class _FakeAgent:
-        id = "hermes-qwen32"
+        id = "hermes-qwen32-latest"
         provider = "openrouter"
 
     class _FakeProvider:
@@ -43,7 +43,7 @@ def test_openrouter_profile_aliases_normalize_to_canonical_for_remote_load(tmp_p
 
     class _FakeAgentRegistry:
         def require_agent(self, profile_id: str) -> _FakeAgent:
-            if profile_id == "hermes-qwen32":
+            if profile_id == "hermes-qwen32-latest":
                 return _FakeAgent()
             raise KeyError(f"Unknown agent '{profile_id}'.")
 
@@ -59,7 +59,7 @@ def test_openrouter_profile_aliases_normalize_to_canonical_for_remote_load(tmp_p
     ):
         profile, provider = openrouter_agent._load_remote_profile(tmp_path, "qwen-worker")
 
-    assert profile.id == "hermes-qwen32"
+    assert profile.id == "hermes-qwen32-latest"
     assert profile.provider == provider.id == "openrouter"
 
 
@@ -218,7 +218,7 @@ def test_agent_serial_packet_writes_hermes_profile_runtime_metadata(
 
     assert result.exit_code == 0, result.output
     assert "runtime: hermes-profile" in result.output
-    assert "hermes_profile: hermes-qwen32" in result.output
+    assert "hermes_profile: hermes-qwen32-latest" in result.output
     assert "toolsets: file, terminal" in result.output
     assert "model_launch: false" in result.output
     assert "worker_ran: no" in result.output
@@ -228,12 +228,12 @@ def test_agent_serial_packet_writes_hermes_profile_runtime_metadata(
     manifest = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert manifest["runtime"] == {
         "kind": "hermes-profile",
-        "hermes_profile": "hermes-qwen32",
+        "hermes_profile": "hermes-qwen32-latest",
         "toolsets": ["file", "terminal"],
         "packet_only": True,
     }
     packet = (run_dir / "worker-packet.md").read_text(encoding="utf-8")
-    assert "This packet is intended for Hermes profile `hermes-qwen32`, but packet creation did not launch it." in packet
+    assert "This packet is intended for Hermes profile `hermes-qwen32-latest`, but packet creation did not launch it." in packet
 
 
 def test_agent_serial_packet_requires_hermes_profile_for_hermes_runtime(
@@ -324,10 +324,10 @@ def test_agent_hermes_run_dry_run_json_previews_without_launch(
     assert payload["will_launch_hermes"] is False
     assert payload["launch_allowed"] is True
     assert payload["run_id"] == "cli-hermes-run"
-    assert payload["hermes_profile"] == "hermes-qwen32"
+    assert payload["hermes_profile"] == "hermes-qwen32-latest"
     assert payload["preflight_state"] == "free"
     assert payload["packet_path"] == ".devflow/local-agent-runs/cli-hermes-run/worker-packet.md"
-    assert payload["command_preview"][:5] == ["hermes", "-p", "hermes-qwen32", "chat", "-q"]
+    assert payload["command_preview"][:5] == ["hermes", "-p", "hermes-qwen32-latest", "chat", "-q"]
     assert not (tmp_path / ".devflow/local-agent-runs/cli-hermes-run/hermes-run.json").exists()
 
 
@@ -379,7 +379,7 @@ def test_agent_hermes_run_real_launch_uses_fake_bin_and_writes_evidence(
     assert (run_dir / "hermes-stdout.txt").read_text(encoding="utf-8") == "cli fake stdout\n"
     assert (run_dir / "hermes-stderr.txt").read_text(encoding="utf-8") == "cli fake stderr\n"
     fake_payload = json.loads((tmp_path / "cli-fake-argv.json").read_text(encoding="utf-8"))
-    assert fake_payload["argv"][1:5] == ["-p", "hermes-qwen32", "chat", "-q"]
+    assert fake_payload["argv"][1:5] == ["-p", "hermes-qwen32-latest", "chat", "-q"]
     assert not (run_dir / "verification-report.json").exists()
 
 

@@ -26,9 +26,25 @@ def local_model_status_command(
         typer.echo(line)
 
 
+@local_model_app.command("inventory")
+def local_model_inventory_command(
+    json_output: bool = typer.Option(False, "--json", help="Print local model inventory as JSON."),
+    include_ollama: bool = typer.Option(False, "--include-ollama", help="Include running Ollama server processes."),
+) -> None:
+    """Show managed local model profiles without changing server state."""
+    from devflow.control_room import local_model_server
+
+    payload = local_model_server.build_local_model_server_inventory(include_ollama=include_ollama)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    for line in local_model_server.render_local_model_inventory_lines(payload):
+        typer.echo(line)
+
+
 @local_model_app.command("stop")
 def local_model_stop_command(
-    profile: str | None = typer.Argument(None, help="Optional local server profile to stop, such as hermes-qwen32."),
+    profile: str | None = typer.Argument(None, help="Optional managed server to stop, such as ornith-9b."),
     json_output: bool = typer.Option(False, "--json", help="Print stop result as JSON."),
     include_ollama: bool = typer.Option(False, "--include-ollama", help="Also stop Ollama server processes."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be stopped without sending signals."),
@@ -59,7 +75,7 @@ def local_model_stop_command(
 
 @local_model_app.command("start")
 def local_model_start_command(
-    profile: str = typer.Argument("hermes-qwen32", help="Local server profile to start."),
+    profile: str = typer.Argument(..., help="Managed server to start, such as ornith-9b."),
     json_output: bool = typer.Option(False, "--json", help="Print start result as JSON."),
     replace: bool = typer.Option(False, "--replace", help="Stop any managed local model server before starting this one."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the launch command without starting anything."),
@@ -96,7 +112,7 @@ def local_model_start_command(
 
 @local_model_app.command("restart")
 def local_model_restart_command(
-    profile: str = typer.Argument("hermes-qwen32", help="Local server profile to restart."),
+    profile: str = typer.Argument(..., help="Managed server to restart, such as ornith-9b."),
     json_output: bool = typer.Option(False, "--json", help="Print restart result as JSON."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the launch command without starting anything."),
     host: str = typer.Option("127.0.0.1", "--host", help="Bind host for the local model server."),
@@ -105,7 +121,7 @@ def local_model_restart_command(
     no_wait: bool = typer.Option(False, "--no-wait", help="Do not wait for /v1/models readiness."),
     ready_timeout_seconds: float = typer.Option(60.0, "--ready-timeout", min=0.0, help="Seconds to wait for readiness."),
 ) -> None:
-    """Stop the current managed local model server, then start the requested profile."""
+    """Stop the current managed local model server, then start the requested server."""
     from devflow.control_room import local_model_server
 
     try:

@@ -424,24 +424,24 @@ def builtin_agents() -> dict[str, AgentDefinition]:
             enabled=True,
         )
 
-    agents["hermes-qwen32"] = AgentDefinition(
-        id="hermes-qwen32",
-        provider="qwen35-mtp",
-        model="qwen35-9b-mtp",
-        adapter="openai_compatible",
-        adapter_maturity=adapter_maturity("openai_compatible"),
+    agents["hermes-qwen32-latest"] = AgentDefinition(
+        id="hermes-qwen32-latest",
+        provider="ollama",
+        model="qwen32:latest",
+        adapter="ollama_chat",
+        adapter_maturity=adapter_maturity("ollama_chat"),
         role="frontier_planner_architect_reviewer",
         tier="frontier",
         default_mode="frontier_read_only",
         execution_mode="automated",
-        purpose="Canonical Hermes local advisory profile for status, planning, Telegram, and operator-control loops.",
-        model_role_name="Hermes Qwen 3.2",
-        secondary_roles=["status", "planning", "telegram", "operator-control", "advisory"],
+        purpose="Canonical Hermes local advisory profile for status, planning, and operator-control loops.",
+        model_role_name="Hermes qwen32:latest",
+        secondary_roles=["status", "planning", "operator-control", "advisory"],
         use_caution=[
             "Advisory evidence only; do not create tasks, run workers, apply patches, verify, promote, commit, merge, or push."
         ],
         required_verification_command=None,
-        manifest_notes=["Local qwen35-mtp endpoint must be confirmed via /v1/models before high-trust use."],
+        manifest_notes=["Ollama model availability must be confirmed before high-trust use."],
         reliable_context_tokens=65536,
         vision=False,
         thinking=True,

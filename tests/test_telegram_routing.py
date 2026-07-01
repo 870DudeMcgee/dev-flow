@@ -13,7 +13,11 @@ from devflow.control_room.supervisor_surface import (
     APPROVAL_REQUIRED_WORKER_RUNTIME,
     PURE_READ_ONLY,
 )
-from devflow.control_room.telegram_routing import route_telegram_message
+from devflow.control_room.telegram_routing import (
+    DEFAULT_TELEGRAM_MODEL,
+    DEFAULT_TELEGRAM_PROVIDER_ID,
+    route_telegram_message,
+)
 
 
 runner = CliRunner()
@@ -32,15 +36,15 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     return files
 
 
-def test_simple_chat_defaults_to_qwen35_footer(tmp_path: Path) -> None:
+def test_simple_chat_defaults_to_local_qwen_footer(tmp_path: Path) -> None:
     decision = route_telegram_message(tmp_path, "ping")
 
     assert decision["route"] == "simple_chat"
-    assert decision["provider_id"] == "custom:qwen35-mtp"
-    assert decision["model"] == "qwen35-9b-mtp"
+    assert decision["provider_id"] == DEFAULT_TELEGRAM_PROVIDER_ID
+    assert decision["model"] == DEFAULT_TELEGRAM_MODEL
     assert decision["action"] == "answer"
-    assert decision["operator_plan"]["provider_id"] == "custom:qwen35-mtp"
-    assert decision["routing_footer"] == "route: simple_chat\nmodel: qwen35-9b-mtp\naction: answer"
+    assert decision["operator_plan"]["provider_id"] == DEFAULT_TELEGRAM_PROVIDER_ID
+    assert decision["routing_footer"] == f"route: simple_chat\nmodel: {DEFAULT_TELEGRAM_MODEL}\naction: answer"
 
 
 def test_devflow_status_routes_to_safe_read_command(tmp_path: Path) -> None:
@@ -49,7 +53,7 @@ def test_devflow_status_routes_to_safe_read_command(tmp_path: Path) -> None:
     decision = route_telegram_message(tmp_path, "quick DevFlow status please")
 
     assert decision["route"] == "devflow_read"
-    assert decision["model"] == "qwen35-9b-mtp"
+    assert decision["model"] == DEFAULT_TELEGRAM_MODEL
     assert decision["action"] == "run_safe_command"
     assert decision["recommended_command"] == "devflow status --json"
     assert decision["command_classification"]["safety_class"] == PURE_READ_ONLY
@@ -75,13 +79,13 @@ def test_planning_and_deep_review_select_local_reasoning_models(tmp_path: Path) 
     deep = route_telegram_message(tmp_path, "deep architecture decision on the routing layer")
 
     assert plan["route"] == "plan"
-    assert plan["model"] == "qwen35-9b-mtp"
+    assert plan["model"] == DEFAULT_TELEGRAM_MODEL
     assert plan["action"] == "answer"
     assert deep["route"] == "deep_review"
-    assert deep["model"] == "qwen35-9b-mtp"
+    assert deep["model"] == DEFAULT_TELEGRAM_MODEL
     assert deep["action"] == "answer"
     assert deep["operator_plan"]["next_step"] == "answer_with_model"
-    assert deep["operator_plan"]["model"] == "qwen35-9b-mtp"
+    assert deep["operator_plan"]["model"] == DEFAULT_TELEGRAM_MODEL
 
 
 def test_implementation_routes_to_scaffold_pending_action_without_model(tmp_path: Path) -> None:
@@ -149,7 +153,7 @@ def test_embedded_safe_command_may_auto_run(tmp_path: Path) -> None:
     decision = route_telegram_message(tmp_path, "run `devflow supervisor packet --json`")
 
     assert decision["route"] == "devflow_read"
-    assert decision["model"] == "qwen35-9b-mtp"
+    assert decision["model"] == DEFAULT_TELEGRAM_MODEL
     assert decision["action"] == "run_safe_command"
     assert decision["recommended_command"] == "devflow supervisor packet --json"
     assert decision["command_classification"]["supervisor_may_auto_run"] is True
@@ -189,7 +193,7 @@ def test_dirty_git_tree_blocks_implementation_routing(tmp_path: Path) -> None:
     decision = route_telegram_message(tmp_path, "implement a new worker")
 
     assert decision["route"] == "devflow_read"
-    assert decision["model"] == "qwen35-9b-mtp"
+    assert decision["model"] == DEFAULT_TELEGRAM_MODEL
     assert decision["action"] == "answer"
     assert "dirty_git_tree_no_implementation" in decision["overrides"]
 
@@ -213,7 +217,7 @@ def test_unverified_task_blocks_implementation_routing(tmp_path: Path) -> None:
     decision = route_telegram_message(tmp_path, f"fix {task.id}")
 
     assert decision["route"] == "devflow_read"
-    assert decision["model"] == "qwen35-9b-mtp"
+    assert decision["model"] == DEFAULT_TELEGRAM_MODEL
     assert decision["action"] == "answer"
     assert "unverified_task_no_implementation" in decision["overrides"]
     assert decision["task_state"]["task_id"] == task.id
@@ -229,5 +233,5 @@ def test_supervisor_route_message_cli_is_read_only(tmp_path: Path, monkeypatch) 
     assert _snapshot(tmp_path) == before
     payload = _read_json(result)
     assert payload["route"] == "devflow_read"
-    assert payload["routing_footer"] == "route: devflow_read\nmodel: qwen35-9b-mtp\naction: run_safe_command"
+    assert payload["routing_footer"] == f"route: devflow_read\nmodel: {DEFAULT_TELEGRAM_MODEL}\naction: run_safe_command"
     assert payload["operator_plan"]["next_step"] == "run_recommended_command"
