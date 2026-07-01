@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import secrets
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,14 @@ from devflow.control_room.task_packet_context import is_path_excluded
 
 
 DEFAULT_LOCAL_AI_PACKET_MAX_CHARS = 200_000
+DEFAULT_SCOUT_CAPACITY_BASE_URL = "http://127.0.0.1:11434"
+DEFAULT_SCOUT_CAPACITY_BASE_URL_WITH_V1 = f"{DEFAULT_SCOUT_CAPACITY_BASE_URL}/v1"
+DEFAULT_SCOUT_CAPACITY_MODEL = "gemma4-e4b:latest"
+DEFAULT_SCOUT_CAPACITY_CANDIDATES = (1, 2, 3)
+DEFAULT_SCOUT_CAPACITY_PASSES = 2
+DEFAULT_SCOUT_CAPACITY_WARMUP = 1
+DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS = 120.0
+SCOUT_CAPACITY_REPORT_DIR = Path(".devflow") / "local-ai" / "scout-capacity"
 
 
 class LocalAICommandError(ValueError):
@@ -31,6 +42,9 @@ def build_local_ai_scout_pack_result(
     root: Path,
     packet_path: Path,
     dry_run: bool,
+    base_url: str = DEFAULT_SCOUT_CAPACITY_BASE_URL_WITH_V1,
+    model: str = DEFAULT_SCOUT_CAPACITY_MODEL,
+    timeout_seconds: float = DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
     max_packet_chars: int = DEFAULT_LOCAL_AI_PACKET_MAX_CHARS,
 ) -> dict[str, Any]:
     root = root.resolve()
@@ -75,6 +89,9 @@ def build_local_ai_scout_pack_result(
         result = run_local_packet_review(
             task_id=task_id,
             root=root,
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
             max_packet_chars=max_packet_chars,
         )
     except Exception as exc:
@@ -94,46 +111,35 @@ def build_local_ai_scout_pack_result(
 def build_local_ai_worker_wave_result(
     root: Path,
     wave_path: Path,
-    concurrency: int,
+    concurrency: str | int,
     dry_run: bool,
     max_packet_chars: int = DEFAULT_LOCAL_AI_PACKET_MAX_CHARS,
+    *,
+    base_url: str = DEFAULT_SCOUT_CAPACITY_BASE_URL_WITH_V1,
+    model: str = DEFAULT_SCOUT_CAPACITY_MODEL,
+    timeout_seconds: float = DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
+    enforce_capacity_limit: bool = True,
 ) -> dict[str, Any]:
     root = root.resolve()
-    if concurrency < 1:
-        raise LocalAICommandError("Concurrency must be at least 1.")
-
-    if concurrency != 1:
-        raise LocalAICommandError("Wave execution currently supports concurrency=1 in V1.")
+    auto_requested = isinstance(concurrency, str) and concurrency.strip().lower() == "auto"
+    resolved_concurrency = _resolve_concurrency(root, concurrency, enforce_capacity_limit=enforce_capacity_limit)
+    if auto_requested and not dry_run and _latest_scout_capacity_failed_at_one(root):
+        raise LocalAICommandError(
+            "Latest scout-capacity report failed at concurrency 1. Fix Gemma readiness, then run "
+            "`devflow local-ai scout-capacity <wave-file> --apply --json` before applying a worker wave."
+        )
 
     wave_jobs = _load_worker_wave_jobs(root, wave_path)
-    packet_results: list[dict[str, Any]] = []
-
-    for index, packet in enumerate(wave_jobs, start=1):
-        try:
-            result = build_local_ai_scout_pack_result(
-                root,
-                packet_path=packet,
-                dry_run=dry_run,
-                max_packet_chars=max_packet_chars,
-            )
-            status = result.get("status")
-        except Exception as exc:  # noqa: BLE001
-            result = {
-                "schema_version": 1,
-                "dry_run": dry_run,
-                "mode": "run-scout-pack",
-                "packet_path": relative_path(root, packet),
-                "status": "failed",
-                "error": str(exc),
-            }
-            status = "failed"
-
-        result["wave_index"] = index
-        result["wave_packet_index"] = index - 1
-        packet_results.append(result)
-
-        if status == "failed" and not dry_run:
-            break
+    packet_results = _run_wave_jobs(
+        root=root,
+        wave_jobs=wave_jobs,
+        concurrency=resolved_concurrency,
+        dry_run=dry_run,
+        max_packet_chars=max_packet_chars,
+        base_url=base_url,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
 
     all_success = all(item.get("status") == "success" or (dry_run and item.get("status") == "ready") for item in packet_results)
     return {
@@ -141,10 +147,515 @@ def build_local_ai_worker_wave_result(
         "dry_run": dry_run,
         "mode": "run-worker-wave",
         "wave_path": relative_path(root, wave_path),
-        "concurrency": concurrency,
+        "concurrency": resolved_concurrency,
         "status": "success" if all_success else "failed",
         "results": packet_results,
     }
+
+
+def build_local_ai_scout_capacity_result(
+    root: Path,
+    wave_path: Path,
+    candidates: tuple[int, ...],
+    passes: int,
+    warmup: int,
+    dry_run: bool,
+    *,
+    timeout_seconds: float = DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
+    max_packet_chars: int = DEFAULT_LOCAL_AI_PACKET_MAX_CHARS,
+    model: str = DEFAULT_SCOUT_CAPACITY_MODEL,
+    base_url: str = DEFAULT_SCOUT_CAPACITY_BASE_URL,
+) -> dict[str, Any]:
+    root = root.resolve()
+    if not candidates:
+        raise LocalAICommandError("At least one candidate concurrency is required.")
+    candidates = tuple(sorted(dict.fromkeys(candidates)))
+    if candidates[0] < 1:
+        raise LocalAICommandError("Candidate concurrency values must be at least 1.")
+    if 1 not in candidates:
+        raise LocalAICommandError("Candidate concurrency values must include 1 to establish the latency baseline.")
+    if passes < 1 or warmup < 0:
+        raise LocalAICommandError("passes must be >= 1 and warmup must be >= 0.")
+
+    wave_jobs = _load_worker_wave_jobs(root, wave_path)
+    loaded_ollama_models = inspect_ollama_loaded_models(base_url=base_url)
+    loaded_model_state_ok = _loaded_model_state_ok(loaded_ollama_models, model)
+    base_payload = {
+        "schema_version": 1,
+        "mode": "scout-capacity",
+        "dry_run": dry_run,
+        "wave_path": relative_path(root, wave_path),
+        "candidates": list(candidates),
+        "passes": passes,
+        "warmup": warmup,
+        "timeout_seconds": timeout_seconds,
+        "max_packet_chars": max_packet_chars,
+        "model": model,
+        "base_url": base_url,
+        "loaded_ollama_models": loaded_ollama_models,
+        "loaded_model_state_ok": loaded_model_state_ok,
+        "wave_packets": len(wave_jobs),
+    }
+
+    if dry_run:
+        return {
+            **base_payload,
+            "status": "ready",
+            "max_safe_concurrency": 0,
+            "durations": {
+                "total_seconds": 0.0,
+                "by_candidate_seconds": {str(candidate): 0.0 for candidate in candidates},
+            },
+            "failure_counts": {
+                "failure_count": 0,
+                "timeout_failure_count": 0,
+                "output_quality_failure_count": 0,
+                "loaded_model_failure_count": 0 if loaded_model_state_ok else 1,
+            },
+            "candidate_results": [
+                {
+                    "candidate": candidate,
+                    "attempts": warmup + passes,
+                    "status": "ready",
+                    "failure_counts": {
+                        "failure_count": 0,
+                        "timeout_failure_count": 0,
+                        "output_quality_failure_count": 0,
+                        "loaded_model_failure_count": 0 if loaded_model_state_ok else 1,
+                    },
+                }
+                for candidate in candidates
+            ],
+        }
+
+    run_id = _new_capacity_run_id()
+    run_report_dir = _capacity_report_dir(root)
+    run_report_dir.mkdir(parents=True, exist_ok=True)
+    latest_report_path = run_report_dir / "latest.json"
+    run_report_path = run_report_dir / f"{run_id}.json"
+
+    candidate_results: list[dict[str, Any]] = []
+    total_failure_count = 0
+    total_timeout_failures = 0
+    total_output_quality_failures = 0
+    loaded_model_failure_count = 0 if loaded_model_state_ok else 1
+    durations: dict[str, float] = {}
+    baseline_p95_seconds: float | None = None
+    max_safe_concurrency = 0
+    run_start = time.perf_counter()
+
+    for candidate in candidates:
+        candidate_start = time.perf_counter()
+        attempts = warmup + passes
+        passed_attempts = 0
+        candidate_failure_count = 0
+        candidate_timeout_failure_count = 0
+        candidate_output_quality_failure_count = 0
+        attempt_durations: list[float] = []
+        attempts_run = 0
+
+        if not loaded_model_state_ok:
+            candidate_results.append(
+                {
+                    "candidate": candidate,
+                    "attempts": 0,
+                    "status": "failed",
+                    "failure_counts": {
+                        "failure_count": 0,
+                        "timeout_failure_count": 0,
+                        "output_quality_failure_count": 0,
+                        "loaded_model_failure_count": loaded_model_failure_count,
+                    },
+                    "duration_seconds": round(time.perf_counter() - candidate_start, 6),
+                    "attempt_durations_seconds": [],
+                    "p95_latency_seconds": None,
+                    "latency_gate_ok": False,
+                }
+            )
+            durations[str(candidate)] = 0.0
+            break
+
+        for attempt in range(attempts):
+            attempts_run += 1
+            attempt_payload = _run_wave_attempt_for_capacity(
+                root=root,
+                wave_path=wave_path,
+                concurrency=candidate,
+                dry_run=False,
+                max_packet_chars=max_packet_chars,
+                timeout_seconds=timeout_seconds,
+                model=model,
+                base_url=base_url,
+            )
+            candidate_failure_count += attempt_payload["failure_count"]
+            candidate_timeout_failure_count += attempt_payload["timeout_failure_count"]
+            candidate_output_quality_failure_count += attempt_payload["output_quality_failure_count"]
+            total_failure_count += attempt_payload["failure_count"]
+            total_timeout_failures += attempt_payload["timeout_failure_count"]
+            total_output_quality_failures += attempt_payload["output_quality_failure_count"]
+            attempt_durations.append(attempt_payload["duration_seconds"])
+
+            if attempt < warmup:
+                continue
+            if attempt_payload["status"] == "success":
+                passed_attempts += 1
+                continue
+            break
+
+        candidate_duration = round(time.perf_counter() - candidate_start, 6)
+        durations[str(candidate)] = candidate_duration
+        p95_seconds = _p95(attempt_durations)
+        if candidate == 1 and p95_seconds is not None:
+            baseline_p95_seconds = p95_seconds
+        latency_ok = candidate == 1 or baseline_p95_seconds is None or (
+            p95_seconds is not None and p95_seconds <= baseline_p95_seconds * 2
+        )
+        candidate_passed = passed_attempts >= passes and loaded_model_state_ok and latency_ok
+        candidate_status = "passed" if candidate_passed else "failed"
+        candidate_results.append(
+            {
+                "candidate": candidate,
+                "attempts": attempts_run,
+                "status": candidate_status,
+                "failure_counts": {
+                    "failure_count": candidate_failure_count,
+                    "timeout_failure_count": candidate_timeout_failure_count,
+                    "output_quality_failure_count": candidate_output_quality_failure_count,
+                    "loaded_model_failure_count": loaded_model_failure_count,
+                },
+                "duration_seconds": candidate_duration,
+                "attempt_durations_seconds": attempt_durations,
+                "p95_latency_seconds": p95_seconds,
+                "latency_gate_ok": latency_ok,
+            }
+        )
+
+        if not candidate_passed:
+            break
+        max_safe_concurrency = candidate
+
+    payload = {
+        **base_payload,
+        "status": "success" if max_safe_concurrency >= 1 else "failed",
+        "max_safe_concurrency": max_safe_concurrency,
+        "durations": {
+            "total_seconds": round(time.perf_counter() - run_start, 6),
+            "by_candidate_seconds": durations,
+        },
+        "failure_counts": {
+            "failure_count": total_failure_count,
+            "timeout_failure_count": total_timeout_failures,
+            "output_quality_failure_count": total_output_quality_failures,
+            "loaded_model_failure_count": loaded_model_failure_count,
+        },
+        "candidate_results": candidate_results,
+        "run_id": run_id,
+    }
+
+    latest_payload = dict(payload)
+    run_report_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    latest_report_path.write_text(json.dumps(latest_payload, indent=2, sort_keys=True), encoding="utf-8")
+    payload["latest_report_path"] = str(latest_report_path)
+    payload["run_report_path"] = str(run_report_path)
+    return payload
+
+
+def render_local_ai_scout_capacity_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def scout_openai_base_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    return normalized if normalized.endswith("/v1") else f"{normalized}/v1"
+
+
+def _run_wave_jobs(
+    *,
+    root: Path,
+    wave_jobs: list[Path],
+    concurrency: int,
+    dry_run: bool,
+    max_packet_chars: int,
+    base_url: str = DEFAULT_SCOUT_CAPACITY_BASE_URL_WITH_V1,
+    model: str = DEFAULT_SCOUT_CAPACITY_MODEL,
+    timeout_seconds: float = DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    packet_results: list[dict[str, Any]] = []
+    for batch_start in range(0, len(wave_jobs), concurrency):
+        batch_indexes = range(batch_start, min(batch_start + concurrency, len(wave_jobs)))
+        batch_failed = False
+        indexed_results: dict[int, dict[str, Any]] = {}
+
+        if dry_run:
+            for packet_index in batch_indexes:
+                result = _run_wave_packet(
+                    root=root,
+                    packet_path=wave_jobs[packet_index],
+                    dry_run=dry_run,
+                    max_packet_chars=max_packet_chars,
+                    base_url=base_url,
+                    model=model,
+                    timeout_seconds=timeout_seconds,
+                )
+                indexed_results[packet_index] = result
+                if result.get("status") == "failed":
+                    batch_failed = True
+        else:
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                future_to_index = {
+                    executor.submit(
+                        _run_wave_packet,
+                        root=root,
+                        packet_path=wave_jobs[packet_index],
+                        dry_run=dry_run,
+                        max_packet_chars=max_packet_chars,
+                        base_url=base_url,
+                        model=model,
+                        timeout_seconds=timeout_seconds,
+                    ): packet_index
+                    for packet_index in batch_indexes
+                }
+                for future in as_completed(future_to_index):
+                    packet_index = future_to_index[future]
+                    result = future.result()
+                    indexed_results[packet_index] = result
+                    if result.get("status") == "failed":
+                        batch_failed = True
+
+        for packet_index in batch_indexes:
+            result = indexed_results[packet_index]
+            result["wave_index"] = packet_index + 1
+            result["wave_packet_index"] = packet_index
+            packet_results.append(result)
+
+        if batch_failed and not dry_run:
+            break
+
+    return packet_results
+
+
+def _run_wave_packet(
+    *,
+    root: Path,
+    packet_path: Path,
+    dry_run: bool,
+    max_packet_chars: int,
+    base_url: str,
+    model: str,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    try:
+        return build_local_ai_scout_pack_result(
+            root=root,
+            packet_path=packet_path,
+            dry_run=dry_run,
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            max_packet_chars=max_packet_chars,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "schema_version": 1,
+            "dry_run": dry_run,
+            "mode": "run-scout-pack",
+            "packet_path": relative_path(root, packet_path),
+            "status": "failed",
+            "error": str(exc),
+        }
+
+
+def _run_wave_attempt_for_capacity(
+    *,
+    root: Path,
+    wave_path: Path,
+    concurrency: int,
+    dry_run: bool,
+    max_packet_chars: int,
+    timeout_seconds: float,
+    model: str,
+    base_url: str,
+) -> dict[str, Any]:
+    attempt_start = time.perf_counter()
+    try:
+        result = build_local_ai_worker_wave_result(
+            root=root,
+            wave_path=wave_path,
+            concurrency=concurrency,
+            dry_run=dry_run,
+            max_packet_chars=max_packet_chars,
+            base_url=scout_openai_base_url(base_url),
+            model=model,
+            timeout_seconds=timeout_seconds,
+            enforce_capacity_limit=False,
+        )
+        run_status = result["status"]
+        output_quality_failures = _count_output_quality_failures(result["results"])
+        if output_quality_failures > 0:
+            run_status = "failed"
+        timeout_failure_count = sum(
+            1
+            for result_item in result["results"]
+            if result_item.get("status") == "failed"
+            and "timeout" in str(result_item.get("error", "")).lower()
+        )
+        failure_count = sum(
+            1 for result_item in result["results"] if result_item.get("status") != "success" and result_item.get("status") != "ready"
+        )
+    except Exception as exc:  # noqa: BLE001
+        run_status = "failed"
+        failure_count = 1
+        timeout_failure_count = 1 if "timeout" in str(exc).lower() else 0
+        output_quality_failures = 0
+
+    return {
+        "status": run_status,
+        "failure_count": failure_count,
+        "timeout_failure_count": timeout_failure_count,
+        "output_quality_failure_count": output_quality_failures,
+        "duration_seconds": round(time.perf_counter() - attempt_start, 6),
+    }
+
+
+def _resolve_concurrency(
+    root: Path,
+    concurrency: str | int,
+    *,
+    enforce_capacity_limit: bool,
+) -> int:
+    requested = concurrency
+    if isinstance(requested, str):
+        text = requested.strip().lower()
+        if text == "auto":
+            latest = _load_latest_scout_capacity(root)
+            if isinstance(latest, dict):
+                max_safe = latest.get("max_safe_concurrency")
+                if (
+                    latest.get("status") == "success"
+                    and isinstance(max_safe, int)
+                    and max_safe > 0
+                ):
+                    return max_safe
+            return 1
+        try:
+            requested = int(text)
+        except ValueError as exc:
+            raise LocalAICommandError("Concurrency must be an integer or 'auto'.") from exc
+
+    if requested < 1:
+        raise LocalAICommandError("Concurrency must be at least 1.")
+
+    if not enforce_capacity_limit:
+        return requested
+
+    latest = _load_latest_scout_capacity(root)
+    if (
+        isinstance(latest, dict)
+        and latest.get("status") == "failed"
+        and latest.get("max_safe_concurrency") == 0
+        and requested == 1
+    ):
+        raise LocalAICommandError(
+            "Latest scout-capacity report failed at concurrency 1. Fix Gemma readiness, then run "
+            "`devflow local-ai scout-capacity <wave-file> --apply --json` before applying a worker wave."
+        )
+
+    if requested == 1:
+        return requested
+
+    if not isinstance(latest, dict):
+        raise LocalAICommandError(
+            "No passing scout-capacity report found. Run `devflow local-ai scout-capacity <wave-file> --apply --json` first."
+        )
+    max_safe = latest.get("max_safe_concurrency")
+    latest_status = latest.get("status")
+    if not isinstance(max_safe, int) or max_safe < 1 or latest_status != "success":
+        raise LocalAICommandError(
+            "Latest scout-capacity report is not successful. Run `devflow local-ai scout-capacity <wave-file> --apply --json` first."
+        )
+    if requested > max_safe:
+        raise LocalAICommandError(
+            f"Concurrency {requested} exceeds measured safe concurrency ({max_safe}). "
+            "Run `devflow local-ai scout-capacity <wave-file> --apply --json` to re-measure."
+        )
+    return requested
+
+
+def _capacity_report_dir(root: Path) -> Path:
+    return root / SCOUT_CAPACITY_REPORT_DIR
+
+
+def _latest_scout_capacity_concurrency(root: Path) -> int:
+    latest = _load_latest_scout_capacity(root)
+    if not isinstance(latest, dict):
+        return 0
+    if latest.get("status") != "success":
+        return 0
+    max_safe = latest.get("max_safe_concurrency")
+    if not isinstance(max_safe, int) or max_safe < 1:
+        return 0
+    return max_safe
+
+
+def _load_latest_scout_capacity(root: Path) -> dict[str, Any] | None:
+    report_path = _capacity_report_dir(root) / "latest.json"
+    if not report_path.exists():
+        return None
+    try:
+        raw = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _latest_scout_capacity_failed_at_one(root: Path) -> bool:
+    latest = _load_latest_scout_capacity(root)
+    return (
+        isinstance(latest, dict)
+        and latest.get("status") == "failed"
+        and latest.get("max_safe_concurrency") == 0
+    )
+
+
+def _new_capacity_run_id() -> str:
+    return f"{int(time.time())}-{secrets.token_hex(4)}"
+
+
+def _loaded_model_state_ok(loaded_state: dict[str, Any], model: str) -> bool:
+    loaded_models = _dict_rows(loaded_state.get("loaded_models"))
+    loaded_names = {
+        str(item.get("name"))
+        for item in loaded_models
+        if isinstance(item.get("name"), str)
+    }
+    return loaded_names <= {model}
+
+
+def _p95(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, int(len(ordered) * 0.95 + 0.999999) - 1))
+    return round(ordered[index], 6)
+
+
+def _count_output_quality_failures(results: list[dict[str, Any]]) -> int:
+    failures = 0
+    for item in results:
+        if item.get("status") != "success":
+            continue
+        response_path = item.get("response_path")
+        if not response_path:
+            failures += 1
+            continue
+        try:
+            text = Path(response_path).read_text(encoding="utf-8").strip()
+        except OSError:
+            failures += 1
+            continue
+        if not text:
+            failures += 1
+    return failures
 
 
 def render_local_ai_scout_pack_json(payload: dict[str, Any]) -> str:
@@ -250,8 +761,13 @@ def build_local_ai_nightly_dry_run_plan(root: Path) -> dict[str, Any]:
     manifest = load_expected_local_model_manifest()
     qwen_profile = _nightly_choose_qwen_profile(manifest)
     scout_target, scout_warnings = _scout_target(manifest)
-
     warnings = list(scout_warnings)
+    measured_concurrency = _latest_scout_capacity_concurrency(root)
+    effective_concurrency = measured_concurrency if measured_concurrency >= 1 else 1
+    if measured_concurrency <= 0:
+        warnings.append("Scout capacity is unmeasured. Run `devflow local-ai scout-capacity <wave-file> --dry-run` to measure safe concurrency.")
+    else:
+        warnings.append(f"Using measured scout capacity concurrency={measured_concurrency}.")
     qwen_server_profile = qwen_profile.get("server_id") or qwen_profile.get("profile_id")
 
     if not qwen_server_profile:
@@ -309,7 +825,9 @@ def build_local_ai_nightly_dry_run_plan(root: Path) -> dict[str, Any]:
                 {
                     "step_id": "run_scout_wave",
                     "summary": "Run Gemma scout packet wave",
-                    "command": "devflow local-ai run-worker-wave <wave-file> --concurrency 1 --dry-run --json",
+                    "command": (
+                        f"devflow local-ai run-worker-wave <wave-file> --concurrency {effective_concurrency} --dry-run --json"
+                    ),
                     "dry_run": True,
                     "will_call_model": False,
                     "scope": "scout",

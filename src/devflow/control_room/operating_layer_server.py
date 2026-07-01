@@ -62,6 +62,13 @@ from devflow.control_room.local_model_server import (
     LocalModelServerError,
     ensure_local_model_server_for_profile,
 )
+from devflow.control_room.obsidian_cards import fetch_obsidian_cards_payload
+from devflow.control_room.obsidian_task_bridge import (
+    build_obsidian_scout_pack_preview,
+    build_obsidian_task_preview,
+    create_task_from_obsidian_card,
+    create_tasks_from_obsidian_scout_pack,
+)
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
@@ -231,6 +238,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/agents":
             self._handle_agents_list()
             return
+        if path == "/api/obsidian/cards":
+            self._handle_obsidian_cards()
+            return
         if path == "/architecture/artifact":
             query = parse_qs(request.query)
             self._handle_architecture_artifact(query)
@@ -278,6 +288,18 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
         if request.path == "/api/brainstorm/create-task":
             self._handle_brainstorm_create_task()
+            return
+        if request.path == "/api/obsidian/task-preview":
+            self._handle_obsidian_task_preview()
+            return
+        if request.path == "/api/obsidian/task-create":
+            self._handle_obsidian_task_create()
+            return
+        if request.path == "/api/obsidian/scout-pack-preview":
+            self._handle_obsidian_scout_pack_preview()
+            return
+        if request.path == "/api/obsidian/scout-pack-create":
+            self._handle_obsidian_scout_pack_create()
             return
         if request.path == "/api/builder-judge/start":
             self._handle_builder_judge_start()
@@ -607,6 +629,9 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 
+    def _handle_obsidian_cards(self) -> None:
+        self._send_json(fetch_obsidian_cards_payload(), HTTPStatus.OK)
+
     def _handle_architecture_artifact(self, query: dict[str, list[str]]) -> None:
         artifact_id = (query.get("id") or [None])[0]
         project_id = (query.get("project") or [None])[0]
@@ -726,6 +751,44 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
                 source_idea_id=source_idea_id or None,
             )
         except (BrainstormError, ProjectRegistryError, OSError, ValueError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_obsidian_task_preview(self) -> None:
+        try:
+            payload = self._read_json_body()
+            result = build_obsidian_task_preview(payload)
+        except (ValueError, OSError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_obsidian_task_create(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            result = create_task_from_obsidian_card(root, payload)
+        except (ProjectRegistryError, ValueError, OSError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_obsidian_scout_pack_preview(self) -> None:
+        try:
+            payload = self._read_json_body()
+            result = build_obsidian_scout_pack_preview(payload)
+        except (ValueError, OSError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_obsidian_scout_pack_create(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            result = create_tasks_from_obsidian_scout_pack(root, payload)
+        except (ProjectRegistryError, ValueError, OSError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
         self._send_json(result, HTTPStatus.OK)
@@ -1352,10 +1415,10 @@ def _hermes_ensure_profile(profile_id: str) -> LocalModelEnsureProfile | None:
     return LocalModelEnsureProfile(
         profile_id=profile.id,
         requested_profile_id=profile_id,
-        provider=profile.provider,
-        model=profile.model,
-        adapter="hermes_profile",
-        base_url=profile.base_url,
+        provider=manifest_profile.provider if manifest_profile else profile.provider,
+        model=manifest_profile.model if manifest_profile else profile.model,
+        adapter=manifest_profile.adapter if manifest_profile else "hermes_profile",
+        base_url=manifest_profile.base_url if manifest_profile else profile.base_url,
         source="hermes_profile",
         label=profile.label,
         hermes_profile=profile.hermes_profile,

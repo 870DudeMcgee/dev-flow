@@ -41,10 +41,10 @@ def _write_local_qwen_profile(root: Path, *, base_url: str) -> None:
     agents_dir = root / ".devflow" / "agents"
     providers_dir.mkdir(parents=True, exist_ok=True)
     agents_dir.mkdir(parents=True, exist_ok=True)
-    (providers_dir / "qwen35-mtp.yaml").write_text(
+    (providers_dir / "qwen36-27b-q5-mtp.yaml").write_text(
         "\n".join(
             [
-                "provider: qwen35-mtp",
+                "provider: qwen36-27b-q5-mtp",
                 "adapter: openai_compatible",
                 f"base_url: {base_url}",
                 "default_timeout_seconds: 30",
@@ -58,11 +58,11 @@ def _write_local_qwen_profile(root: Path, *, base_url: str) -> None:
         "\n".join(
             [
                 "version: 1",
-                "default_agent: local-qwen35-mtp",
+                "default_agent: hermes-qwen36-27b-q5-mtp",
                 "agents:",
-                "  local-qwen35-mtp:",
-                "    provider: qwen35-mtp",
-                "    model: qwen35-9b-mtp",
+                "  hermes-qwen36-27b-q5-mtp:",
+                "    provider: qwen36-27b-q5-mtp",
+                "    model: qwen36-27b-q5-mtp",
                 "    adapter: openai_compatible",
                 "    role: frontier_planner_architect_reviewer",
                 "    tier: local",
@@ -246,8 +246,8 @@ def test_dynamic_hermes_brainstorm_profile_returns_handoff_without_agent_not_fou
     profile_dir.mkdir(parents=True)
     (profile_dir / "config.yaml").write_text(
         """model:
-  default: qwen35-9b-mtp
-  provider: qwen35-mtp
+  default: qwen36-27b-q5-mtp
+  provider: qwen36-27b-q5-mtp
   base_url: http://127.0.0.1:8080/v1
 """,
         encoding="utf-8",
@@ -278,7 +278,7 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
 ) -> None:
     setup_temp_git_repo(tmp_path)
     _write_local_qwen_profile(tmp_path, base_url="http://127.0.0.1:9191/v1")
-    monkeypatch.delenv("QWEN35_MTP_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN36_MTP_API_KEY", raising=False)
     captured_requests: list[dict[str, Any]] = []
     lifecycle_calls: list[dict[str, Any]] = []
 
@@ -290,7 +290,7 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
         return {
             "status": "already_running",
             "will_manage_local_server": True,
-            "profile": "qwen35-mtp",
+            "profile": "qwen36-27b-q5-mtp",
             "pid": 24842,
         }
 
@@ -338,18 +338,18 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
         root=tmp_path,
         message="Use the local Qwen Hermes model for brainstorm.",
         session_id="session-local-qwen",
-        profile_id="local-qwen35-mtp",
+        profile_id="hermes-qwen36-27b-q5-mtp",
     )
     advice_payload = run_advice(
         root=tmp_path,
-        profile_id="local-qwen35-mtp",
+        profile_id="hermes-qwen36-27b-q5-mtp",
         job="status",
         max_prompt_chars=8_000,
     )
 
     assert brainstorm_payload["status"] == "success"
-    assert brainstorm_payload["provider"] == "qwen35-mtp"
-    assert brainstorm_payload["model"] == "qwen35-9b-mtp"
+    assert brainstorm_payload["provider"] == "qwen36-27b-q5-mtp"
+    assert brainstorm_payload["model"] == "qwen36-27b-q5-mtp"
     assert advice_payload["status"] == "success"
     assert brainstorm_payload["local_model_server_lifecycle"]["status"] == "already_running"
     assert advice_payload["local_model_server_lifecycle"]["status"] == "already_running"
@@ -362,7 +362,7 @@ def test_local_qwen_openai_compatible_profile_runs_without_api_key(
         "http://127.0.0.1:9191/v1/chat/completions",
     ]
     assert all("authorization" not in request["headers"] for request in captured_requests)
-    assert all(request["payload"]["model"] == "qwen35-9b-mtp" for request in captured_requests)
+    assert all(request["payload"]["model"] == "qwen36-27b-q5-mtp" for request in captured_requests)
 
 
 @pytest.mark.slow

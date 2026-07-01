@@ -176,6 +176,18 @@ INDEX_HTML = """<!doctype html>
             <div id="idea-greenhouse-lanes" class="idea-greenhouse-lanes"></div>
           </section>
 
+          <section id="obsidian-intake-panel" class="panel obsidian-intake-section" aria-label="Obsidian Intake">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Obsidian Intake</h3>
+                <p class="panel-subtitle">Review normalized vault cards before you turn them into Brainstorm context.</p>
+              </div>
+              <output id="obsidian-intake-status" class="status-pill muted" aria-live="polite">Loading</output>
+            </div>
+            <div id="obsidian-intake-lane-counts" class="obsidian-intake-lane-counts" aria-label="Obsidian intake lane counts"></div>
+            <div id="obsidian-intake-body" class="obsidian-intake-body" aria-live="polite"></div>
+          </section>
+
           <!-- Pipeline spine -->
           <section id="pipeline-spine" class="panel pipeline-section" aria-label="Pipeline">
             <div class="panel-header">

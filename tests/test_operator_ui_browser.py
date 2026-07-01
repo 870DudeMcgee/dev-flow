@@ -187,6 +187,7 @@ def rich_scratch_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scrat
 def _serve_operating_layer(state: ScratchState, env_overrides: dict[str, str] | None = None) -> tuple[subprocess.Popen[str], str]:
     port = _free_port()
     env = _devflow_env(state.devflow_home)
+    env.setdefault("DEVFLOW_OBSIDIAN_CARDS_URL", "http://127.0.0.1:9/api/cards")
     if env_overrides:
         env.update(env_overrides)
     process = subprocess.Popen(
@@ -1113,14 +1114,14 @@ def test_launchpad_renders_worker_options_above_shell_without_direct_hermes_laun
     expect(ai_card).to_be_visible()
     expect(ai_card).to_contain_text("Recommended worker")
     expect(ai_card).to_contain_text("Hermes Qwen Implementer")
-    expect(ai_card).to_contain_text("Creates a bounded serial packet for hermes-qwen32")
+    expect(ai_card).to_contain_text("Creates a bounded serial packet for hermes-qwen32-latest")
     expect(ai_card).to_contain_text("Launch remains outside browser")
     expect(ai_card).to_contain_text("verifier is final proof")
 
     packet_command = ai_card.get_attribute("data-worker-command") or ""
     assert packet_command.startswith("devflow agent serial-packet ")
     assert "--runtime hermes-profile" in packet_command
-    assert "--hermes-profile hermes-qwen32" in packet_command
+    assert "--hermes-profile hermes-qwen32-latest" in packet_command
     assert "devflow agent hermes-run" not in packet_command
     assert panel.locator('[data-worker-option-card="shell"]').count() == 0
     _open_shell_fallback(page)
@@ -1182,7 +1183,7 @@ def test_ai_worker_packet_form_creates_serial_packet(
     expect(page.locator("#next-task-command-output")).to_contain_text("Exit 0", timeout=15_000)
     runtime_panel = page.locator("#serial-runtime-panel")
     expect(runtime_panel).to_contain_text("Worker Runtime", timeout=15_000)
-    expect(runtime_panel).to_contain_text("hermes-qwen32", timeout=15_000)
+    expect(runtime_panel).to_contain_text("hermes-qwen32-latest", timeout=15_000)
     expect(runtime_panel).to_contain_text("not_started", timeout=15_000)
     expect(runtime_panel).to_contain_text("not_run", timeout=15_000)
     expect(runtime_panel).to_contain_text("completion-verifier.py", timeout=15_000)
@@ -1192,7 +1193,7 @@ def test_ai_worker_packet_form_creates_serial_packet(
     expect(runtime_panel).to_contain_text(packet_dirs[0].name, timeout=15_000)
     manifest = json.loads((packet_dirs[0] / "run.json").read_text(encoding="utf-8"))
     assert manifest["runtime"]["kind"] == "hermes-profile"
-    assert manifest["runtime"]["hermes_profile"] == "hermes-qwen32"
+    assert manifest["runtime"]["hermes_profile"] == "hermes-qwen32-latest"
     assert manifest["allowed_files"] == ["src/example.py", "src/second.py"]
     assert manifest["verification_commands"] == [
         {"order": 1, "command": "python -m pytest tests/example.py -q"}
@@ -1471,6 +1472,78 @@ def test_brainstorm_message_refreshes_pipeline_without_reload(browser_page: tupl
     assert page.evaluate("() => localStorage.getItem('devflow-brainstorm-session')") == session_id
 
 
+def test_obsidian_intake_panel_renders_and_fills_brainstorm_without_sending(
+    operating_layer_url: str,
+) -> None:
+    if sync_playwright is None:
+        pytest.skip("Playwright is not installed; install playwright and Chromium to run UI browser tests.")
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright Chromium is unavailable: {exc}")
+
+        page = browser.new_page(viewport={"width": 1440, "height": 980}, device_scale_factor=1)
+        console_errors: list[str] = []
+        brainstorm_requests: list[str] = []
+        page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+        page.on(
+            "request",
+            lambda request: "/api/brainstorm/message" in request.url and brainstorm_requests.append(request.url),
+        )
+        page.route(
+            "**/api/obsidian/cards",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "ok": True,
+                        "available": True,
+                        "source": "command-center",
+                        "scannedAt": "2026-07-01T12:00:00Z",
+                        "cards": [
+                            {
+                                "id": "card-1",
+                                "title": "Operator trust repair",
+                                "lane": "now",
+                                "status": "open",
+                                "path": "Inbox/operator-trust-repair.md",
+                                "summary": "Repair the warning strip copy.",
+                                "why": "The operator needs a visible next safe action.",
+                                "evidence": "warning-projection.txt",
+                                "decision": "Keep in active intake.",
+                                "next_action": "Turn into a Brainstorm thread.",
+                                "link": "obsidian://open?vault=Test&file=Inbox%2Foperator-trust-repair.md",
+                            }
+                        ],
+                        "lanes": {"now": []},
+                        "lane_counts": {"now": 1},
+                        "error": None,
+                    }
+                ),
+            ),
+        )
+
+        page.goto(operating_layer_url, wait_until="domcontentloaded")
+        _wait_for_hydration(page)
+
+        panel = page.locator("#obsidian-intake-panel")
+        expect(panel).to_contain_text("Obsidian Intake")
+        expect(panel.locator("#obsidian-intake-lane-counts")).to_contain_text("Now")
+        expect(panel.locator("[data-obsidian-card-id='card-1']")).to_contain_text("Operator trust repair")
+        expect(panel.locator("a", has_text="Open note")).to_be_visible()
+
+        page.locator("[data-obsidian-use-context='card-1']").click()
+        expect(page.locator("#brainstorm-message")).to_have_value(re.compile(r"Title: Operator trust repair"))
+        expect(page.locator("#brainstorm-message")).to_have_value(re.compile(r"Source path: Inbox/operator-trust-repair.md"))
+        expect(page.locator("#obsidian-intake-action-status")).to_contain_text("Context copied to Brainstorm.")
+        assert page.evaluate("() => document.activeElement && document.activeElement.id") == "brainstorm-message"
+        assert brainstorm_requests == []
+        assert console_errors == []
+        browser.close()
+
+
 def test_reloaded_browser_adopts_first_viewport_brainstorm_session(
     browser_page: tuple[Page, list[str]],
     scratch_state: ScratchState,
@@ -1573,7 +1646,7 @@ def test_action_api_blocks_unsafe_commands(
     packet_command = (
         "devflow agent serial-packet --phase implementer --provider ollama "
         "--model qwen3.6-32b-256k:latest --task-id task-0001 --worker-id qwen-worker "
-        "--runtime hermes-profile --hermes-profile hermes-qwen32 --toolset file --toolset terminal "
+        "--runtime hermes-profile --hermes-profile hermes-qwen32-latest --toolset file --toolset terminal "
         "--run-id browser-policy-packet --allowed-file src/example.py "
         "--verify 'python -m pytest tests/example.py -q'"
     )
@@ -1586,7 +1659,7 @@ def test_action_api_blocks_unsafe_commands(
     assert (packet_dir / "worker-packet.md").exists()
     manifest = json.loads((packet_dir / "run.json").read_text(encoding="utf-8"))
     assert manifest["runtime"]["kind"] == "hermes-profile"
-    assert manifest["runtime"]["hermes_profile"] == "hermes-qwen32"
+    assert manifest["runtime"]["hermes_profile"] == "hermes-qwen32-latest"
     assert manifest["safety"]["model_launch"] is False
     assert manifest["safety"]["git_mutation"] is False
     assert not (packet_dir / "hermes-run.json").exists()
@@ -2035,7 +2108,7 @@ def _write_hermes_launch_evidence(
                 "will_launch_hermes": True,
                 "dry_run": False,
                 "run_id": run_id,
-                "hermes_profile": "hermes-qwen32",
+                "hermes_profile": "hermes-qwen32-latest",
                 "runtime_kind": "hermes-profile",
                 "launch_status": launch_status,
                 "exit_code": exit_code,

@@ -226,13 +226,54 @@ def test_agent_advise_writes_repo_scoped_openrouter_evidence_without_logging_sec
             assert "sk-or-test-secret" not in evidence_file.read_text(encoding="utf-8")
 
 
-def test_agent_advise_local_qwen35_automatically_ensures_managed_server(
+def test_agent_advise_local_qwen36_automatically_ensures_managed_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.chdir(tmp_path)
     assert runner.invoke(app, ["task", "create", "qwen server lifecycle"]).exit_code == 0
+    (tmp_path / ".devflow" / "providers").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".devflow" / "agents").mkdir(parents=True, exist_ok=True)
+
+    (tmp_path / ".devflow" / "providers" / "qwen36-27b-q5-mtp.yaml").write_text(
+        """provider: qwen36-27b-q5-mtp
+adapter: openai_compatible
+base_url: http://127.0.0.1:8080/v1
+enabled: true
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / ".devflow" / "agents" / "registry.yaml").write_text(
+        """version: 1
+default_agent: hermes-qwen36-27b-q5-mtp
+agents:
+  hermes-qwen36-27b-q5-mtp:
+    provider: qwen36-27b-q5-mtp
+    model: qwen36-27b-q5-mtp
+    adapter: openai_compatible
+    role: frontier_planner_architect_reviewer
+    tier: local
+    default_mode: read_only
+    execution_mode: automated
+    workspace: isolated_task_workspace
+    allowed_reads:
+      - <task>/packet.json
+      - <task>/events.jsonl
+      - <workspace>/**
+    allowed_writes:
+      - <task>/local-model-runs/**
+    required_outputs:
+      - Advisory evidence only.
+    can_run_shell: false
+    can_use_network: false
+    can_promote: false
+    hermes_delegable: true
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+
     captured_lifecycle: list[dict[str, Any]] = []
     captured_requests: list[dict[str, Any]] = []
 
@@ -243,7 +284,7 @@ def test_agent_advise_local_qwen35_automatically_ensures_managed_server(
         return {
             "status": "already_running",
             "will_manage_local_server": True,
-            "profile": "qwen35-mtp",
+            "profile": "qwen36-27b-q5-mtp",
             "pid": 24842,
         }
 
@@ -287,7 +328,7 @@ def test_agent_advise_local_qwen35_automatically_ensures_managed_server(
             "agent",
             "advise",
             "--profile",
-            "local-qwen35-mtp",
+            "hermes-qwen36-27b-q5-mtp",
             "--task",
             "task-0001",
             "--job",
@@ -299,13 +340,13 @@ def test_agent_advise_local_qwen35_automatically_ensures_managed_server(
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert captured_lifecycle
-    assert captured_lifecycle[0]["provider"] == "qwen35-mtp"
-    assert captured_lifecycle[0]["model"] == "qwen35-9b-mtp"
+    assert captured_lifecycle[0]["provider"] == "qwen36-27b-q5-mtp"
+    assert captured_lifecycle[0]["model"] == "qwen36-27b-q5-mtp"
     assert captured_lifecycle[0]["base_url"] == "http://127.0.0.1:8080/v1"
     assert captured_requests[0]["url"] == "http://127.0.0.1:8080/v1/chat/completions"
     assert payload["local_model_server_lifecycle"]["status"] == "already_running"
     run_metadata = json.loads((tmp_path / payload["run_metadata_path"]).read_text(encoding="utf-8"))
-    assert run_metadata["local_model_server_lifecycle"]["profile"] == "qwen35-mtp"
+    assert run_metadata["local_model_server_lifecycle"]["profile"] == "qwen36-27b-q5-mtp"
 
 
 def test_task_scoped_agent_advise_missing_key_fails_safely_without_provider_call(

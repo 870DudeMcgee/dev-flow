@@ -183,7 +183,7 @@ def test_serial_local_run_records_hermes_profile_runtime_metadata(tmp_path: Path
     runtime = result.manifest["runtime"]
     assert runtime == {
         "kind": "hermes-profile",
-        "hermes_profile": "hermes-qwen32",
+        "hermes_profile": "hermes-qwen32-latest",
         "toolsets": ["file", "terminal", "search"],
         "packet_only": True,
     }
@@ -191,7 +191,7 @@ def test_serial_local_run_records_hermes_profile_runtime_metadata(tmp_path: Path
     assert result.manifest["safety"]["model_launch"] is False
     assert result.manifest["safety"]["git_mutation"] is False
     packet = (result.run_dir / "worker-packet.md").read_text(encoding="utf-8")
-    assert "This packet is intended for Hermes profile `hermes-qwen32`, but packet creation did not launch it." in packet
+    assert "This packet is intended for Hermes profile `hermes-qwen32-latest`, but packet creation did not launch it." in packet
     assert "- toolsets: `file`, `terminal`, `search`" in packet
 
 
@@ -235,7 +235,7 @@ def test_serial_local_run_snapshot_projects_successful_hermes_launch(tmp_path: P
                 "run_id": "launched-hermes",
                 "run_dir": ".devflow/local-agent-runs/launched-hermes",
                 "packet_path": ".devflow/local-agent-runs/launched-hermes/worker-packet.md",
-                "hermes_profile": "hermes-qwen32",
+                "hermes_profile": "hermes-qwen32-latest",
                 "runtime_kind": "hermes-profile",
                 "launch_status": "completed",
                 "exit_code": 0,
@@ -258,14 +258,14 @@ def test_serial_local_run_snapshot_projects_successful_hermes_launch(tmp_path: P
     assert snapshot["run_state"] == "ready_for_verifier"
     assert snapshot["status_source"] == "hermes_run"
     assert snapshot["runtime_kind"] == "hermes-profile"
-    assert snapshot["hermes_profile"] == "hermes-qwen32"
+    assert snapshot["hermes_profile"] == "hermes-qwen32-latest"
     assert snapshot["launch_status"] == "completed"
     assert snapshot["exit_code"] == 0
     assert snapshot["browser_actions"] == []
     assert snapshot["next_safe_action"] == "Run completion-verifier.py from the packet directory."
     latest = snapshot["latest_run"]
     assert latest["runtime_kind"] == "hermes-profile"
-    assert latest["hermes_profile"] == "hermes-qwen32"
+    assert latest["hermes_profile"] == "hermes-qwen32-latest"
     assert latest["toolsets"] == ["file", "terminal"]
     assert latest["launch_status"] == "completed"
     assert latest["exit_code"] == 0
@@ -301,7 +301,7 @@ def test_serial_local_run_snapshot_projects_failed_hermes_launch(tmp_path: Path)
                 "will_launch_hermes": True,
                 "dry_run": False,
                 "run_id": "failed-hermes",
-                "hermes_profile": "hermes-qwen32",
+                "hermes_profile": "hermes-qwen32-latest",
                 "runtime_kind": "hermes-profile",
                 "launch_status": "failed",
                 "exit_code": 7,

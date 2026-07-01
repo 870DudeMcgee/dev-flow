@@ -136,8 +136,8 @@ def test_dynamic_hermes_profile_returns_builder_judge_handoff_without_agent_not_
     profile_dir.mkdir(parents=True)
     (profile_dir / "config.yaml").write_text(
         """model:
-  default: qwen35-9b-mtp
-  provider: qwen35-mtp
+  default: qwen36-27b-q5-mtp
+  provider: qwen36-27b-q5-mtp
   base_url: http://127.0.0.1:8080/v1
 """,
         encoding="utf-8",

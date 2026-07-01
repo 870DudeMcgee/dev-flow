@@ -413,8 +413,8 @@ def test_preflight_profile_accepts_running_local_endpoint(tmp_path: Path) -> Non
     (profile_dir / "config.yaml").write_text(
         """\
 model:
-  default: qwen35-9b-mtp
-  provider: qwen35-mtp
+  default: qwen36-27b-q5-mtp
+  provider: qwen36-27b-q5-mtp
   base_url: http://127.0.0.1:8080/v1
 """,
         encoding="utf-8",
@@ -424,14 +424,14 @@ model:
         if url.endswith("/health"):
             return {"status": "ok"}
         if url.endswith("/v1/models"):
-            return {"data": [{"id": "qwen35-9b-mtp"}]}
+            return {"data": [{"id": "qwen36-27b-q5-mtp"}]}
         raise AssertionError(url)
 
     result = start.preflight_profile("dflocalfast", hermes_home=tmp_path, get_json=fake_get_json)
 
     assert result["ok"] is True
     assert result["profile"] == "dflocalfast"
-    assert result["model"] == "qwen35-9b-mtp"
+    assert result["model"] == "qwen36-27b-q5-mtp"
     assert result["base_url"] == "http://127.0.0.1:8080/v1"
 
 

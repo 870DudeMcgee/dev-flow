@@ -13,6 +13,7 @@ dist/
 
 # Generated architecture evidence
 /graphify-out/
+/unsloth_compiled_cache/
 
 # macOS
 .DS_Store

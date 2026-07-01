@@ -7,12 +7,21 @@ import typer
 from devflow.control_room import local_model_server
 from devflow.control_room.local_ai_fleet import (
     LocalAICommandError,
+    DEFAULT_SCOUT_CAPACITY_BASE_URL,
+    DEFAULT_SCOUT_CAPACITY_CANDIDATES,
+    DEFAULT_SCOUT_CAPACITY_MODEL,
+    DEFAULT_SCOUT_CAPACITY_PASSES,
+    DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
+    DEFAULT_SCOUT_CAPACITY_WARMUP,
+    DEFAULT_LOCAL_AI_PACKET_MAX_CHARS,
+    build_local_ai_scout_capacity_result,
     build_local_ai_switch,
     build_local_ai_recommendation,
     build_local_ai_nightly_dry_run_plan,
     build_local_ai_snapshot,
     build_local_ai_scout_pack_result,
     build_local_ai_worker_wave_result,
+    render_local_ai_scout_capacity_json,
     render_local_ai_nightly_dry_run_json,
     render_local_ai_scout_pack_json,
     render_local_ai_switch_json,
@@ -21,6 +30,7 @@ from devflow.control_room.local_ai_fleet import (
     render_local_ai_recommendation_lines,
     render_local_ai_snapshot_json,
     render_local_ai_snapshot_lines,
+    scout_openai_base_url,
 )
 
 
@@ -167,7 +177,23 @@ def local_ai_run_scout_pack_command(
 @local_ai_app.command("run-worker-wave")
 def local_ai_run_worker_wave_command(
     wave_file: str = typer.Argument(..., help="Path to a packet wave file (JSON/YAML)."),
-    concurrency: int = typer.Option(1, "--concurrency", min=1, help="Wave execution concurrency (currently V1 stable at 1)."),
+    concurrency: str = typer.Option(
+        "auto",
+        "--concurrency",
+        help="Wave execution concurrency for packet review. Use 'auto' to use the latest passing scout-capacity result.",
+    ),
+    model: str = typer.Option(DEFAULT_SCOUT_CAPACITY_MODEL, "--model", help="Model for scout packets."),
+    base_url: str = typer.Option(
+        DEFAULT_SCOUT_CAPACITY_BASE_URL,
+        "--base-url",
+        help="Base URL for scout model calls.",
+    ),
+    timeout_seconds: float = typer.Option(
+        DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
+        "--timeout",
+        min=0.0,
+        help="Timeout for local scout packet review calls.",
+    ),
     dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Default to dry-run; use --apply to run all worker wave packets."),
     max_packet_chars: int = typer.Option(200_000, "--max-packet-chars", help="Cap rendered packet text for each packet."),
     json_output: bool = typer.Option(False, "--json", help="Print the wave result as JSON."),
@@ -180,6 +206,9 @@ def local_ai_run_worker_wave_command(
             concurrency=concurrency,
             dry_run=dry_run,
             max_packet_chars=max_packet_chars,
+            model=model,
+            base_url=scout_openai_base_url(base_url),
+            timeout_seconds=timeout_seconds,
         )
     except LocalAICommandError as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -205,4 +234,70 @@ def local_ai_run_worker_wave_command(
         typer.echo(line)
 
     if payload["status"] != "success":
+        raise typer.Exit(code=1)
+
+
+@local_ai_app.command("scout-capacity")
+def local_ai_scout_capacity_command(
+    wave_file: str = typer.Argument(..., help="Path to a packet wave file (JSON/YAML)."),
+    dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Default to dry-run; use --apply to measure and persist capacity."),
+    model: str = typer.Option(DEFAULT_SCOUT_CAPACITY_MODEL, "--model", help="Model for all scout packets."),
+    base_url: str = typer.Option(
+        DEFAULT_SCOUT_CAPACITY_BASE_URL,
+        "--base-url",
+        help="Base URL for scout model calls.",
+    ),
+    candidates: list[int] = typer.Option(
+        DEFAULT_SCOUT_CAPACITY_CANDIDATES,
+        "--candidate",
+        help="Candidate concurrency values to evaluate, repeated as needed.",
+    ),
+    passes: int = typer.Option(DEFAULT_SCOUT_CAPACITY_PASSES, "--passes", min=1, help="Number of measured attempts per candidate."),
+    warmup: int = typer.Option(DEFAULT_SCOUT_CAPACITY_WARMUP, "--warmup", min=0, help="Number of warmup attempts before pass counting."),
+    timeout_seconds: float = typer.Option(
+        DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS,
+        "--timeout",
+        min=0.0,
+        help="Timeout for local scout packet review calls.",
+    ),
+    max_packet_chars: int = typer.Option(
+        DEFAULT_LOCAL_AI_PACKET_MAX_CHARS,
+        "--max-packet-chars",
+        help="Cap rendered packet text before calling local packet review.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print the capacity payload as JSON."),
+) -> None:
+    """Measure or preview Gemma scout concurrency capacity for a wave."""
+    try:
+        payload = build_local_ai_scout_capacity_result(
+            Path.cwd(),
+            Path(wave_file),
+            candidates=tuple(candidates),
+            passes=passes,
+            warmup=warmup,
+            dry_run=dry_run,
+            timeout_seconds=timeout_seconds,
+            max_packet_chars=max_packet_chars,
+            model=model,
+            base_url=base_url,
+        )
+    except LocalAICommandError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(render_local_ai_scout_capacity_json(payload))
+        return
+
+    lines = (
+        f"mode: {payload['mode']}",
+        f"dry_run: {payload['dry_run']}",
+        f"wave_path: {payload['wave_path']}",
+        f"max_safe_concurrency: {payload['max_safe_concurrency']}",
+    )
+    for key in ("status", "error"):
+        if payload.get(key) and key in payload:
+            lines += (f"{key}: {payload[key]}",)
+    typer.echo("\n".join(lines))
+    if payload["status"] not in {"ready", "success"}:
         raise typer.Exit(code=1)
