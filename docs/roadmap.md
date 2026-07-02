@@ -437,7 +437,7 @@ Boundary: this milestone must not add provider-backed execution, autonomous rout
 
 ## Milestone 23: Operating Layer State Reconciliation & Operator Readiness
 
-Status: implemented and dogfooded. Design, implementation plan, and handoff live in [docs/superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md](superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md), [docs/superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md](superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md), and [docs/handoffs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-implementation.md](handoffs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-implementation.md). Milestone task: `task-0137`.
+Status: implemented and dogfooded. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md](superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md) and [docs/superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md](superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md). Historical handoff files were deleted as stale context in the repository cleanup ledger. Milestone task: `task-0137`.
 
 Goal: make `status`, `scheduler`, `dashboard`, `supervisor`, and `operating-layer` agree on count semantics, goal lifecycle blockers, stale directives, and next-safe-action priority while presenting project, goal, task, and worker names in plain descriptive language before internal ids.
 
@@ -453,7 +453,7 @@ Boundary: this milestone must not add provider-backed execution, autonomous rout
 
 ## Milestone 24: Intent-To-Goal/Task Scaffold
 
-Status: implemented and dogfooded on `main`. Design, implementation plan, planning handoff, and closure handoff live in [docs/superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md](superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md), [docs/superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md](superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md), [docs/handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-next.md](handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-next.md), and [docs/handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-implementation.md](handoffs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-implementation.md).
+Status: implemented and dogfooded on `main`. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md](superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md) and [docs/superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md](superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md). Historical planning and closure handoff files were deleted as stale context in the repository cleanup ledger.
 
 Goal: make a raw operator request such as "build a search plugin" become a safe Dev-Flow scaffold proposal: raw idea evidence, normalized intent, proposed goal artifacts, proposed task slices, review warnings, and explicit approval commands.
 

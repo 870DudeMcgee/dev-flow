@@ -76,6 +76,19 @@ def test_devmode_detection_reports_missing_and_present_skill_files() -> None:
         assert present.task_packets_reference_devmode is True
 
 
+def test_devmode_detection_ignores_agent_skill_duplicate() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        skill = root / ".agent" / "skills" / "using-devmode" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("name: using-devmode\n", encoding="utf-8")
+
+        status = detect_devmode(root)
+
+        assert status.detected is False
+        assert all(not skill.present for skill in status.skills)
+
+
 def test_generated_task_packet_includes_devmode_bridge_instructions() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

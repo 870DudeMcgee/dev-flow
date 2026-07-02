@@ -7,4 +7,4 @@ DevMode guides behavior only inside the host tool’s allowed instruction hierar
 Start here:
 - Read `AGENTS.md` for repo-level agent operating rules.
 - Read `skills/using-devmode/SKILL.md` if unsure how to apply DevMode.
-- Use `skills/` or `.agent/skills/` to route specific behaviors.
+- Use `skills/` to route specific behaviors.

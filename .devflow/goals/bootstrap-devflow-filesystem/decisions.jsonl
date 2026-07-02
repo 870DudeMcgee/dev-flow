@@ -1,1 +1,0 @@
-{"id":"bootstrap-filesystem-decision-001","status":"accepted","decision":"Seed useful context files and READMEs instead of empty directory scaffolding.","rationale":"The filesystem should be locally understandable and reduce context load.","supersedes":[]}

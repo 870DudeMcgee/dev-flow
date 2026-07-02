@@ -54,7 +54,7 @@ Classify the task and classify the mode before taking any action:
 Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply means you should check it.
 
 - Use `devmode:using-devmode` as the master bootstrap.
-- Route to specific skills under `.agent/skills/` or `skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
+- Route to specific skills under `skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
 
 ---
 

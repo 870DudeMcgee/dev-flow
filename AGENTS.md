@@ -34,7 +34,7 @@ If the `devflow` console script is not installed in the active venv, use the mod
 env PYTHONPATH=src:. .venv/bin/python -m devflow.cli operating-layer serve
 ```
 
-The canonical UI title is `Dev-Flow Operating Layer`. The first viewport should expose the real control-room workbench: `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. The old static files under `public/` are not the active product UI and must not be used for validation.
+The canonical UI title is `Dev-Flow Operating Layer`. The first viewport should expose the real control-room workbench: `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. The deleted root `public/` static surface is not the active product UI and must not be used for validation.
 
 ## Product Experience To Protect
 
@@ -73,7 +73,7 @@ tests/
 docs/
 ```
 
-Top-level `src/devflow/*.py` files are mostly CLI entrypoints or compatibility bridges. Touch them only when the active control-room API requires it. Do not add new product behavior under `src/devflow/_legacy/`.
+Top-level `src/devflow/*.py` files should stay limited to package/CLI entrypoints and explicit bridges into `src/devflow/control_room/`. The legacy `_legacy/` runtime and pure top-level legacy shims have been removed; do not recreate them.
 
 ## Working Rules
 

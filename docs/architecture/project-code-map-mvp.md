@@ -69,7 +69,7 @@ One paragraph. No marketing copy.
 4. `docs/devmode-contract.md` — DevMode discipline
 
 ## What to skip
-- `src/devflow/_legacy/` — quarantined, do not modify
+- deleted legacy runtime paths such as `src/devflow/_legacy/`
 - `build/` — generated, ignored by git
 
 ## Owners / contacts

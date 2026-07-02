@@ -189,8 +189,6 @@ def run_scout_report(root: Path, task_id: str, role: str) -> dict[str, Any]:
         for f in changed_files:
             if f.startswith("src/devflow/control_room/"):
                 subsystem_roots.append("src/devflow/control_room/")
-            elif f.startswith("src/devflow/agents/"):
-                subsystem_roots.append("src/devflow/agents/")
             elif f.startswith("src/devflow/"):
                 subsystem_roots.append("src/devflow/")
 

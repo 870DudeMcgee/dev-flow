@@ -1,6 +1,0 @@
-id: openai-codex
-provider: openai-codex
-adapter: hermes_profile
-base_url: https://chatgpt.com/backend-api/codex
-default_timeout_seconds: 900
-enabled: true

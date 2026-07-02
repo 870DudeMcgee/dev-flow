@@ -1,4 +1,0 @@
-{"type":"goal_created","actor":"codex","goal_id":"bootstrap-devflow-filesystem","summary":"Created the bootstrap goal for seeding the .devflow filesystem/context structure.","timestamp":"2026-05-30"}
-{"type":"verification_passed","actor":"codex","goal_id":"bootstrap-devflow-filesystem","summary":"Verified diff whitespace, JSON/JSONL parseability, YAML parseability with Ruby/Psych, and focused shell-worker MVP tests.","timestamp":"2026-05-30"}
-{"type":"docs_pointer_updated","actor":"codex","goal_id":"bootstrap-devflow-filesystem","summary":"README now points to the durable .devflow context structure and bootstrap goal entry points.","timestamp":"2026-05-30"}
-{"type":"contract_section_expanded","actor":"codex","goal_id":"bootstrap-devflow-filesystem","summary":"Expanded the canonical filesystem/context structure section with durable-context framing, no-flattening constraint, and structure acceptance criteria.","timestamp":"2026-05-30"}

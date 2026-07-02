@@ -57,13 +57,10 @@ qwopus = "devflow.cli:qwopus_main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-devflow = ["schemas/*.json"]
-
 [tool.ruff]
 # Lint the source and tests; the editable-install venv and generated dirs are noise.
 src = ["src"]
-extend-exclude = [".venv", "build", "dist", "graphify-out", "scratch", "src/devflow/_legacy"]
+extend-exclude = [".venv", "build", "dist", "graphify-out", "scratch"]
 target-version = "py311"
 line-length = 120
 

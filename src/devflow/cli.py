@@ -457,7 +457,7 @@ def maintenance_reset_dogfood_state(
     preview: bool = typer.Option(False, "--preview", help="Preview ignored runtime artifact removal."),
     yes: bool = typer.Option(False, "--yes", help="Apply ignored runtime artifact removal."),
 ) -> None:
-    """Reset disposable dogfood/task runtime artifacts while preserving tracked seed state."""
+    """Reset disposable dogfood/task runtime artifacts while preserving generated seed state."""
     if preview == yes:
         typer.echo("Choose exactly one of --preview or --yes.", err=True)
         raise typer.Exit(code=1)

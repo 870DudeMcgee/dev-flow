@@ -120,7 +120,7 @@ The current UI is served from bundled Python modules under `src/devflow/control_
 - `operating_layer_assets.py`
 - `operating_layer_server.py`
 
-The `public/` directory is not the active Dev-Flow product UI. It contains older static marketing/simulator assets and must not be used as validation evidence for the operating layer.
+The deleted root `public/` directory was not the active Dev-Flow product UI. It contained older static marketing/simulator assets and must not be used as validation evidence for the operating layer.
 
 Browser smoke checks for the current UI:
 

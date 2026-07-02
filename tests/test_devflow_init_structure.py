@@ -109,14 +109,29 @@ JSONL_SEED_PATHS = [
 ]
 
 
-def test_checked_in_devflow_seed_contract_is_machine_readable() -> None:
+def test_repo_does_not_track_generated_devflow_materialization() -> None:
     root = Path(__file__).resolve().parents[1]
 
-    _assert_seed_paths(root)
-    _assert_machine_readable_files(root)
-    _assert_reports_are_non_authoritative(root)
-    _assert_registries_make_no_availability_claims(root)
-    assert validate_seed_contract(root) == []
+    # Seed/runtime files should stay in source code (seed.py), not tracked in VCS.
+    tracked_devflow_paths = subprocess.run(
+        ["git", "ls-files", ".devflow"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert tracked_devflow_paths == []
+
+    old_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.chdir(tmp)
+            result = runner.invoke(app, ["init"])
+            assert result.exit_code == 0, result.output
+            _assert_seed_paths(Path.cwd())
+            assert validate_seed_contract(Path.cwd()) == []
+        finally:
+            os.chdir(old_cwd)
 
 
 def test_devflow_init_creates_and_repairs_seed_without_overwriting_user_files() -> None:

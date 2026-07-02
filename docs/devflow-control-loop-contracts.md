@@ -99,7 +99,7 @@ This structure defines both runtime state and living project context. It must no
 
 This is the intended durable structure for the control room. The current shell-worker control-room contract may implement a smaller runtime subset, but new filesystem work should move toward this shape unless a newer active contract explicitly supersedes it.
 
-The initial repository seed for this structure lives under `.devflow/`. Its active bootstrap goal is `.devflow/goals/bootstrap-devflow-filesystem/`, and its project-level orientation starts at `.devflow/project/project.yaml`.
+The seed template for this generated structure lives in `src/devflow/control_room/seed.py`. `devflow init` materializes `.devflow/` locally; its active bootstrap goal is `.devflow/goals/bootstrap-devflow-filesystem/`, and its project-level orientation starts at `.devflow/project/project.yaml`.
 
 Proposed high-level structure:
 

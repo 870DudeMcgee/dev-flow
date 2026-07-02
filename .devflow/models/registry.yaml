@@ -1,9 +1,0 @@
-version: 1
-authority: "Placeholder registry for model metadata. Future provider/model records must follow docs/architecture/agent-registry-and-adapter-runtime.md. No model availability or quality claim is recorded here yet."
-models: []
-schema_intent:
-  model_id: "Stable model identifier."
-  provider: "Provider or runtime, such as shell, manual, ollama, lmstudio, llama.cpp, OpenAI, Anthropic, xAI, Gemini, or another future adapter."
-  intended_use: "Planner, implementer, reviewer, debugger, or other bounded role."
-  enabled: "Whether Dev-Flow may consider the model available."
-  notes: "Human-readable constraints or setup notes."

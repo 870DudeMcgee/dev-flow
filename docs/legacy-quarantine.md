@@ -8,9 +8,9 @@ The paths below are legacy or compatibility material. They may be useful for his
 
 ## Runtime Code
 
-- `src/devflow/_legacy/`: archived pre-control-room implementation.
-- `src/devflow/agents/`: compatibility shims for old agent imports.
-- `src/devflow/schemas/`: legacy workflow schemas.
+- `src/devflow/_legacy/`: deleted pre-control-room implementation.
+- `src/devflow/agents/`: deleted compatibility shims for old agent imports.
+- `src/devflow/schemas/`: deleted legacy workflow schemas.
 
 ## Archived Docs And Local Artifacts
 
@@ -23,11 +23,10 @@ The paths below are legacy or compatibility material. They may be useful for his
 - `docs/mvp-contract.md`
 - `docs/control-room-mvp.md`
 - `docs/roadmap.md`
-- `docs/agent-handoff.md`
 - `src/devflow/control_room/`
 
-Manual quarantine is safe when active imports, tests, and docs no longer depend on the legacy path being moved.
+Manual quarantine is complete for deleted paths when active imports, tests, and current docs no longer depend on them.
 
-Use [architecture/graphify-architecture-baseline.md](architecture/graphify-architecture-baseline.md) and `graphify-out/graph.json` before pruning legacy or shim surfaces. Graphify should confirm that active control-room paths no longer depend on the target, but it is supporting evidence only; tests and focused source inspection remain required.
+Use [architecture/graphify-architecture-baseline.md](architecture/graphify-architecture-baseline.md) and `graphify-out/graph.json` before pruning remaining legacy-labeled surfaces. Graphify should confirm that active control-room paths no longer depend on the target, but it is supporting evidence only; tests and focused source inspection remain required.
 
 Do not restore quarantined material into the active repo unless it is intentionally rewritten as current, non-archived authority.

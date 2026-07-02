@@ -1,107 +1,109 @@
 import ast
-import os
+from pathlib import Path
 import unittest
 
 
+REMOVED_TOP_LEVEL_MODULES = {
+    "admin_commands",
+    "artifacts",
+    "context",
+    "dag",
+    "diagnostics",
+    "editor",
+    "evals",
+    "failures",
+    "impact",
+    "lifecycle_commands",
+    "manager",
+    "memory",
+    "model_gateway",
+    "orchestrator",
+    "orchestrator_agentic",
+    "repo_map",
+    "resource_commands",
+    "runner",
+    "safety",
+    "safety_gate",
+    "states",
+    "task_commands",
+    "trace_eval_commands",
+    "traces",
+    "workspace",
+    "worktree_commands",
+    "worktrees",
+}
+
+ALLOWED_TOP_LEVEL_FILES = {
+    "__init__.py",
+    "__main__.py",
+    "cli.py",
+    "df_telegram_bridge.py",
+    "df_telegram_gateway_handler.py",
+}
+
+FORBIDDEN_IMPORTS = {"devflow._legacy", "devflow.agents"} | {
+    f"devflow.{name}" for name in REMOVED_TOP_LEVEL_MODULES
+}
+
+
+def _python_imports(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.append(node.module)
+    return imports
+
+
+def _is_forbidden_import(imported_module: str) -> bool:
+    return any(
+        imported_module == forbidden or imported_module.startswith(forbidden + ".")
+        for forbidden in FORBIDDEN_IMPORTS
+    )
+
+
 class TestArchitectureBoundaries(unittest.TestCase):
-    def _check_import(self, filepath, imported_module, forbidden_prefixes, forbidden_top_level_modules):
-        # Check forbidden prefixes
-        for prefix in forbidden_prefixes:
-            if imported_module == prefix or imported_module.startswith(prefix + "."):
-                self.fail(
-                    f"Architecture violation in {filepath}:\n"
-                    f"Active control-room code must not import legacy quarantined code.\n"
-                    f"Forbidden import found: {imported_module}\n"
-                    f"Active code must be developed strictly inside src/devflow/control_room/ boundaries."
-                )
+    def test_legacy_runtime_and_pure_shims_are_removed(self):
+        devflow_dir = Path("src/devflow")
 
-        # Check forbidden top-level modules
-        for forbidden in forbidden_top_level_modules:
-            if imported_module == forbidden or imported_module.startswith(forbidden + "."):
-                self.fail(
-                    f"Architecture violation in {filepath}:\n"
-                    f"Active control-room code must not import top-level legacy compatibility shims.\n"
-                    f"Forbidden import found: {imported_module}\n"
-                    f"Active code must be developed strictly inside src/devflow/control_room/ boundaries."
-                )
+        self.assertFalse((devflow_dir / "_legacy").exists())
+        self.assertFalse((devflow_dir / "agents").exists())
+        self.assertFalse((devflow_dir / "schemas").exists())
 
-    def test_active_code_does_not_import_legacy_or_shims(self):
-        """Active control-room code must not import or depend on legacy or shim modules."""
-        active_dir = "src/devflow/control_room"
+        for module_name in REMOVED_TOP_LEVEL_MODULES:
+            self.assertFalse(
+                (devflow_dir / f"{module_name}.py").exists(),
+                f"Removed legacy shim still exists: src/devflow/{module_name}.py",
+            )
 
-        forbidden_top_level_modules = {
-            "devflow.admin_commands",
-            "devflow.agents",
-            "devflow.artifacts",
-            "devflow.context",
-            "devflow.dag",
-            "devflow.diagnostics",
-            "devflow.editor",
-            "devflow.evals",
-            "devflow.failures",
-            "devflow.impact",
-            "devflow.lifecycle_commands",
-            "devflow.manager",
-            "devflow.memory",
-            "devflow.model_gateway",
-            "devflow.orchestrator",
-            "devflow.orchestrator_agentic",
-            "devflow.repo_map",
-            "devflow.resource_commands",
-            "devflow.runner",
-            "devflow.safety",
-            "devflow.safety_gate",
-            "devflow.states",
-            "devflow.task_commands",
-            "devflow.trace_eval_commands",
-            "devflow.traces",
-            "devflow.workspace",
-            "devflow.worktree_commands",
-            "devflow.worktrees",
+    def test_only_explicit_top_level_python_entrypoints_remain(self):
+        devflow_dir = Path("src/devflow")
+        top_level_python = {
+            path.name
+            for path in devflow_dir.glob("*.py")
+            if path.is_file()
         }
 
-        forbidden_prefixes = ("devflow._legacy",)
+        self.assertEqual(top_level_python, ALLOWED_TOP_LEVEL_FILES)
 
-        for root, dirs, files in os.walk(active_dir):
-            for file in files:
-                if file.endswith(".py"):
-                    filepath = os.path.join(root, file)
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        source = f.read()
+    def test_surviving_top_level_modules_do_not_import_legacy_runtime(self):
+        for path in Path("src/devflow").glob("*.py"):
+            for imported_module in _python_imports(path):
+                self.assertFalse(
+                    imported_module == "devflow._legacy"
+                    or imported_module.startswith("devflow._legacy."),
+                    f"{path} imports removed legacy runtime: {imported_module}",
+                )
 
-                    try:
-                        tree = ast.parse(source, filename=filepath)
-                    except SyntaxError as e:
-                        self.fail(f"Syntax error parsing {filepath}: {e}")
-
-                    for node in ast.walk(tree):
-                        if isinstance(node, ast.Import):
-                            for alias in node.names:
-                                self._check_import(filepath, alias.name, forbidden_prefixes, forbidden_top_level_modules)
-                        elif isinstance(node, ast.ImportFrom) and node.module:
-                            self._check_import(filepath, node.module, forbidden_prefixes, forbidden_top_level_modules)
-
-    def test_top_level_shims_have_legacy_shim_marker(self):
-        """Top-level shim files must be marked as legacy compatibility shims and proxy via sys.modules."""
-        devflow_dir = "src/devflow"
-        excluded_files = {"__init__.py", "__main__.py", "cli.py"}
-
-        for name in os.listdir(devflow_dir):
-            path = os.path.join(devflow_dir, name)
-            if os.path.isdir(path):
-                continue
-            if name in excluded_files or not name.endswith(".py"):
-                continue
-
-            # This is a top-level module file, so it must be a compatibility shim
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            self.assertTrue(
-                "Legacy shim" in content or "sys.modules[__name__]" in content,
-                f"File {path} is a top-level module but is not marked as a Legacy compatibility shim.\n"
-                f"All top-level devflow modules (except __init__.py, __main__.py, cli.py) must be pure shims proxying to _legacy/."
-            )
+    def test_active_code_does_not_import_removed_legacy_or_shims(self):
+        for path in Path("src/devflow/control_room").rglob("*.py"):
+            for imported_module in _python_imports(path):
+                self.assertFalse(
+                    _is_forbidden_import(imported_module),
+                    f"{path} imports removed legacy/shim module: {imported_module}",
+                )
 
 
 if __name__ == "__main__":

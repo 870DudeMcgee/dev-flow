@@ -150,7 +150,7 @@ success_criteria:
     verification:
       type: file_contains
       path: docs/devflow-control-loop-contracts.md
-      text: "The initial repository seed for this structure lives under `.devflow/`."
+      text: "The seed template for this generated structure lives in `src/devflow/control_room/seed.py`."
 iteration_policy:
   max_attempts_per_task: 3
   escalate_after_failures: 3

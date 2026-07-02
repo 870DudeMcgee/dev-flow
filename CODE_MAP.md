@@ -8,13 +8,13 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 
 - `src/devflow/control_room/` - active control-room implementation. New product behavior belongs here.
 - `src/devflow/cli.py` - Typer CLI entry point and command wiring.
-- `src/devflow/_legacy/` - quarantined legacy software-factory code. Do not add features here.
+- Legacy runtime note: `src/devflow/_legacy/` and pure top-level legacy shims were removed. Do not recreate them.
 - `tests/` - pytest coverage for control-room commands, projections, dogfood, release gates, and safety behavior.
-- `docs/` - active contracts, architecture notes, roadmap, and handoffs.
+- `docs/` - active contracts, architecture notes, roadmap, and compact historical references.
 - `docs/architecture/graphify-architecture-baseline.md` - lightweight Graphify cleanup baseline that records generated map metrics and update commands.
-- `docs/superpowers/specs/` - approved design specs for larger slices.
-- `docs/superpowers/plans/` - implementation plans for agent handoff.
-- `.devflow/` - local runtime state and evidence. Do not edit manually unless a specific Dev-Flow command or handoff asks for it.
+- `docs/superpowers/specs/` - preserved design-spec history for larger slices; not startup authority.
+- `docs/superpowers/plans/` - preserved implementation-plan history; not startup authority.
+- `.devflow/` - ignored local runtime materialization created by Dev-Flow commands. Seed/template authority lives in `src/devflow/control_room/seed.py`.
 - `graphify-out/` - generated local architecture evidence. Use it for cleanup review, but do not treat it as canonical source or blindly commit the full directory.
 
 ## Entry points
@@ -37,14 +37,14 @@ Dev-Flow is a local-first control room for parallel AI coding workers. It owns t
 4. `docs/control-room-mvp.md` - current MVP authority and stable command contract.
 5. `docs/architecture/graphify-architecture-baseline.md` - current generated architecture baseline for cleanup milestones.
 6. `docs/roadmap.md` - current sequencing and deferred work.
-7. `docs/agent-handoff.md` - active handoff and architecture boundary notes.
+7. `docs/agent-handoff.md` - compact historical/resume reference when prior milestone context is explicitly needed.
 
 ## What to skip
 
-- `src/devflow/_legacy/` - quarantined legacy code; do not modify or treat as authority.
+- Deleted legacy runtime paths such as `src/devflow/_legacy/` and old top-level shims; do not restore them for current product work.
 - Archived workflow docs or stale plans that conflict with the control-room MVP.
-- `.devflow/workspaces/`, `.devflow/worktrees/`, `.devflow/dogfood/`, and `.devflow/release-readiness/` unless the current task explicitly needs local evidence.
-- `public/` for current UI work. It is older static marketing/simulator content, not the active operating-layer browser surface.
+- `.devflow/` runtime evidence unless the current task explicitly needs local Dev-Flow state. Use `src/devflow/control_room/seed.py` for seed/template authority.
+- The deleted root `public/` static surface for current UI work. It was older marketing/simulator content, not the active operating-layer browser surface.
 - Task-fit/context routing commands are evidence-only. They write derived fit, scout, route, and scorecard artifacts; autonomous route selection and provider-backed execution remain excluded.
 - Provider-backed adapters, autonomous route selection, memory, or unapproved dashboard expansion unless an approved active spec promotes that slice.
 

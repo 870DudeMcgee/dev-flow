@@ -42,7 +42,7 @@ devflow operating-layer serve --open        # open the default browser
 
 The browser should show the `Dev-Flow Operating Layer` page with a first viewport centered on `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`. Idea Greenhouse V1 is visible there as the current local intake UI over `.devflow/ideas/`; browser capture, parking, and archive actions use approval-gated Dev-Flow commands where supported. If a browser shows the old `devflow | Git-Native AI Control Plane` marketing/simulator page, it is stale or non-authoritative content; hard refresh or open a cache-busted URL such as `http://127.0.0.1:8765/?cb=<timestamp>`.
 
-The `public/` static files are not the active product UI. Use `src/devflow/control_room/operating_layer_html.py`, `operating_layer_styles.py`, `operating_layer_script.py`, and `devflow operating-layer serve` for browser UI work and validation.
+The deleted root `public/` static surface is not the active product UI. Use `src/devflow/control_room/operating_layer_html.py`, `operating_layer_styles.py`, `operating_layer_script.py`, and `devflow operating-layer serve` for browser UI work and validation.
 
 If the console script is unavailable in a local shell, use the module entrypoint:
 
@@ -134,6 +134,12 @@ Dev-Flow stores durable task state as local filesystem artifacts:
   ideas/<idea-id>/events.jsonl
 ```
 
+The root `.devflow/` tree is a local runtime materialization created and
+repaired by `devflow init` and other Dev-Flow commands. It is intentionally
+ignored by Git; seed/template authority lives in
+`src/devflow/control_room/seed.py`, while task, goal, report, workspace, model,
+and evidence files under `.devflow/` remain machine-local state.
+
 `task.yaml` is canonical current state. `events.jsonl` is append-only evidence. `verification.json` stores the latest verification result. Worker and verification logs are raw command evidence. Patch application writes a SHA-256-addressed evidence file under `patches/` plus a latest `patch-application.json` pointer. Shell worker output and local Ollama prompt/response artifacts stay in `.devflow/workspaces/<task-id>/` until a human explicitly reviews them; promotion remains separate and verification-gated. Closing a task writes `closure.json`, marks it inactive, and preserves task evidence. Cleanup is preview-first and writes `cleanup.json` only when `--apply` removes safe task-owned runtime artifacts.
 
 Mutating task operations use `.devflow/tasks/<task-id>/.lock/owner.json` as a live task-local lock. Concurrent `run`, `local`, `verify`, `apply-patch`, and `promote` operations for the same task are refused with owner details, and stale locks are recovered automatically.
@@ -174,14 +180,14 @@ Use Dev-Flow only on repositories and worker commands you trust. The Git-native 
 
 ## Durable Context Structure
 
-The broader `.devflow/` tree is also the durable context layer for the control room. It contains project orientation, active goals, classified context, layered product and architecture notes, worker/model registries, lock documentation, derived reports, and preserved archive material.
+The broader `.devflow/` tree is also the durable local context layer for the control room. It contains project orientation, active goals, classified context, layered product and architecture notes, worker/model registries, lock documentation, derived reports, and preserved archive material. This material is generated local state, not checked-in source.
 
-Start with:
+After `devflow init`, start with:
 
-- [.devflow/project/project.yaml](.devflow/project/project.yaml): machine-readable project orientation.
-- [.devflow/goals/bootstrap-devflow-filesystem/goal.yaml](.devflow/goals/bootstrap-devflow-filesystem/goal.yaml): active bootstrap filesystem goal.
-- [.devflow/context/active/README.md](.devflow/context/active/README.md): context classification entry point.
-- [.devflow/layers/architecture/contracts.md](.devflow/layers/architecture/contracts.md): layer-local contract pointers.
+- `.devflow/project/project.yaml`: machine-readable project orientation.
+- `.devflow/goals/bootstrap-devflow-filesystem/goal.yaml`: active bootstrap filesystem goal.
+- `.devflow/context/active/README.md`: context classification entry point.
+- `.devflow/layers/architecture/contracts.md`: layer-local contract pointers.
 - [docs/devflow-control-loop-contracts.md](docs/devflow-control-loop-contracts.md): reference architecture for the target structure.
 
 ## Quick Start
@@ -346,7 +352,7 @@ DevMode harness compatibility is tracked in [docs/harness-compatibility.md](docs
 - [docs/architecture/git-native-worker-isolation-and-promotion.md](docs/architecture/git-native-worker-isolation-and-promotion.md): opt-in Git-backed worker isolation, verification binding, and promotion readiness.
 - [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md): Milestone 17 evidence-only task-fit, context-estimation, scout, route, and routing-quality design; autonomous routing and provider-backed task-run execution remain excluded.
 - [docs/roadmap.md](docs/roadmap.md): current sequencing and deferred work.
-- [docs/agent-handoff.md](docs/agent-handoff.md): orientation for future agents.
+- [docs/agent-handoff.md](docs/agent-handoff.md): compact historical/resume reference; not startup authority.
 - [docs/devflow-operating-model.md](docs/devflow-operating-model.md): role split between human, main chat agent, Dev-Flow kernel, worker agents, and DevMode.
 - [docs/read-only-control-room-agent.md](docs/read-only-control-room-agent.md): main chat agent responsibilities and boundaries.
 - [docs/devmode-devflow-boundary.md](docs/devmode-devflow-boundary.md): product/runtime boundary between DevMode and Dev-Flow.
@@ -359,13 +365,9 @@ Active control-room code belongs under:
 src/devflow/control_room/
 ```
 
-Legacy software-factory files are quarantined under:
-
-```text
-src/devflow/_legacy/
-```
-
-Do not add new product features under top-level compatibility shims or `_legacy/`.
+The legacy software-factory runtime under `src/devflow/_legacy/` and the pure
+top-level legacy shims were removed. Do not recreate them for current product
+work.
 Do not restore quarantined local checkout material from `/Users/jewelbait/Desktop/DevFlow` into active authority unless it is intentionally rewritten as current source.
 
 ## Verification

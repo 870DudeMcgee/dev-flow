@@ -39,3 +39,17 @@ The most useful action Dev-Flow can recommend without hiding safety requirements
 The operator-facing projection that turns task state into the first usable work surface: selected task, Worker lanes, Review queue, Evidence stream, task controls, gate progress, worker/model identity, and next safe actions.
 
 The Task workbench is not canonical state. It is a derived read model for usability and should remain backed by existing task artifacts, worker evidence, verification artifacts, and promotion readiness evidence.
+
+### Repository cleanup
+
+A source-tree hygiene activity that classifies repository material before changing, archiving, untracking, or deleting it.
+
+Repository cleanup candidates are classified as active product, compatibility bridge, generated/local runtime state, historical reference, future roadmap, stale context candidate, or stale artifact.
+
+### Stale context candidate
+
+A document or reference whose current accuracy is untrusted until reconciled against active product intent, code, tests, live Dev-Flow behavior, and fresh architecture evidence.
+
+## Flagged ambiguities
+
+- "cleanup" was used to mean both task-owned runtime cleanup and repository cleanup; resolved: the current cleanup grilling session means **Repository cleanup**.

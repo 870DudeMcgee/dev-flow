@@ -39,10 +39,8 @@ def detect_devmode(root: Path) -> DevModeStatus:
         sources.append(_relative(repo_root, local_devmode))
     if (repo_root / "skills" / "using-devmode" / "SKILL.md").exists():
         sources.append("skills/")
-    if (repo_root / ".agent" / "skills" / "using-devmode" / "SKILL.md").exists():
-        sources.append(".agent/skills/")
-    if (repo_root / ".github" / "skills" / "devmode" / "SKILL.md").exists():
-        sources.append(".github/skills/devmode/")
+    if (repo_root / ".github" / "prompts" / "devmode.prompt.md").exists():
+        sources.append(".github/prompts/devmode.prompt.md")
 
     skills = tuple(_skill_status(repo_root, name) for name in REQUIRED_DEVMODE_SKILLS)
     detected = bool(sources) or any(skill.present for skill in skills)
@@ -128,7 +126,6 @@ def _skill_status(root: Path, name: str) -> DevModeSkillStatus:
 def _skill_candidates(root: Path, name: str) -> tuple[Path, ...]:
     return (
         root / ".devmode" / "skills" / name / "SKILL.md",
-        root / ".agent" / "skills" / name / "SKILL.md",
         root / "skills" / name / "SKILL.md",
         root / ".github" / "skills" / name / "SKILL.md",
     )

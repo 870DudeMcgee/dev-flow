@@ -86,7 +86,7 @@ The active VS Code entry point is DevMode. DevMode keeps token optimization ligh
 
 ## VS Code Copilot
 
-[.github/copilot-instructions.md](../.github/copilot-instructions.md) is the always-on lightweight DevMode rule. [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md) is the manual `/devmode` reusable prompt entrypoint. [.github/skills/devmode/SKILL.md](../.github/skills/devmode/SKILL.md) is the project-local DevMode skill/router.
+[.github/copilot-instructions.md](../.github/copilot-instructions.md) is the always-on lightweight DevMode rule. [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md) is the manual `/devmode` reusable prompt entrypoint. [.github/skills/devflow/SKILL.md](../.github/skills/devflow/SKILL.md) is the project-local Dev-Flow control-room skill.
 
 The canonical shared token-optimization package remains at [skills/token-optimization/](../skills/token-optimization/). DevMode may consult it when a task has real context-bloat risk, but the default path is DevMode plus Superpowers-style discipline.
 
@@ -113,7 +113,7 @@ Use Chat diagnostics or `Chat: Open Customizations` to verify VS Code discovered
 | :--- | :--- | :--- |
 | **Claude Code** | `/token-optimization` | Supported via [.claude/commands/token-optimization.md](.claude/commands/token-optimization.md) |
 | **Gemini CLI** | `/token-optimization` | Supported via [.gemini/commands/token-optimization.toml](.gemini/commands/token-optimization.toml) |
-| **VS Code Copilot** | `/devmode` or select `.github/prompts/devmode.prompt.md` | Supported via [.github/copilot-instructions.md](../.github/copilot-instructions.md), [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md), and [.github/skills/devmode/SKILL.md](../.github/skills/devmode/SKILL.md) |
+| **VS Code Copilot** | `/devmode` or select `.github/prompts/devmode.prompt.md` | Supported via [.github/copilot-instructions.md](../.github/copilot-instructions.md), [.github/prompts/devmode.prompt.md](../.github/prompts/devmode.prompt.md), and [.github/skills/devflow/SKILL.md](../.github/skills/devflow/SKILL.md) |
 | **Antigravity IDE** | `/devmode` | Closest-supported prompt/rule mechanism via [.agent/workflows/devmode.md](../.agent/workflows/devmode.md), [.agent/rules/devmode-token-first.md](../.agent/rules/devmode-token-first.md), [.antigravity/workflows/devmode.md](../.antigravity/workflows/devmode.md), and [.antigravity/rules.md](../.antigravity/rules.md) |
 | **ChatGPT Web** | No custom command support | Enforce manually by pointing the model to [skills/token-optimization/SKILL.md](skills/token-optimization/SKILL.md) |
 
@@ -126,12 +126,13 @@ It is crucial to understand how Antigravity integrates slash commands, rules, an
 * **Antigravity always-on rule**: `.agent/rules/devmode-token-first.md`
 * **Shared token-optimization package**: `skills/token-optimization/` acts strictly as low-level behavior reference material and is never loaded eagerly by default to avoid token bloat.
 * **Limitation**: Antigravity does not visibly load reusable Superpowers-style skill files here; DevMode is enforced through prompt/rule workflow files.
+* **Skill authority**: reusable repo-local skills live under `skills/`; `.agent/skills/` is not a maintained copy.
 
 ## VS Code Skill Routing
 
-The repo-local DevMode skill lives at `.github/skills/devmode/SKILL.md`. It routes to installed skills by name instead of copying their full instructions into every request.
+The repo-local Dev-Flow control-room skill lives at `.github/skills/devflow/SKILL.md`. DevMode behavior stays in `.github/prompts/devmode.prompt.md` plus the maintained `skills/` tree instead of copying full external skills into `.github/skills/`.
 
-Current routed skills:
+Current routed skills through the DevMode prompt:
 
 * `using-superpowers`: baseline disciplined execution.
 * `improve-codebase-architecture`: architecture, coupling, refactor, and codebase health work.

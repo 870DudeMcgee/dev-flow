@@ -45,7 +45,7 @@ The following files and directories are strictly immutable. Workers must never w
 * **Git Core Directory (`.git/`):** The repository index, git config, commit database, hooks, and refs are off-limits.
 * **Dev-Flow Metadata (`.devflow/tasks/`):** The canonical task states, system event records, and verification outcomes (`task.yaml`, `events.jsonl`, `verification.json`) must remain tamper-proof. Workers may only read these files or append questions via the kernel interface.
 * **Top-Level Configuration Files:** Global project configs (e.g., `pyproject.toml`, `.gitignore`, `setup.py`) are protected.
-* **Legacy Codebase (`src/devflow/_legacy/`):** Archived files are quarantined and read-only.
+* **Deleted Legacy Runtime (`src/devflow/_legacy/`):** This path must not be recreated by workers.
 * **Platform Rules & Harnesses:** Harness configs (like `.antigravity/rules.md`, `CLAUDE.md`, `GEMINI.md`, `AGENTS.md`) must not be edited.
 
 ---
