@@ -11,9 +11,9 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 
 | Metric | Value |
 |---|---:|
-| Nodes | 10,916 |
-| Edges | 24,695 |
-| Communities | 695 |
+| Nodes | 9,078 |
+| Edges | 22,084 |
+| Communities | 584 |
 | Extracted edges | 83% |
 | Inferred edges | 17% |
 | Ambiguous edges | 0% |
@@ -36,20 +36,20 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 | Rank | Path | Lines | Definitions | Local imports | Boundary target |
 |---:|---|---:|---:|---:|---|
 | 1 | `tests/test_operating_layer.py` | 4,211 | 155 | 25 | no |
-| 2 | `src/devflow/cli.py` | 2,574 | 99 | 81 | yes |
-| 3 | `src/devflow/control_room/operating_layer_script.py` | 5,743 | 0 | 0 | yes |
+| 2 | `src/devflow/control_room/operating_layer_script.py` | 5,743 | 0 | 0 | yes |
+| 3 | `src/devflow/cli.py` | 2,350 | 86 | 80 | yes |
 | 4 | `tests/test_operator_ui_browser.py` | 2,170 | 79 | 5 | no |
 | 5 | `src/devflow/control_room/operating_layer_styles.py` | 4,124 | 0 | 0 | yes |
-| 6 | `src/devflow/control_room/operating_layer_server.py` | 1,709 | 70 | 23 | yes |
+| 6 | `src/devflow/control_room/operating_layer_server.py` | 1,513 | 59 | 22 | yes |
 | 7 | `tests/test_local_ai_command.py` | 1,411 | 54 | 37 | no |
-| 8 | `src/devflow/control_room/dogfood.py` | 1,768 | 36 | 30 | yes |
+| 8 | `src/devflow/control_room/dogfood.py` | 1,696 | 31 | 31 | yes |
 | 9 | `src/devflow/control_room/local_ai_fleet.py` | 1,470 | 48 | 7 | no |
 | 10 | `unsloth_compiled_cache/moe_utils.py` | 1,587 | 45 | 0 | no |
 
 ## Recommended Cleanup Targets
 
-1. `src/devflow/cli.py`
-2. `src/devflow/control_room/operating_layer_script.py`
+1. `src/devflow/control_room/operating_layer_script.py`
+2. `src/devflow/cli.py`
 3. `src/devflow/control_room/operating_layer_styles.py`
 4. `src/devflow/control_room/operating_layer_server.py`
 5. `src/devflow/control_room/dogfood.py`
@@ -58,6 +58,20 @@ Generated Graphify artifacts are local by default and should stay under ignored 
 8. `tests/test_operator_ui_browser.py`
 9. `tests/test_local_ai_command.py`
 10. `src/devflow/control_room/local_ai_fleet.py`
+
+## Slice 7 Progress
+
+Completed in the current Slice 7 continuation:
+
+- Extracted `maintenance` command handling from `src/devflow/cli.py` into `src/devflow/control_room/maintenance_command.py`.
+- Extracted `project` command handling from `src/devflow/cli.py` into `src/devflow/control_room/project_command.py`.
+- Extracted local-model ensure profile resolution and payload shaping from `src/devflow/control_room/operating_layer_server.py` into `src/devflow/control_room/local_model_ensure.py`.
+- Extracted dogfood run lookup, score rendering, run id generation, and run pruning from `src/devflow/control_room/dogfood.py` into `src/devflow/control_room/dogfood_run_store.py`.
+
+Remaining Slice 7 hotspot work:
+
+- `src/devflow/control_room/operating_layer_script.py` remains the largest active hotspot. Its model picker, local-model setup, render fanout, workbench, Obsidian, first-viewport, and architecture-evidence client paths are still coupled through the split asset contract.
+- `src/devflow/control_room/operating_layer_styles.py` remains a large CSS asset. A later split should follow a stable UI asset/module boundary instead of moving selectors by line-count alone.
 
 ## Selection Rules
 

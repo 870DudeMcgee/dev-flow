@@ -71,7 +71,6 @@ from devflow.control_room.task_artifact_open import (
     select_task_open_artifact,
 )
 from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
-from devflow.control_room.maintenance import reset_dogfood_state, reset_test_state, repair_state
 from devflow.control_room.reconciliation import build_reconciliation_report
 
 from devflow.control_room.status_projection import list_task_status_projections
@@ -123,7 +122,9 @@ from devflow.control_room.local_ai_command import local_ai_app
 from devflow.control_room.local_model_command import local_model_app
 from devflow.control_room.loop_command import loop_app
 from devflow.control_room.agent_command import agent_app
+from devflow.control_room.maintenance_command import maintenance_app
 from devflow.control_room.operating_layer_command import operating_layer_app
+from devflow.control_room.project_command import project_app
 from devflow.control_room.training_command import training_app
 from devflow.control_room.question_command import (  # noqa: F401
     question_answer, question_app, question_list, question_resolve, question_show,
@@ -149,20 +150,11 @@ from devflow.control_room.supervisor_surface import (
 from devflow.control_room.telegram_routing import render_telegram_route
 from devflow.control_room.hermes_readiness import render_hermes_imessage_check
 from devflow.control_room.hermes_profiles_command import hermes_profiles_app
-from devflow.control_room.project_create import create_project as create_managed_project
-from devflow.control_room.project_create import import_project as import_managed_project
 from devflow.control_room.project_registry import (
     ProjectRootResolution,
     ProjectRegistryError,
-    archive_project,
-    doctor_project,
     project_task_ref,
-    remove_project,
-    render_project_list,
-    render_project_show,
-    render_project_status,
     resolve_project_root,
-    update_project_remote_policy,
 )
 from devflow.control_room.paths import relative_path
 
@@ -174,11 +166,9 @@ branch_app = typer.Typer(help="Inspect and archive Dev-Flow Git branches")
 git_app = typer.Typer(help="Inspect guarded Git state")
 worker_app = typer.Typer(help="Validate worker outcome metadata")
 knowledge_app = typer.Typer(help="Capture and curate reusable local knowledge")
-maintenance_app = typer.Typer(help="Repair or reset ignored Dev-Flow runtime state")
 release_app = typer.Typer(help="Inspect milestone release-readiness gates")
 supervisor_app = typer.Typer(help="Inspect and operate Dev-Flow through supervisor-safe read-only surfaces")
 hermes_app = typer.Typer(help="Inspect Hermes operator integration readiness")
-project_app = typer.Typer(help="Create and manage registered projects")
 map_app = typer.Typer(help="Project Code Map orientation layer (Milestone 11)")
 app.add_typer(task_app, name="task")
 app.add_typer(agent_app, name="agent")
@@ -230,151 +220,6 @@ def init_command() -> None:
     typer.echo("tasks: .devflow/tasks")
     typer.echo("workspaces: .devflow/workspaces")
     typer.echo(TRUSTED_LOCAL_WARNING)
-
-
-@project_app.command("create")
-def project_create_command(
-    name: str = typer.Argument(..., help="Project display name."),
-    projects_root: str | None = typer.Option(None, "--projects-root", help="Directory that will contain managed projects."),
-    source_control: str = typer.Option("local-git", "--source-control", help="none, local-git, remote-git, or github-managed."),
-    private_context: bool = typer.Option(False, "--private-context", help="Ignore all .devflow/ context in the new repo."),
-    remote_url: str | None = typer.Option(None, "--remote-url", help="Explicit remote URL for remote-git/github-managed projects."),
-) -> None:
-    """Create a separate local project root and register it with DevFlow."""
-    try:
-        result = create_managed_project(
-            name,
-            projects_root=Path(projects_root) if projects_root else None,
-            source_control=source_control,
-            private_context=private_context,
-            remote_url=remote_url,
-        )
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"Created project {result.project_id}")
-    typer.echo(f"path: {result.path}")
-    typer.echo(f"source_control: {result.source_control_mode}")
-    typer.echo(f"remote_url: {result.remote_url or 'none'}")
-    typer.echo("github: disabled unless explicitly connected/published")
-
-
-@project_app.command("import")
-def project_import_command(
-    path: str = typer.Argument(..., help="Existing project directory to register."),
-    project_id: str | None = typer.Option(None, "--project-id", help="Explicit registry id when metadata does not exist."),
-    name: str | None = typer.Option(None, "--name", help="Display name when metadata does not exist."),
-    private_context: bool = typer.Option(False, "--private-context", help="Ignore all .devflow/ context if metadata is created."),
-) -> None:
-    """Register an existing project root with DevFlow."""
-    try:
-        result = import_managed_project(
-            Path(path),
-            project_id=project_id,
-            name=name,
-            private_context=private_context,
-        )
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"Imported project {result.project_id}")
-    typer.echo(f"path: {result.path}")
-    typer.echo(f"source_control: {result.source_control_mode}")
-    typer.echo(f"remote_url: {result.remote_url or 'none'}")
-
-
-@project_app.command("list")
-def project_list_command(
-    include_archived: bool = typer.Option(False, "--include-archived", help="Include archived projects."),
-) -> None:
-    """List registered projects."""
-    try:
-        typer.echo(render_project_list(include_archived=include_archived), nl=False)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-
-@project_app.command("show")
-def project_show_command(project_id: str) -> None:
-    """Show registry and project-local metadata for one project."""
-    try:
-        typer.echo(render_project_show(project_id), nl=False)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-
-@project_app.command("status")
-def project_status_command(project_id: str) -> None:
-    """Show task health for one registered project."""
-    try:
-        typer.echo(render_project_status(project_id), nl=False)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-
-@project_app.command("doctor")
-def project_doctor_command(project_id: str) -> None:
-    """Check one registered project's metadata and source-control policy."""
-    try:
-        checks = doctor_project(project_id)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    failed = False
-    for name, ok, detail in checks:
-        marker = "ok" if ok else "missing"
-        typer.echo(f"{marker}: {name} ({detail})")
-        failed = failed or not ok
-    if failed:
-        raise typer.Exit(code=1)
-
-
-@project_app.command("archive")
-def project_archive_command(project_id: str) -> None:
-    """Archive a project in the registry without deleting files."""
-    try:
-        record = archive_project(project_id)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"Archived project {record.project_id}")
-
-
-@project_app.command("remove")
-def project_remove_command(
-    project_id: str,
-    registry_only: bool = typer.Option(False, "--registry-only", help="Remove only the registry entry; project files are never deleted."),
-) -> None:
-    """Remove a project from the registry without deleting its directory."""
-    if not registry_only:
-        typer.echo("Error: project remove requires --registry-only. DevFlow does not delete project directories.", err=True)
-        raise typer.Exit(code=1)
-    try:
-        record = remove_project(project_id)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"Removed project {record.project_id} from registry")
-
-
-@project_app.command("connect-github")
-def project_connect_github_command(
-    project_id: str,
-    remote_url: str = typer.Option(..., "--remote-url", help="Existing GitHub repository URL."),
-    allow_push: bool = typer.Option(False, "--allow-push", help="Opt in to devflow push-main for this project."),
-) -> None:
-    """Attach an explicit GitHub remote policy to a registered local Git project."""
-    try:
-        metadata = update_project_remote_policy(project_id, remote_url=remote_url, push_allowed=allow_push)
-    except ProjectRegistryError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"Connected GitHub remote for {metadata.project_id}")
-    typer.echo(f"remote_url: {metadata.source_control.remote_url}")
-    typer.echo(f"push_allowed: {'yes' if metadata.remote_publication.push_allowed else 'no'}")
 
 
 @app.command("doctor")
@@ -449,54 +294,6 @@ def doctor_command(
         typer.echo(f"{marker}: {name} ({detail})")
         failed = failed or not ok
     if failed:
-        raise typer.Exit(code=1)
-
-
-@maintenance_app.command("reset-dogfood-state")
-def maintenance_reset_dogfood_state(
-    preview: bool = typer.Option(False, "--preview", help="Preview ignored runtime artifact removal."),
-    yes: bool = typer.Option(False, "--yes", help="Apply ignored runtime artifact removal."),
-) -> None:
-    """Reset disposable dogfood/task runtime artifacts while preserving generated seed state."""
-    if preview == yes:
-        typer.echo("Choose exactly one of --preview or --yes.", err=True)
-        raise typer.Exit(code=1)
-    result = reset_dogfood_state(Path.cwd(), apply=yes)
-    typer.echo(f"mode: {'apply' if yes else 'preview'}")
-    _echo_maintenance_result(result)
-    if result.refused:
-        raise typer.Exit(code=1)
-
-
-@maintenance_app.command("reset-test-state")
-def maintenance_reset_test_state(
-    preview: bool = typer.Option(False, "--preview", help="Preview local test runtime artifact removal."),
-    yes: bool = typer.Option(False, "--yes", help="Apply local test runtime artifact removal."),
-) -> None:
-    """Reset local test task/workspace/worktree artifacts while preserving project state."""
-    if preview == yes:
-        typer.echo("Choose exactly one of --preview or --yes.", err=True)
-        raise typer.Exit(code=1)
-    result = reset_test_state(Path.cwd(), apply=yes)
-    typer.echo(f"mode: {'apply' if yes else 'preview'}")
-    _echo_maintenance_result(result)
-    if result.refused:
-        raise typer.Exit(code=1)
-
-
-@maintenance_app.command("repair-state")
-def maintenance_repair_state(
-    preview: bool = typer.Option(False, "--preview", help="Preview missing task baseline artifact repair."),
-    yes: bool = typer.Option(False, "--yes", help="Restore missing task baseline artifacts."),
-) -> None:
-    """Restore missing task baseline artifacts without overwriting existing evidence."""
-    if preview == yes:
-        typer.echo("Choose exactly one of --preview or --yes.", err=True)
-        raise typer.Exit(code=1)
-    result = repair_state(Path.cwd(), apply=yes)
-    typer.echo(f"mode: {'apply' if yes else 'preview'}")
-    _echo_maintenance_result(result)
-    if result.refused:
         raise typer.Exit(code=1)
 
 
@@ -2134,27 +1931,6 @@ def _echo_task_prune_result(result: dict[str, Any]) -> None:
         typer.echo(f"skipped: {item['task_id']} {item['reason']}")
     for item in result.get("refused") or []:
         typer.echo(f"refused: {item['task_id']} {item['reason']}")
-
-
-def _echo_maintenance_result(result: Any) -> None:
-    for path in result.would_remove:
-        typer.echo(f"would_remove: {path}")
-    for path in result.removed:
-        typer.echo(f"removed: {path}")
-    for path in result.would_repair:
-        typer.echo(f"would_repair: {path}")
-    for path in result.repaired:
-        typer.echo(f"repaired: {path}")
-    for item in result.refused:
-        typer.echo(f"refused: {item}")
-    if not (
-        result.would_remove
-        or result.removed
-        or result.would_repair
-        or result.repaired
-        or result.refused
-    ):
-        typer.echo("nothing_to_do: yes")
 
 
 @worker_app.command("validate-outcome")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -60,7 +59,6 @@ from devflow.control_room.task_packet import TaskPacketLimits, build_agent_packe
 from devflow.control_room.worker_evidence import write_worker_evidence
 from devflow.control_room.worker_outcome import validate_worker_outcome
 from devflow.control_room.dogfood_case_catalog import (
-    CATEGORY_LABELS,
     CATEGORY_MAX,
     DOGFOOD_SCHEMA_VERSION,
     PRODUCTION_READINESS_SUITE,
@@ -91,6 +89,12 @@ from devflow.control_room.dogfood_cases_operational import (
     _case_question_blocker_resume_loop,
     _case_simple_scheduler_parallel_coordination,
     _commands_have_no_provider_calls,
+)
+from devflow.control_room.dogfood_run_store import (
+    load_dogfood_run,
+    new_dogfood_run_id,
+    prune_old_dogfood_runs,
+    render_dogfood_score,
 )
 
 __all__ = [
@@ -131,7 +135,7 @@ def run_dogfood_suite(
 
     init_control_room(root)
     catalog.materialize(root)
-    run_id = _new_run_id(root)
+    run_id = new_dogfood_run_id(root)
     run_dir = dogfood_runs_dir(root) / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     (run_dir / "cases").mkdir(parents=True, exist_ok=True)
@@ -187,7 +191,7 @@ def run_dogfood_suite(
     atomic_write_text(run_dir / "run.yaml", yaml.safe_dump(run_yaml, sort_keys=False))
     atomic_write_text(run_dir / "scorecard.yaml", yaml.safe_dump(scorecard, sort_keys=False))
     atomic_write_text(run_dir / "report.md", report)
-    pruned_runs = _prune_old_dogfood_runs(root, keep_runs=keep_runs)
+    pruned_runs = prune_old_dogfood_runs(root, keep_runs=keep_runs)
 
     return {
         "schema_version": DOGFOOD_SCHEMA_VERSION,
@@ -201,45 +205,6 @@ def run_dogfood_suite(
         "results": results,
         "pruned_runs": pruned_runs,
     }
-
-
-def load_dogfood_run(root: Path, run_id: str) -> dict[str, Any]:
-    resolved = _resolve_run_id(root, run_id)
-    run_dir = dogfood_runs_dir(root) / resolved
-    run_path = run_dir / "run.yaml"
-    scorecard_path = run_dir / "scorecard.yaml"
-    report_path = run_dir / "report.md"
-    if not run_path.exists() or not scorecard_path.exists():
-        raise KeyError(f"Dogfood run not found: {run_id}")
-    return {
-        "run_id": resolved,
-        "run_dir": run_dir,
-        "run": yaml.safe_load(run_path.read_text(encoding="utf-8")) or {},
-        "scorecard": yaml.safe_load(scorecard_path.read_text(encoding="utf-8")) or {},
-        "report": report_path.read_text(encoding="utf-8") if report_path.exists() else "",
-    }
-
-
-def render_dogfood_score(scorecard: dict[str, Any]) -> str:
-    threshold = scorecard["threshold_result"]
-    lines = [
-        f"run_id: {scorecard['run_id']}",
-        f"total_score: {scorecard['total_score']}/{scorecard['max_score']}",
-        f"threshold: {threshold['achieved']}",
-        f"silver_met: {'yes' if threshold['silver_met'] else 'no'}",
-        "category_scores:",
-    ]
-    for category, item in scorecard["category_scores"].items():
-        lines.append(
-            f"  - {CATEGORY_LABELS.get(category, category)}: {item['score']}/{item['max']} ({item['percent']}%)"
-        )
-    if scorecard["failures"]:
-        lines.append("failures:")
-        lines.extend(f"  - {failure}" for failure in scorecard["failures"])
-    if scorecard["warnings"]:
-        lines.append("warnings:")
-        lines.extend(f"  - {warning}" for warning in scorecard["warnings"])
-    return "\n".join(lines) + "\n"
 
 
 def _task_ids(root: Path) -> set[str]:
@@ -1582,43 +1547,6 @@ def _intent_scaffold_file_snapshot(root: Path) -> list[str]:
             continue
         files.append(path.relative_to(root).as_posix())
     return sorted(files)
-
-
-def _new_run_id(root: Path) -> str:
-    stamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
-    base = f"dogfood-{stamp}"
-    runs = dogfood_runs_dir(root)
-    candidate = base
-    suffix = 2
-    while (runs / candidate).exists():
-        candidate = f"{base}-{suffix}"
-        suffix += 1
-    return candidate
-
-
-def _resolve_run_id(root: Path, run_id: str) -> str:
-    if run_id != "latest":
-        return run_id
-    runs = dogfood_runs_dir(root)
-    if not runs.exists():
-        raise KeyError("No dogfood runs found.")
-    candidates = sorted(path.name for path in runs.iterdir() if path.is_dir())
-    if not candidates:
-        raise KeyError("No dogfood runs found.")
-    return candidates[-1]
-
-
-def _prune_old_dogfood_runs(root: Path, *, keep_runs: int) -> list[str]:
-    runs = dogfood_runs_dir(root)
-    if not runs.exists():
-        return []
-    candidates = sorted(path for path in runs.iterdir() if path.is_dir())
-    stale = candidates[:-keep_runs]
-    pruned: list[str] = []
-    for path in stale:
-        shutil.rmtree(path)
-        pruned.append(relative_path(root, path))
-    return pruned
 
 
 def _dogfood_audition_discovery_report() -> LocalDiscoveryReport:
