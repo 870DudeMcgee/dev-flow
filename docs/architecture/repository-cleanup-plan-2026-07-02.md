@@ -245,6 +245,15 @@ Classification:
 
 - These are active product code, not deletion targets.
 
+Status:
+
+- The accepted Slice 7 extraction scope is complete. The follow-up planning
+  checkpoint for remaining active hotspots is
+  `docs/architecture/control-room-hotspot-followup-plan-2026-07-02.md`.
+- Future slices should keep using Graphify as evidence, not authority, and
+  should preserve the current operating-layer asset facade unless focused tests
+  justify changing it.
+
 ## Ledger Format
 
 Use this format for deletion or untracking entries:

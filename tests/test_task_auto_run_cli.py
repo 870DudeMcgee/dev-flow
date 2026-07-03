@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -41,7 +42,7 @@ def test_task_auto_run_experimental_dry_run_routes_without_executing(monkeypatch
         executed.append((args, kwargs))
         raise AssertionError("dry-run must not execute a worker")
 
-    monkeypatch.setattr("devflow.cli.run_shell_task", fail_if_executed)
+    monkeypatch.setattr("devflow.control_room.task_auto_run_command.task_service.run_shell_task", fail_if_executed)
 
     result = runner.invoke(app, ["task", "auto-run", "task-0001", "--dry-run"])
 
@@ -50,6 +51,35 @@ def test_task_auto_run_experimental_dry_run_routes_without_executing(monkeypatch
     assert "Dry-run mode" in result.output
     assert "devflow task run task-0001 --worker shell" in result.output
     assert executed == []
+
+
+def test_task_auto_run_project_option_uses_raw_cli_project_for_routing_and_hint(monkeypatch) -> None:
+    monkeypatch.setenv("DEVFLOW_EXPERIMENTAL", "1")
+    _stub_auto_run_routing(monkeypatch)
+    captured = {}
+
+    monkeypatch.setattr(
+        "devflow.cli._resolve_task_project_root",
+        lambda project: SimpleNamespace(root=Path.cwd(), project_id="normalized-project"),
+    )
+
+    def fake_route_task(*_args, **kwargs):
+        captured["project_id"] = kwargs.get("project_id")
+        return {
+            "routing_decision": {
+                "selected": {"worker": "shell"},
+                "reason": ["worker selected: shell (score=1)"],
+                "unresolved": [],
+            }
+        }
+
+    monkeypatch.setattr("devflow.control_room.router.route_task", fake_route_task)
+
+    result = runner.invoke(app, ["task", "auto-run", "task-0001", "--dry-run", "--project", "typed-project"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["project_id"] == "typed-project"
+    assert "devflow task run task-0001 --project typed-project --worker shell" in result.output
 
 
 def test_task_auto_run_experimental_execution_uses_service_facade(monkeypatch) -> None:
@@ -72,7 +102,7 @@ def test_task_auto_run_experimental_execution_uses_service_facade(monkeypatch) -
             last_exit_code=0,
         )
 
-    monkeypatch.setattr("devflow.cli.run_shell_task", fake_run_shell_task)
+    monkeypatch.setattr("devflow.control_room.task_auto_run_command.task_service.run_shell_task", fake_run_shell_task)
 
     result = runner.invoke(app, ["task", "auto-run", "task-0001"])
 

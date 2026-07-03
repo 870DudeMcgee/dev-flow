@@ -73,6 +73,11 @@ Completed across the accepted Slice 7 target list:
 
 The asset facade still assembles single `APP_JS` and `APP_CSS` strings for the active server contract. Graphify still ranks `operating_layer_script.py` and `operating_layer_styles.py` because they remain large active facades, but the accepted Slice 7 hotspot files now have explicit module boundaries. Deeper client-render fanout or CSS package splitting is a follow-on architecture slice, not remaining Slice 7 scope.
 
+The post-Slice 7 follow-up plan is recorded in
+`docs/architecture/control-room-hotspot-followup-plan-2026-07-02.md`. That plan
+ranks future slices by cohesive ownership boundaries, focused tests, and
+operator risk rather than by line count alone.
+
 ## Selection Rules
 
 Cleanup targets are selected from metric deltas, high-degree graph nodes, module size, local import fan-in, and boundary clarity. Actual refactors should be separate Dev-Flow tasks chosen from this evidence.

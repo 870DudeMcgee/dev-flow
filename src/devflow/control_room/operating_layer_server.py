@@ -36,23 +36,31 @@ from devflow.control_room.builder_judge_loop import (
     BuilderJudgeConfigError,
     BuilderJudgeRunError,
     get_builder_judge_run,
-    list_builder_judge_loops,
     project_builder_judge_run,
     run_builder_judge_loop,
     run_quality_gate,
 )
+from devflow.control_room.builder_judge_quality_gate import build_quality_gate_transcript_text
+from devflow.control_room.builder_judge_async_runtime import (
+    start_builder_judge_async_loop,
+    start_workbench_implementation_async,
+)
+from devflow.control_room import builder_judge_runtime_registry as bj_runtime
 from devflow.control_room.env_loader import load_hermes_env_file
+from devflow.control_room.browser_action_executor import (
+    ACTION_TIMEOUT_SECONDS,
+    BrowserActionExecutionError,
+    execute_browser_action,
+)
 from devflow.control_room.browser_action_policy import (
-    promotion_task_id_from_command,
     resolve_browser_action_command,
 )
+from devflow.control_room.browse_projection import BrowsePathError, build_browse_payload
 from devflow.control_room.agent_registry import (
     AgentRegistryError,
 )
 from devflow.control_room.local_model_ensure import (
-    _local_model_ensure_payload,
-    _local_model_ensure_skipped_payload,
-    _resolve_local_model_ensure_profile,
+    ensure_local_model_profile,
 )
 from devflow.control_room.local_model_server import (
     LocalModelServerError,
@@ -74,71 +82,18 @@ from devflow.control_room.refactor_loop import (
     require_refactor_approval,
     start_refactor_loop,
 )
-from devflow.control_room.supervisor_surface import classify_supervisor_command
 from devflow.control_room.unified_workbench import (
     WorkbenchError,
     create_workbench_project,
-    finalize_workbench_run,
     implementation_config_from_package,
     new_workbench_loop_id,
     prepare_implementation_package,
     run_workbench_implementation,
     setup_gate,
-    workbench_running_payload,
 )
 
-
-ACTION_TIMEOUT_SECONDS = 20
-ACTION_OUTPUT_LIMIT = 12000
 BROWSE_MAX_DIRECTORY_ENTRIES = 120
 BROWSE_MAX_FILE_BYTES = 64 * 1024
-
-# In-memory registry of live builder-judge loop payloads plus finished thread objects.
-_bj_running_loops: dict[str, dict] = {}
-_bj_threads: dict[str, threading.Thread] = {}
-# ponytail: one global lock for this small shared registry; split later only if contention shows up.
-_bj_state_lock = threading.Lock()
-_bj_completed_thread_retention = 32
-
-
-def _bj_prune_completed_threads_locked() -> None:
-    completed_loop_ids = [loop_id for loop_id, thread in _bj_threads.items() if not thread.is_alive()]
-    excess = len(completed_loop_ids) - _bj_completed_thread_retention
-    for loop_id in completed_loop_ids[: max(excess, 0)]:
-        _bj_threads.pop(loop_id, None)
-
-
-def _bj_store_running_loop(
-    loop_id: str,
-    payload: dict[str, Any],
-    thread: threading.Thread | None = None,
-    *,
-    prune: bool = True,
-) -> None:
-    with _bj_state_lock:
-        if thread is not None:
-            _bj_threads[loop_id] = thread
-        _bj_running_loops[loop_id] = payload
-        if prune:
-            _bj_prune_completed_threads_locked()
-
-
-def _bj_get_running_loop(loop_id: str) -> dict[str, Any] | None:
-    with _bj_state_lock:
-        _bj_prune_completed_threads_locked()
-        payload = _bj_running_loops.get(loop_id)
-        return dict(payload) if payload is not None else None
-
-
-def _bj_list_visible_loops(root: Path) -> list[dict[str, Any]]:
-    loops_by_id = {str(loop.get("loop_id") or ""): loop for loop in list_builder_judge_loops(root)}
-    with _bj_state_lock:
-        _bj_prune_completed_threads_locked()
-        for loop_id, payload in _bj_running_loops.items():
-            loops_by_id[loop_id] = project_builder_judge_run(payload, root=root)
-    loops = list(loops_by_id.values())
-    loops.sort(key=lambda loop: loop.get("started_at", ""), reverse=True)
-    return loops
 
 
 class OperatingLayerHTTPServer(ThreadingHTTPServer):
@@ -299,102 +254,23 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_action_error("command is required", HTTPStatus.BAD_REQUEST, "missing_command", ValueError("command is required"))
             return
 
-        classification = classify_supervisor_command(command)
         try:
-            browser_action = resolve_browser_action_command(payload, command, classification)
-        except ValueError as exc:
-            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "resolver_failure", exc)
-            return
-        if browser_action is None:
-            self._send_json(
-                {
-                    "executed": False,
-                    "requires_human_approval": bool(classification["requires_human_approval"]),
-                    "classification": classification,
-                    "message": classification["why_not_auto_runnable"]
-                    or "command is not supervisor-safe for browser execution",
-                },
-                HTTPStatus.CONFLICT,
+            response = execute_browser_action(
+                payload,
+                self.server.repo_root,
+                resolve_command=resolve_browser_action_command,
             )
-            return
-
-        project_id = payload.get("project")
-        try:
-            root = self.server.repo_root
-            if isinstance(project_id, str) and project_id.strip():
-                root = resolve_project_root(self.server.repo_root, project_id.strip()).root
-            args = browser_action.args
-            context_path = _write_promotion_context(root, command, payload) if browser_action.writes_promotion_context else None
-        except (ProjectRegistryError, OSError, ValueError) as exc:
-            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "resolver_failure", exc)
-            return
-
-        env = _devflow_subprocess_env()
-        try:
-            completed = subprocess.run(
-                args,
-                cwd=root,
-                env=env,
-                text=True,
-                input="y\n" if browser_action.writes_promotion_context else None,
-                capture_output=True,
-                timeout=ACTION_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except FileNotFoundError as exc:
+        except BrowserActionExecutionError as exc:
             self._send_action_error(
-                f"failed to execute command: {exc}",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                "command_execution_failed",
-                exc,
-                retriable=True,
-            )
-            return
-        except OSError as exc:
-            self._send_action_error(
-                f"failed to execute command: {exc}",
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-                "command_execution_failed",
-                exc,
-                retriable=True,
-            )
-            return
-        except subprocess.TimeoutExpired as exc:
-            timeout_message = f"command timed out after {ACTION_TIMEOUT_SECONDS}s"
-            self._send_json(
-                {
-                    "error": timeout_message,
-                    "error_code": "command_timed_out",
-                    "error_type": type(exc).__name__,
-                    "retriable": True,
-                    "executed": True,
-                    "timed_out": True,
-                    "exit_code": None,
-                    "classification": classification,
-                    "stdout": _truncate_text(exc.stdout or ""),
-                    "stderr": _truncate_text(exc.stderr or timeout_message),
-                    "output_truncated": _output_was_truncated(exc.stdout or "", exc.stderr or ""),
-                },
-                HTTPStatus.REQUEST_TIMEOUT,
+                exc.message,
+                exc.status,
+                exc.error_code,
+                exc.cause,
+                retriable=exc.retriable,
             )
             return
 
-        stdout = completed.stdout or ""
-        stderr = completed.stderr or ""
-        self._send_json(
-            {
-                "executed": True,
-                "timed_out": False,
-                "exit_code": completed.returncode,
-                "requires_human_approval": bool(classification["requires_human_approval"]),
-                "classification": classification,
-                "stdout": _truncate_text(stdout),
-                "stderr": _truncate_text(stderr),
-                "output_truncated": _output_was_truncated(stdout, stderr),
-                "context_path": context_path,
-            },
-            HTTPStatus.OK,
-        )
+        self._send_json(response.payload, response.status)
 
     def _handle_brainstorm_sessions(self) -> None:
         try:
@@ -456,81 +332,14 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
     def _handle_browse(self, query: dict[str, list[str]]) -> None:
         try:
             raw_path = (query.get("path") or [None])[0]
-            if raw_path is None or raw_path == "~":
-                browse_path = Path.home()
-            else:
-                browse_path = Path(raw_path).expanduser().resolve()
-
-            # If it's a file, return its content
-            if browse_path.is_file():
-                try:
-                    file_size = browse_path.stat().st_size
-                    file_bytes, truncated = _read_file_bytes_with_limit(
-                        browse_path,
-                        BROWSE_MAX_FILE_BYTES,
-                    )
-                    content = _decode_browse_file_content(file_bytes, truncated=truncated)
-                    self._send_json(
-                        {
-                            "path": str(browse_path),
-                            "content": content,
-                            "is_file": True,
-                            "content_truncated": truncated,
-                            "content_limit": BROWSE_MAX_FILE_BYTES,
-                            "content_size": file_size,
-                            "returned_bytes": len(file_bytes),
-                        },
-                        HTTPStatus.OK,
-                    )
-                except UnicodeDecodeError:
-                    self._send_json(
-                        {
-                            "path": str(browse_path),
-                            "content": "(binary file)",
-                            "is_file": True,
-                            "content_truncated": truncated,
-                            "content_limit": BROWSE_MAX_FILE_BYTES,
-                            "content_size": file_size,
-                            "returned_bytes": len(file_bytes),
-                        },
-                        HTTPStatus.OK,
-                    )
-                return
-
-            if not browse_path.is_dir():
-                self._send_json_error(f"Not a directory: {browse_path}", HTTPStatus.BAD_REQUEST)
-                return
-
-            visible_entries: list[Path] = []
-            entries_truncated = False
-            for entry in browse_path.iterdir():
-                if entry.name.startswith("."):
-                    continue
-                visible_entries.append(entry)
-                if len(visible_entries) > BROWSE_MAX_DIRECTORY_ENTRIES:
-                    entries_truncated = True
-                    break
-            sorted_entries = sorted(
-                visible_entries[:BROWSE_MAX_DIRECTORY_ENTRIES],
-                key=lambda e: (not e.is_dir(), e.name.lower()),
+            payload = build_browse_payload(
+                raw_path,
+                max_file_bytes=BROWSE_MAX_FILE_BYTES,
+                max_directory_entries=BROWSE_MAX_DIRECTORY_ENTRIES,
             )
-            entries: list[dict[str, object]] = []
-            for entry in sorted_entries:
-                is_dir = entry.is_dir()
-                has_devflow = is_dir and (entry / ".devflow").is_dir()
-                entries.append({
-                    "name": entry.name,
-                    "path": str(entry),
-                    "is_dir": is_dir,
-                    "has_devflow": has_devflow,
-                })
-            self._send_json({
-                "current_path": str(browse_path),
-                "parent_path": str(browse_path.parent) if browse_path != browse_path.parent else None,
-                "entries": entries,
-                "entries_truncated": entries_truncated,
-                "entry_limit": BROWSE_MAX_DIRECTORY_ENTRIES,
-            }, HTTPStatus.OK)
+            self._send_json(payload, HTTPStatus.OK)
+        except BrowsePathError as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -805,48 +614,13 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             return
 
         if async_mode:
-            # Start in background thread, return immediately
             loop_id = _generate_loop_id()
-
-            def _run_bj_loop():
-                try:
-                    run = run_builder_judge_loop(root, config, loop_id=loop_id)
-                    payload = project_builder_judge_run(run, root=root)
-                except Exception as exc:
-                    payload = project_builder_judge_run(
-                        {
-                            "loop_id": loop_id,
-                            "status": "failed",
-                            "error": str(exc),
-                            "rounds": [],
-                            "config": config.model_dump(mode="json"),
-                            "started_at": datetime.now(timezone.utc).isoformat(),
-                            "finished_at": datetime.now(timezone.utc).isoformat(),
-                            "stop_reason": "background_thread_error",
-                            "next_safe_action": str(exc),
-                        },
-                        root=root,
-                    )
-                _bj_store_running_loop(loop_id, payload, threading.current_thread())
-
-            thread = threading.Thread(target=_run_bj_loop, daemon=True)
-            start_payload = project_builder_judge_run(
-                {
-                    "loop_id": loop_id,
-                    "run_id": "",
-                    "status": "running",
-                    "config": config.model_dump(mode="json"),
-                    "rounds": [],
-                    "started_at": datetime.now(timezone.utc).isoformat(),
-                    "finished_at": None,
-                    "stop_reason": "",
-                    "next_safe_action": "",
-                },
-                root=root,
+            start_payload = start_builder_judge_async_loop(
+                root,
+                config,
+                loop_id=loop_id,
+                run_loop=run_builder_judge_loop,
             )
-            _bj_store_running_loop(loop_id, start_payload, thread, prune=False)
-            thread.start()
-
             self._send_json(start_payload, HTTPStatus.OK)
         else:
             # Synchronous mode (for CLI or testing)
@@ -867,7 +641,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
     def _handle_builder_judge_list(self) -> None:
         try:
             root = self.server.repo_root
-            loops = _bj_list_visible_loops(root)
+            loops = bj_runtime._bj_list_visible_loops(root)
         except (OSError, ValueError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
@@ -884,7 +658,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
         # Check in-memory registry first (for running loops)
-        run_data = _bj_get_running_loop(loop_id)
+        run_data = bj_runtime._bj_get_running_loop(loop_id)
         if run_data is not None:
             # If still running, also try to read incremental file state
             if run_data.get("status") == "running":
@@ -916,22 +690,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             stage = payload.get("stage")
             if not isinstance(stage, str) or stage not in ("spec", "plan"):
                 raise ValueError("stage must be 'spec' or 'plan'")
-
-            # Read brainstorm transcript
-            from devflow.control_room.brainstorm import _read_transcript, _session_dir
-            transcript_path = _session_dir(root, session_id) / "transcript.jsonl"
-            records = _read_transcript(transcript_path)
-            if not records:
-                raise ValueError(f"brainstorm session has no transcript: {session_id}")
-
-            # Build transcript text for the builder
-            transcript_lines = []
-            for record in records:
-                role = str(record.get("role") or "unknown")
-                content = str(record.get("content") or "").strip()
-                if content:
-                    transcript_lines.append(f"### {role.title()}\n\n{content}\n")
-            transcript_text = "\n".join(transcript_lines)
+            transcript_text = build_quality_gate_transcript_text(root, session_id)
 
             builder_profile_id = payload.get("builder_profile_id") or DEFAULT_BUILDER_PROFILE
             judge_profile_id = payload.get("judge_profile_id") or DEFAULT_JUDGE_PROFILE
@@ -1034,53 +793,14 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_action_error(f"Workbench implement failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
             return
 
-        def _run_workbench_loop() -> None:
-            try:
-                run = run_builder_judge_loop(root, config, loop_id=loop_id)
-                final = finalize_workbench_run(root, session_id=session_id, run=run, package=package)
-                payload = project_builder_judge_run(run, root=root)
-                payload["workbench"] = {
-                    "session_id": session_id,
-                    "implementation_path": final["implementation_path"],
-                    "refactor_offer_path": final["refactor_offer_path"],
-                    "next_action": final["next_action"],
-                    "package": package.model_dump(mode="json"),
-                }
-                _bj_store_running_loop(loop_id, payload)
-            except Exception as exc:
-                payload = project_builder_judge_run(
-                    {
-                        "loop_id": loop_id,
-                        "status": "failed",
-                        "error": str(exc),
-                        "rounds": [],
-                        "config": config.model_dump(mode="json"),
-                        "started_at": datetime.now(timezone.utc).isoformat(),
-                        "finished_at": datetime.now(timezone.utc).isoformat(),
-                        "stop_reason": "workbench_background_thread_error",
-                        "next_safe_action": str(exc),
-                        "workbench": {
-                            "session_id": session_id,
-                            "package": package.model_dump(mode="json"),
-                        },
-                    },
-                    root=root,
-                )
-                _bj_store_running_loop(loop_id, payload, threading.current_thread())
-
-        thread = threading.Thread(target=_run_workbench_loop, daemon=True)
-        running_payload = project_builder_judge_run(
-            workbench_running_payload(
-                root,
-                session_id=session_id,
-                loop_id=loop_id,
-                package=package,
-                config=config,
-            ),
-            root=root,
+        running_payload = start_workbench_implementation_async(
+            root,
+            session_id=session_id,
+            loop_id=loop_id,
+            package=package,
+            config=config,
+            run_loop=run_builder_judge_loop,
         )
-        _bj_store_running_loop(loop_id, running_payload, thread, prune=False)
-        thread.start()
         self._send_json(running_payload, HTTPStatus.OK)
 
     def _handle_gates_setup(self) -> None:
@@ -1104,51 +824,20 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(profile_id, str) or not profile_id.strip():
                 self._send_action_error("profile_id is required", HTTPStatus.BAD_REQUEST, "validation_error", ValueError("profile_id is required"))
                 return
-            resolved = _resolve_local_model_ensure_profile(root, profile_id.strip())
-        except (ProjectRegistryError, ValueError, AgentRegistryError) as exc:
-            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
-            return
-        except OSError as exc:
-            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
-            return
+            result = ensure_local_model_profile(
+                root,
+                profile_id.strip(),
+                ensure_server=ensure_local_model_server_for_profile,
+            )
         except KeyError as exc:
             message = str(exc.args[0]) if exc.args else str(exc)
             self._send_action_error(message, HTTPStatus.NOT_FOUND, "missing_profile", exc, retriable=False)
             return
-
-        if resolved.is_ollama:
-            self._send_json(
-                _local_model_ensure_skipped_payload(
-                    resolved,
-                    status="unmanaged",
-                    management="managed_by_ollama",
-                    reason="Ollama profiles are managed by Ollama; Dev-Flow does not stop or start Ollama.",
-                ),
-                HTTPStatus.OK,
-            )
-            return
-
-        if not resolved.is_local:
-            self._send_json(
-                _local_model_ensure_skipped_payload(
-                    resolved,
-                    status="skipped",
-                    management="provider_managed_remote",
-                    reason="Remote/frontier profiles are provider-managed; no local model server boot is needed.",
-                ),
-                HTTPStatus.OK,
-            )
-            return
-
-        try:
-            lifecycle = ensure_local_model_server_for_profile(
-                root,
-                provider=resolved.provider,
-                model=resolved.model,
-                base_url=resolved.base_url,
-            )
         except LocalModelServerError as exc:
             self._send_action_error(str(exc), HTTPStatus.CONFLICT, "local_model_server_error", exc, retriable=True)
+            return
+        except (ProjectRegistryError, ValueError, AgentRegistryError) as exc:
+            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
             return
         except OSError as exc:
             self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
@@ -1157,7 +846,7 @@ class OperatingLayerRequestHandler(BaseHTTPRequestHandler):
             self._send_action_error(f"Local model ensure failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
             return
 
-        self._send_json(_local_model_ensure_payload(resolved, lifecycle), HTTPStatus.OK)
+        self._send_json(result, HTTPStatus.OK)
 
     def _handle_refactor_start(self) -> None:
         try:
@@ -1446,68 +1135,3 @@ def run_operating_layer_server(
         server.serve_forever()
     finally:
         server.server_close()
-
-
-def _write_promotion_context(root: Path, command: str, payload: dict[str, object]) -> str | None:
-    note = payload.get("context_note")
-    if not isinstance(note, str) or not note.strip():
-        return None
-    task_id = promotion_task_id_from_command(command)
-    task_path = root / ".devflow" / "tasks" / task_id
-    if not task_path.is_dir():
-        raise ValueError(f"task not found for promotion context: {task_id}")
-    cleaned = note.strip()
-    if len(cleaned) > 4000:
-        cleaned = cleaned[:4000].rstrip() + "\n\n[truncated]"
-    context_path = task_path / "promotion-context.md"
-    timestamp = datetime.now(timezone.utc).isoformat()
-    entry = (
-        f"\n## {timestamp}\n\n"
-        f"- command: `{command}`\n"
-        f"- source: operating-layer approval\n\n"
-        f"{cleaned}\n"
-    )
-    if context_path.exists():
-        with context_path.open("a", encoding="utf-8") as handle:
-            handle.write(entry)
-    else:
-        context_path.write_text("# Human Promotion Context\n" + entry, encoding="utf-8")
-    return context_path.relative_to(root).as_posix()
-
-
-def _devflow_subprocess_env() -> dict[str, str]:
-    env = os.environ.copy()
-    src_root = Path(__file__).resolve().parents[2]
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = f"{src_root}{os.pathsep}{existing}" if existing else src_root.as_posix()
-    return env
-
-
-def _truncate_text(value: str) -> str:
-    if len(value) <= ACTION_OUTPUT_LIMIT:
-        return value
-    return value[:ACTION_OUTPUT_LIMIT] + "\n...[truncated]"
-
-
-def _read_file_bytes_with_limit(path: Path, max_bytes: int) -> tuple[bytes, bool]:
-    with path.open("rb") as handle:
-        data = handle.read(max_bytes + 1)
-    return data[:max_bytes], len(data) > max_bytes
-
-
-def _decode_browse_file_content(data: bytes, *, truncated: bool) -> str:
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        if not truncated:
-            raise
-    for trim_count in range(1, min(4, len(data) + 1)):
-        try:
-            return data[:-trim_count].decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-    raise UnicodeDecodeError("utf-8", data, 0, 1, "invalid truncated utf-8")
-
-
-def _output_was_truncated(stdout: str, stderr: str) -> bool:
-    return len(stdout) > ACTION_OUTPUT_LIMIT or len(stderr) > ACTION_OUTPUT_LIMIT

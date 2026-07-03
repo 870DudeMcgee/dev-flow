@@ -34,7 +34,6 @@ from devflow.control_room.service import (
     get_task,
     init_control_room,
     run_local_model_task,
-    run_shell_task,
     verify_task,
 )
 from devflow.control_room.task_apply_patch_command import (
@@ -42,6 +41,7 @@ from devflow.control_room.task_apply_patch_command import (
     build_task_apply_patch_result,
     render_task_apply_patch_result,
 )
+from devflow.control_room.task_auto_run_command import run_task_auto_run_command
 from devflow.control_room.task_patch_gate_command import (
     TaskPatchGateCommandError,
     build_task_patch_dry_run_result,
@@ -1467,99 +1467,18 @@ def task_auto_run(
     """
     _enforce_experimental("task auto-run")
     scope = _resolve_task_project_root(project)
-    root = scope.root
     project_option = f" --project {project}" if project else ""
-
-    from devflow.control_room.router import route_task, save_routing_decision
-    from devflow.control_room.estimator import estimate_task_fit, save_task_fit
-
-    # Step 1: Fit (classify archetype)
-    fit_data = estimate_task_fit(root, task_id)
-    task_fit = fit_data.get("task_fit", {})
-    save_task_fit(root, task_id, fit_data)
-    archetype_id = task_fit.get("archetype_id", "unknown")
-    context_estimate = fit_data.get("repo_scan", {}).get("total_context_estimate", 0)
-    requires_vision = task_fit.get("requires_vision", False)
-    requires_thinking = task_fit.get("requires_thinking", "optional")
-
-    typer.echo(f"task_id: {task_id}")
-    typer.echo(f"archetype: {archetype_id}")
-    typer.echo(f"context_estimate: {context_estimate} tokens")
-    typer.echo(f"requires_vision: {requires_vision}")
-    typer.echo(f"requires_thinking: {requires_thinking}")
-    typer.echo("---")
-
-    # Step 2: Route (select best worker)
-    decision_data = route_task(root, task_id, project_id=project)
-    save_routing_decision(root, task_id, decision_data)
-    rd = decision_data.get("routing_decision", {})
-    selected = rd.get("selected", {})
-    worker_id = selected.get("worker") if isinstance(selected, dict) else None
-    reasons = rd.get("reason", [])
-    unresolved = rd.get("unresolved", [])
-
-    if worker_id:
-        typer.echo(f"selected_worker: {worker_id}")
-        for reason in reasons:
-            if "score=" in reason or "tuned" in reason or "selected:" in reason:
-                typer.echo(f"  reason: {reason}")
-        if unresolved:
-            for item in unresolved:
-                typer.echo(f"  unresolved: {item.get('role')} - {item.get('reason', '')}")
-    else:
-        typer.echo("no eligible worker selected")
-        for item in unresolved:
-            typer.echo(f"  unresolved: {item.get('role')} - {item.get('reason', '')}")
-        if not dry_run:
-            raise typer.Exit(code=1)
-
-    if dry_run:
-        if worker_id:
-            typer.echo("---")
-            typer.echo(f"Dry-run mode — to execute: devflow task run {task_id}{project_option} --worker {worker_id}")
-        return
-
-    # Step 3: Run
-    typer.echo("---")
-    typer.echo(f"Executing worker: {worker_id}")
-
-    from devflow.control_room.worker_adapter import UnsupportedWorkerAdapter, list_worker_adapters
-    from devflow.control_room.agent_registry import load_agent_registry
-
-    registry = load_agent_registry(root)
-    selected_agent = registry.agents.get(worker_id) if worker_id else None
-
-    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat":
-        typer.echo("worker_mode: registry_backed_local_ollama_patch_worker")
-        typer.echo("worker_note: writes proposal.patch evidence only; Dev-Flow applies patches separately and verifies separately.")
-
-    valid_agents = list(registry.agents.keys())
-    valid_adapters_list = list_worker_adapters()
-    if worker_id not in valid_agents and worker_id not in valid_adapters_list:
-        from devflow.control_room.worker_adapter import get_worker_adapter
-        try:
-            get_worker_adapter(worker_id)
-        except UnsupportedWorkerAdapter as exc:
-            typer.echo(str(exc))
-            raise typer.Exit(code=1) from exc
-
-    try:
-        task = run_shell_task(root, task_id, [], worker_adapter=worker_id)
-    except (KeyError, ValueError) as exc:
-        typer.echo(str(exc))
-        raise typer.Exit(code=1) from exc
-
-    typer.echo(f"status: {task.status}")
-    typer.echo(f"log_path: {task.log_path}")
-    if task.latest_log_line:
-        typer.echo(f"latest_log_line: {task.latest_log_line}")
-
-    if selected_agent is not None and selected_agent.provider == "ollama" and selected_agent.adapter == "ollama_chat" and task.status == "complete":
-        typer.echo(f"suggested_next_action: devflow task review-patch {task.id} --agent {worker_id}")
-
-    if task.status != "complete":
-        exit_code = task.last_exit_code if task.last_exit_code is not None else 1
-        raise typer.Exit(code=exit_code)
+    result = run_task_auto_run_command(
+        scope.root,
+        task_id,
+        dry_run=dry_run,
+        project_id=project,
+        project_option=project_option,
+    )
+    for line in result.lines:
+        typer.echo(line)
+    if result.exit_code:
+        raise typer.Exit(code=result.exit_code)
 
 
 @task_app.command("escalation-packet")

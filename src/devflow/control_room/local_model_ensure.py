@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 from devflow.control_room.agent_registry import (
@@ -15,6 +15,10 @@ from devflow.control_room.hermes_profile_resolver import (
     resolve_hermes_profile,
 )
 from devflow.control_room.local_model_readiness import load_expected_local_model_manifest
+from devflow.control_room.local_model_server import ensure_local_model_server_for_profile
+
+
+EnsureServer = Callable[..., dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,38 @@ def _resolve_local_model_ensure_profile(root: Path, profile_id: str) -> LocalMod
         return manifest_profile
 
     raise KeyError(f"Unknown profile_id '{profile_id}'")
+
+
+def ensure_local_model_profile(
+    root: Path,
+    profile_id: str,
+    *,
+    ensure_server: EnsureServer = ensure_local_model_server_for_profile,
+) -> dict[str, Any]:
+    resolved = _resolve_local_model_ensure_profile(root, profile_id)
+    if resolved.is_ollama:
+        return _local_model_ensure_skipped_payload(
+            resolved,
+            status="unmanaged",
+            management="managed_by_ollama",
+            reason="Ollama profiles are managed by Ollama; Dev-Flow does not stop or start Ollama.",
+        )
+
+    if not resolved.is_local:
+        return _local_model_ensure_skipped_payload(
+            resolved,
+            status="skipped",
+            management="provider_managed_remote",
+            reason="Remote/frontier profiles are provider-managed; no local model server boot is needed.",
+        )
+
+    lifecycle = ensure_server(
+        root,
+        provider=resolved.provider,
+        model=resolved.model,
+        base_url=resolved.base_url,
+    )
+    return _local_model_ensure_payload(resolved, lifecycle)
 
 
 def _registry_ensure_profile(root: Path, profile_id: str) -> LocalModelEnsureProfile | None:

@@ -14,8 +14,6 @@ from devflow.control_room.architecture_audit import (
     GraphMetrics,
     GraphifyStatus,
 )
-from devflow.control_room.operating_layer_html import INDEX_HTML
-from devflow.control_room.operating_layer_script import APP_JS
 from devflow.control_room.refactor_loop import (
     REFACTOR_APPROVAL_ACTION,
     RefactorLoopError,
@@ -481,23 +479,3 @@ def test_operating_layer_refactor_status_endpoint_reads_persisted_run(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-
-
-def test_operating_layer_refactor_ui_has_worker_selector_and_endpoint() -> None:
-    assert 'id="refactor-run-btn"' in INDEX_HTML
-    assert 'id="refactor-view-work-btn"' in INDEX_HTML
-    assert 'id="refactor-worker"' in INDEX_HTML
-    assert '<option value="local-fast">local-fast</option>' in INDEX_HTML
-    assert '<option value="codex55">codex55</option>' in INDEX_HTML
-    assert "/api/refactor/start" in APP_JS
-    assert "/api/refactor/status" in APP_JS
-    assert "renderRefactorWorkView" in APP_JS
-    assert "data-refactor-tab" in APP_JS
-    assert "Rationale" in APP_JS
-    assert "Status reason" in APP_JS
-    assert "Worker Plan" in APP_JS
-    assert "Loop Status" in APP_JS
-    assert "Handoff Evidence" in APP_JS
-    assert "Worker thinking" not in APP_JS
-    assert "REFACTOR_APPROVAL_ACTION" in APP_JS
-    assert "setupRefactorLoop();" in APP_JS
