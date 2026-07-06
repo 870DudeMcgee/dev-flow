@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-import devflow.control_room.operating_layer_server as operating_layer_server
 import devflow.control_room.operating_layer_obsidian_handlers as obsidian_handlers
 from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer
 from devflow.control_room.persistence import get_task

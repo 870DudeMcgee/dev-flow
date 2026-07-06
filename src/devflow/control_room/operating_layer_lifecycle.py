@@ -12,10 +12,8 @@ import os
 import subprocess
 import threading
 import webbrowser
-from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qs, urlsplit
 
 
 def find_listening_pids(port: int) -> list[int]:

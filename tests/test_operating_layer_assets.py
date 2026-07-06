@@ -17,9 +17,9 @@ from devflow.control_room.operating_layer_workbench_styles import WORKBENCH_CSS
 
 
 def test_operating_layer_assets_facade_keeps_split_asset_contract() -> None:
-    assert INDEX_HTML is SPLIT_INDEX_HTML
-    assert APP_CSS is SPLIT_APP_CSS
-    assert APP_JS is SPLIT_APP_JS
+    assert INDEX_HTML == SPLIT_INDEX_HTML
+    assert APP_CSS == SPLIT_APP_CSS
+    assert APP_JS == SPLIT_APP_JS
     assert '<link rel="stylesheet" href="/app.css?v=unified-workbench-20260629">' in INDEX_HTML
     assert '<script src="/app.js?v=unified-workbench-20260629"></script>' in INDEX_HTML
     assert ".focus-overlay" in APP_CSS
