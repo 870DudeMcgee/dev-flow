@@ -17,10 +17,11 @@ from devflow.control_room.browser_action_executor import (
 from devflow.control_room.browser_action_policy import (  # noqa: F401 - re-exported for route contract tests
     resolve_browser_action_command,
 )
-from devflow.control_room.operating_layer_actions_agents_task_context_handlers import ActionsAgentsTaskContextHandlerMixin
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
+from devflow.control_room.operating_layer_actions_agents_task_context_handlers import ActionsAgentsTaskContextHandlerMixin
 from devflow.control_room.operating_layer_brainstorm_handlers import BrainstormHandlerMixin
 from devflow.control_room.operating_layer_browse_snapshot_repo_handlers import BrowseSnapshotRepoHandlerMixin
+from devflow.control_room.operating_layer_infrastructure_handlers import HttpInfrastructureMixin
 from devflow.control_room.operating_layer_lifecycle import (  # noqa: F401 - re-exported for backward compat
     check_server_health,
     find_listening_pids,
@@ -32,7 +33,6 @@ from devflow.control_room.operating_layer_gates_local_model_handlers import Gate
 from devflow.control_room.operating_layer_obsidian_handlers import ObsidianHandlerMixin
 from devflow.control_room.operating_layer_refactor_handlers import RefactorHandlerMixin
 from devflow.control_room.operating_layer_workbench_handlers import WorkbenchHandlerMixin
-from devflow.control_room.project_registry import resolve_project_root
 
 
 class OperatingLayerHTTPServer(ThreadingHTTPServer):
@@ -41,7 +41,7 @@ class OperatingLayerHTTPServer(ThreadingHTTPServer):
         self.repo_root = repo_root.resolve()
 
 
-class OperatingLayerRequestHandler(ActionsAgentsTaskContextHandlerMixin, BrowseSnapshotRepoHandlerMixin, RefactorHandlerMixin, GatesLocalModelHandlerMixin, WorkbenchHandlerMixin, BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
+class OperatingLayerRequestHandler(ActionsAgentsTaskContextHandlerMixin, BrowseSnapshotRepoHandlerMixin, RefactorHandlerMixin, GatesLocalModelHandlerMixin, WorkbenchHandlerMixin, BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, HttpInfrastructureMixin, BaseHTTPRequestHandler):
     server: OperatingLayerHTTPServer
 
     # ── Route dispatch tables ────────────────────────────────────────
@@ -145,117 +145,6 @@ class OperatingLayerRequestHandler(ActionsAgentsTaskContextHandlerMixin, BrowseS
         self._send_text(
             json.dumps({"status": "ok"}) + "\n",
             "application/json; charset=utf-8",
-        )
-
-    def log_message(self, format: str, *args: object) -> None:
-        return
-
-    def _payload_project_root(self, payload: dict[str, object]) -> Path:
-        project_id = payload.get("project")
-        root = self.server.repo_root
-        if isinstance(project_id, str) and project_id.strip():
-            root = resolve_project_root(self.server.repo_root, project_id.strip()).root
-        return root
-
-    def _query_project_root(self, query: dict[str, list[str]]) -> Path:
-        project_id = (query.get("project") or [None])[0]
-        root = self.server.repo_root
-        if isinstance(project_id, str) and project_id.strip():
-            root = resolve_project_root(self.server.repo_root, project_id.strip()).root
-        return root
-
-    def _read_json_body(self) -> dict[str, object]:
-        length_header = self.headers.get("Content-Length")
-        try:
-            length = int(length_header or "0")
-        except ValueError as exc:
-            raise ValueError("invalid Content-Length") from exc
-        if length <= 0:
-            raise ValueError("JSON body is required")
-        raw = self.rfile.read(length)
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise ValueError("invalid JSON body") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("JSON object body is required")
-        return payload
-
-    def _send_text(self, body: str, content_type: str) -> None:
-        encoded = body.encode("utf-8")
-        self._send_text_headers(body, content_type)
-        try:
-            self.wfile.write(encoded)
-        except (BrokenPipeError, ConnectionResetError):
-            return
-
-    def _send_text_headers(self, body: str, content_type: str) -> None:
-        encoded = body.encode("utf-8")
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-
-    def _send_artifact(self, body: bytes, content_type: str) -> None:
-        # Architecture evidence artifacts are served inline-only with strict,
-        # no-sniff, no-store headers. Graphify HTML is rendered inside a
-        # sandboxed iframe on the client; we never expose arbitrary path reads.
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Disposition", "inline")
-        self.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        try:
-            self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            return
-
-    def _send_json(self, payload: dict[str, object], status: HTTPStatus) -> None:
-        body = json.dumps(payload) + "\n"
-        encoded = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        try:
-            self.wfile.write(encoded)
-        except (BrokenPipeError, ConnectionResetError):
-            return
-
-    def _send_json_error(self, message: str, status: HTTPStatus) -> None:
-        body = json.dumps({"error": message}) + "\n"
-        encoded = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        try:
-            self.wfile.write(encoded)
-        except (BrokenPipeError, ConnectionResetError):
-            return
-
-    def _send_action_error(
-        self,
-        message: str,
-        status: HTTPStatus,
-        error_code: str,
-        exc: Exception,
-        retriable: bool = False,
-    ) -> None:
-        self._send_json(
-            {
-                "error": message,
-                "error_code": error_code,
-                "error_type": type(exc).__name__,
-                "retriable": bool(retriable),
-            },
-            status,
         )
 
 
