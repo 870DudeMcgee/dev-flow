@@ -11,16 +11,16 @@ from urllib.parse import parse_qs, urlsplit
 from devflow.control_room.env_loader import load_hermes_env_file  # noqa: F401 - re-exported for CLI
 from devflow.control_room.browser_action_executor import (
     ACTION_TIMEOUT_SECONDS,  # noqa: F401 - re-exported for route contract tests
-    BrowserActionExecutionError,
-    execute_browser_action,
+    BrowserActionExecutionError,  # noqa: F401 - re-exported for route contract tests
+    execute_browser_action,  # noqa: F401 - re-exported for route contract tests
 )
-from devflow.control_room.browser_action_policy import (
+from devflow.control_room.browser_action_policy import (  # noqa: F401 - re-exported for route contract tests
     resolve_browser_action_command,
 )
-from devflow.control_room.browse_projection import BrowsePathError, build_browse_payload
+from devflow.control_room.operating_layer_actions_agents_task_context_handlers import ActionsAgentsTaskContextHandlerMixin
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
-from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.operating_layer_brainstorm_handlers import BrainstormHandlerMixin
+from devflow.control_room.operating_layer_browse_snapshot_repo_handlers import BrowseSnapshotRepoHandlerMixin
 from devflow.control_room.operating_layer_lifecycle import (  # noqa: F401 - re-exported for backward compat
     check_server_health,
     find_listening_pids,
@@ -30,17 +30,9 @@ from devflow.control_room.operating_layer_lifecycle import (  # noqa: F401 - re-
 from devflow.control_room.operating_layer_builder_judge_handlers import BuilderJudgeHandlerMixin
 from devflow.control_room.operating_layer_gates_local_model_handlers import GatesLocalModelHandlerMixin
 from devflow.control_room.operating_layer_obsidian_handlers import ObsidianHandlerMixin
+from devflow.control_room.operating_layer_refactor_handlers import RefactorHandlerMixin
 from devflow.control_room.operating_layer_workbench_handlers import WorkbenchHandlerMixin
-from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
-from devflow.control_room.refactor_loop import (
-    RefactorLoopError,
-    load_refactor_run_status,
-    require_refactor_approval,
-    start_refactor_loop,
-)
-
-BROWSE_MAX_DIRECTORY_ENTRIES = 120
-BROWSE_MAX_FILE_BYTES = 64 * 1024
+from devflow.control_room.project_registry import resolve_project_root
 
 
 class OperatingLayerHTTPServer(ThreadingHTTPServer):
@@ -49,7 +41,7 @@ class OperatingLayerHTTPServer(ThreadingHTTPServer):
         self.repo_root = repo_root.resolve()
 
 
-class OperatingLayerRequestHandler(GatesLocalModelHandlerMixin, WorkbenchHandlerMixin, BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
+class OperatingLayerRequestHandler(ActionsAgentsTaskContextHandlerMixin, BrowseSnapshotRepoHandlerMixin, RefactorHandlerMixin, GatesLocalModelHandlerMixin, WorkbenchHandlerMixin, BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
     server: OperatingLayerHTTPServer
 
     # ── Route dispatch tables ────────────────────────────────────────
@@ -155,169 +147,8 @@ class OperatingLayerRequestHandler(GatesLocalModelHandlerMixin, WorkbenchHandler
             "application/json; charset=utf-8",
         )
 
-    # ── Snapshot handler (extracted from inline do_GET) ─────────────
-    def _handle_snapshot(self, query: dict[str, list[str]]) -> None:
-        project_id = (query.get("project") or [None])[0]
-        try:
-            root = self.server.repo_root
-            if project_id:
-                root = resolve_project_root(self.server.repo_root, project_id).root
-        except ProjectRegistryError as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        self._send_text(
-            render_operating_layer_snapshot_json(root, project_id=project_id),
-            "application/json; charset=utf-8",
-        )
-
-    # ── Actions run handler (extracted from inline do_POST) ─────────
-    def _handle_actions_run(self) -> None:
-        try:
-            payload = self._read_json_body()
-        except ValueError as exc:
-            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "invalid_json", exc)
-            return
-
-        command = payload.get("command")
-        if not isinstance(command, str) or not command.strip():
-            self._send_action_error("command is required", HTTPStatus.BAD_REQUEST, "missing_command", ValueError("command is required"))
-            return
-
-        try:
-            response = execute_browser_action(
-                payload,
-                self.server.repo_root,
-                resolve_command=resolve_browser_action_command,
-            )
-        except BrowserActionExecutionError as exc:
-            self._send_action_error(
-                exc.message,
-                exc.status,
-                exc.error_code,
-                exc.cause,
-                retriable=exc.retriable,
-            )
-            return
-
-        self._send_json(response.payload, response.status)
-
     def log_message(self, format: str, *args: object) -> None:
         return
-
-    def _handle_browse(self, query: dict[str, list[str]]) -> None:
-        try:
-            raw_path = (query.get("path") or [None])[0]
-            payload = build_browse_payload(
-                raw_path,
-                max_file_bytes=BROWSE_MAX_FILE_BYTES,
-                max_directory_entries=BROWSE_MAX_DIRECTORY_ENTRIES,
-            )
-            self._send_json(payload, HTTPStatus.OK)
-        except BrowsePathError as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-        except Exception as exc:
-            self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
-
-    def _handle_repo_set(self) -> None:
-        try:
-            payload = self._read_json_body()
-            raw_path = payload.get("path")
-            if not isinstance(raw_path, str) or not raw_path.strip():
-                self._send_json_error("path is required", HTTPStatus.BAD_REQUEST)
-                return
-            new_root = Path(raw_path).expanduser().resolve()
-            if not new_root.is_dir():
-                self._send_json_error(f"Directory does not exist: {new_root}", HTTPStatus.BAD_REQUEST)
-                return
-            self.server.repo_root = new_root
-            has_devflow = (new_root / ".devflow").is_dir()
-            self._send_json({
-                "path": str(new_root),
-                "name": new_root.name,
-                "has_devflow": has_devflow,
-            }, HTTPStatus.OK)
-        except (OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-
-    def _handle_agents_list(self) -> None:
-        try:
-            root = self.server.repo_root
-            from devflow.control_room.agent_catalog import build_agent_catalog
-            from devflow.control_room.local_model_inventory import build_local_model_inventory
-            from devflow.control_room.local_model_readiness import build_local_model_readiness_plan
-
-            catalog = build_agent_catalog(root)
-            inventory = build_local_model_inventory(catalog)
-            agents = [
-                agent
-                for agent in catalog.get("hermes_agents", [])
-                if isinstance(agent, dict) and agent.get("id")
-            ]
-            self._send_json(
-                {
-                    "agents": agents,
-                    "local_model_inventory": inventory,
-                    "local_model_readiness": build_local_model_readiness_plan(
-                        root,
-                        agent_catalog=catalog,
-                        inventory=inventory,
-                    ),
-                },
-                HTTPStatus.OK,
-            )
-        except Exception as exc:
-            self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
-
-    def _handle_refactor_start(self) -> None:
-        try:
-            payload = self._read_json_body()
-            require_refactor_approval(payload)
-            root = self._payload_project_root(payload)
-            worker = str(payload["worker"])
-            result = start_refactor_loop(root, worker=worker)
-        except (RefactorLoopError, ProjectRegistryError, OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        except Exception as exc:
-            self._send_json_error(f"Refactor loop failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
-        self._send_json(result, HTTPStatus.OK)
-
-    def _handle_refactor_status(self, query: dict[str, list[str]]) -> None:
-        try:
-            root = self._query_project_root(query)
-            run_id = (query.get("run_id") or [None])[0]
-            loop_slug = (query.get("loop_slug") or [None])[0]
-            payload = load_refactor_run_status(root, run_id=run_id, loop_slug=loop_slug)
-        except RefactorLoopError as exc:
-            status = HTTPStatus.NOT_FOUND if "not found" in str(exc) else HTTPStatus.BAD_REQUEST
-            self._send_json_error(str(exc), status)
-            return
-        except (ProjectRegistryError, OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        self._send_json(payload, HTTPStatus.OK)
-
-    def _handle_task_write_context(self) -> None:
-        """Write implementation context markdown into a task workspace."""
-        try:
-            payload = self._read_json_body()
-            task_id = payload.get("task_id")
-            if not isinstance(task_id, str) or not task_id.strip():
-                raise ValueError("task_id is required")
-            context = payload.get("context")
-            if not isinstance(context, str) or not context.strip():
-                raise ValueError("context is required")
-            root = self._payload_project_root(payload)
-            workspace = root / ".devflow" / "workspaces" / task_id
-            workspace.mkdir(parents=True, exist_ok=True)
-            context_path = workspace / "implementation-context.md"
-            context_path.write_text(context, encoding="utf-8")
-        except (OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        self._send_json({"status": "ok", "path": str(context_path)}, HTTPStatus.OK)
 
     def _payload_project_root(self, payload: dict[str, object]) -> Path:
         project_id = payload.get("project")

@@ -1,0 +1,23 @@
+{
+  "counts": {
+    "documents": 147,
+    "graphify_nodes": 500,
+    "obsidian_notes": 108,
+    "source_files": 415
+  },
+  "files": {
+    "docs": "docs-index.json",
+    "graphify": "graphify-freshness.json",
+    "obsidian": "obsidian-links.json",
+    "source": "source-index.json"
+  },
+  "meta": {
+    "built_at": "2026-07-05T02:40:01+00:00",
+    "dirty_signature": "M AGENTS.md\n M CONTEXT.md\n M PRODUCT_NORTH_STAR.md\n M README.md\n M docs/architecture/agent-registry-and-adapter-runtime.md\n M docs/architecture/agent-selection-and-context-routing.md\n M docs/architecture/control-room-architecture-audit.md\n M docs/architecture/control-room-hotspot-followup-plan-2026-07-02.md\n M docs/architecture/local-model-worker-pool.md\n M docs/architecture/model-audition-evidence-ladder.md\n M docs/architecture/model-capability-taxonomy.md\n M docs/architecture/patch-evidence-ladder.md\n M docs/control-room-mvp.md\n M docs/integrations/hermes-command-allowlist.md\n M docs/integrations/hermes-local-parallelism.md\n M docs/integrations/hermes-operator-layer.md\n M docs/integrations/hermes-telegram-mac-mini-rollout.md\n M docs/integrations/hermes-worker-evidence-synthesis.md\n M docs/integrations/ornith-hermes-local.md\n M docs/local-model-runtime.md\n M docs/mvp-contract.md\n M docs/roadmap.md\n M docs/superpowers/plans/2026-06-19-hermes-local-async-supervisor-loop.md\n M docs/superpowers/plans/2026-06-20-module-connection-gap-closure-and-qwen-supervision.md\n M docs/superpowers/plans/2026-06-21-devflow-ui-operability-and-levers.md\n M docs/superpowers/plans/2026-06-21-hermes-worker-runtime-supervisor-loop.md\n M docs/superpowers/plans/2026-06-21-serial-local-agent-execution-queue-and-watchdogs.md\n M docs/superpowers/plans/2026-06-28-loop-lifecycle-codex-judge-smoke.md\n M src/devflow/control_room/local_model_server.py\n M src/devflow/control_room/operating_layer_server.py\n M tests/test_local_model_server.py\n M tests/test_operating_layer.py\n?? docs/adr/\n?? docs/architecture/context-map.md\n?? docs/local-worker-policy.md\n?? src/devflow/control_room/operating_layer_brainstorm_routes.py\n?? src/devflow/control_room/operating_layer_builder_judge_routes.py\n?? tests/test_browser_action_policy.py\n?? tests/test_browser_action_routes.py\n?? tests/test_operating_layer_brainstorm_routes.py\n?? tests/test_operating_layer_browse_routes.py\n?? tests/test_operating_layer_builder_judge_routes.py\n?? tests/test_operating_layer_local_model_routes.py\n?? tests/test_operating_layer_obsidian_routes.py\n?? tests/test_operating_layer_static_project_routes.py",
+    "dirty_worktree": true,
+    "indexed_head": "59633236cd376ce80e40ac0d860b031ef6539577",
+    "repo": "/Users/jewelbait/Desktop/Local AI Dev Team",
+    "repo_head": "59633236cd376ce80e40ac0d860b031ef6539577",
+    "schema_version": 1
+  }
+}

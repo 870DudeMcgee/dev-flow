@@ -2,6 +2,12 @@
 
 This document outlines the architectural boundaries and best practices for integrating local large language models (LLMs) with the DevFlow engineering control room.
 
+Current local-worker selection is governed by
+[docs/local-worker-policy.md](local-worker-policy.md): local workers are opt-in,
+Qwen 3.6 27B Q5 MTP is the normal single lane when opted in, Codex should use a
+visible `qwen36_27b_mtp_coder` subagent spawn when available, and other local
+routes are explicit exceptions or legacy evidence surfaces.
+
 ## Architectural Boundaries
 
 DevFlow is designed around a local-first engineering philosophy where the execution engine is strictly separated from LLM reasoning runtimes.
@@ -16,7 +22,13 @@ DevFlow is designed around a local-first engineering philosophy where the execut
 
 ## Local Setup Examples
 
-### 1. Host with `llama.cpp` (Preferred)
+### 1. Host with `llama.cpp` (legacy runtime example)
+
+This example documents an older Qwopus-compatible local runtime shape. It is
+not the current default local-worker workflow. For current Codex sessions, use
+the visible `qwen36_27b_mtp_coder` subagent workflow from
+[docs/local-worker-policy.md](local-worker-policy.md); use local-model lifecycle
+commands only to manage resident server processes.
 
 Ensure `llama.cpp` is installed on your machine:
 ```bash
@@ -72,7 +84,14 @@ devflow local-model stop --include-ollama --dry-run
 
 Lifecycle evidence is written under `.devflow/local-model-servers/<profile>/server.json` with the command, PID, model, stop result, and log path. Worker output remains advisory evidence until Dev-Flow verification passes.
 
-Server lifecycle is not a role restriction. Local profiles should still be selected by capability metadata: use the fast Qwen MTP endpoint for text/status/planning loops, Gemma 4 QAT when long context or screenshot/vision evidence matters, and Qwen 2.5 Coder 14B when code-specialist local review is the better fit. Dev-Flow stops or replaces resident local servers to protect RAM; it does not decide that a model can only do one job based on its profile name.
+Server lifecycle is not a role restriction. Local profiles may still carry
+capability metadata for legacy WorkerEvidence, audition, and product-evidence
+surfaces, but current local-worker sessions should follow the opt-in visible
+Qwen worker policy: `qwen36_27b_mtp_coder` subagent spawn in Codex, and
+`hermes-qwen-mtp` as the same-lane MCP wrapper in Hermes. Non-Qwen routes
+require explicit selection and fresh readiness evidence.
+Dev-Flow stops or replaces resident local servers to protect RAM; it does not
+decide that a model can only do one job based on its profile name.
 
 ### 2. Alternative Local Runtimes (Ollama, LM Studio, vLLM)
 
@@ -155,7 +174,10 @@ Worker-pool runs write generalized WorkerEvidence under `.devflow/tasks/<task-id
 
 ## Hermes Worker Runtime From Serial Packets
 
-The Hermes worker runtime is a separate execution path from the raw local model worker pool.
+The Hermes worker runtime is a separate execution path from the raw local model
+worker pool. Current Hermes local-worker launches should use the opt-in
+Qwen policy through `hermes-qwen-mtp` unless the operator explicitly selects a
+legacy profile for diagnostics or evidence comparison.
 
 | Surface | Purpose | Authority |
 |---|---|---|
@@ -166,17 +188,17 @@ The Hermes worker runtime is a separate execution path from the raw local model 
 
 ### Command examples
 
-1. Create a packet for a Hermes profile. This command is packet-only evidence and does not launch Hermes, a provider, or a local model:
+1. Create a packet for a Hermes profile. This command is packet-only evidence and does not launch Hermes, a provider, or a local model. In a Codex session, prefer the visible `qwen36_27b_mtp_coder` subagent workflow from [docs/local-worker-policy.md](local-worker-policy.md); this Hermes packet path is the explicit Hermes/MCP wrapper for the same Qwen lane:
 
    ```bash
    devflow agent serial-packet \
      --phase implementer \
-     --provider ollama \
-     --model qwen3.6-32b-256k:latest \
+     --provider local_qwen36_27b_mtp_bare \
+     --model qwen36-27b-q5-mtp \
      --task-id task-0001 \
-     --worker-id qwen-worker \
+     --worker-id qwen36_27b_mtp_coder \
      --runtime hermes-profile \
-     --hermes-profile qwen-worker \
+     --hermes-profile qwen36_coder \
      --toolset file \
      --toolset terminal \
      --allowed-file src/example.py \
@@ -186,14 +208,14 @@ The Hermes worker runtime is a separate execution path from the raw local model 
 2. Preview the exact Hermes argv without launching anything or writing launch evidence:
 
    ```bash
-   devflow agent hermes-run <run-id> --profile qwen-worker --dry-run --json
+   devflow agent hermes-run <run-id> --profile qwen36_coder --dry-run --json
    ```
 
 3. Launch the bounded Hermes profile manually after reviewing the packet and preflight. In browser surfaces, non-dry-run Hermes launch remains blocked; use an explicit operator shell/terminal path:
 
    ```bash
    devflow agent hermes-run <run-id> \
-     --profile qwen-worker \
+     --profile qwen36_coder \
      --hermes-bin hermes \
      --json
    ```

@@ -30,10 +30,12 @@ _MANAGED_SERVER_RECIPES: dict[str, dict[str, str]] = {
     "ornith-9b": {
         "model_path": "~/.hermes/models/gguf/ornith-1.0-9b-q4/ornith-1.0-9b-Q4_K_M.gguf",
         "ctx_size": "131072",
+        "chat_template": "chatml",
     },
     "ornith-35b": {
         "model_path": "~/.hermes/models/gguf/ornith-1.0-35b-q4/ornith-1.0-35b-Q4_K_M.gguf",
         "ctx_size": "65536",
+        "chat_template": "chatml",
     },
     "qwen36-27b-q5-mtp": {
         "model_path": "~/.hermes/models/gguf/qwen3.6-27b-mtp-q5/Qwen3.6-27B-Q5_K_M.gguf",
@@ -764,16 +766,22 @@ def _managed_manifest_profile(
         "--parallel",
         "1",
         "--jinja",
-        "--reasoning",
-        "auto",
-        "--temp",
-        "0.6",
-        "--top-p",
-        "0.95",
-        "--top-k",
-        "20",
-        "--no-webui",
     ]
+    if recipe.get("chat_template"):
+        command.extend(["--chat-template", recipe["chat_template"]])
+    command.extend(
+        [
+            "--reasoning",
+            "auto",
+            "--temp",
+            "0.6",
+            "--top-p",
+            "0.95",
+            "--top-k",
+            "20",
+            "--no-webui",
+        ]
+    )
     if recipe.get("spec_type"):
         command.extend(["--spec-type", recipe["spec_type"]])
     if recipe.get("spec_draft_n_max"):

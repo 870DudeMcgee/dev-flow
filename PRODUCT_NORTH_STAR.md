@@ -235,6 +235,12 @@ Local or cheap workers should handle:
 - small refactors
 - status/report generation
 
+Current local-worker sessions are intentionally simpler than older routing
+ideas: local workers are opt-in, and Qwen 3.6 27B Q5 MTP is the normal single
+lane when opted in. Codex uses a visible `qwen36_27b_mtp_coder` subagent spawn
+for that lane; Hermes uses `hermes-qwen-mtp` as the same-lane MCP packet
+wrapper. See [docs/local-worker-policy.md](docs/local-worker-policy.md).
+
 Frontier models should be used for:
 
 - architecture
@@ -621,7 +627,8 @@ Build in this order:
 - shell adapter alignment
 - deterministic task-fit and context-size estimator (implemented as Milestone 17 evidence through `devflow task fit`)
 - role-based context pack builder (implemented as derived evidence through `devflow agent context-pack`)
-- Ollama/Qwen local adapter
+- opt-in visible Codex `qwen36_27b_mtp_coder` worker lane, the matching
+  `hermes-qwen-mtp` packet wrapper, and explicit legacy local evidence adapters
 - OpenAI-compatible local or remote adapter
 - native provider adapters
 - local scout reports (implemented as Milestone 17 evidence through `devflow task scout`)

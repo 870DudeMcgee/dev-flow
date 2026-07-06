@@ -1,6 +1,11 @@
 # Ornith Hermes-Local Runbook
 
-Status: Hermes-first local model integration guidance. Ornith is read-only evidence in this slice; Dev-Flow does not register it as a direct `agent run`, patch-proposer, verifier, promotion, merge, or push runtime.
+Status: explicit exception runbook. Current local-worker selection is
+[docs/local-worker-policy.md](../local-worker-policy.md): opt-in visible Codex
+`qwen36_27b_mtp_coder` worker, with `hermes-qwen-mtp` as the same-lane Hermes
+MCP wrapper. Ornith is read-only evidence only and must not be treated as a
+default scout, direct `agent run`, patch-proposer, verifier, promotion, merge,
+or push runtime.
 
 ## Profiles
 
@@ -53,6 +58,7 @@ llama-server \
   --flash-attn on \
   --parallel 1 \
   --jinja \
+  --chat-template chatml \
   --reasoning auto \
   --temp 0.6 \
   --top-p 0.95 \
@@ -71,6 +77,7 @@ llama-server \
   --flash-attn on \
   --parallel 1 \
   --jinja \
+  --chat-template chatml \
   --reasoning auto \
   --temp 0.6 \
   --top-p 0.95 \
@@ -79,6 +86,25 @@ llama-server \
 ```
 
 Do not pass llama.cpp `--tools`; built-in tools should stay disabled for this local evidence route.
+
+Use `--chat-template chatml` on both Ornith servers. On July 4, 2026, Codex
+custom-agent and Hermes scout requests against Ornith 9B/35B failed with
+llama.cpp `HTTP 400` errors:
+
+```text
+Unable to generate parser for this template.
+Jinja Exception: System message must be at the beginning.
+```
+
+Direct single-user-message probes still worked, but any prompt stack containing
+a later system message tripped the embedded `peg-native` template. Pinning the
+server to ChatML matches the already-repaired Qwopus launcher and keeps local
+subagent routing from failing before file access.
+
+The local worker smoke harness also has a strict-output mode. As of the July 4
+repair, the Hermes Ornith scout route is clean in strict mode, while the bare
+Ornith routes are transport-ready but still return visible `<think>` text. Use
+that as an output-discipline signal, not as evidence that ChatML regressed.
 
 ## Smoke
 

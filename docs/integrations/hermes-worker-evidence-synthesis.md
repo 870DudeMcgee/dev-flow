@@ -4,6 +4,13 @@ Status: integration guidance. This does not add Hermes cron runtime, autonomous 
 
 Hermes should read and summarize Dev-Flow evidence. It must not own that evidence.
 
+Current local-worker selection is
+[docs/local-worker-policy.md](../local-worker-policy.md): opt-in, Qwen 3.6 27B
+Q5 MTP as the normal single lane, visible `qwen36_27b_mtp_coder` subagent spawn
+in Codex, `hermes-qwen-mtp` same-lane packet wrapper in Hermes, and non-Qwen
+routes as explicit exceptions. This document describes evidence synthesis, not
+worker selection authority.
+
 ## Boundary
 
 Worker flow:

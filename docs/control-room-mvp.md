@@ -35,6 +35,7 @@ Use related docs only when needed:
 - Runtime command/filesystem contract: [docs/mvp-contract.md](mvp-contract.md)
 - Operating-layer UI architecture: [docs/architecture/local-operating-layer-ui.md](architecture/local-operating-layer-ui.md)
 - Current operating-layer UI deepening backlog: [docs/architecture/operating-layer-ui-deepening-backlog.md](architecture/operating-layer-ui-deepening-backlog.md)
+- Current local-worker policy: [docs/local-worker-policy.md](local-worker-policy.md)
 - Future registry/adapter roadmap: [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
 - Future/evidence-only routing roadmap: [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
 - Verification reuse: [docs/verification-ledger.md](verification-ledger.md)
@@ -62,6 +63,13 @@ The product is not a coding agent, model provider, memory framework, IDE workflo
 - merge readiness
 
 Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, manual packets, or future tools later. The current code-changing runtime intentionally keeps shell workers as the stable direct editor, with manual proof-agent handoffs and registry-backed local patch workers producing bounded evidence that Dev-Flow reviews, applies, verifies, and promotes separately. Future worker types must be introduced through the registry and adapter-runtime sequence, not wired directly into task execution.
+
+Current local-worker choice is governed by [docs/local-worker-policy.md](local-worker-policy.md):
+local workers are opt-in, Qwen 3.6 27B Q5 MTP is the normal single lane when
+opted in, and the supported Codex workflow is a visible
+`qwen36_27b_mtp_coder` subagent spawn. `hermes-qwen-mtp` mirrors that same
+bounded Qwen packet contract for Hermes sessions. Older local worker-pool or
+patch-worker surfaces are explicit evidence paths rather than default routing.
 
 ## Non-Negotiable Principles
 

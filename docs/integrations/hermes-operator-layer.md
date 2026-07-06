@@ -14,6 +14,12 @@ Dev-Flow remains the durable engineering control room and source of truth for:
 
 Codex, Sonnet, Opus, Qwen, MiniMax, shell, and local models are replaceable execution engines. Josh remains the promotion authority. Hermes memory is convenience context only; Dev-Flow artifacts beat Hermes memory every time.
 
+Current local-worker selection is opt-in and visible-Qwen-worker-first. See
+[docs/local-worker-policy.md](../local-worker-policy.md). Codex proves the lane
+through a visible `qwen36_27b_mtp_coder` subagent spawn; Hermes mirrors the same
+bounded Qwen packet semantics through `hermes-qwen-mtp`. Hermes must not treat
+older local profile tables as automatic routing defaults.
+
 ## Operator Flow
 
 ```text
@@ -48,7 +54,7 @@ Hermes defaults to read-only. It may inspect, summarize, recommend next safe act
 
 The Mac mini local-model setup and Telegram rollout sequence lives in [hermes-telegram-mac-mini-rollout.md](hermes-telegram-mac-mini-rollout.md). Use that document as the active setup goal before enabling Telegram-triggered read-only auto-runs.
 
-Telegram is a lightweight command surface, not a second brain. Hermes may receive Telegram text and ask Dev-Flow to classify it with `devflow supervisor route-message`. Dev-Flow owns the routing policy and exposes the Telegram default as local Hermes provider `custom:hermes-qwen32-latest` with model `qwen36-27b-q5-mtp` through `devflow supervisor policy --json`. Dev-Flow returns the route, selected local model when applicable, action, reason, safety metadata, and a tiny footer. Hermes should append or preserve that footer in responses so real use can tune the policy:
+Telegram is a lightweight command surface, not a second brain. Hermes may receive Telegram text and ask Dev-Flow to classify it with `devflow supervisor route-message`. Dev-Flow owns the routing policy and can expose an explicitly selected local Hermes provider such as `custom:hermes-qwen32-latest` with model `qwen36-27b-q5-mtp` through `devflow supervisor policy --json`. Dev-Flow returns the route, selected local model when applicable, action, reason, safety metadata, and a tiny footer. Hermes should append or preserve that footer in responses so real use can tune the policy:
 
 ```text
 route: devflow_read
@@ -56,7 +62,7 @@ model: qwen36-27b-q5-mtp
 action: run_safe_command
 ```
 
-Dev-Flow discovers the active Hermes config and local OpenAI-compatible model endpoints at runtime. Operators should inspect `devflow agent catalog --json` instead of copying machine-specific model maps between Macs. The catalog exposes machine RAM/classification, the default local model, configured/discovered Hermes providers, model fit, and the local concurrency rule. On current Mac mini setup, `qwen36-27b-q5-mtp` is the preferred local default. Gemma is not the default local model.
+Dev-Flow discovers the active Hermes config and local OpenAI-compatible model endpoints at runtime. Operators should inspect `devflow agent catalog --json` instead of copying machine-specific model maps between Macs. The catalog exposes machine RAM/classification, configured/discovered Hermes providers, model fit, and the local concurrency rule. Current local-worker use is opt-in; when opted in, use the single Qwen 3.6 27B Q5 MTP lane unless the operator explicitly selects a diagnostic or legacy evidence route. For Hermes-native runs, `hermes-qwen-mtp.qwen_ready(smoke=true)` followed by `qwen_run` is the supported MCP shape for that same lane.
 
 ## Profile Selection Guide
 
@@ -70,7 +76,7 @@ The selectable Dev-Flow model surface uses canonical Hermes profile IDs only. Re
 | Strong Qwen max | `hermes-qwen37max` | `openrouter` | `qwen/qwen3.7-max` |
 | Balanced paid coding/review | `hermes-sonnet46` | `openrouter` | `anthropic/claude-sonnet-4.6` |
 | Deep architecture/judging | `hermes-opus48` | `openrouter` | `anthropic/claude-opus-4.8` |
-| Fast local operator | `hermes-qwen32-latest` | `qwen36-27b-q5-mtp` | `qwen36-27b-q5-mtp` |
+| Opt-in local Qwen worker/operator | `hermes-qwen32-latest` | `qwen36-27b-q5-mtp` | `qwen36-27b-q5-mtp` |
 | Long-context local | `hermes-gemma12b-latest` | `local` | `gemma4:12b-it-qat` |
 | Local code-aware MTP | `hermes-qwen36-27b-mtp` | `qwen36-27b-q5-mtp` | `qwen3.6-27b-mtp` |
 | Local Qwen MLX 4-bit | `hermes-qwen36-27b-mlx4bit` | `local` | `qwen3.6-27b-mlxf4bit` |
@@ -246,7 +252,7 @@ The current Dev-Flow routing surface is:
 | Paid Qwen planning | `openrouter` | `qwen/qwen3.7-plus` | `hermes-qwen37plus`; default paid brainstorm/planning. |
 | Paid Qwen depth | `openrouter` | `qwen/qwen3.7-max` | `hermes-qwen37max`; deeper Qwen coding/reasoning. |
 | Alternative paid coding opinion | `openrouter` | `minimax/minimax-m3` | `hermes-minimaxm3`; second implementation lens. |
-| Local default / Telegram / read-only planning | `custom:hermes-qwen32-latest` | `qwen36-27b-q5-mtp` | `hermes-qwen32-latest`; prompt-cache-enabled local endpoint. |
+| Opt-in local Qwen / Telegram / read-only planning | `custom:hermes-qwen32-latest` | `qwen36-27b-q5-mtp` | `hermes-qwen32-latest`; prompt-cache-enabled local endpoint. |
 | Long-context local | `local` | `gemma4:12b-it-qat` | `hermes-gemma12b-latest`; local long-context and vision-adjacent review. |
 | Local code-aware MTP | `qwen36-27b-q5-mtp` | `qwen3.6-27b-mtp` | `hermes-qwen36-27b-mtp`; local code-aware fallback when available. |
 
@@ -264,7 +270,7 @@ Use Hermes slash commands to switch models without restarting:
 
 ```
 /model               # Interactive model picker
-/model qwen36-27b-q5-mtp                       # Switch to local Qwen 3.6 MTP default
+/model qwen36-27b-q5-mtp                       # Opt into local Qwen 3.6 MTP
 /model qwen/qwen3.7-plus                  # Switch to paid Qwen Plus planning
 /model anthropic/claude-sonnet-4.6        # Switch to paid Sonnet daily review
 /model anthropic/claude-opus-4.8          # Switch to paid Opus deep judge

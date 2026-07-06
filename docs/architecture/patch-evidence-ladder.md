@@ -18,6 +18,11 @@ This ladder exists because:
 
 Dev-Flow is a local-first control room for AI coding workers. It is not the coding intelligence itself. Workers and models are replaceable. Filesystem state is sacred. Visibility is mandatory. Isolation comes before autonomy. Model output is evidence, not authority.
 
+Current local-worker choice is governed by
+[docs/local-worker-policy.md](../local-worker-policy.md). Legacy patch workers
+in this document are Dev-Flow evidence surfaces and do not define default
+Codex/Hermes local-worker routing.
+
 ## Non-Negotiable Boundary
 
 Patch dry-run preview must not:

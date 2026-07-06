@@ -63,6 +63,36 @@ Future architecture is valuable and should remain in `docs/architecture/` or cle
 
 Hyperplane is quarantined as experimental evidence infrastructure. Do not use it for first-pass model validation or fail-fast smoke tests; it expands into a dynamic multi-call evaluation pipeline. Prefer direct, bounded one-target-call/one-judge-call smoke evidence until a separate task explicitly reopens Hyperplane.
 
+## Local Worker Policy
+
+Local workers are opt-in, not a standing requirement for every non-trivial task.
+Use them when the operator explicitly asks for local-worker help, when an active
+task selects a local worker, or when a documented diagnostic/verification step
+requires one.
+
+When local-worker use is opted in, prefer one Qwen 3.6 27B Q5 MTP worker as the
+normal local lane for bounded reading, coding, testing, review, and strict
+output. Keep it single-lane, bounded, and supervisor-verified. Other local
+routes such as Ornith, MLX, Ollama, or Qwopus remain explicit exceptions for
+specific diagnostics or scout-only needs, not automatic routing defaults.
+
+In Codex sessions, the supported local-worker workflow is the visible subagent
+lane: call `multi_agent_v1.spawn_agent` with `agent_type="qwen36_27b_mtp_coder"`.
+The spawned subagent output surfaced back into the parent Codex session is the
+proof that the lane is loaded and usable. Do not treat direct HTTP probes,
+Hermes MCP tests, or `/v1/models` checks as equivalent Codex subagent proof.
+
+For Hermes sessions or compact MCP worker packets, use `hermes-qwen-mtp` as the
+wrapper around the same single Qwen lane: call `qwen_ready(smoke=true)` before
+`qwen_run`. That MCP path mirrors the Codex worker packet contract; it is not a
+competing default over the visible Codex subagent workflow.
+
+Passive MCP fleet telemetry should stay disabled unless the current session
+needs that operator surface. Active smoke completions are decision-point proof,
+not routine inventory.
+
+The concise current policy lives in [docs/local-worker-policy.md](docs/local-worker-policy.md).
+
 ## Where To Work
 
 Active control-room implementation belongs in:

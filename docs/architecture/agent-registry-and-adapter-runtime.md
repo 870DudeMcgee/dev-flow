@@ -14,6 +14,12 @@ Milestone 16 implemented the model-agnostic registry boundary: runtime eligibili
 
 Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, provider-backed task-run execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
 
+Current local-worker choice is intentionally simpler than the broader registry
+roadmap: local workers are opt-in, and Qwen 3.6 27B Q5 MTP is the normal single
+lane when opted in. In Codex, that means a visible `qwen36_27b_mtp_coder`
+subagent spawn; in Hermes, `hermes-qwen-mtp` mirrors the same bounded packet
+semantics. See [docs/local-worker-policy.md](../local-worker-policy.md).
+
 ## 1. Problem
 
 "Replaceable agents" are not real if every worker is wired directly into task execution. Dev-Flow needs a registry, adapter layer, permission model, and invocation lifecycle so local models, frontier APIs, manual review, and shell commands can all operate behind the same control-room contract.
@@ -50,7 +56,7 @@ A provider is how Dev-Flow talks to a backend. Provider configuration answers "w
 
 An agent is a named worker contract that binds a provider, model, role, adapter, capabilities, and permission mode. Agent names are operational identifiers, not personalities or single-job labels. Examples:
 
-- `qwen36-senior`
+- `qwen36_27b_mtp_coder`
 - `qwen-coder-fast`
 - `test-agent`
 - `openai-frontier-architect`
@@ -153,11 +159,11 @@ The registry is declarative. Core task logic should resolve an agent by ID, vali
 
 ```yaml
 agents:
-  qwen36-senior:
-    provider: ollama
-    model: qwen3:36b
-    adapter: ollama_chat
-    role: local_senior_worker
+  qwen36_27b_mtp_coder:
+    provider: local_qwen36_27b_mtp_bare
+    model: qwen36-27b-q5-mtp
+    adapter: openai_compatible
+    role: local_implementation_worker
     tier: local
     default_mode: workspace_write
     workspace: isolated_task_workspace
@@ -402,8 +408,10 @@ Routing chooses which agent contract to invoke. It should be policy-driven and c
 
 Initial suggested routing:
 
-- `qwen36-senior`: default local senior worker for implementation tasks that need reasoning but can remain local.
-- `qwen-coder-fast`: mechanical or simple implementation where speed matters more than deep planning.
+- When current local-worker use is explicitly opted in, use the single Qwen
+  3.6 27B Q5 MTP lane from [docs/local-worker-policy.md](../local-worker-policy.md).
+- `qwen-coder-fast`: historical/mechanical example where speed matters more
+  than deep planning; not a current default worker route.
 - `test-agent`: verification, focused test execution, and test failure reproduction.
 - `claude-reviewer`: code review after repeated failures or when an external review pass is warranted.
 - `openai-frontier-architect`: architecture uncertainty, cross-subsystem risk, model-routing changes, or high-impact design review.

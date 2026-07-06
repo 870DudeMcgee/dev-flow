@@ -2,6 +2,11 @@
 
 Status: active MVP wiring for registry-backed local worker-pool evidence plus small explicit local-model discovery and selection evidence. This is not a profiler, benchmark harness, second registry, Docker runtime, remote provider runtime, autonomous router, or promotion system.
 
+Current local-worker choice is governed by
+[docs/local-worker-policy.md](../local-worker-policy.md). This document
+describes Dev-Flow product evidence surfaces and older registry examples; it is
+not authority for default local-worker routing.
+
 ## Purpose
 
 Dev-Flow already has the important control-room pieces: `agent_registry.py`, `task_packet.py`, `local_packet_worker.py`, `local_model_client.py`, `qwopus_evidence.py`, supervisor surfaces, and Hermes operator docs. This milestone wires those pieces into practical use:
@@ -74,12 +79,17 @@ Current starter profiles are registry entries, not a second config file:
 
 The registry records model name, capability metadata, machine class, weight class, role name, secondary roles, caution notes, required verification command, and alias group when relevant. The editable operator surface remains the agent registry; do not add `config/local_workers.yaml` or a second registry.
 
-Operator reviewer guidance:
+Legacy operator reviewer guidance for this worker-pool surface:
 
-- Prefer `local-gemma4-qat` when long context, screenshot/vision evidence, or broad local review matters.
-- Use `local-qwen25-coder-14b` as the retained installed code-specialist fallback.
-- Use `hermes-qwen36-27b-q5-mtp` for fast text/status/planning/operator loops when the local OpenAI-compatible server is active.
-- Keep this as operator guidance only. It does not update routing policy, auto-select workers, apply patches, verify, promote, commit, merge, push, or bypass fresh audition evidence when model manifests or task shape change.
+- Use these profiles only when the operator explicitly selects the local
+  worker-pool evidence surface or a current task needs historical comparison.
+- For current opt-in local-worker sessions, use the single Qwen 3.6 27B Q5 MTP
+  lane from [docs/local-worker-policy.md](../local-worker-policy.md): visible
+  `qwen36_27b_mtp_coder` subagent spawn in Codex, `hermes-qwen-mtp` as the
+  same-lane MCP packet wrapper in Hermes.
+- Non-Qwen worker-pool profiles do not update routing policy, auto-select
+  workers, apply patches, verify, promote, commit, merge, push, or bypass fresh
+  audition evidence when model manifests or task shape change.
 
 Conservative defaults:
 

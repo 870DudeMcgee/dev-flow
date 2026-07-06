@@ -23,6 +23,13 @@ Current completed hardening slices: [docs/architecture/git-native-worker-isolati
 
 Current follow-on boundary: model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role and write Milestone 17 task-fit/context-routing evidence today, but autonomous best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 
+Current local-worker boundary: local workers are opt-in, and Qwen 3.6 27B Q5
+MTP is the normal single local worker lane when opted in. In Codex, use a
+visible `qwen36_27b_mtp_coder` subagent spawn; in Hermes, use `hermes-qwen-mtp`
+as the same-lane MCP packet wrapper. Older local patch workers and scout routes
+remain explicit evidence/diagnostic paths, not default routing. See
+[docs/local-worker-policy.md](local-worker-policy.md).
+
 Current selected milestone: Milestone 25 Stop The Task/Data Sprawl. Pause new worker/runtime features until task/data reset, baseline repair, scratch-root dogfood, clean prune previews, and clean-dashboard readiness are verified.
 
 North Star: [PRODUCT_NORTH_STAR.md](../PRODUCT_NORTH_STAR.md)

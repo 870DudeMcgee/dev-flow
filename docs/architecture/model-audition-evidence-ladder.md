@@ -13,6 +13,12 @@ This helps separate two failures:
 
 Auditions are advisory evidence. They do not edit source, apply patches, verify, promote, commit, merge, push, update routing policy, or call remote provider APIs.
 
+For current local-worker sessions, use [docs/local-worker-policy.md](../local-worker-policy.md):
+local workers are opt-in, Qwen 3.6 27B Q5 MTP is the normal single lane, Codex
+uses a visible `qwen36_27b_mtp_coder` subagent spawn, and Hermes uses
+`hermes-qwen-mtp` as the same-lane MCP packet wrapper. Audition candidates are
+comparison evidence only.
+
 ## Public Interface
 
 Dry-run planning:
@@ -33,9 +39,11 @@ devflow agent audition <task_id> --job review-debug --execute --json
 
 ## Job Types And Candidate Sets
 
-Each job type has at most three default candidates. Candidate names are stable job-facing aliases; each alias resolves to a current agent-registry profile.
+Each job type has at most three comparison candidates. Candidate names are
+stable job-facing aliases; each alias resolves to a current agent-registry
+profile when installed and policy-safe.
 
-| Job type | Candidate aliases | Current safe profiles |
+| Job type | Candidate aliases | Legacy comparison profiles |
 | --- | --- | --- |
 | `planning` | `local-planner`, `local-planner-64k`, `local-fast` | `hermes-qwen36-27b-q5-mtp`, `local-gemma4-qat` |
 | `small-code` | `local-coder-medium`, `local-code-fallback` | `local-qwen25-coder-14b`, `local-gemma4-qat` |
@@ -43,7 +51,9 @@ Each job type has at most three default candidates. Candidate names are stable j
 | `review-debug` | `local-reviewer-deep`, `local-code-reviewer` | `local-gemma4-qat`, `local-qwen25-coder-14b` |
 | `summary-status` | `local-worker-fast`, `local-long-summary` | `hermes-qwen36-27b-q5-mtp`, `local-gemma4-qat` |
 
-For operator-led review/debug work, current guidance is to prefer `local-gemma4-qat` when long context, screenshot evidence, or broad review matters. Treat `local-qwen25-coder-14b` as the installed code-specialist fallback and `hermes-qwen36-27b-q5-mtp` as the fast text/status/planning endpoint, not as automatic routing policy.
+These candidates are audition evidence only. They are not automatic routing
+policy and do not supersede the opt-in visible Codex `qwen36_27b_mtp_coder`
+local-worker policy.
 
 Eligibility requires:
 

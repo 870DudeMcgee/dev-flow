@@ -22,6 +22,26 @@ A Dev-Flow unit of work with durable state under `.devflow/tasks/<task_id>/`. A 
 
 The operator-facing view of work owned by a worker or model for a task. A worker lane should show task title, status, worker/model, last update, evidence, and next action.
 
+### Local model server
+
+A resident local model process or endpoint that may serve model responses but has no task authority by itself.
+
+### Worker profile
+
+A named model, capability, and permission identity that can be selected by an execution surface but is not itself proof of readiness or completion.
+
+### Execution surface
+
+An approved Dev-Flow, Hermes, or Codex path that can consume a bounded packet and produce evidence under explicit authority limits.
+
+### Local worker
+
+An approved local model route acting through an execution surface to produce bounded task evidence.
+
+### Fleet telemetry
+
+Read-only evidence about whether local model lanes are configured, listening, loaded, smoke-proven, or mismatched.
+
 ### Review queue
 
 The operator-facing list of tasks that need verification, review, human decision, or promotion action.
@@ -40,6 +60,20 @@ The operator-facing projection that turns task state into the first usable work 
 
 The Task workbench is not canonical state. It is a derived read model for usability and should remain backed by existing task artifacts, worker evidence, verification artifacts, and promotion readiness evidence.
 
+### Context Map
+
+A proposed standalone read-only codebase orientation tool that answers "where should I look, and why?" for a codebase task by combining current source indexes, Graphify evidence, `CODE_MAP.md`, active docs, and selected Obsidian memory notes.
+
+Context Map may later expose an MCP server for Codex, Hermes, Dev-Flow, or other clients. It is not execution authority. It must not edit source, route workers, verify readiness, promote work, or silently write durable vault notes.
+
+## Relationships
+
+- A **Local model server** can support one or more **Worker profiles**.
+- A **Worker profile** becomes a **Local worker** only through an **Execution surface**.
+- A **Local worker** produces evidence for a **Task**; Dev-Flow verification decides readiness, closure, and promotion.
+- **Fleet telemetry** describes local model availability; it is not task evidence or verification proof by itself.
+- A **Context Map** can orient a worker before source inspection, but live source, tests, docs, and Dev-Flow verification still decide whether a change is correct.
+
 ### Repository cleanup
 
 A source-tree hygiene activity that classifies repository material before changing, archiving, untracking, or deleting it.
@@ -53,3 +87,4 @@ A document or reference whose current accuracy is untrusted until reconciled aga
 ## Flagged ambiguities
 
 - "cleanup" was used to mean both task-owned runtime cleanup and repository cleanup; resolved: the current cleanup grilling session means **Repository cleanup**.
+- "local worker" was used to mean a model server, provider, profile, or runtime path; resolved: a **Local worker** is only an approved local model route acting through an **Execution surface**.

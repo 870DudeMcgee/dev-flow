@@ -389,7 +389,7 @@ def test_operating_layer_refactor_endpoint_blocks_unapproved_start(
         calls.append((root, worker))
         return {"started": True, "issue_count": 2, "worker": worker, "error": None}
 
-    monkeypatch.setattr("devflow.control_room.operating_layer_server.start_refactor_loop", fake_start)
+    monkeypatch.setattr("devflow.control_room.operating_layer_refactor_handlers.start_refactor_loop", fake_start)
     server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

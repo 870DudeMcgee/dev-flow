@@ -10,6 +10,14 @@ Use `<repo-root>` for portable command examples. This checkout is referred to as
 
 Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
 
+Local-worker commands must also follow
+[docs/local-worker-policy.md](../local-worker-policy.md): local workers are
+opt-in, and Qwen 3.6 27B Q5 MTP is the normal single local worker lane when
+opted in. Codex should use a visible `qwen36_27b_mtp_coder` subagent spawn
+when that tool surface is available; Hermes should use `hermes-qwen-mtp` only
+as the same-lane MCP packet wrapper. Legacy commands in this allowlist are
+product evidence surfaces, not default routing.
+
 ## Read-Only Allowed
 
 Hermes may run these for inspection, summarization, and non-promoting preview work. They must not be treated as approval to mutate source files, task state, git state, or promotion state.

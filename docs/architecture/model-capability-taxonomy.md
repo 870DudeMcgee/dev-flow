@@ -2,6 +2,12 @@
 
 Status: active reference plus roadmap. Dev-Flow already records core capability fields in the agent registry and exposes them through `agent catalog --json`; richer scoring remains incremental. This document defines the capability taxonomy, profile schema, routing decision tree, and implementation plan for matching tasks to the best model from a heterogeneous fleet.
 
+Current local-worker sessions do not use this roadmap as a routing menu. Use
+[docs/local-worker-policy.md](../local-worker-policy.md): local workers are
+opt-in, Qwen 3.6 27B Q5 MTP is the normal single lane when opted in, Codex uses
+a visible `qwen36_27b_mtp_coder` subagent spawn, and Hermes uses
+`hermes-qwen-mtp` as the same-lane MCP packet wrapper.
+
 This extends [agent-registry-and-adapter-runtime.md](agent-registry-and-adapter-runtime.md) and [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md). The existing evidence-only routing (`devflow task fit`, `devflow task route`, `devflow task scorecard`) remains the stable entry point. This doc defines the *routing intelligence* layer that makes those commands choose the right model for the job.
 
 ## 1. Problem
@@ -576,11 +582,14 @@ alias_routing_rules:
     weight_bonus: +10
 ```
 
-## 4. Concrete Fleet Routing Recommendations
+## 4. Historical Fleet Routing Examples
+
+These tables are retained as capability-taxonomy examples. They are superseded
+for current worker choice by [docs/local-worker-policy.md](../local-worker-policy.md).
 
 ### 4.1 Local Model Routing Table
 
-What to use for what, based on actual verified manifests:
+Historical examples from older manifest-based routing work:
 
 | Task Archetype | Best Local Pick | Why | Fallback |
 |---|---|---|---|

@@ -10,18 +10,24 @@ Workers are replaceable. The stable code-changing runtime supports shell workers
 
 ## Current Product Contract
 
-The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) and the operator-centered mission in [docs/operator-centered-mission.md](docs/operator-centered-mission.md).
+The active runtime contract is [docs/mvp-contract.md](docs/mvp-contract.md). The near-term product direction is [docs/control-room-mvp.md](docs/control-room-mvp.md), grounded by [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md) and the operator-centered mission in [docs/operator-centered-mission.md](docs/operator-centered-mission.md). Current local-worker selection is [docs/local-worker-policy.md](docs/local-worker-policy.md): opt-in Qwen 3.6 27B Q5 MTP as the normal single lane, using a visible Codex `qwen36_27b_mtp_coder` subagent spawn when the Codex tool surface is available. Older local routes are explicit evidence or diagnostic paths.
 
 The staged evidence path for proposal patches, patch review, patch dry-run preview, explicit patch application, verification, and gated promotion is documented in [docs/architecture/patch-evidence-ladder.md](docs/architecture/patch-evidence-ladder.md). Project Code Map is now the current human-authored orientation layer through root `CODE_MAP.md`, `devflow map init/show/check`, and bounded `devflow task packet` excerpts. Idea Foundry is the current local intake layer through `devflow idea capture/list/show/classify/park/promote/create-goal/create-task/archive`, and Idea Greenhouse V1 projects those local records into the operating layer.
 
 Architecture cleanup uses [docs/architecture/graphify-architecture-baseline.md](docs/architecture/graphify-architecture-baseline.md) as generated evidence, not runtime authority. The current baseline records `8,356` nodes, `19,765` edges, and `507` communities from commit `4e2d627e`, with the generated call-flow map at `graphify-out/dev-flow-callflow.html`. Keep the full `graphify-out/` output local by default; commit lightweight metrics, commands, and findings instead.
 
 ### Stable Commands
+
+Stable commands include some legacy evidence surfaces. They remain documented
+because Dev-Flow supports their artifacts, but they are not the current
+opt-in local-worker workflow; use the visible Codex `qwen36_27b_mtp_coder`
+subagent lane from [docs/local-worker-policy.md](docs/local-worker-policy.md)
+for current local-worker packets.
 - **Initialization & Diagnostics**: `devflow init`, `devflow doctor`, `devflow reconcile`, `devflow freshness loop`, `devflow loop init/show/list/run`
 - **Dashboard**: `devflow dashboard`
 - **Operating Layer**: `devflow operating-layer snapshot --json`, `devflow operating-layer serve`, `devflow operating-layer install-service`
 - **Project Orientation**: `devflow map init`, `devflow map show`, `devflow map check`
-- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer`, `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner`, `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
+- **Task Lifecycle**: `devflow task create`, `devflow task run --worker shell`, `devflow task run --worker qwopus-implementer` (legacy patch evidence), `devflow task review-patch`, `devflow task patch-dry-run`, `devflow task apply-patch`, `devflow task local --worker qwen-planner` (legacy advisory evidence), `devflow task verify`, `devflow task finalize`, `devflow task close`, `devflow task list`, `devflow task show`, `devflow task log`
 - **Policy & Evidence**: `devflow task orchestrate --plan-only`, `devflow worker validate-outcome`
 - **Knowledge Foundry**: `devflow knowledge capture`, `devflow knowledge list`, `devflow knowledge show`, `devflow knowledge promote`, `devflow knowledge reject`, `devflow knowledge search`
 - **Idea Foundry**: `devflow idea capture`, `devflow idea list`, `devflow idea show`, `devflow idea classify`, `devflow idea park`, `devflow idea promote`, `devflow idea create-goal --dry-run`, `devflow idea create-goal`, `devflow idea create-task --dry-run`, `devflow idea create-task`, `devflow idea archive`
@@ -247,7 +253,7 @@ Run the preferred local Qwopus patch-proposal path:
 .venv/bin/python -m devflow.cli task escalation-packet "$TASK_ID" --agent qwopus-implementer
 ```
 
-For read-only local review/debug auditions, prefer `local-gemma4-31b-dense-judge` as the operator-selected reviewer profile when installed and supported by fresh audition evidence. Use `local-qwen25-coder-32b-code-reviewer` as the heavier code-specialist fallback and `local-qwen25-coder-7b-code-reviewer` as the faster fallback. This is guidance only; Dev-Flow does not auto-route, apply patches, verify, promote, commit, merge, or push from audition scores.
+For current local-worker sessions, follow [docs/local-worker-policy.md](docs/local-worker-policy.md): use a single opt-in Qwen 3.6 27B Q5 MTP lane unless the operator explicitly selects another route for diagnostics or evidence comparison. In Codex, prove and use that lane through a visible `qwen36_27b_mtp_coder` subagent spawn; in Hermes, use `hermes-qwen-mtp` with `qwen_ready(smoke=true)` before `qwen_run` for the same bounded packet semantics. Older read-only local review/debug auditions remain comparison evidence only; Dev-Flow does not auto-route, apply patches, verify, promote, commit, merge, or push from audition scores.
 
 Capture optional legacy local Qwen/Qwopus/Gemma advisory evidence without auto-editing files:
 
@@ -322,7 +328,7 @@ After `task finalize --commit`, the commit is on the task worker branch and main
 
 `devflow loop init <loop_id> --template goal-autopilot` creates a durable automation definition under `.devflow/loops/<loop_id>/loop.yaml`. `devflow loop run <loop_id> --allow-workers --allow-verify --allow-promote` can create ready tasks, run projected shell-worker batches, run projected verification batches, run promotion preview, and promote verified safe local work only when loop config and run flags explicitly allow it. Goal-linked tasks honor their `goal-link.yaml` promotion and risk policy; standalone verified tasks can promote when the loop-level gates pass. Each run writes `.devflow/loops/<loop_id>/runs/<run_id>.json` and stops for open questions, blockers, unsafe dirty Git state, failed workers, failed verification, promotion-preview refusal, high-risk lanes without policy approval, max iterations, or repeated no-progress.
 
-Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future remote provider adapters may be described in registries, but only `shell`, `manual`, and approved local Ollama patch agents such as `qwopus-implementer` are executable through `task run`; local Qwen/Qwopus/Gemma evidence capture uses `task local` and does not apply model output.
+Manual proof-agent runs generate handoff evidence and then wait for worker-written evidence under `.devflow/tasks/<task-id>/agents/devflow-manual-codex-worker/`. Future remote provider adapters may be described in registries, but only `shell`, `manual`, and approved local Ollama patch agents such as `qwopus-implementer` are executable through `task run`; legacy local Qwen/Qwopus/Gemma evidence capture uses `task local` and does not apply model output. This legacy Dev-Flow evidence path is separate from the current opt-in visible Codex `qwen36_27b_mtp_coder` local-worker policy.
 
 ## Release And Versioning
 

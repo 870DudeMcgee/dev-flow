@@ -6,6 +6,12 @@ Dev-Flow should not choose agents by name first. It should classify the work, es
 
 This design extends [agent-registry-and-adapter-runtime.md](agent-registry-and-adapter-runtime.md). Execution adapters remain bounded by the registry/manual/shell-alignment sequence and explicit human or dogfood invocation.
 
+Current local-worker sessions use the simpler opt-in visible-Qwen-worker policy in
+[docs/local-worker-policy.md](../local-worker-policy.md). This routing design
+records evidence and recommendations; it does not override the visible Codex
+`qwen36_27b_mtp_coder` workflow, the `hermes-qwen-mtp` same-lane MCP wrapper,
+or auto-launch local workers.
+
 Milestone 17 promotes deterministic task-fit, scout, route, and routing-quality artifacts as derived evidence. The stable commands write evidence and recommend next commands only; humans or explicit dogfood lanes still invoke worker execution, verification, promotion, commit, push, and publication.
 
 ## 1. Core Loop
@@ -269,7 +275,7 @@ routing_decision:
   task_fit_profile_path: .devflow/tasks/task-123/task-fit.yaml
   selected:
     planner: openai-frontier-architect
-    worker: qwen36-senior
+    worker: qwen36_27b_mtp_coder
     reviewer: frontier-code-reviewer
     verifier: deterministic-shell
   reason:

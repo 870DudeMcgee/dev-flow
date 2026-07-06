@@ -2,6 +2,13 @@
 
 Hermes may help coordinate local-worker parallelism around Dev-Flow. Hermes must not become the runtime, source of truth, or autonomous swarm controller.
 
+Current local-worker selection is opt-in and single-lane visible-Qwen-worker-first; see
+[docs/local-worker-policy.md](../local-worker-policy.md). This document
+describes future parallelism levels and legacy Dev-Flow evidence paths, not a
+standing instruction to spawn multiple local workers. The normal Codex proof is
+a visible `qwen36_27b_mtp_coder` subagent response; Hermes MCP should use
+`hermes-qwen-mtp` for the same single-lane packet semantics.
+
 Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Do not assume every checkout is named `DevFlow`.
 
 Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
@@ -64,13 +71,18 @@ Run these as proposals first. Record metrics before raising the level.
 ### 1 Local Worker
 
 - Create one task.
-- Run one Qwopus/local worker after approval.
+- Run one explicitly selected Qwen local worker after approval, or a legacy
+  local patch/evidence worker only when the experiment is specifically about
+  that surface.
 - Verify patch quality, log readability, and task completion time.
 
 ### 2 Local Workers
 
 - Run one writer and one reviewer on separate evidence paths.
-- Prefer `task run --worker qwopus-implementer` for proposal evidence and `task review-patch` for review evidence.
+- Prefer the opt-in Qwen lane for current local-worker packets. Use
+  `task run --worker qwopus-implementer` only when deliberately testing the
+  legacy proposal-evidence path, then use `task review-patch` for review
+  evidence.
 - Confirm no shared write target and no main checkout edits.
 
 ### 3 Local Workers

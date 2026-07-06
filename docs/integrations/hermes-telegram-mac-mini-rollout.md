@@ -1,6 +1,9 @@
 # Hermes Telegram Mac Mini Local Model Rollout
 
-Status: active setup goal
+Status: historical setup plan plus reference commands. Current local-worker
+selection is [docs/local-worker-policy.md](../local-worker-policy.md): opt-in,
+visible `qwen36_27b_mtp_coder` subagent spawn in Codex, `hermes-qwen-mtp` as
+the same-lane Hermes MCP wrapper, and non-Qwen routes as explicit exceptions.
 
 This rollout turns Hermes and Telegram into a safe operator surface for DevFlow local-model work across Josh's Mac mini and Mac Studio.
 
@@ -19,7 +22,8 @@ Set up Hermes/Telegram so Josh can use the Mac mini M1 for lightweight local mod
 - Real local-model worker-pool runs require explicit human approval and write only WorkerEvidence under `.devflow/tasks/<task-id>/local-model-runs/<run-id>/`.
 - Mac mini model availability is verified from the active Hermes config and local `/v1/models` response before a profile is trusted.
 - DevFlow classifies current machine RAM and marks discovered models as preferred, allowed, or not recommended.
-- DevFlow exposes `qwen36-27b-q5-mtp` on provider `custom:qwen36-27b-q5-mtp` as the preferred Mac mini local default when ready.
+- DevFlow exposes `qwen36-27b-q5-mtp` on provider `custom:qwen36-27b-q5-mtp`
+  as an explicitly selected local Qwen lane when ready.
 - DevFlow enforces one local model run at a time across all local providers/models.
 - Mac Studio heavy profiles remain assigned to `mac_studio` unless real evidence supports moving them.
 - No Hermes path hardcodes Mac Studio checkout folders as portable authority.
@@ -28,7 +32,9 @@ Set up Hermes/Telegram so Josh can use the Mac mini M1 for lightweight local mod
 
 Mac mini small-worker class:
 
-- `qwen36-27b-q5-mtp` via Hermes provider `custom:qwen36-27b-q5-mtp`: default local chat, Brainstorm, short planning, status brief, summary, docs review.
+- `qwen36-27b-q5-mtp` via Hermes provider `custom:qwen36-27b-q5-mtp`:
+  explicitly selected local Qwen chat, Brainstorm, short planning, status
+  brief, summary, docs review, and bounded worker packets.
 - `qwen2.5-coder:7b-instruct`: small code review, syntax fixes, small test help.
 - `qwen2.5-coder:1.5b`: classifier/router utility and short extraction.
 
@@ -163,4 +169,6 @@ action: <action>
 
 ## Next Safe Action
 
-Run `devflow agent catalog --json`, confirm `qwen36-27b-q5-mtp` is the ready default with `single_flight` local concurrency, then perform one packet preview with `hermes-qwen32-latest` before enabling Telegram-triggered read-only auto-runs.
+Run `devflow agent catalog --json`, confirm `qwen36-27b-q5-mtp` is ready with
+`single_flight` local concurrency, then perform one packet preview with
+`hermes-qwen32-latest` before enabling Telegram-triggered read-only auto-runs.

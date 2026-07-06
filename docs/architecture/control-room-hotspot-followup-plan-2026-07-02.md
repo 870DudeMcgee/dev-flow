@@ -1,18 +1,33 @@
 # Control-Room Hotspot Follow-Up Plan
 
 Date: 2026-07-02
-Status: Planning checkpoint after the combined operating-layer asset split
+Updated: 2026-07-04
+Status: Planning checkpoint updated after the accepted route/test locality
+review
 
-Slice 7 is complete by accepted scope. This plan records the next cleanup
-opportunities from the remaining Graphify/codebase hotspots. It is a planning
-document only: do not treat it as authorization to implement all slices at once.
+Local-worker note: this plan records historical Ornith scout evidence. Current
+local-worker selection is [docs/local-worker-policy.md](../local-worker-policy.md):
+opt-in visible Codex `qwen36_27b_mtp_coder` worker, with `hermes-qwen-mtp` as
+the same-lane Hermes MCP wrapper and Ornith as an explicit read-only exception
+only.
+
+Slice 7 is complete by accepted scope. The July 4 reassessment accepted the
+route/test locality work that landed after this plan was first written: the
+Idea Greenhouse asset split, Browser Action Executor, Builder-Judge Runtime
+Registry, route-local tests, static asset test locality, and the CLI
+`task_auto_run` command service are no longer future slices. This plan records
+the next cleanup opportunities from the remaining Graphify/codebase hotspots. It
+is a planning document only: do not treat it as authorization to implement all
+slices at once.
 
 Graphify is evidence, not authority. At the time of the asset-facade review,
 `HEAD` was `af552b02` and `graphify-out/GRAPH_REPORT.md` was built from
 `f8060799`, so the generated report was stale and used only as a ranking map.
-The current evidence was the architecture checkpoint in
+The current evidence is the architecture checkpoint in
 `docs/architecture/control-room-architecture-audit.md`, direct source
-inspection, focused tests, and local Ornith 9B read-only scout reports.
+inspection, focused tests, Context Map MCP orientation, and local-worker
+readiness evidence. Historical Ornith scout reports remain background evidence
+only; current local-worker execution uses the Qwen lane described above.
 
 ## Constraints
 
@@ -60,204 +75,208 @@ regression.
 
 | Path | Current role | Why Graphify flags it | Real architecture problem? |
 |---|---|---|---|
-| `src/devflow/control_room/operating_layer_script.py` | Browser app composition root and JavaScript asset facade. | Large `APP_JS` string with many client-side domains. | Partly. Obsidian intake, architecture evidence, workbench, and render-only task controls have cohesive boundaries. Snapshot hydration, render fanout, polling, and shared action execution should stay in place for now. |
+| `src/devflow/control_room/operating_layer_script.py` | Browser app composition root and JavaScript asset facade. | Large `APP_JS` string with many client-side domains. | Yes, but narrower than before. Obsidian intake, architecture evidence, workbench, pipeline, and Idea Greenhouse have cohesive asset modules. The remaining high-leverage seam is the shared client action kernel around approved-command execution, task action dispatch, and action-result rendering. |
 | `src/devflow/control_room/operating_layer_styles.py` | CSS assembly facade for shell, layout, brainstorm, workbench, architecture, focus, loops, and utilities. | Large `APP_CSS` string, even after model-picker and task-control extraction. | Mostly acceptable. Remaining selectors share shell variables, layout, utilities, and responsive rules. Split only when a visible UI surface can stand alone. |
-| `src/devflow/control_room/operating_layer_server.py` | HTTP transport facade for assets, snapshot, actions, workbench, builder-judge, local model, browse, and health. | Many route methods, imports, and helper functions. | Yes for `/api/actions/run`, which mixes policy, approval, subprocess execution, truncation, and response shaping. Builder-judge runtime state is the second candidate. |
+| `src/devflow/control_room/operating_layer_server.py` | HTTP transport facade for assets, snapshot, actions, workbench, builder-judge, local model, browse, and health. | Many route methods, imports, and helper functions. | Improved. Browser action execution, Brainstorm payload shaping, Builder-Judge payload shaping, browse projection, and local-model ensure orchestration now live behind focused modules. The remaining server-side candidate is Workbench/Gates payload shaping, not another broad HTTP rewrite. |
 | `src/devflow/control_room/dogfood.py` | Dogfood suite coordinator plus private case scripts. | Many case functions and dogfood-specific helpers. | Not currently. Slice 7 already extracted run-store helpers. The remaining module is coherent as the dogfood suite boundary. |
-| `src/devflow/cli.py` | Typer command dispatcher and task workflow entrypoints. | Many command functions and local imports. | Only `task_auto_run` is a real next extraction target. Most remaining commands are thin wrappers or intentionally coupled operator workflows. |
-| `tests/test_operating_layer.py` | Mixed static asset, server, route, concurrency, and UI contract tests. | Large test module with many independent failure modes. | Test hotspot only. Improve failure locality after production splits; do not do a broad rewrite. |
+| `src/devflow/cli.py` | Typer command dispatcher and task workflow entrypoints. | Many command functions and local imports. | Improved for this plan: `task_auto_run` now delegates to `task_auto_run_command.py`. Most remaining commands are thin wrappers or intentionally coupled operator workflows. Do not churn CLI by size alone. |
+| `tests/test_operating_layer.py` | Snapshot, projection, visual-QA, and remaining operating-layer contract tests. | Large test module with many independent failure modes. | Smaller and more coherent after route/static tests moved out. Continue moving tests only when a production module split creates a better test seam. Do not do a broad test rewrite. |
 | `tests/test_operator_ui_browser.py` | Browser regression surface for the served operating layer. | Large Playwright-style browser file. | Leave mostly intact. It protects visible operator behavior and should be used as focused smoke coverage for UI slices. |
 | `tests/test_local_ai_command.py` | Local-AI command and capacity workflow coverage. | Large test file with many command scenarios. | Not part of this active-hotspot slice. Defer unless local-AI command work resumes. |
 
+## Completed Since This Plan
+
+These entries were future slices in the original July 2 plan but are current
+source/test reality after the accepted July 4 route/test locality review.
+
+### Idea Greenhouse Asset Boundary
+
+Status: complete by current source.
+
+Evidence:
+
+- `operating_layer_idea_greenhouse_script.py` and
+  `operating_layer_idea_greenhouse_styles.py` own the Idea Greenhouse asset
+  surface.
+- `tests/test_operating_layer_assets.py` verifies the Idea Greenhouse JS/CSS
+  are facade parts, included once, and do not own `runApprovedCommand`,
+  `executeAction`, or `setupTaskSurfaceActions`.
+
+### Browser Action Executor
+
+Status: complete by current source.
+
+Evidence:
+
+- `browser_action_executor.py` owns command classification, approval resolution,
+  subprocess execution, timeout handling, promotion-context writing, output
+  truncation, and typed action response shaping.
+- `operating_layer_server.py` keeps HTTP parsing and `_send_json()` /
+  `_send_action_error()` mapping.
+- `tests/test_browser_action_routes.py` and `tests/test_browser_action_policy.py`
+  cover the browser action route and resolver contracts.
+
+### Builder-Judge Runtime And Route Locality
+
+Status: complete for the previously named runtime-registry slice; improved with
+route payload locality.
+
+Evidence:
+
+- `builder_judge_runtime_registry.py` owns running-loop/thread retention.
+- `operating_layer_builder_judge_routes.py` owns Builder-Judge route payload
+  shaping and read/status behavior.
+- `tests/test_operating_layer_builder_judge_routes.py` covers the route-local
+  async/status/list/failure contracts.
+
+### CLI `task_auto_run` Command Service
+
+Status: complete by current source.
+
+Evidence:
+
+- `src/devflow/cli.py` delegates `task auto-run` to
+  `run_task_auto_run_command(...)`.
+- `task_auto_run_command.py` owns the command-specific routing/execution/output
+  contract.
+- `tests/test_task_auto_run_cli.py` covers the command facade behavior.
+
+### Static Asset And Route Test Locality
+
+Status: complete enough for the current route/test locality acceptance.
+
+Evidence:
+
+- `tests/test_operating_layer_assets.py` owns pure `APP_JS`, `APP_CSS`, and
+  `INDEX_HTML` contract checks.
+- Route-local files now cover browser actions, Brainstorm, browse,
+  Builder-Judge, local-model ensure, Obsidian, and static/project routes.
+- `tests/test_operating_layer.py` remains for snapshot/projection/visual-QA and
+  operating-layer contracts that do not yet have a clearer production seam.
+
 ## Recommended Future Slices
 
-### Slice 8: Idea Greenhouse Asset Boundary
+### Next Slice: Client Action Kernel Extraction
 
 Files touched:
 
 - `src/devflow/control_room/operating_layer_script.py`
-- `src/devflow/control_room/operating_layer_styles.py`
-- New Idea Greenhouse JS/CSS asset modules
-- Focused Idea Greenhouse asset tests
+- New `src/devflow/control_room/operating_layer_action_kernel_script.py`
+- `tests/test_operating_layer_assets.py`
+- Focused browser smoke when practical
 
-Boundary:
+Seam:
 
-- Before extracting, run a fresh scout pass over Idea Greenhouse state ownership,
-  task creation and brainstorm touchpoints, and static test tokens.
-- Move Idea Greenhouse render helpers, detail forms, classify/park/archive UI
-  helpers, and Idea-specific click handling into a dedicated JS asset module
-  only where they do not pull in the shared browser action kernel.
-- Move `.idea-greenhouse-*`, `.idea-lane*`, `.idea-card*`,
-  `.idea-detail-*`, and related Idea-specific selectors into a dedicated CSS
-  asset module.
+- Extract the client action kernel around `renderActionPending()`,
+  `renderActionError()`, `renderActionResult()`, `runApprovedCommand()`,
+  `executeAction()`, command-copy helpers, and `setupTaskSurfaceActions()`.
+- Preserve the exact `APP_JS` served facade and JavaScript load order.
+- Keep feature-specific handlers in their existing feature modules unless the
+  action kernel can call them through existing globals without changing runtime
+  behavior.
 - Keep `APP_JS`, `APP_CSS`, and `operating_layer_assets.py` as the served
   facade contract.
 
 Expected benefit:
 
-- Extracts an adjacent but less stateful surface after the accepted asset split.
-- Keeps task creation and Brainstorm session management visible as explicit
-  touchpoints rather than accidentally moving shared state.
-- Gives the next slice focused static-asset tests before any broader session
-  refactor.
+- Removes the largest remaining shared browser-action seam from the client
+  composition root now that the server-side Browser Action Executor is isolated.
+- Gives approval payload construction, action result rendering, command copying,
+  and task action dispatch one local test surface.
+- Keeps feature modules deep: Idea Greenhouse, Workbench, Pipeline, Obsidian,
+  and Architecture Evidence should call or register with the action kernel
+  rather than re-owning approval mechanics.
 
 Risk:
 
-- Idea detail actions share approved-command plumbing with task controls.
-- `data-idea-brainstorm` starts or continues Brainstorm sessions, so session
-  adoption and transcript loading must stay exact.
-- Brainstorm session management itself should remain deferred until after this
-  slice is accepted.
+- `setupTaskSurfaceActions()` is a cross-cutting event delegation hub for task
+  controls, idea controls, local-model setup, refactor tabs, command copying,
+  and promotion context. Keep the first extraction mechanical.
+- `runApprovedCommand()` refreshes snapshots after successful actions; preserve
+  that timing and selected-project behavior.
+- Static string tests alone are not enough; run the browser smoke.
 
 Focused tests:
 
 ```bash
 env PYTHONPATH=src:. .venv/bin/python -m pytest \
-  tests/test_operating_layer.py -k "idea_greenhouse or data-idea or classify or park_archive" -q
+  tests/test_operating_layer_assets.py -q
 env PYTHONPATH=src:. .venv/bin/python -m pytest \
-  tests/test_operator_ui_browser.py -k idea_greenhouse -q
+  tests/test_operator_ui_browser.py::test_app_loads_assets_snapshot_health_without_console_errors_or_overflow -q
 ```
 
 Estimated size: medium.
 
-### Slice 9: Browser Action Executor
+### Server Follow-Up: Workbench/Gates Route Payload Locality
 
 Files touched:
 
 - `src/devflow/control_room/operating_layer_server.py`
-- New `src/devflow/control_room/browser_action_executor.py`
-- Focused action-run tests if a direct service-level test is useful
+- New Workbench/Gates route helper if the seam stays coherent
+- Focused `tests/test_operating_layer.py` cases or new route-local tests
 
-Boundary:
+Seam:
 
-- Extract the `/api/actions/run` branch from `do_POST`.
-- Move command classification, `resolve_browser_action()`,
-  `command_args_for_approved_browser_action()`, approval handling,
-  subprocess execution, output truncation, promotion-context writing, and the
-  stable action response envelope into a small service.
-- Keep HTTP parsing and `_send_json()` / `_send_action_error()` behavior in the
-  request handler unless the response envelope is moved behind a typed result.
+- Consider moving `_handle_workbench_implement()` payload validation,
+  implementation package construction, config construction, and async start
+  handoff into a focused route helper.
+- Keep HTTP parsing, status mapping, and `_send_action_error()` behavior in the
+  request handler unless a typed result improves the interface.
 
 Expected benefit:
 
-- Removes the clearest server-side coupling hotspot.
-- Makes browser-approved command execution easier to test without reasoning
-  through the whole HTTP handler.
+- Continues the same server pattern established by Brainstorm, Builder-Judge,
+  browse, local-model ensure, and Browser Action Executor extractions.
+- Makes the workbench implementation path easier to test without reasoning
+  through the full HTTP handler.
 
 Risk:
 
-- Stable JSON error shape, timeout handling, retriable flags, and output
-  truncation are user-visible contracts.
+- Workbench errors currently map to a mix of conflict, validation, OS, and
+  internal action-error envelopes. Preserve status codes and retriable flags.
+- This is lower priority than the client action kernel because server-side
+  locality already improved substantially.
 
 Focused tests:
 
 ```bash
 env PYTHONPATH=src:. .venv/bin/python -m pytest \
-  tests/test_operating_layer.py -k "browser_action_policy or runs_approved or blocks_approval or action_run or shell_worker_browser_runs or disallowed_browser_mutations" -q
+  tests/test_operating_layer.py -k "workbench_implement or gates_setup" -q
 ```
 
 Estimated size: medium.
 
-### Slice 10: Builder-Judge Runtime Registry
+### Deferred: Local-AI Command And Fleet Modules
 
 Files touched:
 
-- `src/devflow/control_room/operating_layer_server.py`
-- New builder-judge runtime registry helper
-- Focused builder-judge server tests
+- `src/devflow/control_room/local_ai_command.py`
+- `src/devflow/control_room/local_ai_fleet.py`
+- `tests/test_local_ai_command.py`
 
-Boundary:
+Seam:
 
-- Move `_bj_state_lock`, `_bj_running_loops`, `_bj_threads`, and `_bj_*`
-  registry helpers out of the HTTP module.
-- Keep route methods responsible for payload parsing and response status.
-
-Expected benefit:
-
-- Separates concurrency/state retention from the HTTP facade.
-- Gives completed-thread retention and running-loop visibility one owner.
-
-Risk:
-
-- `_handle_builder_judge_status()` currently merges in-memory running state with
-  newer file-backed rounds. That behavior must be preserved exactly.
-
-Focused tests:
-
-```bash
-env PYTHONPATH=src:. .venv/bin/python -m pytest \
-  tests/test_operating_layer.py -k "builder_judge_async_start_status_and_list_are_consistent_under_concurrency or builder_judge_completed_thread_entries_are_bounded or builder_judge_background_failure_stays_visible" -q
-```
-
-Estimated size: medium.
-
-### Slice 11: CLI `task_auto_run` Service
-
-Files touched:
-
-- `src/devflow/cli.py`
-- New CLI command helper or service module
-- `tests/test_task_auto_run_cli.py`
-
-Boundary:
-
-- Move the body of `task_auto_run()` into a focused command service that owns
-  fit estimation, routing, registry validation, adapter validation, worker
-  execution, and rendered output lines.
-- Leave the Typer function as a thin option parser and exit-code adapter.
+- Reassess only when local-AI command work resumes. Graphify still flags these
+  modules, but current product pressure is on the operating-layer action path.
 
 Expected benefit:
 
-- Isolates the only remaining CLI command that mixes policy, selection,
-  validation, and execution.
-- Keeps broad task command workflows intact instead of doing random CLI churn.
+- Avoids mixing local-AI command cleanup into the operating-layer refactor.
+- Keeps model/runtime policy changes tied to explicit local-worker tasks.
 
 Risk:
 
-- CLI output is a contract. Preserve line ordering and wording unless tests
-  deliberately change with the slice.
+- Local worker policy is current and Qwen-first, but local fleet command
+  behavior has a wide test blast radius. Do not use it as filler cleanup.
 
-Focused tests:
-
-```bash
-env PYTHONPATH=src:. .venv/bin/python -m pytest \
-  tests/test_task_auto_run_cli.py \
-  tests/test_cli_experimental.py -q
-```
-
-Estimated size: small to medium.
-
-### Slice 12: Static Asset Test Locality
-
-Files touched:
-
-- `tests/test_operating_layer.py`
-- New `tests/test_operating_layer_assets.py`
-
-Boundary:
-
-- Move pure `APP_JS`, `APP_CSS`, and `INDEX_HTML` contract tests out of the
-  mixed operating-layer server test file.
-- Do not rewrite browser tests or broad server fixtures.
-
-Expected benefit:
-
-- Improves failure locality after JS/CSS asset splits.
-- Keeps static asset drift from obscuring runtime route failures.
-
-Risk:
-
-- Low, but avoid turning this into a general test cleanup project.
-
-Focused tests:
+Focused tests when reopened:
 
 ```bash
 env PYTHONPATH=src:. .venv/bin/python -m pytest \
-  tests/test_operating_layer_assets.py \
-  tests/test_operating_layer.py -k "architecture_artifact_route or builder_judge or obsidian or action_run" -q
+  tests/test_local_ai_command.py -q
 ```
 
-Estimated size: small.
+Estimated size: medium to large; not next.
 
 ## Do-Not-Touch List
 
@@ -269,13 +288,13 @@ Estimated size: small.
 - Workbench, Obsidian intake, pipeline, and architecture evidence asset modules:
   treat them as the accepted combined asset-facade boundary unless a regression
   appears.
-- Brainstorm session management: defer until after the Idea Greenhouse boundary,
-  because it shares more behavior with task creation, transcript loading,
-  pipeline adoption, and workbench state.
-- `runApprovedCommand()`, `executeAction()`, and `setupTaskSurfaceActions()`:
-  these are cross-cutting policy/action glue for tasks, ideas, local-model
-  setup, and architecture actions. Revisit after the server action executor is
-  isolated.
+- Idea Greenhouse asset modules: accepted as extracted. Do not move task
+  creation, classify/park/archive forms, or brainstorm touchpoints back into
+  `operating_layer_script.py`.
+- Brainstorm session management: route payloads are localized, but client
+  session adoption/transcript loading remains coupled to task creation,
+  pipeline adoption, and workbench state. Defer unless the client action-kernel
+  extraction exposes a real regression.
 - `dogfood.py` case scripts: large but coherent as dogfood suite behavior after
   Slice 7's run-store extraction.
 - Thin CLI wrappers and coupled task workflows such as `task run`,
@@ -317,10 +336,11 @@ Then confirm `graphify-out/GRAPH_REPORT.md` was built from the current
 
 ## First Recommended Next Slice
 
-Start with Slice 8, Idea Greenhouse Asset Boundary.
+Start with Client Action Kernel Extraction.
 
-It is adjacent to the accepted asset split but less stateful than Brainstorm
-session management. Before extracting it, run a fresh scout pass over Idea
-Greenhouse state ownership, task creation touchpoints, brainstorm touchpoints,
-and static test tokens. Defer Brainstorm session management until after this
-boundary is accepted.
+The server-side Browser Action Executor is now isolated, and Idea Greenhouse is
+already an accepted asset module. The remaining high-leverage operating-layer
+seam is the shared client action kernel in `operating_layer_script.py`, especially
+`runApprovedCommand()`, `executeAction()`, and `setupTaskSurfaceActions()`.
+Extract it mechanically, preserve the served `APP_JS` facade, and verify with
+asset tests plus the focused browser smoke.

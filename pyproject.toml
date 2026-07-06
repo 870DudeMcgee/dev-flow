@@ -57,6 +57,9 @@ qwopus = "devflow.cli:qwopus_main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"devflow.control_room" = ["static/*"]
+
 [tool.ruff]
 # Lint the source and tests; the editable-install venv and generated dirs are noise.
 src = ["src"]
