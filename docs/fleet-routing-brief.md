@@ -3,17 +3,20 @@
 
 ## Fleet Configuration
 
-| Port | Model | Role | When to Use |
-|---|---|---|---|
-| Ornith 35B (MoE, Q4) | 8084 | Builder/coder/scout | Code generation, extraction, refactoring, debugging, AST scans. 3B active, reasoning mode, `-np 3` (3 parallel slots). |
-| Qwen 27B (Q5, MTP) | 8083 | Judge | Code review, validation, final approval (thinking mode ON). Different model family — genuine second opinion. |
-| Ornith 9B (Q4) | 8085 | Light fallback | Emergency compression/extraction only when 35B is down. |
-| Qwopus 35B (Q4) | 8086 | Specialty fallback | Emergency use only. |
-| Qwen3-Coder-Next (80B-A3B, IQ4_XS) | 8087 | Specialty: security/math | Non-thinking mode. Lower agentic scores than Ornith 35B. Use only for niche security review or math-heavy tasks. |
+One heavy model *process* runs at a time. The model-router handles swaps.
+**Within Ornith 35B, 3 concurrent jobs can run in parallel** (`-np 3` slots).
 
-**One heavy model at a time.** The model-router handles starts/stops/swaps automatically. Do NOT manually start or stop models — use `~/.hermes/scripts/model-router start <name>` and let it manage the swap.
+| Port | Model | Role | Parallel | When to Use |
+|---|---|---|---|---|
+| 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout | **3 slots** | Code generation, extraction, refactoring, debugging, AST scans. 3B active, reasoning mode, self-scaffolding RL. Dispatch up to 3 concurrent jobs. |
+| 8083 | Qwen 27B (Q5, MTP) | Judge | 1 | Code review, validation, final approval (thinking mode ON). Different model family — genuine second opinion. |
+| 8085 | Ornith 9B (Q4) | Light fallback | 4 | Emergency compression/extraction only when 35B is down. |
+| 8086 | Qwopus 35B (Q4) | Specialty | 1 | Emergency use only. |
+| 8087 | Qwen3-Coder-Next (80B-A3B) | Specialty: security/math | 1 | Non-thinking. Lower agentic scores than Ornith 35B. Niche use only. |
 
-**Ornith 35B is the primary builder.** It outperforms Qwen3-Coder-Next on every agentic coding benchmark (SWE-Bench 75.6 vs 70.6, Terminal-Bench 64.2 vs 34.2) and has reasoning mode. Do not replace it with Qwen3-Coder-Next for general coding work.
+**Parallel slot rule:** "One heavy model at a time" means one heavy *process*
+running — not one *job*. Ornith 35B can handle 3 concurrent builder/scout jobs
+through its parallel slots. Do not serialize work that could run in parallel.
 
 ## Key Rules
 

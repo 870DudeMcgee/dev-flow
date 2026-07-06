@@ -131,14 +131,14 @@ cd "/Users/jewelbait/Desktop/Local AI Dev Team"
 
 ## Fleet
 
-| Port | Model | Role |
-|---|---|---|
-| 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout (reasoning mode, -np 3) |
-| 8083 | Qwen 27B (Q5 MTP) | Judge (thinking mode) |
-| 8085 | Ornith 9B (Q4) | Light fallback |
-| 8087 | Qwen3-Coder-Next (80B-A3B) | Specialty only (security/math) |
+| Port | Model | Role | Parallel |
+|---|---|---|---|
+| 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout (reasoning mode) | **3 slots** (`-np 3`) |
+| 8083 | Qwen 27B (Q5 MTP) | Judge (thinking mode) | 1 |
+| 8085 | Ornith 9B (Q4) | Light fallback | 4 |
+| 8087 | Qwen3-Coder-Next (80B-A3B) | Specialty only (security/math) | 1 |
 
-One heavy at a time. Router handles swaps. Fleet status is informational.
+One heavy *process* at a time, but **3 concurrent jobs can run within Ornith 35B's parallel slots**. Don't serialize work that could run in parallel. Router handles swaps. Fleet status is informational.
 
 ## Constraints
 
