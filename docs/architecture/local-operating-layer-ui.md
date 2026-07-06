@@ -7,7 +7,9 @@ Date: 2026-06-04
 
 Dev-Flow needs an operating layer that lets the user see and organize parallel AI coding work without reading raw logs or trusting hidden agent memory.
 
-This is not a new coding agent. It is a local-first control surface over the state Dev-Flow already owns:
+The next operating-layer direction is a selected-repo loop cockpit rather than a broad command center. Obsidian Command Center owns broad context and project surfaces; Dev-Flow owns the repo execution pipeline and wraps Hermes as the runtime for deterministic tool lanes, loop execution, and model escalation. The active implementation ledger is [repo-loop-cockpit-implementation-plan.md](repo-loop-cockpit-implementation-plan.md), and the architectural decision is [ADR 0002](../adr/0002-repo-loop-cockpit-over-hermes-runtime.md).
+
+This is not a new coding agent. The existing implementation is a local-first control surface over state Dev-Flow already owns:
 
 - goals and specs
 - task slices
@@ -18,6 +20,8 @@ This is not a new coding agent. It is a local-first control surface over the sta
 - verification evidence
 - promotion readiness
 - multi-project status
+
+Those broader projections remain compatibility/read surfaces during the repo cockpit transition, not the target first-viewport product shape.
 
 The filesystem remains the source of truth. The operating layer is a derived projection.
 

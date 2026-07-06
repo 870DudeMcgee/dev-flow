@@ -30,7 +30,7 @@ class RepoScout:
         lines = []
         try:
             status_proc = subprocess.run(
-                ["git", "status", "--porcelain"],
+                ["git", "status", "--porcelain", "--untracked-files=all"],
                 cwd=self.root,
                 capture_output=True,
                 text=True,
@@ -53,7 +53,9 @@ class RepoScout:
             path_part = line[3:].strip() if len(line) > 3 else line
             if path_part.startswith('"') and path_part.endswith('"'):
                 path_part = path_part[1:-1]
-            if path_part.startswith(".devflow") or path_part.startswith('".devflow'):
+            if path_part.startswith((".devflow", ".context-map")) or path_part.startswith(
+                ('".devflow', '".context-map')
+            ):
                 continue
             changed.append(path_part)
 

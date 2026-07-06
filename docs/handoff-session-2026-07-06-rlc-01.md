@@ -4,7 +4,7 @@
 
 - Committed: `151e9a5d` (Ornith 35B parallel slots enabled, fleet docs aligned)
 - Working tree: has unrelated docs/.context-map changes, no source changes
-- Fleet: Ornith 35B (:8084, builder/scout, 3 parallel slots), Qwen 27B (:8083, judge), Ornith 9B (:8085, fallback), Qwopus (:8086), Qwen3-Coder-Next (:8087, specialty)
+- Fleet: Ornith 35B (:8084, builder/scout, 3 parallel slots), Qwen 27B (:8083, judge). Ornith 9B, Qwopus, and Qwen3-Coder-Next are retired from active DevFlow use.
 - `extract_module.py` proven and ready at `~/.hermes/skills/software-development/local-fleet-efficiency/scripts/extract_module.py`
 - Architecture docs: `docs/adr/0002-repo-loop-cockpit-over-hermes-runtime.md` (accepted), `docs/architecture/repo-loop-cockpit-implementation-plan.md` (active ledger)
 - RLC-00 (contract alignment) is in_progress per the ledger
@@ -97,9 +97,8 @@ RLC-02 (snapshot projection) depends on RLC-01. The next session should add a `p
 |---|---|---|---|---|
 | 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout | **3 slots** (`-np 3`) | 75.6 SWE-Bench, reasoning mode, self-scaffolding RL. Primary builder. |
 | 8083 | Qwen 27B (Q5, MTP) | Judge | 1 | Thinking mode, genuine second opinion. |
-| 8085 | Ornith 9B (Q4) | Light fallback | 4 | Emergency only. Excluded from Dev-Flow cockpit routing. |
-| 8086 | Qwopus 35B (Q4) | Specialty | 1 | UI-heavy workflows only. |
-| 8087 | Qwen3-Coder-Next (80B-A3B) | Specialty | 1 | Non-thinking. Lower scores than Ornith. Security/math only. |
+
+Retired from active DevFlow use: Ornith 9B (:8085), Qwopus 35B (:8086), Qwen3-Coder-Next (:8087).
 
 One heavy *process* at a time. **3 concurrent jobs can run within Ornith 35B's parallel slots.** Don't serialize work that could run in parallel. Router handles swaps. Fleet status is informational.
 

@@ -63,6 +63,449 @@ def test_openrouter_profile_aliases_normalize_to_canonical_for_remote_load(tmp_p
     assert profile.provider == provider.id == "openrouter"
 
 
+def test_agent_preflight_blocks_edit_until_scout_packet_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".context-map").mkdir()
+    (tmp_path / ".context-map" / "source-index.json").write_text(
+        json.dumps({"files": {"src/devflow/control_room/agent_command.py": {}}}) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".devflow" / "fleet-contract.json").parent.mkdir(parents=True)
+    (tmp_path / ".devflow" / "fleet-contract.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "src" / "devflow" / "control_room").mkdir(parents=True)
+    (tmp_path / "src" / "devflow" / "control_room" / "agent_command.py").write_text("# stub\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_agent_cli.py").write_text("# stub\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "handoff-test.md").write_text(
+        "# DevFlow Refactor — Handoff (RLC-00C)\n\n"
+        "## Task\n"
+        "Fix the agent scout command so scouts discover context.\n\n"
+        "## Target files\n"
+        "- `src/devflow/control_room/agent_command.py` (modify)\n\n"
+        "## Commands\n"
+        "```bash\n"
+        "local_test_runner.py --pytest \"tests/test_agent_cli.py\" --ruff \"src/devflow/control_room/agent_command.py\"\n"
+        "```\n\n"
+        "## Constraints\n"
+        "- Follow AGENTS.md workflow\n",
+        encoding="utf-8",
+    )
+
+    first = runner.invoke(
+        app,
+        [
+            "agent",
+            "preflight",
+            "--task",
+            "RLC-00C",
+            "--handoff",
+            "docs/handoff-test.md",
+            "--skill",
+            "local-fleet-efficiency",
+            "--manual-read-count",
+            "2",
+            "--json",
+        ],
+    )
+
+    assert first.exit_code == 0, first.output
+    payload = json.loads(first.output)
+    assert payload["allowed_to_edit"] is False
+    assert payload["scout_required"] is True
+    assert payload["scout_packet_exists"] is False
+    assert payload["context_map_available"] is True
+    assert payload["context_map_source_index"] == "ok"
+    assert payload["mapping_tools_ready"] is True
+    assert "mcp_context_map_orient" in payload["context_map_hint"]
+    assert "mcp_agent_proxy_codebase_search" in payload["agent_proxy_hint"]
+    assert payload["fleet_state_captured"] is True
+    assert payload["next_action"] == "run devflow agent scout --task RLC-00C"
+    assert (tmp_path / ".devflow" / "evidence" / "preflight-RLC-00C.json").exists()
+
+    scout = runner.invoke(
+        app,
+        [
+            "agent",
+            "scout",
+            "--task",
+            "RLC-00C",
+            "--handoff",
+            "docs/handoff-test.md",
+            "--json",
+        ],
+    )
+
+    assert scout.exit_code == 0, scout.output
+    scout_payload = json.loads(scout.output)
+    assert scout_payload["handoff_read"] is True
+    assert scout_payload["handoff_path"] == "docs/handoff-test.md"
+    assert scout_payload["files_to_touch"] == ["src/devflow/control_room/agent_command.py"]
+    assert scout_payload["files_to_read_next"] == [
+        {"path": "src/devflow/control_room/agent_command.py", "reason": "scout-discovered implementation target"}
+    ]
+    assert "tests/test_agent_cli.py" in scout_payload["tests"]
+    assert scout_payload["map_freshness"]["source_index"] == "ok"
+    assert scout_payload["map_freshness"]["graphify"] == "missing"
+    assert "unknown" not in scout_payload["map_freshness"].values()
+    assert "local_test_runner.py" in scout_payload["verification"]
+    assert (tmp_path / ".devflow" / "evidence" / "scout-RLC-00C.json").exists()
+
+    second = runner.invoke(app, ["agent", "preflight", "--task", "RLC-00C", "--json"])
+
+    assert second.exit_code == 0, second.output
+    payload = json.loads(second.output)
+    assert payload["allowed_to_edit"] is True
+    assert payload["scout_packet_exists"] is True
+    assert payload["scout_packet_actionable"] is True
+    assert payload["scout_packet_status"] == "actionable"
+    assert payload["next_action"] == "route implementation with scout evidence"
+
+
+def test_agent_scout_blocks_unscoped_dirty_worktree_instead_of_guessing_touch_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".context-map").mkdir()
+    (tmp_path / ".context-map" / "source-index.json").write_text(
+        json.dumps({"files": {"src/devflow/control_room/scout.py": {}}}) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".context-map" / "index.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / ".devflow" / "evidence").mkdir(parents=True)
+    (tmp_path / ".devflow" / "evidence" / "prior.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "src" / "devflow" / "control_room").mkdir(parents=True)
+    (tmp_path / "src" / "devflow" / "control_room" / "scout.py").write_text("# scout change\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_scout.py").write_text("# scout tests\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["agent", "scout", "--task", "RLC-FILTER", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["recommended_lane"] == "ask_user"
+    assert payload["files_to_touch"] == []
+    assert payload["files_to_read_next"] == []
+    assert payload["tests"] == []
+    assert payload["verification"] == "blocked: provide scoped --handoff or --file-to-touch before verifying RLC-FILTER"
+    assert any("dirty worktree was not used as implementation scope" in risk for risk in payload["risks"])
+    assert not any(path.startswith(".context-map/") for path in payload["files_to_touch"])
+    assert not any(item["path"].startswith(".context-map/") for item in payload["files_to_read_next"])
+    assert not any(path.startswith(".devflow/") for path in payload["files_to_touch"])
+
+    preflight = runner.invoke(app, ["agent", "preflight", "--task", "RLC-FILTER", "--json"])
+
+    assert preflight.exit_code == 0, preflight.output
+    preflight_payload = json.loads(preflight.output)
+    assert preflight_payload["scout_packet_exists"] is True
+    assert preflight_payload["scout_packet_actionable"] is False
+    assert preflight_payload["scout_packet_status"] == "needs_scope"
+    assert preflight_payload["scout_recommended_lane"] == "ask_user"
+    assert preflight_payload["allowed_to_edit"] is False
+    assert preflight_payload["next_action"] == "provide scoped handoff or explicit file scope before editing"
+
+
+def test_agent_scout_allows_explicit_file_scope_without_dirty_worktree_guessing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".context-map").mkdir()
+    (tmp_path / ".context-map" / "source-index.json").write_text(
+        json.dumps({"files": {"src/devflow/control_room/scout.py": {}}}) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "devflow" / "control_room").mkdir(parents=True)
+    (tmp_path / "src" / "devflow" / "control_room" / "scout.py").write_text("# scout change\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_scout.py").write_text("# scout tests\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "scout",
+            "--task",
+            "RLC-FILTER",
+            "--file-to-touch",
+            "src/devflow/control_room/scout.py",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["recommended_lane"] == "direct_tiny_edit"
+    assert payload["files_to_touch"] == ["src/devflow/control_room/scout.py"]
+    assert payload["files_to_read_next"] == [
+        {"path": "src/devflow/control_room/scout.py", "reason": "scout-discovered implementation target"}
+    ]
+    assert "tests/test_scout.py" in payload["tests"]
+
+
+def test_agent_scout_context_brief_provides_symbol_context_without_raw_file_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".context-map").mkdir()
+    (tmp_path / ".context-map" / "source-index.json").write_text(
+        json.dumps({
+            "files": [
+                {
+                    "path": "src/devflow/control_room/scout.py",
+                    "kind": "module",
+                    "module": "devflow.control_room.scout",
+                    "symbols": [
+                        {"name": "RepoScout", "type": "class", "line": 16},
+                        {"name": "get_changed_files", "type": "method", "line": 46},
+                    ],
+                    "imports": ["subprocess", "pathlib.Path"],
+                    "headings": [],
+                }
+            ]
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "devflow" / "control_room").mkdir(parents=True)
+    (tmp_path / "src" / "devflow" / "control_room" / "scout.py").write_text("# scout\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_scout.py").write_text("# tests\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "scout",
+            "--task",
+            "RLC-BRIEF",
+            "--file-to-touch",
+            "src/devflow/control_room/scout.py",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["recommended_lane"] == "direct_tiny_edit"
+    assert len(payload["context_brief"]) == 1
+    brief = payload["context_brief"][0]
+    assert brief["path"] == "src/devflow/control_room/scout.py"
+    assert brief["kind"] == "module"
+    assert brief["module"] == "devflow.control_room.scout"
+    symbol_names = [s["name"] for s in brief["symbols"]]
+    assert "RepoScout" in symbol_names
+    assert "get_changed_files" in symbol_names
+    assert "subprocess" in brief["imports"]
+
+
+def test_agent_preflight_blocks_when_manual_read_budget_exceeded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        ["agent", "preflight", "--task", "RLC-READS", "--manual-read-count", "3", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["allowed_to_edit"] is False
+    assert payload["manual_read_budget_exceeded"] is True
+    assert payload["next_action"] == "run devflow agent scout --task RLC-READS before more source reads"
+
+
+def test_agent_verify_blocked_without_scout_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["agent", "verify", "--task", "RLC-VERIFY", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["verdict"] == "blocked"
+    assert "no scout packet" in payload["reason"]
+
+
+def test_agent_verify_blocked_when_scout_packet_is_unscoped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    scout_path = tmp_path / ".devflow" / "evidence" / "scout-RLC-VERIFY.json"
+    scout_path.parent.mkdir(parents=True, exist_ok=True)
+    scout_path.write_text(
+        json.dumps({"task_id": "RLC-VERIFY", "verification": "blocked: provide scope first"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["agent", "verify", "--task", "RLC-VERIFY", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["verdict"] == "blocked"
+    assert "blocked" in payload["reason"].lower()
+
+
+def test_agent_verify_runs_scout_verification_command_and_writes_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    scout_path = tmp_path / ".devflow" / "evidence" / "scout-RLC-VERIFY.json"
+    scout_path.parent.mkdir(parents=True, exist_ok=True)
+    scout_path.write_text(
+        json.dumps({
+            "task_id": "RLC-VERIFY",
+            "verification": "true",
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["agent", "verify", "--task", "RLC-VERIFY", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["verdict"] == "pass"
+    assert payload["exit_code"] == 0
+    assert payload["verification_command"] == "true"
+    assert (tmp_path / ".devflow" / "evidence" / "verify-RLC-VERIFY.json").exists()
+
+
+def test_agent_run_chains_preflight_and_scout_into_unified_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".context-map").mkdir()
+    (tmp_path / ".context-map" / "source-index.json").write_text(
+        json.dumps({"files": [{"path": "src/devflow/control_room/scout.py", "kind": "module", "module": "devflow.control_room.scout", "symbols": [{"name": "RepoScout", "type": "class", "line": 16}], "imports": ["subprocess"], "headings": []}]})
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".devflow" / "fleet-contract.json").parent.mkdir(parents=True)
+    (tmp_path / ".devflow" / "fleet-contract.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "src" / "devflow" / "control_room").mkdir(parents=True)
+    (tmp_path / "src" / "devflow" / "control_room" / "scout.py").write_text("# scout\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_scout.py").write_text("# tests\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "agent",
+            "loop",
+            "--task",
+            "RLC-RUN",
+            "--file-to-touch",
+            "src/devflow/control_room/scout.py",
+            "--skill",
+            "local-fleet-efficiency",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["stage"] == "scout_complete"
+    assert payload["allowed_to_edit"] is True
+    assert payload["scout_packet_actionable"] is True
+    assert payload["scout"]["recommended_lane"] == "direct_tiny_edit"
+    assert payload["scout"]["files_to_touch"] == ["src/devflow/control_room/scout.py"]
+    assert len(payload["scout"]["context_brief"]) == 1
+    assert payload["next_action"] == "route implementation with scout evidence"
+    assert "preflight" in payload["evidence_paths"]
+    assert "scout" in payload["evidence_paths"]
+
+
+def test_agent_run_blocks_when_mapping_tools_not_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CBM_BINARY", str(tmp_path / "missing-cbm"))
+
+    result = runner.invoke(
+        app,
+        ["agent", "loop", "--task", "RLC-RUN-BLOCKED", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["stage"] == "preflight_blocked"
+    assert payload["allowed_to_edit"] is False
+    assert payload["scout"] is None
+    assert payload["next_action"] == "repair repo map indexes before scout"
+
+
+def test_agent_run_blocks_when_scout_has_no_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".context-map").mkdir()
+    (tmp_path / ".context-map" / "source-index.json").write_text(
+        json.dumps({"files": [{"path": "src/devflow/control_room/scout.py", "kind": "module", "module": "devflow.control_room.scout", "symbols": [], "imports": [], "headings": []}]}) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".devflow" / "fleet-contract.json").parent.mkdir(parents=True)
+    (tmp_path / ".devflow" / "fleet-contract.json").write_text("{}\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        ["agent", "loop", "--task", "RLC-RUN-NOSCOPE", "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["stage"] == "scout_blocked"
+    assert payload["allowed_to_edit"] is False
+    assert payload["scout"]["recommended_lane"] == "ask_user"
+    assert payload["scout"]["files_to_touch"] == []
+    assert payload["next_action"] == "provide scoped handoff or explicit file scope before editing"
+
+
+def test_agent_preflight_reports_map_repair_before_scout_when_indexes_are_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_test_git_repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CBM_BINARY", str(tmp_path / "missing-codebase-memory-mcp"))
+
+    result = runner.invoke(app, ["agent", "preflight", "--task", "RLC-MAP", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["allowed_to_edit"] is False
+    assert payload["context_map_available"] is False
+    assert payload["context_map_source_index"] == "missing"
+    assert payload["agent_proxy_indexed"] is False
+    assert payload["agent_proxy_status"] == "binary_missing"
+    assert payload["mapping_tools_ready"] is False
+    assert payload["next_action"] == "repair repo map indexes before scout"
+
+    scout_path = tmp_path / ".devflow" / "evidence" / "scout-RLC-MAP.json"
+    scout_path.parent.mkdir(parents=True, exist_ok=True)
+    scout_path.write_text(json.dumps({"task_id": "RLC-MAP"}) + "\n", encoding="utf-8")
+    second = runner.invoke(app, ["agent", "preflight", "--task", "RLC-MAP", "--json"])
+
+    assert second.exit_code == 0, second.output
+    payload = json.loads(second.output)
+    assert payload["scout_packet_exists"] is True
+    assert payload["mapping_tools_ready"] is False
+    assert payload["allowed_to_edit"] is False
+    assert payload["next_action"] == "repair repo map indexes before scout"
+
+
 @pytest.fixture
 def mock_repo(tmp_path: Path) -> Path:
     # Set up basic agent registry and directories

@@ -1,11 +1,13 @@
 # Local Worker Policy
 
 Status: active local-worker truth, updated on 2026-07-06.
+Related: [AGENTS.md](../AGENTS.md), [fleet-debrief.md](fleet-debrief.md), [fleet-contract.json](../.devflow/fleet-contract.json)
 
 This document is the current selection rule for local model workers in Dev-Flow,
-Hermes, and Codex sessions. Older docs may still describe legacy Dev-Flow
-evidence surfaces, patch proposal workers, or historical experiment plans; those
-details are not authority for current worker choice.
+Hermes, and Codex sessions. Older docs may describe legacy evidence surfaces,
+patch proposal workers, Qwopus paths, Qwen3-Coder-Next experiments, or Ornith 9B
+fallbacks; those details are historical unless the operator explicitly revives
+them.
 
 ## Current Rule
 
@@ -13,95 +15,91 @@ Local workers are opt-in. Do not launch a local worker just because a task is
 non-trivial, because a doc mentions scouts, or because an old plan used local
 parallelism.
 
-Repo loop cockpit note, 2026-07-06: Ornith 9B is excluded from active Dev-Flow
-loop routing because it adds setup/routing complexity without useful value for
-the guided cockpit. Any remaining Ornith 9B references below are explicit
-diagnostic or non-cockpit exceptions, not defaults or fallbacks for the new
-pipeline.
-
 Deterministic Hermes tool lanes, such as parser/extractor/verifier scripts, are
 not local model workers. Use those tool lanes for mechanical repo operations
-before considering a local model route.
+before considering a model route.
 
 Use a local worker only when:
 
-- the operator explicitly asks for local-worker help;
+- the operator explicitly asks for local-fleet/local-worker help;
 - the active task/session explicitly selects a local worker; or
-- a local-worker diagnostic or verification step requires one.
+- a diagnostic, scout, builder, judge, or verification step requires one.
 
-When local-worker use is opted in, use the routed three-model fleet:
+## Active Fleet
 
-- Qwen3-Coder-Next on `8084`: builder/coder for code generation,
-  refactoring, debugging, codebase surveys, and context compression. It is
-  non-thinking mode only.
-- Qwen 27B MTP on `8083`: judge for review, validation, final approval, and
-  strict-output checks. It runs with thinking mode on.
-- Ornith 35B on `8086`: scout for AST scans, file surveys, and deterministic
-  codebase inspection.
+When local-worker use is opted in, use only the two-model active DevFlow fleet:
 
-Use `~/.hermes/scripts/model-router start <name>` and let the router handle
-starts, stops, and swaps. Fleet status is informational, not gating.
+- **Ornith 35B on `8084`**: primary scout/builder/coder. It runs with `-np 3`,
+  so one Ornith process can handle up to three parallel scout/builder requests.
+- **Qwen 27B on `8083`**: dense thinking judge for review, validation, final
+  approval, and strict-output checks. Parallel slots: 1.
+
+**Swap rule:** Ornith 35B and Qwen 27B cannot run at the same time. The
+model-router enforces one heavy process at a time. Run scout/build phases on
+Ornith, then swap to Qwen only for judge/review phases.
+
+`~/.hermes/scripts/model-router status` is informational, not gating. A model
+showing `down` means it is not resident, not unavailable. Request the lane and
+let the router handle start/stop/swap. Treat a lane as blocked only if the
+router cannot start it or a real healthcheck/completion fails.
+
+## Retired From Active DevFlow Use
+
+These models/routes may still exist in config, old docs, or process state, but
+they are not active DevFlow scout, builder, judge, UI, fallback, or emergency
+lanes:
+
+- Ornith 9B
+- Qwopus 35B
+- Qwen3-Coder-Next
+- MLX/Ollama/Gemma legacy advisory paths
+- legacy Dev-Flow local patch workers such as `qwopus-implementer`
 
 ## Supported Workflow
 
-In Codex, the supported local-worker workflow is a visible subagent spawn:
+The supervisor stays lean and reads compact evidence, not raw logs or large
+source files. Follow the scout-first workflow in
+[docs/agent-operating-contract.md](agent-operating-contract.md):
 
-```text
-multi_agent_v1.spawn_agent(agent_type="qwen3_coder_next_coder")  # builder
-multi_agent_v1.spawn_agent(agent_type="qwen36_27b_mtp_coder")   # judge/review
-```
+1. Read the user prompt, named handoff/plan, and relevant skill.
+2. Run scout/map/compression lanes to produce structured evidence.
+3. Route deterministic work to deterministic tools first.
+4. Route new code or ambiguous changes to Ornith builder/scout lanes.
+5. Route review/judgment to Qwen after Ornith work completes.
+6. Verify through `local_test_runner.py`.
 
-The required proof is the spawned subagent's output surfaced back into the
-parent Codex session, such as a compact marker response from the worker. This
-proves Codex tool exposure and local-worker routing at the session level.
-Direct HTTP probes, Hermes MCP tests, and `/v1/models` checks can support
-diagnosis, but they are not equivalent proof that the Codex subagent lane is
-loaded.
+## Codex / Hermes Surface Notes
 
-In Hermes sessions, use the fleet profile or wrapper that matches the role
-described in [docs/fleet-routing-brief.md](fleet-routing-brief.md). The MCP
-tool should stay narrow: no unrequested file reads or writes, no manual model
-lifecycle commands, and no bypass around the router. Its output is worker
-evidence for the supervisor to review, not final proof of completion.
+In Codex sessions, use the visible subagent lane only when that surface is
+configured for the current active fleet. Required proof is a spawned subagent's
+output surfaced back into the parent session. Direct HTTP probes, MCP tests, and
+`/v1/models` checks are diagnostic support, not worker-lane proof.
 
-If the Codex spawn surface is unavailable or rejects the custom agent, say that
-explicitly before falling back to Hermes MCP or direct local HTTP diagnostics.
+In Hermes sessions, use the fleet scripts and router described in
+[docs/fleet-debrief.md](fleet-debrief.md). Worker output is evidence for the
+supervisor to review, not final proof of completion.
 
-## Exceptions
-
-Other local routes remain available only as explicit exceptions:
-
-- Ornith 9B and Hermes Ornith 9B: retired from active routing and fallback
-  paths. Treat any remaining references as historical unless the operator gives
-  explicit one-off approval for a diagnostic.
-- Ornith 35B: current scout lane on `8086`; no edits, patches, code
-  generation, or strict machine output.
-- MLX, Ollama, Qwopus, and legacy Dev-Flow local patch workers: explicit
-  diagnostics, product evidence surfaces, or historical compatibility paths,
-  not normal routing defaults.
+If a worker surface is unavailable or rejects the custom agent, say that
+explicitly before falling back to a narrower diagnostic or deterministic tool.
 
 ## Safety Invariants
 
-- Run at most one big local model server at a time.
-- The model-router handles swaps between Qwen3-Coder-Next, Qwen 27B, and
-  Ornith 35B.
-- Qwen3-Coder-Next is non-thinking mode only.
-- Qwen 27B runs thinking mode for judging.
+- Run at most one heavy local model process at a time.
+- Ornith 35B supports up to 3 parallel scout/builder jobs inside the one process.
+- Qwen 27B is judge-only and runs one review at a time.
+- Ornith and Qwen must not run simultaneously.
 - `/v1/models` and open ports are not readiness proof; use a real completion.
-- Codex session proof requires a visible spawned subagent response, not only
-  CLI or MCP discovery.
 - Worker output is evidence, not proof.
-- The supervisor/main agent owns semantic review, final verification, and
-  claims of completion.
+- The supervisor/main agent owns semantic review, final verification, and claims
+  of completion.
 - MCP fleet telemetry stays disabled unless the current session needs it.
 - Active smoke completions are decision-point proof, not routine inventory.
 
 ## Compression Lane
 
-Codex sessions should route large files and large command output through the
-local-fleet-efficiency compression tools before reading them in frontier
-context. The normal compression lane is Qwen3-Coder-Next on `8084`; Ornith 35B
-on `8086` is the scout lane for AST scans and file surveys.
+Route large files and large command output through the local-fleet-efficiency
+compression tools before reading them in frontier context. The active LLM-backed
+compression/scout lane is Ornith 35B on `8084`.
 
 Use:
 
@@ -111,23 +109,16 @@ python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/ext
 python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/codebase_survey.py
 ```
 
-Qwen3-Coder-Next should not produce `<think>` blocks. Ornith 9B is not a
-compression fallback.
-
-The repo-level first-read workflow is
-[docs/codex-efficient-workflow.md](codex-efficient-workflow.md).
-
 ## Current Authority Chain
 
 Use this chain when docs disagree:
 
 1. Current human instruction.
-2. [AGENTS.md](../AGENTS.md) local worker policy.
-3. This policy.
-4. [ADR 0001](adr/0001-efficiency-first-local-worker-protocol.md).
-5. `local-subagent-workers` skill references under
-   `/Users/jewelbait/.codex/skills/local-subagent-workers/`.
-6. Historical plans, rollout docs, and older architecture notes.
+2. [docs/fleet-debrief.md](fleet-debrief.md) and
+   [.devflow/fleet-contract.json](../.devflow/fleet-contract.json).
+3. [AGENTS.md](../AGENTS.md) local worker policy.
+4. This policy.
+5. Historical plans, rollout docs, and older architecture notes.
 
-Historical docs should preserve evidence, but they must not reintroduce
-local-scout-by-default, multi-route routing menus, or automatic worker selection.
+Historical docs should preserve evidence, but they must not reintroduce retired
+models, fallback routing menus, or automatic worker selection.

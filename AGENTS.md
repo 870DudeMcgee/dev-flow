@@ -10,19 +10,20 @@ This file is the first-read instruction surface for agents. Use it to start usef
 
 ## Fleet Routing (read this first)
 
-Multiple local models, one heavy at a time per group. The model-router handles swaps.
+The active DevFlow fleet has two models. Ornith 35B scouts/builds; Qwen 27B judges. The model-router handles swaps.
 
 | Port | Model | Role | Key property |
 |---|---|---|---|
 | 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout | 3B active, reasoning mode, self-scaffolding RL, 75.6 SWE-Bench, 64.2 Terminal-Bench. Runs `-np 3` (3 parallel slots). |
 | 8083 | Qwen 27B (Q5, MTP) | Judge | Dense model, thinking mode, genuine second opinion. Different model family from Ornith. |
-| 8085 | Ornith 9B (Q4) | Light fallback | Emergency compression/extraction only. |
-| 8086 | Qwopus 35B (Q4) | Vision/specialty | Emergency fallback. |
-| 8087 | Qwen3-Coder-Next (80B-A3B, IQ4_XS) | Specialty: security review, math | Non-thinking mode. Lower agentic scores than Ornith 35B. Use only for niche tasks. |
+
+**Swap rule:** Ornith 35B and Qwen 27B cannot run at the same time. Ornith can run up to 3 parallel scout/builder jobs inside the single `-np 3` process. Swap to Qwen only for judge/review phases.
+
+**Retired from active DevFlow use:** Ornith 9B, Qwopus 35B, and Qwen3-Coder-Next may exist in local config or process state, but they are not active scout, builder, judge, UI, fallback, or emergency lanes for DevFlow work.
 
 **Fleet status is informational, not gating.** `model-router status` shows what's resident; the router starts/stops/swaps as needed. Don't block on "down" status — request the lane and let the router handle it.
 
-Full routing rules: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
+Required fleet reading: [docs/fleet-debrief.md](docs/fleet-debrief.md). Machine-readable contract: [.devflow/fleet-contract.json](.devflow/fleet-contract.json). Full routing rules: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md).
 
 ### What tool to use for code work
 
@@ -36,14 +37,15 @@ Full routing rules: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
 
 Scripts live in `~/.hermes/skills/software-development/local-fleet-efficiency/scripts/`.
 
-## Default Workflow: Map, Compress, Route, Verify
+## Default Workflow: Scout, Compress, Route, Verify
 
 For all Dev-Flow codebase work beyond a tiny one-file answer:
 
-1. **Map first** with Agent Proxy `codebase_search` when Dev-Flow is indexed, or Context Map/Graphify when it is not.
+1. **Scout first.** The scout owns mapping, source search, file reads, compression, and freshness checks. The frontier reads the user prompt, named handoff/plan, relevant skill, and compact scout packet — not broad raw source context. See [docs/agent-operating-contract.md](docs/agent-operating-contract.md).
+   **Scout is the context firewall.** `devflow agent loop --task <id> --handoff <path> --skill local-fleet-efficiency --json` chains preflight + scout in one command and returns a unified packet with `files_to_touch`, `tests`, `risks`, `recommended_lane`, `verification`, and `context_brief` (symbols, imports, module structure from Context Map). The frontier reads the loop packet, not raw source files. If the packet has `recommended_lane=ask_user` or empty `files_to_touch`, the frontier must not edit — it must provide scope (handoff, task record, or explicit `--file-to-touch`). After implementation, run `devflow agent verify --task <id> --json` to produce a verification receipt.
 2. **Compress large files** before reading them. Use `compress_tool_output.py`, `extract_methods.py`, or `codebase_survey.py`; do not paste large raw files or logs into frontier context.
 3. **Check fleet state**: `~/.hermes/scripts/model-router status` and `devflow local-ai snapshot --json`.
-4. **Route deliberately.** Ornith 35B (:8084) is the builder/scout; Qwen 27B (:8083) is the judge. One heavy model at a time.
+4. **Route deliberately.** Ornith 35B (:8084) is the builder/scout with up to 3 parallel slots; Qwen 27B (:8083) is the judge. Ornith and Qwen cannot run simultaneously; the router swaps between them.
 5. **Verify through compact evidence**: `local_test_runner.py` for test/lint summaries, `devflow architecture audit --json` when Graphify freshness matters, and `fleet_efficiency_report.py` only with real session/response evidence.
 
 This workflow does not make local workers automatic. Local worker starts remain opt-in and must obey the local worker policy below. Mapping, compression, fleet telemetry, and compact test wrappers are the default efficiency path.
@@ -143,10 +145,9 @@ When local-worker use is opted in, the fleet is:
 
 - **Ornith 35B (:8084)** — builder/coder/scout for code generation, extraction, debugging, AST scans
 - **Qwen 27B (:8083)** — judge for code review, validation, final approval (thinking mode)
-- **Ornith 9B (:8085)** — light fallback for emergency compression/extraction
-- **Qwen3-Coder-Next (:8087)** — specialty only (security review, math-heavy tasks)
 
-One heavy model runs at a time. The model-router handles starts/stops/swaps
+Ornith can run up to 3 parallel scout/builder jobs in its single `-np 3`
+process. Ornith and Qwen cannot run simultaneously. The model-router handles starts/stops/swaps
 automatically. See [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
 for full routing rules and constraints.
 

@@ -12,6 +12,12 @@ Agents, models, and tools are replaceable.
 
 Dev-Flow owns the jobsite.
 
+## Current Scope Direction
+
+As of 2026-07-06, Dev-Flow's browser product is narrowing to a selected-repo loop cockpit. The Obsidian Command Center owns broad capture, project context, daily context, parking lots, and cross-project knowledge. Dev-Flow owns repo execution: repo picker, Brainstorm, classification, readiness packet, editable Hermes loop packet, loop monitoring, steering, review, verification, and promotion gates.
+
+Hermes remains the runtime for deterministic tool lanes, proven loop execution, and fleet routing. Dev-Flow wraps Hermes through repo-local execution artifacts under `.devflow/pipeline-runs/` instead of rebuilding Hermes internals. Mechanical repo operations should use parser/verifier-style tools first and escalate to model loops only when reasoning, generation, or failure diagnosis adds value. See [docs/adr/0002-repo-loop-cockpit-over-hermes-runtime.md](docs/adr/0002-repo-loop-cockpit-over-hermes-runtime.md) and [docs/architecture/repo-loop-cockpit-implementation-plan.md](docs/architecture/repo-loop-cockpit-implementation-plan.md).
+
 ### Scope & Operating Model
 
 - [docs/operator-centered-mission.md](docs/operator-centered-mission.md) defines the human-centered reason Dev-Flow exists: external executive function for high creative throughput, visual state, bounded active work, and evidence-based progress.

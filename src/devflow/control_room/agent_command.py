@@ -14,6 +14,12 @@ from devflow.control_room.agent_catalog_command import (
 )
 from devflow.control_room.agent_registry import AgentRegistryError, load_agent_registry
 from devflow.control_room.agent_runtime import agent_runtime_contract
+from devflow.control_room.agent_workflow_receipts import (
+    parse_read_next,
+    write_agent_preflight_receipt,
+    write_agent_scout_packet,
+)
+from devflow.control_room.scout_discovery import discover_agent_scout_context
 from devflow.control_room.paths import relative_path
 from devflow.control_room.project_registry import (
     ProjectRootResolution,
@@ -524,13 +530,292 @@ def agent_evidence(
     if json_output:
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
+    else:
+        typer.echo(f"task_id: {payload['task_id']}")
+        typer.echo(f"has_worker_evidence: {str(payload['has_worker_evidence']).lower()}")
+        typer.echo(f"local_model_run_count: {len(payload['local_model_runs'])}")
+        typer.echo(f"local_patch_agent_count: {len(payload['local_patch_agents'])}")
+        typer.echo(f"manual_result_present: {str(payload['manual_result_present']).lower()}")
+        typer.echo(f"next_safe_action: {payload['next_safe_action']}")
+
+
+@agent_app.command("preflight")
+def agent_preflight(
+    task_id: str = typer.Option(..., "--task", help="Task or slice id for this preflight receipt."),
+    handoff: str | None = typer.Option(None, "--handoff", help="Named handoff/plan path that was read."),
+    skill: list[str] = typer.Option([], "--skill", help="Skill loaded for this task. Repeatable."),
+    manual_read_count: int = typer.Option(
+        0,
+        "--manual-read-count",
+        min=0,
+        help="Frontier file/search reads already used before scout.",
+    ),
+    no_scout_required: bool = typer.Option(False, "--no-scout-required", help="Tiny-task bypass; records scout_required=false."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Write a scout-first preflight receipt that gates editing."""
+    payload, path = write_agent_preflight_receipt(
+        Path.cwd(),
+        task_id,
+        handoff=handoff,
+        skills_loaded=skill,
+        manual_read_count=manual_read_count,
+        scout_required=not no_scout_required,
+    )
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
 
     typer.echo(f"task_id: {payload['task_id']}")
-    typer.echo(f"has_worker_evidence: {str(payload['has_worker_evidence']).lower()}")
-    typer.echo(f"local_model_run_count: {len(payload['local_model_runs'])}")
-    typer.echo(f"local_patch_agent_count: {len(payload['local_patch_agents'])}")
-    typer.echo(f"manual_result_present: {str(payload['manual_result_present']).lower()}")
-    typer.echo(f"next_safe_action: {payload['next_safe_action']}")
+    typer.echo(f"allowed_to_edit: {str(payload['allowed_to_edit']).lower()}")
+    typer.echo(f"scout_required: {str(payload['scout_required']).lower()}")
+    typer.echo(f"scout_packet_exists: {str(payload['scout_packet_exists']).lower()}")
+    typer.echo(f"manual_read_budget_exceeded: {str(payload['manual_read_budget_exceeded']).lower()}")
+    typer.echo(f"next_action: {payload['next_action']}")
+    typer.echo(f"evidence_path: {relative_path(Path.cwd(), path)}")
+
+
+@agent_app.command("scout")
+def agent_scout(
+    task_id: str = typer.Option(..., "--task", help="Task or slice id for this scout packet."),
+    handoff: str | None = typer.Option(None, "--handoff", help="Named handoff/plan path for deterministic scout discovery."),
+    map_source: str = typer.Option("context_map", "--map-source", help="Scout map source: context_map, agent_proxy, or source_search."),
+    file_to_touch: list[str] = typer.Option([], "--file-to-touch", help="Candidate file to edit. Repeatable."),
+    read_next: list[str] = typer.Option([], "--read-next", help="Follow-up read as path:reason. Repeatable."),
+    test: list[str] = typer.Option([], "--test", help="Focused test path or selector. Repeatable."),
+    risk: list[str] = typer.Option([], "--risk", help="Known implementation risk. Repeatable."),
+    recommended_lane: str = typer.Option("auto", "--recommended-lane", help="auto, direct_tiny_edit, deterministic_tool, builder, judge, or ask_user."),
+    verification: str | None = typer.Option(None, "--verification", help="Verification command, usually local_test_runner.py."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Run deterministic scout discovery and write a compact ScoutPacket."""
+    parsed_read_next = parse_read_next(read_next)
+    discovery = discover_agent_scout_context(
+        Path.cwd(),
+        task_id,
+        handoff=handoff,
+        files_to_touch=file_to_touch or None,
+        files_to_read_next=parsed_read_next or None,
+        tests=test or None,
+        risks=risk or None,
+        recommended_lane=recommended_lane,
+        verification=verification,
+    )
+    payload, path = write_agent_scout_packet(
+        Path.cwd(),
+        task_id,
+        map_source=map_source,
+        handoff_path=discovery.handoff_path,
+        handoff_read=discovery.handoff_read,
+        map_freshness=discovery.map_freshness,
+        files_to_touch=discovery.files_to_touch,
+        files_to_read_next=discovery.files_to_read_next,
+        tests=discovery.tests,
+        risks=discovery.risks,
+        recommended_lane=discovery.recommended_lane,
+        verification=discovery.verification,
+        evidence_paths=discovery.evidence_paths,
+        context_brief=discovery.context_brief,
+        )
+
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {payload['task_id']}")
+    typer.echo(f"map_source: {payload['map_source']}")
+    typer.echo(f"recommended_lane: {payload['recommended_lane']}")
+    typer.echo(f"verification: {payload['verification']}")
+    typer.echo(f"evidence_path: {relative_path(Path.cwd(), path)}")
+
+
+@agent_app.command("verify")
+def agent_verify(
+    task_id: str = typer.Option(..., "--task", help="Task or slice id for verification."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Run the scout packet's verification command and write a compact receipt."""
+    import subprocess as _sp
+
+    from devflow.control_room.agent_workflow_receipts import scout_packet_path, evidence_dir
+
+    repo_root = Path.cwd()
+    packet_path = scout_packet_path(repo_root, task_id)
+    if not packet_path.is_file():
+        msg = {"task_id": task_id, "verdict": "blocked", "reason": "no scout packet; run devflow agent scout first"}
+        if json_output:
+            typer.echo(json.dumps(msg, indent=2, sort_keys=True))
+        else:
+            typer.echo("verdict: blocked")
+            typer.echo(f"reason: no scout packet; run devflow agent scout --task {task_id} first")
+        return
+
+    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+    verification_cmd = packet.get("verification", "")
+    if not verification_cmd or verification_cmd.startswith("blocked:"):
+        msg = {"task_id": task_id, "verdict": "blocked", "reason": "scout packet verification is blocked; provide scope first"}
+        if json_output:
+            typer.echo(json.dumps(msg, indent=2, sort_keys=True))
+        else:
+            typer.echo("verdict: blocked")
+            typer.echo("reason: scout packet verification is blocked; provide scope first")
+        return
+
+    try:
+        result = _sp.run(
+            verification_cmd,
+            shell=True,
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        verdict = "pass" if result.returncode == 0 else "fail"
+        receipt = {
+            "task_id": task_id,
+            "verification_command": verification_cmd,
+            "exit_code": result.returncode,
+            "verdict": verdict,
+            "stdout_tail": result.stdout[-2000:] if result.stdout else "",
+            "stderr_tail": result.stderr[-2000:] if result.stderr else "",
+        }
+    except Exception as exc:
+        receipt = {
+            "task_id": task_id,
+            "verification_command": verification_cmd,
+            "exit_code": -1,
+            "verdict": "error",
+            "error": str(exc),
+        }
+
+    verify_path = evidence_dir(repo_root) / f"verify-{task_id}.json"
+    verify_path.parent.mkdir(parents=True, exist_ok=True)
+    verify_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    if json_output:
+        typer.echo(json.dumps(receipt, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {receipt['task_id']}")
+    typer.echo(f"verdict: {receipt['verdict']}")
+    typer.echo(f"exit_code: {receipt['exit_code']}")
+    typer.echo(f"evidence_path: {relative_path(repo_root, verify_path)}")
+
+
+@agent_app.command("loop")
+def agent_loop(
+    task_id: str = typer.Option(..., "--task", help="Task or slice id."),
+    handoff: str | None = typer.Option(None, "--handoff", help="Named handoff/plan path."),
+    skill: list[str] = typer.Option([], "--skill", help="Skill loaded. Repeatable."),
+    file_to_touch: list[str] = typer.Option([], "--file-to-touch", help="Explicit file scope. Repeatable."),
+    manual_read_count: int = typer.Option(0, "--manual-read-count", help="Frontier reads used so far."),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+) -> None:
+    """Run the full context supply chain: preflight + scout in one command.
+
+    Returns a unified packet the frontier reads instead of raw source files.
+    The frontier uses this to decide routing — it does NOT edit or verify here.
+    After implementation, run `devflow agent verify --task <id> --json`.
+    """
+    repo_root = Path.cwd()
+
+    # Step 1: Preflight
+    preflight_payload, preflight_path = write_agent_preflight_receipt(
+        repo_root,
+        task_id,
+        handoff=handoff,
+        skills_loaded=skill,
+        manual_read_count=manual_read_count,
+    )
+
+    # Step 2: If mapping tools not ready, stop — frontier must repair indexes
+    if not preflight_payload.get("mapping_tools_ready"):
+        result = {
+            "task_id": task_id,
+            "stage": "preflight_blocked",
+            "preflight": preflight_payload,
+            "scout": None,
+            "allowed_to_edit": False,
+            "next_action": "repair repo map indexes before scout",
+        }
+        if json_output:
+            typer.echo(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            typer.echo("stage: preflight_blocked")
+            typer.echo("next_action: repair repo map indexes before scout")
+            typer.echo(f"evidence_path: {relative_path(repo_root, preflight_path)}")
+        return
+
+    # Step 3: Scout
+    parsed_read_next = parse_read_next([])
+    discovery = discover_agent_scout_context(
+        repo_root,
+        task_id,
+        handoff=handoff,
+        files_to_touch=file_to_touch or None,
+        files_to_read_next=parsed_read_next or None,
+    )
+    scout_payload, scout_path = write_agent_scout_packet(
+        repo_root,
+        task_id,
+        map_source="context_map",
+        handoff_path=discovery.handoff_path,
+        handoff_read=discovery.handoff_read,
+        map_freshness=discovery.map_freshness,
+        files_to_touch=discovery.files_to_touch,
+        files_to_read_next=discovery.files_to_read_next,
+        tests=discovery.tests,
+        risks=discovery.risks,
+        recommended_lane=discovery.recommended_lane,
+        verification=discovery.verification,
+        evidence_paths=discovery.evidence_paths,
+        context_brief=discovery.context_brief,
+    )
+
+    # Step 4: Re-run preflight to check if scout packet is now actionable
+    preflight_after, _ = write_agent_preflight_receipt(
+        repo_root,
+        task_id,
+        handoff=handoff,
+        skills_loaded=skill,
+        manual_read_count=manual_read_count,
+    )
+
+    # Step 5: Return unified packet
+    result = {
+        "task_id": task_id,
+        "stage": "scout_complete" if preflight_after.get("allowed_to_edit") else "scout_blocked",
+        "preflight": {
+            "mapping_tools_ready": preflight_after.get("mapping_tools_ready"),
+            "context_map_source_index": preflight_after.get("context_map_source_index"),
+            "agent_proxy_indexed": preflight_after.get("agent_proxy_indexed"),
+            "agent_proxy_project": preflight_after.get("agent_proxy_project"),
+            "context_map_hint": preflight_after.get("context_map_hint"),
+            "agent_proxy_hint": preflight_after.get("agent_proxy_hint"),
+        },
+        "scout": scout_payload,
+        "allowed_to_edit": preflight_after.get("allowed_to_edit"),
+        "scout_packet_actionable": preflight_after.get("scout_packet_actionable"),
+        "next_action": preflight_after.get("next_action"),
+        "evidence_paths": {
+            "preflight": relative_path(repo_root, preflight_path),
+            "scout": relative_path(repo_root, scout_path),
+        },
+    }
+
+    if json_output:
+        typer.echo(json.dumps(result, indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"task_id: {result['task_id']}")
+    typer.echo(f"stage: {result['stage']}")
+    typer.echo(f"allowed_to_edit: {str(result['allowed_to_edit']).lower()}")
+    typer.echo(f"recommended_lane: {scout_payload['recommended_lane']}")
+    typer.echo(f"files_to_touch: {', '.join(scout_payload['files_to_touch']) or '(none)'}")
+    typer.echo(f"next_action: {result['next_action']}")
+    typer.echo(f"preflight: {relative_path(repo_root, preflight_path)}")
+    typer.echo(f"scout: {relative_path(repo_root, scout_path)}")
 
 
 @agent_app.command("discover-local")

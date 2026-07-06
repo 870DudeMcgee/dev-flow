@@ -13,7 +13,7 @@ the default.
 
 ## Mental Model
 
-- Map first: find where to look before opening files.
+- Scout first: the scout owns mapping/search/reads/compression and returns compact evidence before frontier decisions.
 - Compress before reading: never load large files or long command output raw.
 - Route before running models: check which model is active and safe.
 - Use local lanes for bulk work: keep Codex focused on decisions and review.
@@ -29,7 +29,7 @@ git status --short --branch
 env PYTHONPATH=src:. .venv/bin/python -m devflow.cli local-ai snapshot --json
 ```
 
-Then choose the map route:
+Then choose the scout/map route:
 
 ```text
 Preferred: Agent Proxy codebase_search("<specific question>")
@@ -82,15 +82,12 @@ python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/cod
   --write-json .devflow/evidence/codebase-survey.json
 ```
 
-Qwen3-Coder-Next on port `8084` is the builder lane for context compression,
-codebase surveys, and code-producing work. It is non-thinking mode only; do not
-expect `<think>` blocks or `reasoning_content` from this route. Ornith 35B on
-port `8086` is the scout lane for AST scans, file surveys, and deterministic
-codebase inspection.
-
-Ornith 9B is retired from the compression/extraction fallback path. If Ornith
-35B is unavailable, use deterministic extraction tools directly where possible
-or proceed with frontier-context reading after compressing by other safe means.
+Ornith 35B on port `8084` is the active scout/builder lane for context
+compression, codebase surveys, AST/file inspection, and code-producing work.
+It runs with `-np 3`, so up to three independent Ornith scout/builder requests
+can share one process. Retired routes such as Qwen3-Coder-Next, Qwopus, and
+Ornith 9B must not be used as active compression, scout, builder, fallback, or
+emergency lanes.
 
 ## Fleet Routing
 
@@ -103,17 +100,17 @@ env PYTHONPATH=src:. .venv/bin/python -m devflow.cli local-ai recommend --json
 
 Rules:
 
-- Only one big local model may run at a time.
-- Qwen3-Coder-Next on `8084`: builder/coder for code generation,
-  refactoring, debugging, codebase surveys, and context compression. It is
-  non-thinking mode only.
+- Only one heavy local model process may run at a time.
+- Ornith 35B on `8084`: scout/builder/coder for code generation,
+  refactoring, debugging, codebase surveys, and context compression. It can run
+  up to three parallel scout/builder jobs in the single `-np 3` process.
 - Qwen 27B MTP on `8083`: judge for review, validation, final approval, and
   strict-output checks. It runs with thinking mode on.
-- Ornith 35B on `8086`: scout for AST scans, file surveys, and deterministic
-  codebase inspection. Do not use it as a builder.
+- Ornith and Qwen cannot run simultaneously; swap to Qwen only after Ornith
+  scout/build jobs complete.
 - In Codex, visible subagent output is worker evidence:
-  `qwen3_coder_next_coder` for builder work, `qwen36_27b_mtp_coder` for
-  judge/review work.
+  use the currently configured Ornith builder/scout lane for build work and
+  `qwen36_27b_mtp_coder` for judge/review work.
 - In Hermes/MCP packets, use the routed fleet scripts or profile wrappers
   described in `docs/fleet-routing-brief.md`; prove the route with a real
   completion before trusting the output.
