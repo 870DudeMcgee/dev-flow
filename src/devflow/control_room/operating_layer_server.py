@@ -8,10 +8,6 @@ from pathlib import Path
 from typing import Any, Callable  # noqa: F401 - re-exported for type hints
 from urllib.parse import parse_qs, urlsplit
 
-from devflow.control_room.architecture_evidence import (
-    ArtifactResolutionError,
-    resolve_architecture_artifact,
-)
 from devflow.control_room.env_loader import load_hermes_env_file  # noqa: F401 - re-exported for CLI
 from devflow.control_room.browser_action_executor import (
     ACTION_TIMEOUT_SECONDS,  # noqa: F401 - re-exported for route contract tests
@@ -22,16 +18,6 @@ from devflow.control_room.browser_action_policy import (
     resolve_browser_action_command,
 )
 from devflow.control_room.browse_projection import BrowsePathError, build_browse_payload
-from devflow.control_room.agent_registry import (
-    AgentRegistryError,
-)
-from devflow.control_room.local_model_ensure import (
-    ensure_local_model_profile,
-)
-from devflow.control_room.local_model_server import (
-    LocalModelServerError,
-    ensure_local_model_server_for_profile,
-)
 from devflow.control_room.operating_layer_assets import APP_CSS, APP_JS, INDEX_HTML
 from devflow.control_room.operating_layer import render_operating_layer_snapshot_json
 from devflow.control_room.operating_layer_brainstorm_handlers import BrainstormHandlerMixin
@@ -42,6 +28,7 @@ from devflow.control_room.operating_layer_lifecycle import (  # noqa: F401 - re-
     stop_listening_processes,
 )
 from devflow.control_room.operating_layer_builder_judge_handlers import BuilderJudgeHandlerMixin
+from devflow.control_room.operating_layer_gates_local_model_handlers import GatesLocalModelHandlerMixin
 from devflow.control_room.operating_layer_obsidian_handlers import ObsidianHandlerMixin
 from devflow.control_room.operating_layer_workbench_handlers import WorkbenchHandlerMixin
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
@@ -50,10 +37,6 @@ from devflow.control_room.refactor_loop import (
     load_refactor_run_status,
     require_refactor_approval,
     start_refactor_loop,
-)
-from devflow.control_room.unified_workbench import (
-    WorkbenchError,
-    setup_gate,
 )
 
 BROWSE_MAX_DIRECTORY_ENTRIES = 120
@@ -66,7 +49,7 @@ class OperatingLayerHTTPServer(ThreadingHTTPServer):
         self.repo_root = repo_root.resolve()
 
 
-class OperatingLayerRequestHandler(WorkbenchHandlerMixin, BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
+class OperatingLayerRequestHandler(GatesLocalModelHandlerMixin, WorkbenchHandlerMixin, BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
     server: OperatingLayerHTTPServer
 
     # ── Route dispatch tables ────────────────────────────────────────
@@ -285,73 +268,6 @@ class OperatingLayerRequestHandler(WorkbenchHandlerMixin, BuilderJudgeHandlerMix
             )
         except Exception as exc:
             self._send_json_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
-
-    def _handle_architecture_artifact(self, query: dict[str, list[str]]) -> None:
-        artifact_id = (query.get("id") or [None])[0]
-        project_id = (query.get("project") or [None])[0]
-        try:
-            root = self.server.repo_root
-            if project_id:
-                root = resolve_project_root(self.server.repo_root, project_id).root
-        except ProjectRegistryError as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        try:
-            resolved = resolve_architecture_artifact(root, artifact_id or "")
-        except ArtifactResolutionError as exc:
-            self._send_json_error(str(exc), HTTPStatus(exc.status))
-            return
-        try:
-            body = Path(resolved.absolute_path).read_bytes()
-        except OSError:
-            self._send_json_error("artifact is unavailable", HTTPStatus.NOT_FOUND)
-            return
-        self._send_artifact(body, resolved.content_type)
-
-    def _handle_gates_setup(self) -> None:
-        try:
-            payload = self._read_json_body()
-            root = self._payload_project_root(payload)
-            result = setup_gate(root, payload)
-        except (WorkbenchError, ProjectRegistryError, OSError, ValueError) as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        except Exception as exc:
-            self._send_json_error(f"Gate setup failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
-        self._send_json(result, HTTPStatus.OK)
-
-    def _handle_local_model_ensure(self) -> None:
-        try:
-            payload = self._read_json_body()
-            root = self._payload_project_root(payload)
-            profile_id = payload.get("profile_id")
-            if not isinstance(profile_id, str) or not profile_id.strip():
-                self._send_action_error("profile_id is required", HTTPStatus.BAD_REQUEST, "validation_error", ValueError("profile_id is required"))
-                return
-            result = ensure_local_model_profile(
-                root,
-                profile_id.strip(),
-                ensure_server=ensure_local_model_server_for_profile,
-            )
-        except KeyError as exc:
-            message = str(exc.args[0]) if exc.args else str(exc)
-            self._send_action_error(message, HTTPStatus.NOT_FOUND, "missing_profile", exc, retriable=False)
-            return
-        except LocalModelServerError as exc:
-            self._send_action_error(str(exc), HTTPStatus.CONFLICT, "local_model_server_error", exc, retriable=True)
-            return
-        except (ProjectRegistryError, ValueError, AgentRegistryError) as exc:
-            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
-            return
-        except OSError as exc:
-            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
-            return
-        except Exception as exc:
-            self._send_action_error(f"Local model ensure failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
-            return
-
-        self._send_json(result, HTTPStatus.OK)
 
     def _handle_refactor_start(self) -> None:
         try:
