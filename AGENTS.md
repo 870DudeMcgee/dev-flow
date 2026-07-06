@@ -48,6 +48,35 @@ For all Dev-Flow codebase work beyond a tiny one-file answer:
 
 This workflow does not make local workers automatic. Local worker starts remain opt-in and must obey the local worker policy below. Mapping, compression, fleet telemetry, and compact test wrappers are the default efficiency path.
 
+## Handoff Format Standard
+
+Every handoff doc (`docs/handoff-*.md`) must follow this shape. Do not add workflow instructions, tool routing, or fleet config — those live here in AGENTS.md. The handoff provides only task-specific details.
+
+```markdown
+# DevFlow Refactor — Handoff (Slice X)
+
+## State
+- Committed: <hash>
+- Tests: <N> passing
+- Fleet: see AGENTS.md
+
+## Task
+<2-3 sentences describing what to do>
+
+## Target files
+- <list of files to create or modify>
+
+## Commands
+<exact commands — map, compress, route, verify — no prose instructions>
+
+## Constraints
+- Follow AGENTS.md workflow
+- Use local_test_runner.py for verification
+- Do not push without approval
+```
+
+**Never write "just write the code directly" or "no workflow needed" in a handoff.** The workflow always applies. If a task is genuinely tiny (one file, one edit, one command), AGENTS.md already allows direct supervisor work — but the handoff doesn't need to say that.
+
 ## Current Product
 
 Dev-Flow is not an autonomous software factory and not the coding intelligence itself. It is the operational layer around replaceable workers.
