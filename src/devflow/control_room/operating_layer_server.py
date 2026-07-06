@@ -23,16 +23,6 @@ from devflow.control_room.builder_judge_loop import (
 from devflow.control_room.builder_judge_async_runtime import (
     start_workbench_implementation_async,
 )
-from devflow.control_room.operating_layer_builder_judge_routes import (
-    BUILDER_JUDGE_QUALITY_GATE_BAD_REQUEST_ERRORS,
-    BUILDER_JUDGE_READ_BAD_REQUEST_ERRORS,
-    BUILDER_JUDGE_START_VALIDATION_ERRORS,
-    BuilderJudgeRouteNotFound,
-    build_builder_judge_list_payload,
-    build_builder_judge_quality_gate_payload,
-    build_builder_judge_start_payload,
-    build_builder_judge_status_payload,
-)
 from devflow.control_room.env_loader import load_hermes_env_file  # noqa: F401 - re-exported for CLI
 from devflow.control_room.browser_action_executor import (
     ACTION_TIMEOUT_SECONDS,  # noqa: F401 - re-exported for route contract tests
@@ -62,6 +52,7 @@ from devflow.control_room.operating_layer_lifecycle import (  # noqa: F401 - re-
     run_operating_layer_server,
     stop_listening_processes,
 )
+from devflow.control_room.operating_layer_builder_judge_handlers import BuilderJudgeHandlerMixin
 from devflow.control_room.operating_layer_obsidian_handlers import ObsidianHandlerMixin
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
 from devflow.control_room.refactor_loop import (
@@ -90,7 +81,7 @@ class OperatingLayerHTTPServer(ThreadingHTTPServer):
         self.repo_root = repo_root.resolve()
 
 
-class OperatingLayerRequestHandler(ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
+class OperatingLayerRequestHandler(BuilderJudgeHandlerMixin, ObsidianHandlerMixin, BrainstormHandlerMixin, BaseHTTPRequestHandler):
     server: OperatingLayerHTTPServer
 
     # ── Route dispatch tables ────────────────────────────────────────
@@ -331,53 +322,6 @@ class OperatingLayerRequestHandler(ObsidianHandlerMixin, BrainstormHandlerMixin,
             self._send_json_error("artifact is unavailable", HTTPStatus.NOT_FOUND)
             return
         self._send_artifact(body, resolved.content_type)
-
-    def _handle_builder_judge_start(self) -> None:
-        try:
-            payload = self._read_json_body()
-            result = build_builder_judge_start_payload(self.server.repo_root, payload)
-        except BUILDER_JUDGE_START_VALIDATION_ERRORS as exc:
-            self._send_action_error(str(exc), HTTPStatus.BAD_REQUEST, "validation_error", exc)
-            return
-        except OSError as exc:
-            self._send_action_error(str(exc), HTTPStatus.INTERNAL_SERVER_ERROR, "os_error", exc, retriable=True)
-            return
-        except Exception as exc:
-            self._send_action_error(f"Builder-judge loop failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR, "internal_error", exc, retriable=True)
-            return
-        self._send_json(result, HTTPStatus.OK)
-
-    def _handle_builder_judge_list(self) -> None:
-        try:
-            result = build_builder_judge_list_payload(self.server.repo_root)
-        except BUILDER_JUDGE_READ_BAD_REQUEST_ERRORS as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        self._send_json(result, HTTPStatus.OK)
-
-    def _handle_builder_judge_status(self, query: dict[str, list[str]]) -> None:
-        try:
-            result = build_builder_judge_status_payload(self.server.repo_root, query)
-        except BuilderJudgeRouteNotFound as exc:
-            self._send_json_error(str(exc), HTTPStatus.NOT_FOUND)
-            return
-        except BUILDER_JUDGE_READ_BAD_REQUEST_ERRORS as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        self._send_json(result, HTTPStatus.OK)
-
-    def _handle_builder_judge_quality_gate(self) -> None:
-        """Run a builder-judge quality gate for brainstorm→spec or spec→plan."""
-        try:
-            payload = self._read_json_body()
-            result = build_builder_judge_quality_gate_payload(self.server.repo_root, payload)
-        except BUILDER_JUDGE_QUALITY_GATE_BAD_REQUEST_ERRORS as exc:
-            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
-            return
-        except Exception as exc:
-            self._send_json_error(f"Quality gate failed: {exc}", HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
-        self._send_json(result, HTTPStatus.OK)
 
     def _handle_workbench_project(self) -> None:
         try:
