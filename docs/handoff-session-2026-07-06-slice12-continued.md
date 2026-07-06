@@ -7,7 +7,7 @@
 - Ruff: clean
 - Committed: `c7465b2a` (fleet reconfigure + 3 modules extracted)
 - Working tree: has unrelated docs/.context-map changes, no source changes
-- Fleet: Qwen3-Coder-Next (:8084, builder), Qwen 27B (:8083, judge), Ornith 35B (:8086, scout)
+- Fleet: Ornith 35B (:8084, builder/scout), Qwen 27B (:8083, judge), Ornith 9B (:8085, fallback), Qwopus (:8086), Qwen3-Coder-Next (:8087, specialty only)
 
 ## What Was Done This Session
 
@@ -133,9 +133,10 @@ cd "/Users/jewelbait/Desktop/Local AI Dev Team"
 
 | Port | Model | Role |
 |---|---|---|
-| 8084 | Qwen3-Coder-Next (80B-A3B) | Builder/coder (non-thinking) |
+| 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout (reasoning mode, -np 3) |
 | 8083 | Qwen 27B (Q5 MTP) | Judge (thinking mode) |
-| 8086 | Ornith 35B (Q4) | Scout |
+| 8085 | Ornith 9B (Q4) | Light fallback |
+| 8087 | Qwen3-Coder-Next (80B-A3B) | Specialty only (security/math) |
 
 One heavy at a time. Router handles swaps. Fleet status is informational.
 

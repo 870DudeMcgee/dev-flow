@@ -10,17 +10,19 @@ This file is the first-read instruction surface for agents. Use it to start usef
 
 ## Fleet Routing (read this first)
 
-Three local models, one heavy at a time. The model-router handles swaps.
+Multiple local models, one heavy at a time per group. The model-router handles swaps.
 
 | Port | Model | Role | Key property |
 |---|---|---|---|
-| 8084 | Qwen3-Coder-Next (80B-A3B, IQ4_XS) | Builder/coder | Non-thinking, 256K ctx, code-specialized |
-| 8083 | Qwen 27B (Q5, MTP) | Judge | Thinking mode ON for deep review |
-| 8086 | Ornith 35B (Q4) | Scout | AST scans, file surveys, deterministic scouts |
+| 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout | 3B active, reasoning mode, self-scaffolding RL, 75.6 SWE-Bench, 64.2 Terminal-Bench. Runs `-np 3` (3 parallel slots). |
+| 8083 | Qwen 27B (Q5, MTP) | Judge | Dense model, thinking mode, genuine second opinion. Different model family from Ornith. |
+| 8085 | Ornith 9B (Q4) | Light fallback | Emergency compression/extraction only. |
+| 8086 | Qwopus 35B (Q4) | Vision/specialty | Emergency fallback. |
+| 8087 | Qwen3-Coder-Next (80B-A3B, IQ4_XS) | Specialty: security review, math | Non-thinking mode. Lower agentic scores than Ornith 35B. Use only for niche tasks. |
 
 **Fleet status is informational, not gating.** `model-router status` shows what's resident; the router starts/stops/swaps as needed. Don't block on "down" status — request the lane and let the router handle it.
 
-Full routing rules, port assignments, and agent constraints: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
+Full routing rules: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
 
 ### What tool to use for code work
 
@@ -28,9 +30,9 @@ Full routing rules, port assignments, and agent constraints: [docs/fleet-routing
 |---|---|---|
 | Module-level function extraction (refactoring) | `extract_module.py` | No — deterministic |
 | Test + lint verification | `local_test_runner.py` | No — wrapper script |
-| Codebase survey / seam analysis | `codebase_survey.py` | Yes (builder lane) |
-| Code generation (new code, not extraction) | builder-judge-loop.sh | Yes (builder + judge swap) |
-| Context compression | `compress_tool_output.py` | Yes (builder lane) |
+| Codebase survey / seam analysis | `codebase_survey.py` | Yes (Ornith 35B) |
+| Code generation (new code, not extraction) | builder-judge-loop.sh | Yes (Ornith 35B builder + Qwen 27B judge) |
+| Context compression | `compress_tool_output.py` | Yes (Ornith 35B) |
 
 Scripts live in `~/.hermes/skills/software-development/local-fleet-efficiency/scripts/`.
 
@@ -41,7 +43,7 @@ For all Dev-Flow codebase work beyond a tiny one-file answer:
 1. **Map first** with Agent Proxy `codebase_search` when Dev-Flow is indexed, or Context Map/Graphify when it is not.
 2. **Compress large files** before reading them. Use `compress_tool_output.py`, `extract_methods.py`, or `codebase_survey.py`; do not paste large raw files or logs into frontier context.
 3. **Check fleet state**: `~/.hermes/scripts/model-router status` and `devflow local-ai snapshot --json`.
-4. **Route deliberately.** Qwen3-Coder-Next (:8084) is the builder; Qwen 27B (:8083) is the judge; Ornith 35B (:8086) is the scout. One heavy model at a time.
+4. **Route deliberately.** Ornith 35B (:8084) is the builder/scout; Qwen 27B (:8083) is the judge. One heavy model at a time.
 5. **Verify through compact evidence**: `local_test_runner.py` for test/lint summaries, `devflow architecture audit --json` when Graphify freshness matters, and `fleet_efficiency_report.py` only with real session/response evidence.
 
 This workflow does not make local workers automatic. Local worker starts remain opt-in and must obey the local worker policy below. Mapping, compression, fleet telemetry, and compact test wrappers are the default efficiency path.
@@ -110,17 +112,17 @@ requires one.
 
 When local-worker use is opted in, the fleet is:
 
-- **Qwen3-Coder-Next (:8084)** — builder/coder for code generation, extraction, debugging
+- **Ornith 35B (:8084)** — builder/coder/scout for code generation, extraction, debugging, AST scans
 - **Qwen 27B (:8083)** — judge for code review, validation, final approval (thinking mode)
-- **Ornith 35B (:8086)** — scout for AST scans, file surveys, deterministic codebase inspection
+- **Ornith 9B (:8085)** — light fallback for emergency compression/extraction
+- **Qwen3-Coder-Next (:8087)** — specialty only (security review, math-heavy tasks)
 
 One heavy model runs at a time. The model-router handles starts/stops/swaps
 automatically. See [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
 for full routing rules and constraints.
 
 In Codex sessions, the supported local-worker workflow is the visible subagent
-lane: call `multi_agent_v1.spawn_agent` with `agent_type="qwen3_coder_next_coder"`
-for builder work or `agent_type="qwen36_27b_mtp_coder"` for judge/review work.
+lane: call `multi_agent_v1.spawn_agent` with `agent_type="ornith_35b_coder"` for builder/scout work or `agent_type="qwen36_27b_mtp_coder"` for judge/review work.
 The spawned subagent output surfaced back into the parent Codex session is the
 proof that the lane is loaded and usable. Do not treat direct HTTP probes,
 Hermes MCP tests, or `/v1/models` checks as equivalent Codex subagent proof.
