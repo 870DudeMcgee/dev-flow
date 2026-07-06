@@ -8,6 +8,44 @@ Local checkout note: use `<repo-root>` for portable command examples. This check
 
 This file is the first-read instruction surface for agents. Use it to start useful work quickly. Do not turn every task into a repository archaeology pass.
 
+## Fleet Routing (read this first)
+
+Three local models, one heavy at a time. The model-router handles swaps.
+
+| Port | Model | Role | Key property |
+|---|---|---|---|
+| 8084 | Qwen3-Coder-Next (80B-A3B, IQ4_XS) | Builder/coder | Non-thinking, 256K ctx, code-specialized |
+| 8083 | Qwen 27B (Q5, MTP) | Judge | Thinking mode ON for deep review |
+| 8086 | Ornith 35B (Q4) | Scout | AST scans, file surveys, deterministic scouts |
+
+**Fleet status is informational, not gating.** `model-router status` shows what's resident; the router starts/stops/swaps as needed. Don't block on "down" status — request the lane and let the router handle it.
+
+Full routing rules, port assignments, and agent constraints: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
+
+### What tool to use for code work
+
+| Task | Tool | LLM needed? |
+|---|---|---|
+| Module-level function extraction (refactoring) | `extract_module.py` | No — deterministic |
+| Test + lint verification | `local_test_runner.py` | No — wrapper script |
+| Codebase survey / seam analysis | `codebase_survey.py` | Yes (builder lane) |
+| Code generation (new code, not extraction) | builder-judge-loop.sh | Yes (builder + judge swap) |
+| Context compression | `compress_tool_output.py` | Yes (builder lane) |
+
+Scripts live in `~/.hermes/skills/software-development/local-fleet-efficiency/scripts/`.
+
+## Default Workflow: Map, Compress, Route, Verify
+
+For all Dev-Flow codebase work beyond a tiny one-file answer:
+
+1. **Map first** with Agent Proxy `codebase_search` when Dev-Flow is indexed, or Context Map/Graphify when it is not.
+2. **Compress large files** before reading them. Use `compress_tool_output.py`, `extract_methods.py`, or `codebase_survey.py`; do not paste large raw files or logs into frontier context.
+3. **Check fleet state**: `~/.hermes/scripts/model-router status` and `devflow local-ai snapshot --json`.
+4. **Route deliberately.** Qwen3-Coder-Next (:8084) is the builder; Qwen 27B (:8083) is the judge; Ornith 35B (:8086) is the scout. One heavy model at a time.
+5. **Verify through compact evidence**: `local_test_runner.py` for test/lint summaries, `devflow architecture audit --json` when Graphify freshness matters, and `fleet_efficiency_report.py` only with real session/response evidence.
+
+This workflow does not make local workers automatic. Local worker starts remain opt-in and must obey the local worker policy below. Mapping, compression, fleet telemetry, and compact test wrappers are the default efficiency path.
+
 ## Current Product
 
 Dev-Flow is not an autonomous software factory and not the coding intelligence itself. It is the operational layer around replaceable workers.
@@ -70,20 +108,25 @@ Use them when the operator explicitly asks for local-worker help, when an active
 task selects a local worker, or when a documented diagnostic/verification step
 requires one.
 
-When local-worker use is opted in, prefer one Qwen 3.6 27B Q5 MTP worker as the
-normal local lane for bounded reading, coding, testing, review, and strict
-output. Keep it single-lane, bounded, and supervisor-verified. Other local
-routes such as Ornith, MLX, Ollama, or Qwopus remain explicit exceptions for
-specific diagnostics or scout-only needs, not automatic routing defaults.
+When local-worker use is opted in, the fleet is:
+
+- **Qwen3-Coder-Next (:8084)** — builder/coder for code generation, extraction, debugging
+- **Qwen 27B (:8083)** — judge for code review, validation, final approval (thinking mode)
+- **Ornith 35B (:8086)** — scout for AST scans, file surveys, deterministic codebase inspection
+
+One heavy model runs at a time. The model-router handles starts/stops/swaps
+automatically. See [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
+for full routing rules and constraints.
 
 In Codex sessions, the supported local-worker workflow is the visible subagent
-lane: call `multi_agent_v1.spawn_agent` with `agent_type="qwen36_27b_mtp_coder"`.
+lane: call `multi_agent_v1.spawn_agent` with `agent_type="qwen3_coder_next_coder"`
+for builder work or `agent_type="qwen36_27b_mtp_coder"` for judge/review work.
 The spawned subagent output surfaced back into the parent Codex session is the
 proof that the lane is loaded and usable. Do not treat direct HTTP probes,
 Hermes MCP tests, or `/v1/models` checks as equivalent Codex subagent proof.
 
 For Hermes sessions or compact MCP worker packets, use `hermes-qwen-mtp` as the
-wrapper around the same single Qwen lane: call `qwen_ready(smoke=true)` before
+wrapper around the same Qwen lane: call `qwen_ready(smoke=true)` before
 `qwen_run`. That MCP path mirrors the Codex worker packet contract; it is not a
 competing default over the visible Codex subagent workflow.
 

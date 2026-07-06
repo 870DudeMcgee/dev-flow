@@ -1,192 +1,220 @@
-# DevFlow Refactor — Session Handoff (Slice 11 Complete + Slice 12 Plan)
+# DevFlow Refactor — Session Handoff (Slice 12: local_ai_fleet.py Decomposition)
 
-## Goal
+## State
 
-The operating layer server god class has been **fully decomposed**. All domain
-handlers (8 mixins) and all HTTP infrastructure methods (1 mixin) now live in
-separate modules. The server is at 153 lines — down 83% from the original 925.
-
-The next refactoring target is **local_ai_fleet.py** (1470 lines): a god module
-with 8 distinct functional areas crammed into one file.
-
-## Current State (after 11 slices)
-
-### Server Structure (153 lines — pure routing + static assets)
-
-```
-operating_layer_server.py (153 lines)
-├── Imports (~35 lines, 9 mixin imports + re-exports)
-├── OperatingLayerHTTPServer class (~5 lines)
-├── OperatingLayerRequestHandler class
-│   ├── Route dispatch tables (~50 lines)
-│   ├── HTTP dispatchers: do_HEAD, do_GET, do_POST (~30 lines)
-│   └── Static asset handlers: _send_index, _send_css, _send_js, _send_healthz (~30 lines)
-└── Re-export comment (~3 lines)
-```
-
-### Extracted Mixin Modules (9 total, 743 lines)
-
-| Module | Lines | Methods | Slice |
-|:---|---:|---:|:---|
-| operating_layer_brainstorm_handlers.py | 85 | 6 | 3 |
-| operating_layer_obsidian_handlers.py | 72 | 5 | 4 |
-| operating_layer_builder_judge_handlers.py | 64 | 4 | 5 |
-| operating_layer_workbench_handlers.py | 114 | 2 | 6 |
-| operating_layer_gates_local_model_handlers.py | 81 | 3 | 7 |
-| operating_layer_refactor_handlers.py | 43 | 2 | 8 |
-| operating_layer_browse_snapshot_repo_handlers.py | 64 | 3 | 9 |
-| operating_layer_actions_agents_task_context_handlers.py | 101 | 3 | 10 |
-| operating_layer_infrastructure_handlers.py | 119 | 10 | 11 |
-
-### Metrics
-
-- `operating_layer_server.py`: 925 → 153 lines (-83%)
-- Tests: 108 passing across 10 test files
+- Server: 153 lines (pure routing + static assets — decomposition complete)
+- Tests: 108 passing across 10 operating-layer test files
 - Ruff: clean
-- Builder-judge convergence: 1-2 rounds, zero GLM code generation since Slice 5
-- Slice 11 builder-judge: 1-round approval, 6,537 local tokens
+- Committed: `4202a16f` (Slice 11: infrastructure handlers)
+- Working tree: clean
+- Fleet toolkit: 8 scripts, SKILL.md v2.0
 
-### Local Fleet Efficiency Toolkit (6 scripts + skill v2.0)
+## Target
 
-- `efficiency_gate.py` — preflight gate + budget check
-- `scout_wiring_context.py` — deterministic AST-based scout
-- `local_test_runner.py` — test/lint summary script
-- `compress_tool_output.py` — context compression via 35B (rewritten)
-- `extract_methods.py` — extract method bodies via 35B (new)
-- `fleet_efficiency_report.py` — token metrics with subagent + delta mode
+- File: `src/devflow/control_room/local_ai_fleet.py` (1470 lines, 47 functions, 1 class)
+- What: Split into focused modules using facade re-export pattern
+- Risk: MEDIUM — not a mixin extraction; module-level functions, not class methods
+- Why: Largest Python god module in control_room/ after the server is done
 
-Key fleet changes since Slice 10:
-- Ornith 35B bumped to `-np 3` (3 parallel slots, 43,776 ctx per slot)
-- 9B retired as default compression lane — 35B is now default
-- `compress_tool_output.py` handles `reasoning_content` fallback
-- SKILL.md rewritten v2.0 — clean top-down structure for first-time agents
+## Why NOT the Hotspot Plan's Recommendation
 
-### Committed Work
+The hotspot plan recommends "Client Action Kernel Extraction" from
+`operating_layer_script.py`. That's a JS extraction from an embedded string
+constant — different tooling, different workflow, and the local fleet scripts
+(`scout_wiring_context.py`, `wire_mixin.py`, `builder-judge-loop.sh`) are all
+designed for Python module extraction. `local_ai_fleet.py` is the next biggest
+Python god module and fits the existing workflow naturally.
 
-| Commit | Description |
-| --- | --- |
-| `2cf04208` | Slices 8-10 + local-fleet-efficiency toolkit + doc cleanup |
+## Proposed Module Split
 
-**Uncommitted**: Slice 11 (infrastructure handlers extraction). Commit before starting Slice 12.
+The 35B survey identified 6 functional groups. Each becomes its own module.
+`local_ai_fleet.py` stays as a thin facade that re-exports everything.
 
-## Next Steps — Slice 12: local_ai_fleet.py Decomposition
-
-### Target
-
-Split `local_ai_fleet.py` (1470 lines) into focused modules along its natural
-functional seams. The 35B survey identified 8 distinct functional groups.
-
-### Why This Is the Next Target
-
-- **Largest Python god module** in control_room/ (1470 lines, 40+ functions)
-- **Clear functional seams** — 8 groups identified by 35B survey, each cohesive
-- **Single importer** — only `local_ai_command.py` imports from it (plus tests)
-- **Test coverage exists** — `test_local_ai_command.py` (1411 lines) exercises it
-- **Not deferred by hotspot plan** — the hotspot plan defers this BUT it was
-  written before the server refactor completed. With the server done, this is
-  the next biggest god module.
-
-### Functional Groups Identified (35B Survey)
-
-| Group | Functions | ~Lines | Proposed Module |
+| Module | Functions | ~Lines | Purpose |
 |:---|:---|---:|:---|
-| Scout capacity | `build_local_ai_scout_capacity_result`, `_resolve_concurrency`, `_capacity_report_dir`, `_latest_scout_capacity_*`, `_new_capacity_run_id`, `_loaded_model_state_ok`, `_p95`, `_count_output_quality_failures` | ~250 | `local_ai_scout_capacity.py` |
-| Worker wave | `build_local_ai_scout_pack_result`, `build_local_ai_worker_wave_result`, `_run_wave_*`, `render_local_ai_scout_pack_json`, `render_local_ai_worker_wave_json` | ~200 | `local_ai_worker_wave.py` |
-| Nightly dry run | `build_local_ai_nightly_dry_run_plan`, `render_local_ai_nightly_dry_run_json` | ~120 | `local_ai_nightly_plan.py` |
-| Switch | `build_local_ai_switch`, `render_local_ai_switch_json`, `_stopped_targets` | ~165 | `local_ai_switch.py` |
-| Snapshot/recommendation | `build_local_ai_snapshot`, `build_local_ai_recommendation`, `render_*_json/lines`, `_supervisor_target`, `_nightly_choose_qwen_profile` | ~280 | `local_ai_snapshot.py` |
-| Ollama inspection | `inspect_ollama_loaded_models`, `inspect_ollama_installed_models`, `start_ollama_model` | ~110 | `local_ai_ollama.py` |
-| Shared utilities | `_load_worker_wave_jobs`, `_load_task_packet_file`, `_load_structured_payload`, `_resolve_packet_path` | ~80 | `local_ai_payload_utils.py` |
-| Constants/errors | `LocalAICommandError`, `DEFAULT_*` constants | ~10 | stays in `local_ai_fleet.py` as facade |
+| `local_ai_scout_capacity.py` | `build_local_ai_scout_capacity_result`, `render_local_ai_scout_capacity_json`, `scout_openai_base_url`, `_resolve_concurrency`, `_capacity_report_dir`, `_latest_scout_capacity_*`, `_new_capacity_run_id`, `_loaded_model_state_ok`, `_p95`, `_count_output_quality_failures` | ~250 | Measure safe concurrency for local models |
+| `local_ai_worker_wave.py` | `build_local_ai_scout_pack_result`, `build_local_ai_worker_wave_result`, `_run_wave_*`, `render_local_ai_scout_pack_json`, `render_local_ai_worker_wave_json`, `_load_worker_wave_jobs`, `_load_task_packet_file`, `_load_structured_payload`, `_resolve_packet_path` | ~280 | Execute worker waves, build scout packs, load packets |
+| `local_ai_nightly_plan.py` | `build_local_ai_nightly_dry_run_plan`, `render_local_ai_nightly_dry_run_json` | ~120 | Generate nightly dry-run plan |
+| `local_ai_switch.py` | `build_local_ai_switch`, `render_local_ai_switch_json`, `_stopped_targets` | ~165 | Switch supervisor/scout roles, manage lifecycle |
+| `local_ai_snapshot.py` | `build_local_ai_snapshot`, `build_local_ai_recommendation`, `render_*_json/lines` for snapshot+recommendation, `_supervisor_target`, `_nightly_choose_qwen_profile`, `_scout_target`, `_lane_payload`, `_runtime_lock_payload`, `_active_model_processes`, `_target_label`, `_mapping`, `_dict_rows`, `_string_rows` | ~350 | Fleet snapshots, recommendations, manifest target resolution |
+| `local_ai_ollama.py` | `inspect_ollama_loaded_models`, `inspect_ollama_installed_models`, `start_ollama_model` | ~110 | Ollama runtime inspection and model start |
+| `local_ai_fleet.py` (facade) | `LocalAICommandError`, `DEFAULT_*` constants, re-exports from all modules | ~50 | Backward-compat facade — `local_ai_command.py` won't need changes |
 
-### Proposed Approach
+## Key Difference From Slices 3-11
 
-Unlike the server mixin extractions (Slices 3-11), this is a **module split**
-not a **mixin extraction**. The functions are module-level, not class methods.
-The approach:
+Slices 3-11 extracted **class methods** from a god class into **mixin modules**.
+This slice extracts **module-level functions** from a god module into **focused
+modules**. The approach is different:
 
-1. Extract each group into its own module
-2. Keep `local_ai_fleet.py` as a thin facade that re-exports everything
-   (backward compat — `local_ai_command.py` won't need changes)
-3. Test with `test_local_ai_command.py` after each extraction
+- **No mixin class** — functions move directly to new modules
+- **No MRO wiring** — `wire_mixin.py` doesn't apply
+- **Facade re-export** — `local_ai_fleet.py` keeps `from .local_ai_new_module import *`
+  so `local_ai_command.py` (the only importer) doesn't need changes
+- **Incremental** — extract one module at a time, test after each
+- **scout_wiring_context.py won't work** — it's designed for class method
+  extraction, not module-level function extraction. Use `codebase_survey.py`
+  or manual AST inspection instead.
 
-This can be done incrementally — one group at a time — with tests after each.
-
-### Risk Assessment
-
-- **Risk**: LOW-MEDIUM
-- `local_ai_command.py` is the only importer (verify with grep before starting)
-- Tests in `test_local_ai_command.py` import `local_ai_fleet` directly — if
-  functions move, test imports may need updating
-- The facade pattern (re-export from `local_ai_fleet.py`) eliminates import changes
-- No monkeypatch targets expected — functions are called directly, not patched
-
-### How to Execute
-
-This is NOT a mixin extraction, so the builder-judge loop and scout_wiring_context
-don't directly apply. Instead:
-
-1. **Survey** (NEW — use `codebase_survey.py` or manual 35B compression):
-   - Verify import graph (who imports what from local_ai_fleet)
-   - Identify exact line ranges for each function group
-   - Check for shared private helpers across groups
-
-2. **Extract** (one group at a time):
-   - Create the new module file with the group's functions + imports
-   - Add re-export in `local_ai_fleet.py`: `from .local_ai_new_module import *`
-   - Run tests after each extraction
-
-3. **Test**: `local_test_runner.py` with `test_local_ai_command.py`
-
-4. **Receipt**: `fleet_efficiency_report.py`
-
-### Expected Outcome
+## Imports in local_ai_fleet.py
 
 ```
-local_ai_fleet.py (~50 lines — facade re-exports)
-local_ai_scout_capacity.py (~250 lines)
-local_ai_worker_wave.py (~200 lines)
-local_ai_nightly_plan.py (~120 lines)
-local_ai_switch.py (~165 lines)
-local_ai_snapshot.py (~280 lines)
-local_ai_ollama.py (~110 lines)
-local_ai_payload_utils.py (~80 lines)
+import json
+import secrets
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+import yaml
+from devflow.control_room import local_model_server
+from devflow.control_room.local_model_readiness import (ExpectedLocalModelLane, LocalModelExpectedProfilesManifest, load_expected_local_model_manifest)
+from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
+from devflow.control_room.paths import relative_path
+from devflow.control_room.task_packet import TaskPacket, build_task_packet, render_task_packet_text
+from devflow.control_room.task_packet_context import is_path_excluded
 ```
 
-## Local Fleet Opportunity: codebase_survey.py
+Each new module will need a subset of these imports. Shared imports (used by
+multiple groups) include `json`, `Path`, `Any`, and `yaml`. The survey output
+has the full analysis if needed.
 
-### Problem
+## Constants (stay in facade)
 
-Planning slices currently requires the frontier model to:
-- Read multiple large files (> 50 lines each)
-- Identify functional seams and dependencies
-- Check import graphs
-- Produce structured plans
+```python
+DEFAULT_LOCAL_AI_PACKET_MAX_CHARS = 200_000       # L26
+DEFAULT_SCOUT_CAPACITY_BASE_URL = "http://..."    # L27
+DEFAULT_SCOUT_CAPACITY_BASE_URL_WITH_V1 = ...     # L28
+DEFAULT_SCOUT_CAPACITY_MODEL = "gemma4-e4b:latest" # L29
+DEFAULT_SCOUT_CAPACITY_CANDIDATES = (1, 2, 3)     # L30
+DEFAULT_SCOUT_CAPACITY_PASSES = 2                 # L31
+DEFAULT_SCOUT_CAPACITY_WARMUP = 1                 # L32
+DEFAULT_SCOUT_CAPACITY_TIMEOUT_SECONDS = 120.0    # L33
+SCOUT_CAPACITY_REPORT_DIR = Path(...)             # L34
+```
 
-This consumes significant frontier tokens just for planning.
+These are imported by `local_ai_command.py` and by the capacity module.
+Either keep them in the facade and import from there, or move them to
+the capacity module and re-export from the facade.
 
-### Solution
+## Who Imports local_ai_fleet
 
-Build a `codebase_survey.py` script that uses the 35B to:
-1. Take a directory or file path as input
-2. Identify all Python files and their sizes
-3. For each file > 500 lines, use the 35B to analyze:
-   - Function/class structure
-   - Natural seams for splitting
-   - Import dependencies
-   - Shared vs movable imports
-4. Produce a structured JSON plan with extraction candidates
+Only one source file imports from it:
 
-This replaces the manual survey work done in this session (which consumed
-~20K frontier tokens reading files and running greps).
+```
+src/devflow/control_room/local_ai_command.py
+  → imports 25+ symbols from local_ai_fleet
+```
 
-### What "Done" Looks Like
+Test file that exercises it:
 
-- `local_ai_fleet.py` is a thin facade (~50 lines) re-exporting from 6-7 modules
-- 108+ tests passing
-- Ruff clean
-- `codebase_survey.py` script built and tested
-- Efficiency receipt produced
+```
+tests/test_local_ai_command.py (1411 lines, 30 test functions)
+  → imports local_ai_fleet directly in 20+ test functions
+```
+
+The tests do `from devflow.control_room import local_ai_fleet` and then call
+`local_ai_fleet.build_local_ai_*()` etc. The facade re-export pattern means
+these test imports keep working without changes.
+
+## Execution Plan (Using New Automated Workflow)
+
+This slice does NOT use `scout_wiring_context.py` or `wire_mixin.py` (those
+are for class method extraction). Instead, use a manual + builder-judge
+approach with the fleet toolkit where applicable.
+
+### Phase 1: Survey (local fleet)
+
+```bash
+# Start 35B
+~/.hermes/scripts/model-router start ornith-35b
+
+# Survey the target file (deterministic AST + 35B seam analysis)
+python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/codebase_survey.py \
+  --target-file src/devflow/control_room/local_ai_fleet.py \
+  --write-json .devflow/evidence/survey-local-ai-fleet.json
+
+# Also run compress_tool_output for a second-opinion analysis
+python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/compress_tool_output.py \
+  --input-file src/devflow/control_room/local_ai_fleet.py \
+  --question "List all functions with their line ranges. Group them by functional area. For each group, list which imports it needs and which imports are shared across groups." \
+  --max-output-chars 4000 \
+  --write-json .devflow/evidence/compress-local-ai-fleet.json
+```
+
+### Phase 2: Gate
+
+```bash
+python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/efficiency_gate.py check \
+  --task-id slice-12-local-ai-fleet \
+  --planned-tool-calls 10 --files-to-inspect 3 \
+  --will-edit --edit-areas 7 --will-run-tests \
+  --needs-builder-judge \
+  --user-requested-local-fleet \
+  --delegation-planned scout,builder,judge,test-runner \
+  --strict --write-json .devflow/evidence/efficiency-gate-slice12.json
+```
+
+### Phase 3: Extract One Module at a Time
+
+For each of the 6 modules, use the builder-judge loop to generate the new
+module file, then manually add the re-export to the facade.
+
+Example for `local_ai_ollama.py` (simplest module, 3 functions):
+
+```bash
+# Builder-judge: generate the new module
+bash ~/.hermes/skills/software-development/multi-model-fleet/scripts/builder-judge-loop.sh \
+  --skip-baseline \
+  "Extract these 3 functions from local_ai_fleet.py into a new module local_ai_ollama.py: inspect_ollama_loaded_models (L1164), inspect_ollama_installed_models (L1199), start_ollama_model (L1234). Imports needed: json, urllib.request, urllib.error, from typing import Any. Add from __future__ import annotations." \
+  "/Users/jewelbait/Desktop/Local AI Dev Team/src/devflow/control_room/local_ai_ollama.py" \
+  "/Users/jewelbait/Desktop/Local AI Dev Team" \
+  "src/devflow/control_room/local_ai_fleet.py" \
+  "inspect_ollama_loaded_models,inspect_ollama_installed_models,start_ollama_model"
+```
+
+After builder-judge produces the file:
+1. Add re-export to `local_ai_fleet.py`: `from .local_ai_ollama import *`
+2. Remove the 3 function bodies from `local_ai_fleet.py`
+3. Run tests
+
+Repeat for each module. Start with the simplest (ollama) and work toward
+the most complex (snapshot/recommendation).
+
+### Phase 4: Test After Each Extraction
+
+```bash
+python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/local_test_runner.py \
+  --pytest "tests/test_local_ai_command.py" \
+  --ruff "src/devflow/control_room/local_ai_fleet.py src/devflow/control_room/local_ai_ollama.py" \
+  --project-root . --python .venv/bin/python --task-id slice-12-N \
+  --write-json .devflow/evidence/test-results-slice12-N.json
+```
+
+### Phase 5: Receipt
+
+```bash
+python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/fleet_efficiency_report.py \
+  --session-id <SESSION_ID> --task-id slice-12-local-ai-fleet \
+  --local-response-dir /tmp/builder-judge \
+  --baseline-json .devflow/evidence/token-efficiency-slice11.json \
+  --write-json .devflow/evidence/token-efficiency-slice12.json
+```
+
+## Recommended Extraction Order
+
+| Order | Module | Functions | ~Lines | Risk |
+|---:|:---|---:|---:|:---|
+| 1 | `local_ai_ollama.py` | 3 | ~110 | LOW — self-contained, no shared helpers |
+| 2 | `local_ai_nightly_plan.py` | 2 | ~120 | LOW — self-contained |
+| 3 | `local_ai_switch.py` | 3 | ~165 | LOW-MED — uses `_stopped_targets` |
+| 4 | `local_ai_scout_capacity.py` | 11 | ~250 | MED — many private helpers |
+| 5 | `local_ai_worker_wave.py` | 9 | ~280 | MED — shares packet loaders with capacity |
+| 6 | `local_ai_snapshot.py` | 15 | ~350 | MED-HIGH — most complex, many private helpers |
+
+Extract 1-2 modules per session, test after each. If any extraction breaks
+tests, the facade re-export pattern makes it easy to revert — just remove
+the `from .new_module import *` line and the old functions are still there.
 
 ## Test Command
 
@@ -201,7 +229,9 @@ PYTHONPATH=src .venv/bin/python -m pytest \
 
 ```bash
 cd "/Users/jewelbait/Desktop/Local AI Dev Team"
-.venv/bin/ruff check src/devflow/control_room/local_ai_fleet.py src/devflow/control_room/local_ai_*.py
+.venv/bin/ruff check \
+  src/devflow/control_room/local_ai_fleet.py \
+  src/devflow/control_room/local_ai_*.py
 ```
 
 ## Constraints
@@ -209,18 +239,70 @@ cd "/Users/jewelbait/Desktop/Local AI Dev Team"
 - Do NOT edit files without running tests after
 - Do NOT push without explicit user approval
 - Use the local-fleet-efficiency toolkit where applicable
-- Never read files > 50 lines directly in frontier context — use `compress_tool_output.py`
+- Never read files > 50 lines directly in frontier context — use `compress_tool_output.py` or `codebase_survey.py`
 - Never run pytest/ruff directly — use `local_test_runner.py`
 - All local models: `ctx=131072`, reasoning ON, `max_tokens=2048+`
 - Heavy models (Ornith 35B, Qwen 27B) — only ONE at a time, use `model-router start`
-- 35B now runs `-np 3` (3 parallel slots)
+- 35B runs `-np 3` (3 parallel slots)
+- `scout_wiring_context.py` and `wire_mixin.py` do NOT apply to this slice (they're for class method extraction, not module-level function extraction)
+- Use `codebase_survey.py` for structure analysis instead
+- Use builder-judge loop with `--skip-baseline` for code generation
 
 ## What "Done" Looks Like
 
-- `local_ai_fleet.py` is ~50 lines (facade re-exports only)
-- 6-7 focused modules extracted
-- 108+ tests passing
+- `local_ai_fleet.py` is ~50 lines (facade re-exports + constants + error class)
+- 6 focused modules extracted
+- `local_ai_command.py` has NO import changes (facade handles backward compat)
+- `tests/test_local_ai_command.py` — all 30 tests passing
 - Ruff clean
-- `codebase_survey.py` script built and tested
-- Efficiency receipt produced
-- Local-fleet-efficiency toolkit updated with survey script
+- Efficiency receipt produced with delta vs Slice 11
+- Compact handoff written for next slice
+
+## Fleet Toolkit State (8 scripts)
+
+| Script | Version | Status |
+|:---|:---|:---|
+| `efficiency_gate.py` | 1.0 | Ready |
+| `scout_wiring_context.py` | 1.0 | Ready (not used this slice — class-method only) |
+| `local_test_runner.py` | 1.0 | Ready |
+| `compress_tool_output.py` | 2.0 | Ready (35B default, `## ANSWER:` marker extraction) |
+| `extract_methods.py` | 1.0 | Ready |
+| `codebase_survey.py` | 1.0 | Ready (deterministic AST + 35B seam analysis) |
+| `wire_mixin.py` | 1.0 | Ready (not used this slice — class-method only) |
+| `fleet_efficiency_report.py` | 1.0 | Ready |
+
+## Compact Handoff
+
+```
+# Slice 12: local_ai_fleet.py decomposition
+
+## State
+- Server: 153 lines (done). Tests: 108 passing. Ruff: clean.
+- Committed: 4202a16f (slice 11). Working tree: clean.
+
+## Target
+- File: local_ai_fleet.py (1470 lines, 47 functions, 1 class)
+- Split into 6 modules + facade re-export. Risk: MEDIUM.
+- NOT a mixin extraction — module-level functions, not class methods.
+- scout_wiring_context.py + wire_mixin.py do NOT apply.
+
+## Modules (extract in order)
+1. local_ai_ollama.py (3 funcs, ~110 lines) — LOW
+2. local_ai_nightly_plan.py (2 funcs, ~120 lines) — LOW
+3. local_ai_switch.py (3 funcs, ~165 lines) — LOW-MED
+4. local_ai_scout_capacity.py (11 funcs, ~250 lines) — MED
+5. local_ai_worker_wave.py (9 funcs, ~280 lines) — MED
+6. local_ai_snapshot.py (15 funcs, ~350 lines) — MED-HIGH
+
+## Commands
+- Survey: codebase_survey.py --target-file ...local_ai_fleet.py
+- Gate: efficiency_gate.py check --task-id slice-12 ...
+- Build: builder-judge-loop.sh --skip-baseline "..." ...
+- Test: local_test_runner.py --pytest tests/test_local_ai_command.py ...
+- Receipt: fleet_efficiency_report.py --baseline-json ...slice11.json ...
+
+## Constraints
+- Facade re-export: from .new_module import * in local_ai_fleet.py
+- local_ai_command.py must NOT need import changes
+- Test after each extraction
+```
