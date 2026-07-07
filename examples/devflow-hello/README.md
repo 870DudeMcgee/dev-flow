@@ -7,4 +7,4 @@ python3 examples/devflow-hello/hello.py
 python3 examples/devflow-hello/test_hello.py
 ```
 
-Use this example only as simple Python fixture material unless it is adapted for the current shell-worker control-room MVP.
+Use this example only as simple Python fixture material unless it is adapted for the current product-building loop.

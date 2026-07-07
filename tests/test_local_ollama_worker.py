@@ -50,7 +50,7 @@ def test_qwen_planner_prompt_is_composed_from_task_yaml_and_devflow_rules(
     worker_dir = _find_run_dir("qwen-planner")
     prompt = (worker_dir / "prompt.md").read_text(encoding="utf-8")
     assert "Dev-Flow rules" in prompt
-    assert "Dev-Flow owns task state, isolated workspaces, logs, verification evidence, and human-controlled promotion." in prompt
+    assert "DevFlow owns bounded product-building state, evidence, verification, and human-controlled next decisions." in prompt
     assert "Do not auto-edit repo files from model output." in prompt
     assert "title: Plan local worker" in prompt
     assert "description: Use local model planning" in prompt

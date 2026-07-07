@@ -139,6 +139,10 @@ def prepare_ornith_training_dataset(
     }
 
 
+# Backward-compatible CLI import name retained for older command wiring.
+prepare_gemma4_training_dataset = prepare_ornith_training_dataset
+
+
 def _collect_examples(root: Path) -> list[dict[str, Any]]:
     examples: list[dict[str, Any]] = []
     examples.extend(_task_examples(root))

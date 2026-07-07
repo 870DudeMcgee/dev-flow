@@ -1,8 +1,7 @@
-# GitHub Copilot Instructions for DevMode
+# GitHub Copilot Instructions for DevFlow
 
-Read `docs/devmode-contract.md` for the canonical DevMode rules.
+Read `docs/DEVFLOW_SOURCE_OF_TRUTH.md` for the canonical DevFlow product direction.
 Read `AGENTS.md` for repo-level agent operating rules.
-Use `skills/using-devmode/SKILL.md` to route behavior.
 This harness file is an adapter, not the source of truth.
 
 Instruction priority:

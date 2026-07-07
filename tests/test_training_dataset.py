@@ -55,8 +55,8 @@ def test_prepare_gemma4_training_dataset_redacts_and_excludes_unsafe_sources(
     assert dry_run["provider_calls_disabled"] is True
     assert dry_run["training_execution_disabled"] is True
     assert dry_run["model_candidates"] == [
-        "unsloth/gemma-4-E4B-it-unsloth-bnb-4bit",
-        "google/gemma-4-E4B-it",
+        "Jackrong/Ornith3.6-35B-A3B-v1-GGUF",
+        "lmstudio-community/Ornith3.6-35B-A3B-MLX-4bit",
     ]
     assert dry_run["redaction"]["status"] == "pass"
     assert dry_run["lora"]["rank"] == 16
@@ -103,13 +103,13 @@ def test_training_prepare_gemma4_e4b_cli_json_output(
 
 def _write_training_fixture_repo(root: Path) -> None:
     (root / "AGENTS.md").write_text("# Agent rules\nKeep work grounded.\n", encoding="utf-8")
-    (root / "README.md").write_text("# Dev-Flow\nLocal-first control room.\n", encoding="utf-8")
+    (root / "README.md").write_text("# DevFlow\nLocal operating layer.\n", encoding="utf-8")
 
     docs_dir = root / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
-    (docs_dir / "operator-centered-mission.md").write_text("# Mission\nVisible next safe actions.\n", encoding="utf-8")
-    (docs_dir / "control-room-mvp.md").write_text("# MVP\nExplicit evidence lanes.\n", encoding="utf-8")
-    (docs_dir / "devmode-contract.md").write_text("# DevMode\nNo hidden automation.\n", encoding="utf-8")
+    (docs_dir / "DEVFLOW_SOURCE_OF_TRUTH.md").write_text("# Source of Truth\nVisible next safe actions.\n", encoding="utf-8")
+    (docs_dir / "README.md").write_text("# Docs\nUse the source of truth.\n", encoding="utf-8")
+    (docs_dir / "local-worker-policy.md").write_text("# Local Worker Policy\nBounded lanes only.\n", encoding="utf-8")
     (docs_dir / "verification-ledger.md").write_text("# Verification\nReuse bounded checks.\n", encoding="utf-8")
     integrations = docs_dir / "integrations"
     integrations.mkdir(parents=True, exist_ok=True)

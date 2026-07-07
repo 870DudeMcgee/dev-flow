@@ -27,9 +27,12 @@ class TestPackaging(unittest.TestCase):
         self.assertIn("verified product implementations", readme)
         self.assertIn("docs/DEVFLOW_SOURCE_OF_TRUTH.md", readme)
         self.assertIn("Idea -> Brainstorm -> Spec -> Plan -> Judge -> Build -> Judge -> Verify", readme)
-        self.assertNotIn("local-first control room for parallel AI coding workers", readme)
-        self.assertNotIn("docs/control-room-mvp.md", readme)
-        self.assertNotIn("PRODUCT_NORTH_STAR.md", readme)
+        retired_phrase = "local-first " + "control room for parallel AI coding workers"
+        retired_mvp_doc = "docs/" + "control-room-mvp.md"
+        retired_north_star = "PRODUCT_" + "NORTH_STAR.md"
+        self.assertNotIn(retired_phrase, readme)
+        self.assertNotIn(retired_mvp_doc, readme)
+        self.assertNotIn(retired_north_star, readme)
 
     def test_declared_devflow_cli_entrypoint_resolves_to_callable(self):
         data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))

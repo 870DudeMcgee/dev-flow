@@ -5,9 +5,9 @@ Global Codex session behavior is defined by
 This repo guide adds DevFlow-specific product, verification, and safety details;
 it does not replace the global session contract.
 
-Dev-Flow is a local-first control room for AI coding workers. It should automate as much routine work as it safely can while keeping task state, worker identity, evidence, verification, and promotion visible to the human operator.
+DevFlow is the local operating layer for turning rough ideas into verified product implementations. It owns the active product-building loop: definition, spec, planning, plan review, bounded delegation, builder/judge execution, evidence-backed verification, and the next human decision.
 
-Dev-Flow's operator-centered mission is documented in [docs/operator-centered-mission.md](docs/operator-centered-mission.md). Read it when shaping product direction, UI flows, idea intake, worker orchestration, or any feature that affects cognitive load. The short version: Dev-Flow exists to help a highly creative, neurodivergent operator convert a flood of ideas into visible, prioritized, verified work. Preserve unlimited capture, constrain active execution, show state visually, provide the next action, and never claim completion without evidence.
+Product authority lives in [docs/DEVFLOW_SOURCE_OF_TRUTH.md](docs/DEVFLOW_SOURCE_OF_TRUTH.md). Read it when shaping product direction, UI flows, idea intake, worker orchestration, or any feature that affects cognitive load. Quarantined and deleted historical docs are recovery material only; do not load them as active context unless the human explicitly asks.
 
 Local checkout note: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs.
 

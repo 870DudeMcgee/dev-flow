@@ -14,7 +14,7 @@ State compatibility is part of the release contract. Any change to `.devflow/con
 
 ### Added
 
-- Shell-worker control-room MVP with local task creation, isolated workspaces, logs, verification evidence, dashboard visibility, promotion preview, and human-controlled promotion.
+- Shell-worker runtime milestone with local task creation, isolated workspaces, logs, verification evidence, dashboard visibility, promotion preview, and human-controlled promotion.
 - Manual proof-agent handoff path for `devflow-manual-codex-worker` without provider API execution.
 - Adapter maturity boundary that allows only stable runtime adapters to execute.
 - Shell worker hardening for environment allowlisting, timeouts, and log-size limits.

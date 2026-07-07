@@ -1,53 +1,36 @@
 ---
 name: devflow
-description: "Use when working on the Dev-Flow control room: shell-worker runtime today, future agent registry and adapter contracts, task state, isolated workspaces, CLI, dashboard, logs, questions, results, and verification."
-argument-hint: "Describe the control-room MVP task or question"
+description: "Use when working on the DevFlow product-building loop."
+argument-hint: "Describe the DevFlow task or question"
 user-invocable: true
 ---
 
-# Dev-Flow Control-Room MVP
+# DevFlow Product-Building Loop
 
-Use this skill only for the new Dev-Flow product direction.
+Use this skill only for the current DevFlow product direction.
 
-Active source of truth: `docs/control-room-mvp.md`.
+Active source of truth: `docs/DEVFLOW_SOURCE_OF_TRUTH.md`.
 
-Future agent registry and adapter-runtime direction: `docs/architecture/agent-registry-and-adapter-runtime.md`. This is design-only until explicitly promoted by implementation work.
-
-Product North Star: `PRODUCT_NORTH_STAR.md`. Read it before implementation decisions and check plans against its Periodic Self-Check section.
+DevFlow is the local operating layer for turning rough ideas into verified product implementations. Obsidian owns broad knowledge/context; DevFlow owns the active product-building loop.
 
 ## Rules
 
 - Prefer direct implementation over process ceremony.
-- Do not use archived legacy workflows as authority.
+- Do not use quarantined, deleted, or archived legacy workflows as authority.
 - Do not create legacy task files unless explicitly requested.
 - Do not route work through old agent, memory, context, DAG, trace, eval, or unified-diff runner surfaces.
-- Keep the active runtime focused on shell workers only unless the task explicitly implements the next approved registry sequence.
+- Keep the active runtime focused on the current product-building loop unless the task explicitly implements a next approved sequence.
 - Verify narrowly and report what actually ran.
 - After every major feature, milestone, or direction change, align active docs, remove stale context, verify, commit, merge to `main`, push when approved, and write a compact handoff with one next safe action.
 - Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.
 
-## First Milestone
+## Current Loop
 
-Build a non-AI control room with these commands:
+Keep work aligned with:
 
-```bash
-devflow init
-devflow doctor
-devflow task create "title"
-devflow task list
-devflow task show <task_id>
-devflow task run <task_id> --worker shell -- <command>
-devflow task verify <task_id> -- <command>
-devflow dashboard
+```text
+Idea -> definition -> spec -> plan -> planning judge -> bounded tasks -> builder/judge execution -> verification -> next human decision
 ```
-
-Acceptance test:
-
-1. create one shell task that succeeds
-2. create one shell task that fails
-3. create one shell task that times out
-
-The CLI and dashboard must show all three accurately with status and logs.
 
 ## Not Yet
 
@@ -59,4 +42,4 @@ The CLI and dashboard must show all three accurately with status and logs.
 - autonomous routing
 - PR automation
 
-Non-shell adapters must not skip directly to provider calls. Build registry loading, manual packets, and shell alignment first.
+Non-local adapters must not become the product identity. Treat model/runtime details as bounded implementation lanes, not the source of truth.

@@ -69,8 +69,8 @@ IMPLEMENTATION_CURRENT_SLICE_CONTEXT_MARKER = (
 SEED_FILES = {
     ".devflow/project/project.yaml": """id: devflow
 name: Dev-Flow
-status: rebuilding_control_room
-purpose: "Local-first control room for parallel AI coding workers."
+status: active_product_building_loop
+purpose: "Local operating layer for turning rough ideas into verified product implementations."
 canonical_state_note: "Machine-readable runtime and planning state lives under .devflow/project, .devflow/goals, .devflow/tasks, and related YAML/JSON/JSONL files."
 current_active_goal: bootstrap-devflow-filesystem
 authority_note: "Human instructions and active source-of-truth docs outrank derived reports. Reports and summaries are useful evidence, not canonical authority."
@@ -82,11 +82,11 @@ source_documents:
 """,
     ".devflow/project/vision.md": """# Vision
 
-Dev-Flow is a local-first control room for parallel AI coding workers.
+DevFlow is a local operating layer for turning rough ideas into verified product implementations.
 """,
     ".devflow/project/current-state.md": """# Current State
 
-Status: control-room MVP with filesystem state, shell workers, the devflow-manual-codex-worker proof agent, isolated workspaces, verification, and human-controlled promotion.
+Status: active product-building loop with definition, specification, planning, bounded execution, verification, and human-controlled next decisions.
 """,
     ".devflow/project/architecture.md": """# Architecture
 
@@ -94,7 +94,7 @@ Dev-Flow owns durable state, workspaces, locks, status, logs, reports, verificat
 """,
     ".devflow/project/glossary.md": """# Glossary
 
-- Control room: Dev-Flow's local-first coordination layer.
+- Operating layer: DevFlow's local product-building coordination layer.
 - Worker: A replaceable executor such as the current shell worker or the manual proof-agent handoff.
 - Canonical state: Machine-readable YAML, JSON, and JSONL files that define current truth.
 """,
@@ -185,7 +185,7 @@ The bootstrap filesystem/context structure exists and can be repaired by `devflo
     ".devflow/context/archived/README.md": "# Archived Context\n\nHistorical material preserved for audit, not active instruction.\n",
     ".devflow/context/deprecated/README.md": "# Deprecated Context\n\nSuperseded guidance that should not drive new work.\n",
     ".devflow/context/rejected/README.md": "# Rejected Context\n\nIdeas explicitly rejected so they are not rediscovered as current plans.\n",
-    ".devflow/layers/product/vision.md": "# Product Vision\n\nA local-first control room for parallel AI coding workers.\n",
+    ".devflow/layers/product/vision.md": "# Product Vision\n\nA local operating layer for turning rough ideas into verified product implementations.\n",
     ".devflow/layers/product/user-problems.md": "# User Problems\n\nParallel AI coding work needs visibility, isolation, recoverability, and reviewable results.\n",
     ".devflow/layers/product/success-metrics.md": "# Success Metrics\n\nShell-worker tasks can be created, run, verified, listed, shown, and reviewed without mutating the main checkout.\n",
     ".devflow/layers/architecture/system-map.md": "# System Map\n\nFilesystem state is the source of truth. CLI commands operate on tasks, workspaces, logs, verification, and reports.\n",
@@ -208,7 +208,7 @@ Quarantined historical docs are recovery material only and must not be loaded as
     ".devflow/layers/verification/verification-strategy.md": "# Verification Strategy\n\nPrefer focused pytest coverage and shell-worker acceptance checks.\n",
     ".devflow/layers/verification/commands.md": "# Verification Commands\n\nWhen running verification inside task worktrees (where .venv is not present locally), reference the virtualenv from the repository root, e.g.:\n- /absolute/path/to/repo/.venv/bin/python -m pytest tests/test_control_room_shell.py -q\n",
     ".devflow/layers/verification/known-failures.md": "# Known Failures\n\nRecord current known failures here when they are validated.\n",
-    ".devflow/layers/operations/workflow.md": "# Workflow\n\nUse small, verifiable changes against the active control-room MVP.\n",
+    ".devflow/layers/operations/workflow.md": "# Workflow\n\nUse small, verifiable changes against the active product-building loop.\n",
     ".devflow/layers/operations/agent-coordination.md": "# Agent Coordination\n\nWorkers should operate from bounded task context and isolated workspaces.\n",
     ".devflow/layers/operations/recovery.md": "# Recovery\n\nFailures should leave clear logs, status, and next actions.\n",
     ".devflow/layers/operations/promotion.md": "# Promotion\n\nHumans control promotion to the main checkout.\n",
@@ -278,6 +278,14 @@ provider: gemini
 adapter: gemini
 base_url: https://generativelanguage.googleapis.com
 api_key_env: GEMINI_API_KEY
+default_timeout_seconds: 300
+enabled: true
+""",
+    ".devflow/providers/openrouter.yaml": """id: openrouter
+provider: openrouter
+adapter: openai_compatible
+base_url: https://openrouter.ai/api/v1
+api_key_env: OPENROUTER_API_KEY
 default_timeout_seconds: 300
 enabled: true
 """,

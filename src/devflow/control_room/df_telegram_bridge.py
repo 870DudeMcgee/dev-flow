@@ -161,7 +161,7 @@ def scaffold_goal_from_intent(intent: DevFlowIntent, repo_path: Path | str) -> t
 {chr(10).join(f"- {criterion}" for criterion in intent.acceptance_criteria)}
 
 ## Context
-Dev-Flow local-first control room parallel coding workers.
+DevFlow local operating layer for verified product implementation.
 """
     brief_path.write_text(brief_content, encoding="utf-8")
     
