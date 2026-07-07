@@ -61,21 +61,21 @@ Use this ledger before running expensive verification. If the question can be an
   - Command: `PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json`.
   - Proof tier: fast automated screenshot/probe pass for desktop+mobile with current evidence.
 
-- Brainstorm workbench + DeepSeek advisory chat UI: passed, `80 passed, 11 skipped, 2 warnings in 82.19s`.
-  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_openrouter_advisory.py tests/test_operating_layer.py tests/test_operator_ui_browser.py -q`.
-  - Scope: DeepSeek V4 Flash Free brainstorm profile, missing-key failure without fake assistant output, mocked OpenRouter chat transcript evidence, spec/plan/task escalation artifacts, operating-layer API/UI contracts, registry visibility, and browser UI selectors.
+- Brainstorm workbench + advisory chat UI: passed, `80 passed, 11 skipped, 2 warnings in 82.19s`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_configured_model_advisory.py tests/test_operating_layer.py tests/test_operator_ui_browser.py -q`.
+  - Scope: advisory brainstorm profile, missing-key failure without fake assistant output, mocked chat transcript evidence, spec/plan/task escalation artifacts, operating-layer API/UI contracts, registry visibility, and browser UI selectors.
 - Premium brainstorm workbench layout repair: passed, `44 passed, 11 skipped, 2 warnings in 74.69s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_operating_layer.py tests/test_operator_ui_browser.py -q`.
   - Scope: preview-like dark sidebar/topbar plus light chat/pipeline workbench, guided first viewport, browser selectors, responsive overflow checks, and task/review/evidence controls.
 - Brainstorm registry/dogfood after layout repair: passed, `58 passed in 83.79s`.
-  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_openrouter_advisory.py tests/test_dogfood_harness.py -q`.
+  - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_brainstorm_workbench.py tests/test_agent_registry.py tests/test_configured_model_advisory.py tests/test_dogfood_harness.py -q`.
 - Brainstorm workbench visual QA: passed.
   - Command: `PYTHONPATH=src:. .venv/bin/devflow operating-layer visual-qa --json`.
   - Flow covered: Brainstorm chat, Pipeline stages, Worker lanes, Review queue, Evidence stream, guided first viewport, desktop/mobile screenshot paths, and no horizontal overflow.
 - Dogfood harness metadata after brainstorm workbench: passed, `22 passed in 80.33s`.
   - Command: `PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_dogfood_harness.py -q`.
 - Live in-app browser smoke for brainstorm workbench: passed on `http://127.0.0.1:8766/#orchestrator`.
-  - Observed: Home route opens at the top of the chat-first workbench, DeepSeek V4 Flash Free label is visible, pipeline escalation controls are visible, operations tray follows below, desktop/mobile have no horizontal overflow, and browser console warnings/errors are empty.
+  - Observed: Home route opens at the top of the chat-first workbench, advisory model label is visible, pipeline escalation controls are visible, operations tray follows below, desktop/mobile have no horizontal overflow, and browser console warnings/errors are empty.
 - Live in-app browser smoke after canonical UI doc refresh: passed on `http://127.0.0.1:8765/?cb=1781740983094`.
   - Observed: cache-busted URL opened `Dev-Flow Operating Layer`; DOM markers included `Brainstorm`, `Pipeline`, `Worker lanes`, `Review queue`, and `Evidence stream`; old static marketing marker `The Git-native control plane for bounded agent work` was absent.
 - Prior idea-intake UI simplification, now superseded by the brainstorm workbench first viewport: passed, `65 passed in 18.81s`.
