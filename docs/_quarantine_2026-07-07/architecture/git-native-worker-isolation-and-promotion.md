@@ -240,9 +240,9 @@ Every non-ready state needs a concrete recovery command, such as rerunning exact
 
 ## Out Of Scope For This Milestone
 
-- provider-backed non-shell adapters
+- non-local non-shell adapters
 - autonomous routing
 - automatic push, pull request, or release creation
 - hiding merge conflicts from the human
 - OS-level sandboxing as the center of the milestone
-- resurrecting legacy `src/devflow/worktrees.py` behavior without reconciling it with this contract
+- adding a second worktree behavior path without reconciling it with this contract

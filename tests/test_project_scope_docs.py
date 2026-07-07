@@ -1,89 +1,62 @@
 import os
 import unittest
 
+
 class TestProjectScopeDocs(unittest.TestCase):
     def setUp(self):
-        # Base directory of the repository
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.source_path = os.path.join(self.base_dir, "docs", "DEVFLOW_SOURCE_OF_TRUTH.md")
 
-    def test_files_exist(self):
+    def test_active_source_of_truth_exists(self):
         expected_files = [
-            os.path.join("docs", "devflow-operating-model.md"),
-            os.path.join("docs", "read-only-control-room-agent.md"),
-            os.path.join("docs", "devmode-devflow-boundary.md")
+            os.path.join("docs", "DEVFLOW_SOURCE_OF_TRUTH.md"),
+            os.path.join("docs", "README.md"),
+            os.path.join("docs", "_quarantine_2026-07-07", "README.md"),
         ]
         for f in expected_files:
             full_path = os.path.join(self.base_dir, f)
             self.assertTrue(os.path.isfile(full_path), f"File {f} does not exist at {full_path}")
 
-    def test_readme_links_to_new_docs(self):
+    def test_readme_links_to_source_of_truth(self):
         readme_path = os.path.join(self.base_dir, "README.md")
         with open(readme_path, "r", encoding="utf-8") as f:
             content = f.read()
-        self.assertIn("docs/devflow-operating-model.md", content, "README.md does not link to docs/devflow-operating-model.md")
-        self.assertIn("docs/read-only-control-room-agent.md", content, "README.md does not link to docs/read-only-control-room-agent.md")
-        self.assertIn("docs/devmode-devflow-boundary.md", content, "README.md does not link to docs/devmode-devflow-boundary.md")
+        self.assertIn("docs/DEVFLOW_SOURCE_OF_TRUTH.md", content)
+        self.assertIn("docs/_quarantine_2026-07-07/", content)
 
-    def test_north_star_links_to_new_docs(self):
-        north_star_path = os.path.join(self.base_dir, "PRODUCT_NORTH_STAR.md")
-        with open(north_star_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        self.assertIn("docs/devflow-operating-model.md", content, "PRODUCT_NORTH_STAR.md does not link to docs/devflow-operating-model.md")
-        self.assertIn("docs/read-only-control-room-agent.md", content, "PRODUCT_NORTH_STAR.md does not link to docs/read-only-control-room-agent.md")
-        self.assertIn("docs/devmode-devflow-boundary.md", content, "PRODUCT_NORTH_STAR.md does not link to docs/devmode-devflow-boundary.md")
-
-    def test_operating_model_content(self):
-        model_path = os.path.join(self.base_dir, "docs", "devflow-operating-model.md")
-        with open(model_path, "r", encoding="utf-8") as f:
+    def test_source_of_truth_defines_current_loop(self):
+        with open(self.source_path, "r", encoding="utf-8") as f:
             content = f.read().lower()
-        
+
         required_mentions = [
-            "main chat",
-            "read-only",
-            "worker",
-            "isolated workspace",
-            "verification",
-            "human-controlled promotion"
+            "idea -> brainstorm -> spec -> plan -> judge -> build -> judge -> verify -> next human decision",
+            "obsidian owns the broad data and knowledge layer",
+            "devflow owns the active product-building loop",
+            "orchestrator is a traffic controller",
+            "builders execute small implementation tasks",
+            "judges verify",
+            "evidence-backed next action",
         ]
         for term in required_mentions:
-            self.assertIn(term, content, f"docs/devflow-operating-model.md does not mention: '{term}'")
+            self.assertIn(term, content, f"source of truth does not mention: '{term}'")
 
-    def test_control_room_agent_forbidden_responsibilities(self):
-        agent_path = os.path.join(self.base_dir, "docs", "read-only-control-room-agent.md")
-        with open(agent_path, "r", encoding="utf-8") as f:
+    def test_source_of_truth_declares_old_docs_non_authoritative(self):
+        with open(self.source_path, "r", encoding="utf-8") as f:
             content = f.read().lower()
 
-        forbidden_responsibilities = [
-            "editing",
-            "staging",
-            "committing",
-            "pushing",
-            "merging"
-        ]
-        for resp in forbidden_responsibilities:
-            self.assertIn(resp, content, f"docs/read-only-control-room-agent.md does not mention forbidden responsibility: '{resp}'")
+        self.assertIn("non-authoritative", content)
+        self.assertIn("must not be loaded as active context by default", content)
+        self.assertIn("historical docs should be quarantined or deleted", content)
 
-    def test_devmode_devflow_boundary_ownership(self):
-        boundary_path = os.path.join(self.base_dir, "docs", "devmode-devflow-boundary.md")
-        with open(boundary_path, "r", encoding="utf-8") as f:
+    def test_quarantine_readme_blocks_active_context_use(self):
+        quarantine_path = os.path.join(self.base_dir, "docs", "_quarantine_2026-07-07", "README.md")
+        with open(quarantine_path, "r", encoding="utf-8") as f:
             content = f.read().lower()
 
-        # DevMode owns discipline, Dev-Flow owns state/orchestration
-        self.assertIn("discipline", content, "docs/devmode-devflow-boundary.md does not mention DevMode owning discipline")
-        self.assertTrue(
-            "state" in content or "orchestration" in content,
-            "docs/devmode-devflow-boundary.md does not mention Dev-Flow owning state or orchestration"
-        )
-        self.assertIn(
-            "devmode tells agents how to behave",
-            content,
-            "docs/devmode-devflow-boundary.md is missing the core boundary sentence"
-        )
-        self.assertIn(
-            "dev-flow gives agents safe places to work and records what happened",
-            content,
-            "docs/devmode-devflow-boundary.md is missing the core boundary sentence"
-        )
+        self.assertIn("non-authoritative historical material", content)
+        self.assertIn("do not load or follow anything in this folder", content)
+        self.assertIn("recovery material only", content)
+
 
 if __name__ == "__main__":
     unittest.main()

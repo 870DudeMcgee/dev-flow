@@ -80,7 +80,7 @@ Use Graphify especially around these areas:
 - `src/devflow/control_room/loop_engine.py`
 - `src/devflow/control_room/task_next_gate.py`
 - operating-layer modules under `src/devflow/control_room/`
-- compatibility and legacy/shim surfaces
+- compatibility surfaces
 
 For each major cleanup milestone, compare:
 
@@ -91,7 +91,7 @@ For each major cleanup milestone, compare:
 - whether `control_room_service` stays a stable facade while behavior moves
   behind task lifecycle, loop, verification, evidence, and promotion modules
 - whether Graphify paths from CLI to service to task/evidence modules are short
-  enough to explain without old docs or historical plans
+  enough to explain from current docs
 
 Architecture is improving when the graph shows clearer harness clusters, not
 merely when line count falls.

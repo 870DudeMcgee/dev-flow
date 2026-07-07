@@ -52,7 +52,7 @@ HIGH_RISK_PATTERNS = [
     ".devflow/project/**",
     "AGENTS.md",
     "README.md",
-    "PRODUCT_NORTH_STAR.md",
+    "docs/DEVFLOW_SOURCE_OF_TRUTH.md",
     "CHANGELOG.md",
     "LICENSE",
 ]

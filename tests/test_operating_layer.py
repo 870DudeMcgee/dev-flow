@@ -62,15 +62,15 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _write_local_patch_worker_evidence(root: Path, task_id: str) -> None:
-    agent_dir = root / ".devflow" / "tasks" / task_id / "agents" / "qwopus-implementer"
+    agent_dir = root / ".devflow" / "tasks" / task_id / "agents" / "ornith-builder"
     _write_json(
         agent_dir / "run.json",
         {
             "schema_version": 1,
             "task_id": task_id,
-            "agent_id": "qwopus-implementer",
+            "agent_id": "ornith-builder",
             "status": "complete",
-            "model": "qwopus:latest",
+            "model": "ornith-35b",
             "adapter": "ollama_chat",
             "proposal_patch_found": True,
         },
@@ -376,12 +376,12 @@ def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
     monkeypatch.chdir(tmp_path)
     home_dir = tmp_path.parent / f"{tmp_path.name}-home"
     monkeypatch.setenv("HOME", home_dir.as_posix())
-    hermes_profile = home_dir / ".hermes" / "profiles" / "hermes-qwen32-latest" / "config.yaml"
+    hermes_profile = home_dir / ".hermes" / "profiles" / "ornith-35b" / "config.yaml"
     hermes_profile.parent.mkdir(parents=True, exist_ok=True)
     hermes_profile.write_text(
         """model:
-  provider: qwen36-27b-q5-mtp
-  default: qwen36-27b-q5-mtp
+  provider: qwen-27b-q5-mtp
+  default: qwen-27b-q5-mtp
   base_url: http://127.0.0.1:8080/v1
 """,
         encoding="utf-8",
@@ -390,7 +390,7 @@ def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
     routing = {
         "routing_decision": {
             "selected": {
-                "agent_id": "qwen-worker",
+                "agent_id": "qwen-27b-q5-mtp",
                 "label": "Hermes Qwen Implementer",
                 "provider": "ollama",
                 "model": "qwen3.6-32b-256k:latest",
@@ -404,7 +404,7 @@ def test_operating_layer_snapshot_exposes_worker_packet_input_contract(
 
     payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
     options = payload["tasks"][0]["worker_options"]
-    worker = next(option for option in options if option["worker_id"] == "hermes-qwen32-latest")
+    worker = next(option for option in options if option["worker_id"] == "ornith-35b")
 
     assert worker["action_kind"] == "serial_packet"
     assert worker["recommended_allowed_files"] == [".devflow/workspaces/task-0001/implementation-context.md"]
@@ -649,7 +649,7 @@ def test_operating_layer_snapshot_projects_hermes_launch_evidence(
         allowed_files=["src/example.py"],
         verification_commands=["pytest tests/test_example.py -q"],
         runtime_kind="hermes-profile",
-        hermes_profile="qwen-worker",
+        hermes_profile="qwen-27b-q5-mtp",
         toolsets=["file", "terminal"],
     )
     (result.run_dir / "hermes-stdout.txt").write_text("done\n", encoding="utf-8")
@@ -661,7 +661,7 @@ def test_operating_layer_snapshot_projects_hermes_launch_evidence(
                 "will_launch_hermes": True,
                 "dry_run": False,
                 "run_id": "snapshot-hermes-launch",
-                "hermes_profile": "hermes-qwen32-latest",
+                "hermes_profile": "ornith-35b",
                 "runtime_kind": "hermes-profile",
                 "launch_status": "completed",
                 "exit_code": 0,
@@ -685,14 +685,14 @@ def test_operating_layer_snapshot_projects_hermes_launch_evidence(
     assert serial["run_state"] == "ready_for_verifier"
     assert serial["status_source"] == "hermes_run"
     assert serial["runtime_kind"] == "hermes-profile"
-    assert serial["hermes_profile"] == "hermes-qwen32-latest"
+    assert serial["hermes_profile"] == "ornith-35b"
     assert serial["launch_status"] == "completed"
     assert serial["exit_code"] == 0
     assert serial["browser_actions"] == []
     assert serial["next_safe_action"] == "Run completion-verifier.py from the packet directory."
     latest = serial["latest_run"]
     assert latest["runtime_kind"] == "hermes-profile"
-    assert latest["hermes_profile"] == "hermes-qwen32-latest"
+    assert latest["hermes_profile"] == "ornith-35b"
     assert latest["launch_status"] == "completed"
     assert latest["exit_code"] == 0
     assert ".devflow/local-agent-runs/snapshot-hermes-launch/hermes-run.json" in latest["evidence_paths"]
@@ -713,7 +713,7 @@ def test_operating_layer_snapshot_keeps_serial_preflight_and_runtime_lock_visibl
         provider="ollama",
         model="qwen3.6-32b-256k:latest",
         task_id="task-serial",
-        worker_id="qwen-worker",
+        worker_id="qwen-27b-q5-mtp",
         operation="serial-local-agent",
     ):
         create_serial_local_agent_run(
@@ -732,10 +732,10 @@ def test_operating_layer_snapshot_keeps_serial_preflight_and_runtime_lock_visibl
     assert latest["run_id"] == "snapshot-running-lock"
     assert latest["preflight"]["state"] == "running"
     assert latest["preflight"]["launch_packet_ready"] is False
-    assert latest["preflight"]["owner"]["worker_id"] == "qwen-worker"
+    assert latest["preflight"]["owner"]["worker_id"] == "qwen-27b-q5-mtp"
     runtime = payload["local_model_runtime"]["ollama/qwen3.6-32b-256k:latest"]
     assert runtime["state"] == "running"
-    assert runtime["worker_id"] == "qwen-worker"
+    assert runtime["worker_id"] == "qwen-27b-q5-mtp"
     assert serial["browser_actions"] == []
 
 
@@ -812,11 +812,11 @@ def test_operating_layer_snapshot_includes_local_worker_lane_summary(
     payload = build_operating_layer_snapshot(tmp_path).model_dump(mode="json")
     lane = payload["tasks"][0]["local_worker_lane"]
     assert lane["lane_type"] == "local-patch-worker"
-    assert lane["worker_id"] == "qwopus-implementer"
+    assert lane["worker_id"] == "ornith-builder"
     assert lane["readiness_status"] == "needs_review"
-    assert lane["next_safe_action"] == "devflow task review-patch task-0001 --agent qwopus-implementer"
+    assert lane["next_safe_action"] == "devflow task review-patch task-0001 --agent ornith-builder"
     review = {item["label"]: item["value"] for item in payload["tasks"][0]["detail"]["review_summary"]}
-    assert review["Local worker"] == "qwopus-implementer"
+    assert review["Local worker"] == "ornith-builder"
     assert review["Local worker readiness"] == "needs_review"
 
 
@@ -864,14 +864,14 @@ def test_operating_layer_snapshot_includes_compact_agent_evidence_summary(
     write_worker_evidence(
         root=tmp_path,
         worker_type="local_model",
-        profile_id="local-gemma4-qat",
-        worker_id="local-gemma4-qat",
+        profile_id="ornith-35b",
+        worker_id="ornith-35b",
         task_id="task-0001",
         run_id="run-1",
         packet_text="packet",
         raw_output="raw",
         response_text="response",
-        model="gemma4:12b-it-qat",
+        model="ornith-35b",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
@@ -1110,14 +1110,9 @@ def test_operating_layer_projects_spec_board_from_goal_slices(
     monkeypatch.chdir(tmp_path)
     goal_dir = tmp_path / ".devflow" / "goals" / "G-0001"
     goal_dir.mkdir(parents=True)
-    (tmp_path / "docs" / "architecture").mkdir(parents=True)
-    (tmp_path / "PRODUCT_NORTH_STAR.md").write_text("# Product North Star\n", encoding="utf-8")
-    (tmp_path / "docs" / "control-room-mvp.md").write_text("# Control Room MVP\n", encoding="utf-8")
-    (tmp_path / "docs" / "mvp-contract.md").write_text("# MVP Contract\n", encoding="utf-8")
-    (tmp_path / "docs" / "architecture" / "agent-registry-and-adapter-runtime.md").write_text(
-        "# Agent Registry\n",
-        encoding="utf-8",
-    )
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "docs" / "DEVFLOW_SOURCE_OF_TRUTH.md").write_text("# DevFlow Source of Truth\n", encoding="utf-8")
+    (tmp_path / "docs" / "README.md").write_text("# DevFlow Docs\n", encoding="utf-8")
     standards_dir = tmp_path / ".devflow" / "standards"
     standards_dir.mkdir(parents=True)
     (tmp_path / "docs" / "standards.md").write_text("# Python Control Room Standard\n", encoding="utf-8")
@@ -1135,8 +1130,8 @@ standards:
         """
 # Contracts
 
-- [MVP](../../../docs/mvp-contract.md)
-- [Registry](../../../docs/architecture/agent-registry-and-adapter-runtime.md)
+- [Source of Truth](../../../docs/DEVFLOW_SOURCE_OF_TRUTH.md)
+- [Docs Index](../../../docs/README.md)
 """.lstrip(),
         encoding="utf-8",
     )
@@ -1148,7 +1143,7 @@ standards:
     ensure_goal_lifecycle(tmp_path, "G-0001")
     (goal_dir / "context").mkdir()
     (goal_dir / "context" / "relevant-files.md").write_text(
-        "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n",
+        "# Relevant Files\n\n- docs/DEVFLOW_SOURCE_OF_TRUTH.md\n- docs/README.md\n",
         encoding="utf-8",
     )
     (goal_dir / "task-slices.yaml").write_text(
@@ -1176,10 +1171,9 @@ task_slices:
     assert snapshot.spec_board[0].slices[1].state == "blocked"
     references = snapshot.spec_board[0].references
     reference_paths = {reference.path for reference in references}
-    assert "PRODUCT_NORTH_STAR.md" in reference_paths
-    assert "docs/control-room-mvp.md" in reference_paths
+    assert "docs/DEVFLOW_SOURCE_OF_TRUTH.md" in reference_paths
+    assert "docs/README.md" in reference_paths
     assert "docs/standards.md" in reference_paths
-    assert "docs/mvp-contract.md" in reference_paths
     assert references[0].kind == "goal_reference"
     assert references[0].status == "available"
     assert any(
@@ -1328,7 +1322,7 @@ def test_operating_layer_agents_keeps_raw_local_profiles_out_of_model_pickers(
         [
             "agent",
             "add-provider",
-            "raw-qwen36-27b-q5-mtp-test",
+            "raw-qwen-27b-q5-mtp-test",
             "--adapter",
             "openai_compatible",
             "--base-url",
@@ -1343,7 +1337,7 @@ def test_operating_layer_agents_keeps_raw_local_profiles_out_of_model_pickers(
             {
                 "data": [
                     {
-                        "id": "qwen36-27b-q5-mtp",
+                        "id": "qwen-27b-q5-mtp",
                         "object": "model",
                         "owned_by": "llamacpp",
                         "meta": {"n_ctx": 65536, "n_params": 9_197_093_888},
@@ -1362,10 +1356,10 @@ def test_operating_layer_agents_keeps_raw_local_profiles_out_of_model_pickers(
         payload = json.loads(response.read().decode("utf-8"))
         assert response.status == HTTPStatus.OK
         assert all(agent["adapter"] == "hermes_profile" for agent in payload["agents"])
-        assert "raw-qwen36-27b-q5-mtp-test" not in {agent["id"] for agent in payload["agents"]}
+        assert "raw-qwen-27b-q5-mtp-test" not in {agent["id"] for agent in payload["agents"]}
         assert payload["local_model_inventory"]["schema_version"] == 1
         assert any(
-            row["row_id"] == "profile:hermes-qwen32-latest"
+            row["row_id"] == "profile:ornith-35b"
             for row in payload["local_model_inventory"]["rows"]
         )
     finally:
@@ -1394,7 +1388,7 @@ def test_operating_layer_agents_exposes_hermes_codex_gpt55_to_shared_model_picke
         assert codex["label"] == "Hermes Codex GPT 5.5"
         assert codex["provider"] == "openai-codex"
         assert codex["adapter"] == "hermes_profile"
-        assert codex["role"] == "frontier_planner_architect_reviewer"
+        assert codex["role"] == "codex_supervisor"
         assert codex["authority"] == "advisory"
         assert codex["is_local"] is False
         assert codex["availability"]["status"] in {"available", "setup_required"}
@@ -1402,8 +1396,8 @@ def test_operating_layer_agents_exposes_hermes_codex_gpt55_to_shared_model_picke
         assert codex["runtime_contract"]["task_run_allowed"] is False
         assert codex["runtime_contract"]["agent_run_allowed"] is False
         assert "hermes" in codex["runtime_contract"]["next_command"]
-        assert "openrouter" not in codex["runtime_contract"]["next_command"].lower()
-        assert "OPENROUTER_API_KEY" not in codex["runtime_contract"]["next_command"]
+        assert "local_gateway" not in codex["runtime_contract"]["next_command"].lower()
+        assert "LOCAL_GATEWAY_API_KEY" not in codex["runtime_contract"]["next_command"]
     finally:
         server.shutdown()
         server.server_close()

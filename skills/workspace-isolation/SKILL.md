@@ -51,7 +51,7 @@ BEFORE any file edit:
 - Never edit files assigned to another worker
 - Never edit protected paths unless explicitly authorized:
   - `AGENTS.md`
-  - `PRODUCT_NORTH_STAR.md`
+  - `docs/DEVFLOW_SOURCE_OF_TRUTH.md`
   - `README.md` (at project root)
   - Configuration files (`.gitignore`, `pyproject.toml`, etc.)
 - If you need something outside scope → report the need, don't touch the file

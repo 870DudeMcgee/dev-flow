@@ -1,6 +1,6 @@
 # Dynamic Worker Orchestration
 
-Status: reference design. This is not the active MVP runtime contract. The current product supports shell workers plus evidence-only routing commands; dynamic task decomposition, non-shell adapters, autonomous worker assignment, and provider-backed execution require later registry and adapter-runtime promotion.
+Status: reference design. This is not the active MVP runtime contract. The current product supports shell workers plus evidence-only routing commands; dynamic task decomposition, non-shell adapters, autonomous worker assignment, and non-local execution require later registry and adapter-runtime promotion.
 
 This document outlines the design for spawning, managing, and observing replaceable Worker Agents dynamically under the Dev-Flow control room. It maps out how high-level goals translate to isolated worker executions, how real-time feedback loops are recorded, and how human-in-the-loop questioning functions safely.
 

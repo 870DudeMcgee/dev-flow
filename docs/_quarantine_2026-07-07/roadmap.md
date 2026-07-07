@@ -4,7 +4,7 @@
 
 Dev-Flow is a local-first control room for parallel AI coding workers.
 
-Local checkout: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work.
+Local checkout: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs.
 
 The rebuild starts from a smaller foundation than the previous software-factory design:
 
@@ -23,12 +23,8 @@ Current completed hardening slices: [docs/architecture/git-native-worker-isolati
 
 Current follow-on boundary: model selection must stay registry-backed and model-agnostic. Dev-Flow may rank installed eligible agents for an explicit role and write Milestone 17 task-fit/context-routing evidence today, but autonomous best-model-for-any-task routing remains excluded until a later explicit autonomy policy promotes it.
 
-Current local-worker boundary: local workers are opt-in, and Qwen 3.6 27B Q5
-MTP is the normal single local worker lane when opted in. In Codex, use a
-visible `qwen36_27b_mtp_coder` subagent spawn; in Hermes, use `hermes-qwen-mtp`
-as the same-lane MCP packet wrapper. Older local patch workers and scout routes
-remain explicit evidence/diagnostic paths, not default routing. See
-[docs/local-worker-policy.md](local-worker-policy.md).
+Current Codex/local-worker session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
 Current selected milestone: Milestone 25 Stop The Task/Data Sprawl. Pause new worker/runtime features until task/data reset, baseline repair, scratch-root dogfood, clean prune previews, and clean-dashboard readiness are verified.
 
@@ -39,19 +35,6 @@ Operating Model Boundaries:
 - [docs/read-only-control-room-agent.md](read-only-control-room-agent.md) defines the main chat agent as read-only planner/spec/reviewer/coordinator.
 - [docs/devmode-devflow-boundary.md](devmode-devflow-boundary.md) defines the boundary between DevMode discipline and Dev-Flow orchestration.
 
-
-Legacy archive note: software-factory archive material is quarantined outside the active repository tree. The roadmap should not point future work at in-repo archive copies.
-
-## Phase 0: Documentation Reset
-
-Goal: stop the old workflow docs from steering future implementation.
-
-Done when:
-
-- legacy workflow docs are archived
-- README, roadmap, handoff, AGENTS, and Copilot instructions point at the new MVP
-- old active instruction hooks are removed or rewritten
-- files to keep, bypass, create, and first patch are documented
 
 ## Phase 1: Shell-Worker Contract
 
@@ -223,7 +206,7 @@ This milestone must not become a generic sandboxing detour, provider-adapter exp
 
 ## Dogfooding Requirement
 
-Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. The purpose is to exercise task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality while building Dev-Flow itself. This requirement does not authorize provider-backed adapters, autonomous routing, scheduling, databases, or old workflow machinery.
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. The purpose is to exercise task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality while building Dev-Flow itself. This requirement does not authorize non-local adapters, autonomous routing, scheduling, databases.
 
 ## Phase 5: Verification And Merge Readiness
 
@@ -273,7 +256,7 @@ Acceptance:
 
 Goal: make replaceable agents real by defining durable provider, agent, model capability, role, permission, adapter, workspace, evidence, task-fit, context, and routing contracts before enabling non-shell workers.
 
-Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. A legacy local Ollama advisory wrapper is implemented as `devflow task local` for Qwen/Qwopus/Gemma planning, scouting, and review evidence; it captures prompt, raw response, stderr, and run metadata under the task workspace without writing `proposal.patch` or applying model output. The registry-backed local patch runtime is active for explicit patch agents such as `qwopus-implementer` and, when installed and selected by evidence, `gemma4-12b-qat-implementer`: it writes bounded evidence and `proposal.patch`, while Dev-Flow applies, verifies, and gates promotion. Milestone 16 added centralized runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, explicit local Ollama discovery/selection evidence, and local patch ladder dogfood. Milestone 17 added evidence-only task-fit, scout, route, and scorecard commands that write derived artifacts and recommended next commands only. Autonomous routing and remote provider-backed execution are not active.
+Status: The stable proof-agent slice is implemented for `devflow-manual-codex-worker`: registry show, bounded packet, manual handoff, and task show/dashboard evidence visibility. Milestone 16 added centralized runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, explicit local model discovery/selection evidence, and local patch ladder dogfood. Milestone 17 added evidence-only task-fit, scout, route, and scorecard commands that write derived artifacts and recommended next commands only. Current model routing is local-first through Ornith/Qwen with Codex as supervisor.
 
 Sequence:
 - architecture document only
@@ -283,8 +266,6 @@ Sequence:
 - shell adapter alignment
 - deterministic task-fit and context-size estimation (implemented as derived evidence through `task fit`)
 - role-based context pack builder (implemented as derived evidence through `agent context-pack`)
-- local Ollama advisory evidence wrapper for Qwen/Qwopus/Gemma (implemented as `task local`, not the canonical patch adapter)
-- registry-backed Ollama patch adapter for explicit local patch workers such as `qwopus-implementer` and `gemma4-12b-qat-implementer`
 - local scout reports as derived evidence (implemented through `task scout`)
 - evidence-only routing decisions with candidate eligibility, rejections, unresolved roles, and recommended next commands (implemented through `task route`)
 - routing-quality scorecards and escalation signals (implemented through `task scorecard`)
@@ -296,18 +277,15 @@ Sequence:
 Acceptance:
 - no agent owns canonical task state
 - no provider secrets are stored in repo files
-- manual and local paths work before remote provider calls
+- manual and local paths work before non-local calls
 - routing records task-fit profile, context estimate, selected or unresolved roles, rejected agents, reasons, mode, packet path, and policy version
 - model selection uses capability profiles, installed-model evidence, useful context estimates, and explicit role policy instead of hard-coded agent names
 - planners, workers, reviewers, verifiers, summarizers, and scouts can receive role-specific context packs through explicit evidence commands
 - verification and promotion remain explicit Dev-Flow/human-controlled steps
-- future local resource controls may add Ollama keep-alive or model-stop behavior, but the first local wrapper does not manage model memory
 
 Related design contracts:
 - [docs/architecture/agent-registry-and-adapter-runtime.md](architecture/agent-registry-and-adapter-runtime.md)
 - [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md)
-- [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md)
-- [docs/adapter-contract.md](adapter-contract.md)
 - [docs/task-packet-contract.md](task-packet-contract.md)
 
 ## Milestone 8A: Patch Evidence Ladder Documentation Alignment
@@ -379,7 +357,7 @@ Boundary: creation requires matching prior `idea promote` evidence, writes bidir
 
 ## Milestone 14: Goal Execution Control Loop
 
-Status: implemented. Design and implementation planning history are preserved in [docs/superpowers/specs/2026-06-13-goal-execution-control-loop-design.md](superpowers/specs/2026-06-13-goal-execution-control-loop-design.md) and [docs/superpowers/plans/2026-06-13-goal-execution-control-loop.md](superpowers/plans/2026-06-13-goal-execution-control-loop.md).
+Status: implemented. Current goal lifecycle behavior is documented in [docs/architecture/goal-control-loop.md](architecture/goal-control-loop.md).
 
 Goal: make idea-created and manually created goals executable through explicit lifecycle state, freshness-loop recommendations, task-batch creation, shell worker batches, verification batches, review readiness, and human-controlled closure decisions.
 
@@ -407,13 +385,13 @@ Closure evidence:
 - `task create --project` refuses unborn managed Git projects until a project-local baseline commit exists, so promotion previews and copied workspaces have a real baseline.
 - GitHub Actions CI passed on `301869c86ad566b2728e1e9adaf4206fb08f863c` after the project-baseline review-readiness fixture was made CI-safe.
 
-Boundary: this slice should not add provider-backed workers, autonomous routing, old workflow machinery, databases, or PR automation. It should preserve project-local `.devflow/` authority and human-controlled publication.
+Boundary: this slice should not add non-local workers, autonomous routing, databases, or PR automation. It should preserve project-local `.devflow/` authority and human-controlled publication.
 
 ## Milestone 16: Agent Registry Runtime Hardening
 
-Status: implemented and dogfooded. Design, implementation plan, and repair-plan evidence live in [docs/superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md](superpowers/specs/2026-06-13-milestone-16-agent-registry-runtime-hardening-design.md), [docs/superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md](superpowers/plans/2026-06-13-milestone-16-agent-registry-runtime-hardening.md), and [docs/superpowers/plans/2026-06-14-gemma-native-patch-output-reliability.md](superpowers/plans/2026-06-14-gemma-native-patch-output-reliability.md).
+Status: implemented and dogfooded.
 
-Goal: make the existing agent registry and current executable worker paths behave like one permissioned runtime contract before any remote provider execution is promoted.
+Goal: make the existing agent registry and current executable worker paths behave like one permissioned runtime contract before any non-local execution is promoted.
 
 Implemented:
 
@@ -428,23 +406,23 @@ Boundary: this milestone must not enable OpenAI, Anthropic, Gemini, xAI, LM Stud
 
 ## Milestone 17: Task-Fit Context Routing Evidence
 
-Status: implemented. Design and implementation plan live in [docs/superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md](superpowers/specs/2026-06-14-milestone-17-task-fit-context-routing-design.md) and [docs/superpowers/plans/2026-06-14-milestone-17-task-fit-context-routing-evidence.md](superpowers/plans/2026-06-14-milestone-17-task-fit-context-routing-evidence.md).
+Status: implemented. Current routing and context behavior is documented in [docs/architecture/agent-selection-and-context-routing.md](architecture/agent-selection-and-context-routing.md).
 
 Goal: promote deterministic task-fit, context estimation, scout, routing, and routing-quality artifacts into an explicit evidence-only control-room slice.
 
-Boundary: this milestone must not add autonomous routing, automatic worker execution, remote provider API calls, silent model substitution, worker-owned verification/promotion, commits, pushes, pull requests, hidden memory, vector search, RAG, embeddings, or training. Routing decisions may recommend next commands, but humans or explicit dogfood lanes still invoke execution.
+Boundary: this milestone must not add autonomous routing, automatic worker execution, non-local API calls, silent model substitution, worker-owned verification/promotion, commits, pushes, pull requests, hidden memory, vector search, RAG, embeddings, or training. Routing decisions may recommend next commands, but humans or explicit dogfood lanes still invoke execution.
 
 ## Milestone 22: Question & Blocker Resume Loop
 
-Status: implemented in the active branch. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md](superpowers/specs/2026-06-15-milestone-22-question-blocker-resume-loop-design.md) and [docs/superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md](superpowers/plans/2026-06-15-milestone-22-question-blocker-resume-loop.md).
+Status: implemented in the active branch. Current behavior is captured in the source and tests for goal/task blocker handling.
 
 Goal: promote human-blocked worker questions into explicit list, show, answer, resolve, and resume-recommendation commands without auto-resuming work.
 
-Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion beyond the stable guarded list, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. Question answer and resolve commands write evidence only; existing task, freshness, scheduler, and trusted CLI commands remain responsible for any later work.
+Boundary: this milestone must not add non-local execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion beyond the stable guarded list, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. Question answer and resolve commands write evidence only; existing task, freshness, scheduler, and trusted CLI commands remain responsible for any later work.
 
 ## Milestone 23: Operating Layer State Reconciliation & Operator Readiness
 
-Status: implemented and dogfooded. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md](superpowers/specs/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness-design.md) and [docs/superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md](superpowers/plans/2026-06-15-milestone-23-operating-layer-state-reconciliation-operator-readiness.md). Historical handoff files were deleted as stale context in the repository cleanup ledger. Milestone task: `task-0137`.
+Status: implemented and dogfooded. Current behavior is captured in the operating-layer, scheduler, supervisor, and operator-readiness source/tests. Milestone task: `task-0137`.
 
 Goal: make `status`, `scheduler`, `dashboard`, `supervisor`, and `operating-layer` agree on count semantics, goal lifecycle blockers, stale directives, and next-safe-action priority while presenting project, goal, task, and worker names in plain descriptive language before internal ids.
 
@@ -456,15 +434,15 @@ Implemented:
 - replaced generated slice labels with goal/slice descriptions where evidence permits, while preserving task/goal/slice ids as secondary metadata
 - added deterministic production-readiness dogfood coverage for operator reconciliation
 
-Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion beyond the stable guarded list, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. It is a read-only projection and visibility hardening slice over existing Dev-Flow evidence.
+Boundary: this milestone must not add non-local execution, autonomous routing, automatic worker resume, background daemons, browser mutation expansion beyond the stable guarded list, auto-verification, auto-promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, or training. It is a read-only projection and visibility hardening slice over existing Dev-Flow evidence.
 
 ## Milestone 24: Intent-To-Goal/Task Scaffold
 
-Status: implemented and dogfooded on `main`. Design and implementation plan live in [docs/superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md](superpowers/specs/2026-06-15-milestone-24-intent-to-goal-task-scaffold-design.md) and [docs/superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md](superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md). Historical planning and closure handoff files were deleted as stale context in the repository cleanup ledger.
+Status: implemented and dogfooded on `main`. Current behavior is captured in the idea, goal, and intent-scaffold source/tests.
 
 Goal: make a raw operator request such as "build a search plugin" become a safe Dev-Flow scaffold proposal: raw idea evidence, normalized intent, proposed goal artifacts, proposed task slices, review warnings, and explicit approval commands.
 
-Boundary: this milestone must not add provider-backed execution, autonomous routing, automatic worker execution, automatic verification, automatic promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, training, or Telegram/Hermes as a second source of truth. Supervisor and Telegram surfaces may expose approval-gated pending actions only.
+Boundary: this milestone must not add non-local execution, autonomous routing, automatic worker execution, automatic verification, automatic promotion, commits, pushes, pull requests, databases, hidden memory, vector search, RAG, embeddings, training, or Telegram/Hermes as a second source of truth. Supervisor and Telegram surfaces may expose approval-gated pending actions only.
 
 ## Later, Not Now
 

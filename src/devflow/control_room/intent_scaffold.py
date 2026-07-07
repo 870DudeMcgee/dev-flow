@@ -206,9 +206,9 @@ def _proposed_goal(title: str, body: str, affected_areas: list[str]) -> dict[str
         ],
         "affected_areas": affected_areas,
         "context_pointers": [
-            "PRODUCT_NORTH_STAR.md",
-            "docs/control-room-mvp.md",
-            "docs/architecture/agent-registry-and-adapter-runtime.md",
+            "docs/DEVFLOW_SOURCE_OF_TRUTH.md",
+            "docs/README.md",
+            "docs/local-worker-policy.md",
         ],
     }
 
@@ -228,8 +228,8 @@ def _task_slices(title: str, affected_areas: list[str]) -> list[dict[str, Any]]:
             "risk": "medium",
             "shared_files": shared_files,
             "context_pointers": [
-                "docs/control-room-mvp.md",
-                "docs/superpowers/plans/2026-06-15-milestone-24-intent-to-goal-task-scaffold.md",
+                "docs/DEVFLOW_SOURCE_OF_TRUTH.md",
+                "docs/README.md",
             ],
             "verification_policy": {
                 "commands": ["PYTHONPATH=src:. .venv/bin/python -m pytest tests/test_intent_scaffold.py -q"],

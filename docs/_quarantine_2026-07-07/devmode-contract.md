@@ -4,7 +4,7 @@
 
 The DevMode Contract is a lightweight discipline layer for focused, token-efficient, workspace-safe software engineering. It should help agents make small correct changes with fresh verification, not make ordinary fixes feel like a process ceremony.
 
-For routine Dev-Flow UI/product work, apply DevMode by reading the current instruction surface, searching before broad reads, editing the relevant slice, and running appropriately scoped verification. Do not load historical handoffs, milestone plans, or future architecture unless the task specifically calls for them.
+For routine Dev-Flow UI/product work, apply DevMode by reading the current instruction surface, searching before broad reads, editing the relevant slice, and running appropriately scoped verification. Do not load inactive handoffs, milestone plans, or future architecture unless the task specifically calls for them.
 
 ---
 

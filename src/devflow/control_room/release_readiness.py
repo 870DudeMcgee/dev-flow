@@ -21,7 +21,7 @@ VISUAL_QA_COMMAND = (
 STALE_CONTEXT_COMMAND = (
     "rg -n \"(must use /Users/jewelbait/Desktop/DevFlow|old checkout path is current|"
     "legacy workflow authority|autonomous routing is active)\" "
-    "AGENTS.md PRODUCT_NORTH_STAR.md README.md docs src/devflow/control_room tests "
+    "AGENTS.md README.md docs src/devflow/control_room tests "
     "--glob '!src/devflow/control_room/release_readiness.py'"
 )
 

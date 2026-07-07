@@ -67,6 +67,6 @@ For registered project folders, `devflow freshness loop --all-projects` runs the
 
 ## Hermes And Local Models
 
-Hermes can be an external operator or chat gateway over supervisor-safe Dev-Flow commands. A local model such as Qwopus can contribute bounded evidence, patch proposals, review notes, or goal-satisfaction judgments through the agent registry. Dev-Flow still owns the state machine, locks, verification, checkpoint decisions, merge readiness, and human-controlled publication.
+Hermes can be an external operator or chat gateway over supervisor-safe Dev-Flow commands. Local models can contribute bounded evidence, patch proposals, review notes, or goal-satisfaction judgments through approved evidence paths. Dev-Flow still owns the state machine, locks, verification, checkpoint decisions, merge readiness, and human-controlled publication.
 
 Future Hermes or local-model goal integration must follow the existing adapter sequence. It must not bypass Dev-Flow task isolation, write directly to main, auto-promote, auto-push, or turn local advisory model output into canonical state without validation.

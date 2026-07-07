@@ -12,7 +12,9 @@ def test_public_package_metadata_uses_devflow_readme() -> None:
 
     assert pyproject["project"]["name"] == "devflow"
     assert pyproject["project"]["readme"] == "README.md"
-    assert (ROOT / "README.md").read_text(encoding="utf-8").startswith("# Dev-Flow\n")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert readme.startswith("# DevFlow\n")
+    assert "docs/DEVFLOW_SOURCE_OF_TRUTH.md" in readme
 
 
 def test_release_artifacts_describe_versioning_and_state_compatibility() -> None:

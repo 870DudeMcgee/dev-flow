@@ -1,8 +1,13 @@
 # DevMode Handoff Template
 
-Use this template to coordinate between agent sessions, shifts, or workers. Keep handoffs short enough to paste into a new chat without dragging the entire previous conversation forward.
+Use this template only when the human explicitly asks for a handoff or when an
+existing workflow command requires one. Do not create handoff docs by default;
+update existing authority docs or report continuation state in the final
+response instead.
 
-Use a handoff at every major feature, milestone, or product-direction change after active docs are aligned, verification has run, and the tree has been committed/merged/pushed as requested.
+For major feature, milestone, or product-direction changes, align active docs
+and verification first. Create a handoff only when requested; otherwise keep
+the continuation notes in the final response and existing task/state artifacts.
 
 The handoff should be useful to the human first and resumable by the next agent second. Do not hide the real outcome behind only a safety gate. Separate:
 
@@ -13,6 +18,10 @@ The handoff should be useful to the human first and resumable by the next agent 
 - the single safest action if another agent resumes cold
 
 WARNING: stale context is harmful when it presents itself as current authority. Handoffs must call out remaining risks, but they must not preserve obsolete plans or conflicting product direction as casual background. Future architecture can be linked when relevant, but it should be labeled as roadmap/reference rather than active runtime behavior.
+
+Handoffs provide task-specific details only. They must not override
+orientation-first workflow, duplicate fleet routing, or tell agents to bypass
+Context Map, Agent Proxy, scout packets, local worker routing, or verification.
 
 ## Status
 

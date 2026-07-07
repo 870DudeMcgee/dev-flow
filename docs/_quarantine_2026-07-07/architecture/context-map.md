@@ -1,7 +1,7 @@
 # Context Map
 
 Status: future architecture idea. This document does not enable autonomous
-routing, provider-backed worker execution, hidden memory, automatic patching,
+routing, non-local worker execution, hidden memory, automatic patching,
 verification, promotion, merge, or push.
 
 ## Purpose
@@ -52,7 +52,7 @@ write durable vault notes.
 When sources conflict, Context Map must rank evidence in this order:
 
 1. Live source and tests win.
-2. Active repo docs win over historical docs.
+2. Active repo docs win over inactive docs.
 3. `CODE_MAP.md` is trusted for orientation, but not behavior.
 4. Fresh Graphify is trusted for graph evidence, not product truth.
 5. Stale Graphify can only be returned with a warning.

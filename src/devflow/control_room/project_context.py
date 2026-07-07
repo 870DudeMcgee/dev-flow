@@ -75,10 +75,10 @@ def build_project_context_packet(repo_root: Path, max_chars: int = 50000) -> str
     # 2. Add canonical files in order
     canonical_files = [
         "README.md",
-        "PRODUCT_NORTH_STAR.md",
-        "docs/control-room-mvp.md",
-        "docs/mvp-contract.md",
-        "docs/architecture/agent-registry-and-adapter-runtime.md",
+        "docs/DEVFLOW_SOURCE_OF_TRUTH.md",
+        "docs/README.md",
+        "docs/local-worker-policy.md",
+        "docs/verification-ledger.md",
         ".devflow/agents/registry.yaml",
         ".devflow/providers/ollama.yaml",
     ]

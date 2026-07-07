@@ -1,29 +1,37 @@
 # Dev-Flow Agent Guide
 
+Global Codex session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`. Read that file first.
+This repo guide adds DevFlow-specific product, verification, and safety details;
+it does not replace the global session contract.
+
 Dev-Flow is a local-first control room for AI coding workers. It should automate as much routine work as it safely can while keeping task state, worker identity, evidence, verification, and promotion visible to the human operator.
 
 Dev-Flow's operator-centered mission is documented in [docs/operator-centered-mission.md](docs/operator-centered-mission.md). Read it when shaping product direction, UI flows, idea intake, worker orchestration, or any feature that affects cognitive load. The short version: Dev-Flow exists to help a highly creative, neurodivergent operator convert a flood of ideas into visible, prioritized, verified work. Preserve unlimited capture, constrain active execution, show state visually, provide the next action, and never claim completion without evidence.
 
-Local checkout note: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old local path `/Users/jewelbait/Desktop/DevFlow` is quarantined and must not be used for current work.
+Local checkout note: use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs.
 
-This file is the first-read instruction surface for agents. Use it to start useful work quickly. Do not turn every task into a repository archaeology pass.
+Use this file after the global session contract to start useful DevFlow work
+quickly without spending frontier context on repository archaeology.
 
-## Fleet Routing (read this first)
+## Session Contract
 
-The active DevFlow fleet has two models. Ornith 35B scouts/builds; Qwen 27B judges. The model-router handles swaps.
+Follow `/Users/jewelbait/.codex/session-operating-contract.md` for session
+start, orientation, Agent Proxy use, local fleet routing, and session closeout.
 
-| Port | Model | Role | Key property |
-|---|---|---|---|
-| 8084 | Ornith 35B (MoE, Q4) | Builder/coder/scout | 3B active, reasoning mode, self-scaffolding RL, 75.6 SWE-Bench, 64.2 Terminal-Bench. Runs `-np 3` (3 parallel slots). |
-| 8083 | Qwen 27B (Q5, MTP) | Judge | Dense model, thinking mode, genuine second opinion. Different model family from Ornith. |
+DevFlow's closeout command is:
 
-**Swap rule:** Ornith 35B and Qwen 27B cannot run at the same time. Ornith can run up to 3 parallel scout/builder jobs inside the single `-np 3` process. Swap to Qwen only for judge/review phases.
+```bash
+scripts/session-freshness-closeout.sh /Users/jewelbait/Desktop/Local\ AI\ Dev\ Team
+```
 
-**Retired from active DevFlow use:** Ornith 9B, Qwopus 35B, and Qwen3-Coder-Next may exist in local config or process state, but they are not active scout, builder, judge, UI, fallback, or emergency lanes for DevFlow work.
+## DevFlow Fleet Routing
 
-**Fleet status is informational, not gating.** `model-router status` shows what's resident; the router starts/stops/swaps as needed. Don't block on "down" status — request the lane and let the router handle it.
-
-Required fleet reading: [docs/fleet-debrief.md](docs/fleet-debrief.md). Machine-readable contract: [.devflow/fleet-contract.json](.devflow/fleet-contract.json). Full routing rules: [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md).
+Use `/Users/jewelbait/.codex/session-operating-contract.md` for active local
+fleet routing, lane roles, ports, swap behavior, Agent Proxy use, and closeout.
+The repo files [docs/fleet-debrief.md](docs/fleet-debrief.md) and
+[.devflow/fleet-contract.json](.devflow/fleet-contract.json) are supporting
+evidence only.
 
 ### What tool to use for code work
 
@@ -37,22 +45,25 @@ Required fleet reading: [docs/fleet-debrief.md](docs/fleet-debrief.md). Machine-
 
 Scripts live in `~/.hermes/skills/software-development/local-fleet-efficiency/scripts/`.
 
-## Default Workflow: Scout, Compress, Route, Verify
+## Default Workflow
 
-For all Dev-Flow codebase work beyond a tiny one-file answer:
-
-1. **Scout first.** The scout owns mapping, source search, file reads, compression, and freshness checks. The frontier reads the user prompt, named handoff/plan, relevant skill, and compact scout packet — not broad raw source context. See [docs/agent-operating-contract.md](docs/agent-operating-contract.md).
-   **Scout is the context firewall.** `devflow agent loop --task <id> --handoff <path> --skill local-fleet-efficiency --json` chains preflight + scout in one command and returns a unified packet with `files_to_touch`, `tests`, `risks`, `recommended_lane`, `verification`, and `context_brief` (symbols, imports, module structure from Context Map). The frontier reads the loop packet, not raw source files. If the packet has `recommended_lane=ask_user` or empty `files_to_touch`, the frontier must not edit — it must provide scope (handoff, task record, or explicit `--file-to-touch`). After implementation, run `devflow agent verify --task <id> --json` to produce a verification receipt.
-2. **Compress large files** before reading them. Use `compress_tool_output.py`, `extract_methods.py`, or `codebase_survey.py`; do not paste large raw files or logs into frontier context.
-3. **Check fleet state**: `~/.hermes/scripts/model-router status` and `devflow local-ai snapshot --json`.
-4. **Route deliberately.** Ornith 35B (:8084) is the builder/scout with up to 3 parallel slots; Qwen 27B (:8083) is the judge. Ornith and Qwen cannot run simultaneously; the router swaps between them.
-5. **Verify through compact evidence**: `local_test_runner.py` for test/lint summaries, `devflow architecture audit --json` when Graphify freshness matters, and `fleet_efficiency_report.py` only with real session/response evidence.
-
-This workflow does not make local workers automatic. Local worker starts remain opt-in and must obey the local worker policy below. Mapping, compression, fleet telemetry, and compact test wrappers are the default efficiency path.
+Follow `/Users/jewelbait/.codex/session-operating-contract.md` for the default
+Codex workflow. DevFlow-specific loop commands may return task packets with
+`files_to_touch`, `tests`, `risks`, `recommended_lane`, `verification`, and
+`context_brief`; the frontier reads those compact packets instead of broad raw
+source.
 
 ## Handoff Format Standard
 
-Every handoff doc (`docs/handoff-*.md`) must follow this shape. Do not add workflow instructions, tool routing, or fleet config — those live here in AGENTS.md. The handoff provides only task-specific details.
+Do not create handoff docs by default. Follow the documentation discipline in
+`/Users/jewelbait/.codex/session-operating-contract.md`: update existing
+authority files first, use task/state artifacts or the final response for
+routine continuation notes, and create a new handoff only when the human
+explicitly asks for one.
+
+When a handoff is explicitly requested, it must follow this shape. Do not add
+workflow instructions, tool routing, or fleet config. The handoff provides only
+task-specific details.
 
 ```markdown
 # DevFlow Refactor — Handoff (Slice X)
@@ -77,7 +88,8 @@ Every handoff doc (`docs/handoff-*.md`) must follow this shape. Do not add workf
 - Do not push without approval
 ```
 
-**Never write "just write the code directly" or "no workflow needed" in a handoff.** The workflow always applies. If a task is genuinely tiny (one file, one edit, one command), AGENTS.md already allows direct supervisor work — but the handoff doesn't need to say that.
+Handoffs must not override the workflow. The orientation rule always applies.
+If a task is genuinely tiny, do not create a handoff unless the human asks.
 
 ## Current Product
 
@@ -136,31 +148,12 @@ Hyperplane is quarantined as experimental evidence infrastructure. Do not use it
 
 ## Local Worker Policy
 
-Local workers are opt-in, not a standing requirement for every non-trivial task.
-Use them when the operator explicitly asks for local-worker help, when an active
-task selects a local worker, or when a documented diagnostic/verification step
-requires one.
+Local worker policy is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
-When local-worker use is opted in, the fleet is:
-
-- **Ornith 35B (:8084)** — builder/coder/scout for code generation, extraction, debugging, AST scans
-- **Qwen 27B (:8083)** — judge for code review, validation, final approval (thinking mode)
-
-Ornith can run up to 3 parallel scout/builder jobs in its single `-np 3`
-process. Ornith and Qwen cannot run simultaneously. The model-router handles starts/stops/swaps
-automatically. See [docs/fleet-routing-brief.md](docs/fleet-routing-brief.md)
-for full routing rules and constraints.
-
-In Codex sessions, the supported local-worker workflow is the visible subagent
-lane: call `multi_agent_v1.spawn_agent` with `agent_type="ornith_35b_coder"` for builder/scout work or `agent_type="qwen36_27b_mtp_coder"` for judge/review work.
-The spawned subagent output surfaced back into the parent Codex session is the
-proof that the lane is loaded and usable. Do not treat direct HTTP probes,
-Hermes MCP tests, or `/v1/models` checks as equivalent Codex subagent proof.
-
-For Hermes sessions or compact MCP worker packets, use `hermes-qwen-mtp` as the
-wrapper around the same Qwen lane: call `qwen_ready(smoke=true)` before
-`qwen_run`. That MCP path mirrors the Codex worker packet contract; it is not a
-competing default over the visible Codex subagent workflow.
+In Codex sessions, gather evidence with Context Map, Agent Proxy, Graphify, and
+deterministic scripts; then route bounded build or judge packets through the
+active Ornith/Qwen workflow.
 
 Passive MCP fleet telemetry should stay disabled unless the current session
 needs that operator surface. Active smoke completions are decision-point proof,
@@ -178,27 +171,27 @@ tests/
 docs/
 ```
 
-Top-level `src/devflow/*.py` files should stay limited to package/CLI entrypoints and explicit bridges into `src/devflow/control_room/`. The legacy `_legacy/` runtime and pure top-level legacy shims have been removed; do not recreate them.
+Top-level `src/devflow/*.py` files should stay limited to package/CLI entrypoints and explicit bridges into `src/devflow/control_room/`.
 
 ## Working Rules
 
 For ordinary fixes:
 
-1. Read this file.
-2. Inspect the smallest relevant implementation or doc files.
-3. Make the focused change.
-4. Run verification scaled to the risk.
-5. Report what changed, what passed, and what remains risky.
+1. Run the mandatory orientation step.
+2. Read this file and any named handoff/skill.
+3. Route mapping, compression, implementation, and judging through the approved local tools/workers.
+4. Make direct edits only for plans, authority docs, or tiny activation glue unless a fallback is recorded.
+5. Run verification scaled to the risk.
+6. Report what changed, what passed, and what remains risky.
 
 Only expand into broader docs when the task actually needs them:
 
-- Product direction: [PRODUCT_NORTH_STAR.md](PRODUCT_NORTH_STAR.md)
-- Current control-room contract: [docs/control-room-mvp.md](docs/control-room-mvp.md)
-- Architecture cleanup baseline: [docs/architecture/graphify-architecture-baseline.md](docs/architecture/graphify-architecture-baseline.md)
+- Active source of truth: [docs/DEVFLOW_SOURCE_OF_TRUTH.md](docs/DEVFLOW_SOURCE_OF_TRUTH.md)
+- Active docs index: [docs/README.md](docs/README.md)
 - Verification reuse: [docs/verification-ledger.md](docs/verification-ledger.md)
-- DevMode discipline reference: [docs/devmode-contract.md](docs/devmode-contract.md)
+- Historical recovery only: [docs/_quarantine_2026-07-07/](docs/_quarantine_2026-07-07/)
 
-Historical handoffs, milestone plans, archived specs, and old workflow notes are reference material. Do not treat them as process authority unless the user explicitly asks for that history.
+Do not load quarantined architecture, roadmap, cockpit, orchestration, local-worker, model-routing, or software-factory docs as active context unless the user explicitly asks for historical recovery.
 
 For major architecture cleanup, use Graphify as generated evidence. Start from `graphify-out/GRAPH_REPORT.md` and `graphify-out/Dev-Flow-callflow.html`, record metrics in a lightweight doc or handoff, and rerun Graphify after the cleanup milestone. Do not treat generated Graphify output as product authority or blindly commit the full `graphify-out/` directory.
 
@@ -232,12 +225,6 @@ Do not run raw `git push origin main`, raw promotion merges, or conflict-resolut
 - Full pytest and dogfood are release/broad-change gates, not the default for every small fix.
 
 Use [docs/verification-ledger.md](docs/verification-ledger.md) before rerunning expensive verification.
-
-## Stale Context Policy
-
-Stale context is harmful when it claims to be current authority. Clean it up by rewriting, relocating, or marking it historical.
-
-Do not delete future architecture just because it is not active yet. Preserve useful future ideas as roadmap/reference material, but keep them clearly separated from the current product contract.
 
 ## Communication
 

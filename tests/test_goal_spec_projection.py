@@ -96,14 +96,9 @@ def test_build_goal_board_with_lifecycle_projection_failure_appends_warning_and_
 def test_build_spec_board_projects_slices_and_references(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     goal_dir = _create_goal(tmp_path)
-    (tmp_path / "docs" / "architecture").mkdir(parents=True)
-    (tmp_path / "PRODUCT_NORTH_STAR.md").write_text("# Product North Star\n", encoding="utf-8")
-    (tmp_path / "docs" / "control-room-mvp.md").write_text("# Control Room MVP\n", encoding="utf-8")
-    (tmp_path / "docs" / "mvp-contract.md").write_text("# MVP Contract\n", encoding="utf-8")
-    (tmp_path / "docs" / "architecture" / "agent-registry-and-adapter-runtime.md").write_text(
-        "# Agent Registry\n",
-        encoding="utf-8",
-    )
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "docs" / "DEVFLOW_SOURCE_OF_TRUTH.md").write_text("# DevFlow Source of Truth\n", encoding="utf-8")
+    (tmp_path / "docs" / "README.md").write_text("# DevFlow Docs\n", encoding="utf-8")
     standards_dir = tmp_path / ".devflow" / "standards"
     standards_dir.mkdir(parents=True)
     (tmp_path / "docs" / "standards.md").write_text("# Python Control Room Standard\n", encoding="utf-8")
@@ -121,14 +116,14 @@ standards:
         """
 # Contracts
 
-- [MVP](../../../docs/mvp-contract.md)
-- [Registry](../../../docs/architecture/agent-registry-and-adapter-runtime.md)
+- [Source of Truth](../../../docs/DEVFLOW_SOURCE_OF_TRUTH.md)
+- [Docs Index](../../../docs/README.md)
 """.lstrip(),
         encoding="utf-8",
     )
     (goal_dir / "context").mkdir(exist_ok=True)
     (goal_dir / "context" / "relevant-files.md").write_text(
-        "# Relevant Files\n\n- PRODUCT_NORTH_STAR.md\n- docs/control-room-mvp.md\n",
+        "# Relevant Files\n\n- docs/DEVFLOW_SOURCE_OF_TRUTH.md\n- docs/README.md\n",
         encoding="utf-8",
     )
     (goal_dir / "task-slices.yaml").write_text(
@@ -157,10 +152,9 @@ task_slices:
     assert board[0].slices[0].state == "parallel_candidate"
     assert board[0].slices[1].state == "blocked"
     reference_paths = {reference.path for reference in board[0].references}
-    assert "PRODUCT_NORTH_STAR.md" in reference_paths
-    assert "docs/control-room-mvp.md" in reference_paths
+    assert "docs/DEVFLOW_SOURCE_OF_TRUTH.md" in reference_paths
+    assert "docs/README.md" in reference_paths
     assert "docs/standards.md" in reference_paths
-    assert "docs/mvp-contract.md" in reference_paths
     assert board[0].references[0].kind == "goal_reference"
     assert any(reference.title == "Python Control Room Standard" for reference in board[0].references)
 

@@ -291,10 +291,10 @@ def _task_summaries(start: Path, limit: int = 5) -> list[str]:
 
 def _canonical_docs(repo: Path) -> list[str]:
     candidates = [
-        "PRODUCT_NORTH_STAR.md",
-        "docs/control-room-mvp.md",
-        "docs/mvp-contract.md",
-        "docs/architecture/agent-registry-and-adapter-runtime.md",
+        "docs/DEVFLOW_SOURCE_OF_TRUTH.md",
+        "docs/README.md",
+        "docs/local-worker-policy.md",
+        "docs/verification-ledger.md",
     ]
     return [path for path in candidates if (repo / path).exists()]
 
@@ -305,7 +305,7 @@ def _mode_instruction(mode: ContextMode) -> str:
     if mode == "debug-focused":
         return "Debug mode: start with failing output, changed files, and directly relevant tests."
     if mode == "planning":
-        return "Planning mode: ground the plan in current MVP docs and existing task state before exploring neighboring architecture."
+        return "Planning mode: ground the plan in the active DevFlow source of truth and existing task state before exploring neighboring architecture."
     if mode == "docs":
         return "Docs mode: read the target docs and adjacent source only when needed to verify accuracy."
     return "Balanced mode: read changed files and direct dependencies first, then stop when the patch is clear."

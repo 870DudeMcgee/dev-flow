@@ -1,6 +1,6 @@
 # Local Fleet Debrief — Comprehensive Intention Brief
 
-This document explains the full intent, design, and operating procedures for the local model fleet used in DevFlow work. It is required reading for any agent (Hermes, Codex, or other) before starting work that involves codebase operations, local models, or the DevFlow refactor pipeline.
+This document explains the intent, design, and operating procedures for the local model fleet used in DevFlow work. It is supporting evidence only. The active authority for current session behavior, model residency, lifecycle commands, and closeout is `/Users/jewelbait/.codex/session-operating-contract.md`.
 
 ## 1. Purpose and Philosophy
 
@@ -48,14 +48,14 @@ Some work is mechanical enough that an LLM is the wrong tool. Moving functions b
 - Context window: 131K (configurable up to 262K)
 - Parallel slots: 3 (`-np 3` flag in llama-server)
 - Reasoning mode: YES (generates `` blocks before final answer)
-- Tool calling: YES (qwen3_xml parser, OpenAI-compatible)
+- Tool calling: YES (OpenAI-compatible)
 
 **Benchmark performance:**
-- SWE-Bench Verified: 75.6 (beats Qwen3.5-35B at 70.0, Qwen3.6-35B at 73.4)
-- SWE-Bench Pro: 50.4 (beats Qwen3.5-35B at 44.6)
-- SWE-Bench Multilingual: 69.3 (matches Qwen3.5-397B)
-- Terminal-Bench 2.1 (Terminus-2): 64.2 (beats Qwen3.5-397B's 53.5)
-- NL2Repo: 34.6 (beats Qwen3.5-35B's 20.5 by 68%)
+- SWE-Bench Verified: 75.6
+- SWE-Bench Pro: 50.4
+- SWE-Bench Multilingual: 69.3
+- Terminal-Bench 2.1 (Terminus-2): 64.2
+- NL2Repo: 34.6
 - ClawEval Avg: 69.8
 
 **Why it was chosen as the primary builder:**
@@ -71,15 +71,15 @@ It outperforms every comparable-size open model on agentic coding benchmarks. Th
 - Any LLM-dependent work where reasoning helps
 
 **How to call it:**
-The model-router starts it on demand. Fleet scripts (compress, survey, extract) default to port 8084. For builder-judge loops, `builder-judge-loop.sh` targets port 8084 by default. For subagent delegation, use `delegate_task` — children inherit the parent's provider chain which includes the local model config.
+Ornith is the default resident heavy lane when active local-worker work is expected. Use the explicit model-router boundary: `~/.hermes/scripts/model-router start local-ornith-35b`. Fleet scripts (compress, survey, extract) target port 8084. For builder-judge loops, `builder-judge-loop.sh` targets port 8084 for build/scout phases. For subagent delegation, use `delegate_task` only after the lane is known resident or explicitly started; children inherit the configured delegation lane.
 
 **Reasoning mode notes:**
 Ornith generates a `` block before its final answer. Fleet scripts that need clean output use a `## ANSWER:` marker prompt — the model is instructed to write its final answer after the marker, and the script extracts text after the marker from either `content` or `reasoning_content`. For verbatim code extraction, prefer `extract_methods.py` which produces more reliable output. The reasoning content can burn all `max_tokens` — always set `max_tokens=2048+` for this model.
 
-### Qwen 27B — Judge (port 8083)
+### Qwen 27B Q5 MTP — Judge (port 8083)
 
 **What it is:**
-- Model: Qwen 3.6-27B
+- Model: Qwen 27B Q5 MTP
 - Architecture: 27B dense (not MoE)
 - Quantization: Q5_K_M
 - Context window: 131K
@@ -97,7 +97,7 @@ It's a **dense** model — not MoE. Every token activates all 27B parameters, gi
 - Architecture and design judgment (different perspective from the builder)
 
 **How to call it:**
-The model-router swaps to Qwen 27B when the builder-judge loop reaches the judge phase. `builder-judge-loop.sh` handles this automatically — it sends the builder output to Qwen 27B for review. The swap takes a few seconds (stop Ornith, start Qwen, send the prompt). Don't try to run both simultaneously — they're both heavy-group models.
+Qwen is a temporary judge/review lane, not the default resident worker. Use the explicit model-router boundary: `~/.hermes/scripts/model-router start local-llama-mtp`. After the judge/review phase, explicitly swap back to `local-ornith-35b` when more local-worker work is expected, or stop `heavy` when no local model work remains. Don't try to run Qwen and Ornith simultaneously — they're both heavy-group models.
 
 ### The swap rule
 
@@ -112,7 +112,7 @@ This does NOT mean one job at a time. Ornith 35B runs with `-np 3` (3 parallel s
 - Declare a "lane outage" because a process isn't running
 - Stop and ask the user to start a model manually
 
-Just request the lane (run a script, start the model via `model-router start`) and let the router handle it. Only treat a lane as blocked if the router cannot start the model or a healthcheck fails after start.
+Just request the lane with the provider-key command (`model-router start local-ornith-35b` or `model-router start local-llama-mtp`) and let the router handle stop-before-start. Keep `local_runners.auto_start: false` for the Desktop/supervisor workflow; do not hide heavy model start/stop inside a normal Hermes chat-completion request. Only treat a lane as blocked if the router cannot start the model or a healthcheck fails after start.
 
 ## 3. Scout Work
 
@@ -197,7 +197,12 @@ All scripts live in `~/.hermes/skills/software-development/local-fleet-efficienc
 
 ## 5. The Workflow (always follow this)
 
-### Step 1: Scout first
+### Step 1: Follow the session contract
+
+Current session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
+
+### Step 2: Scout before edits
 
 Scout first. The scout owns mapping, source search, file reads, compression, and freshness checks. The frontier reads compact scout evidence, not broad raw source context.
 
@@ -205,7 +210,7 @@ The scout should use `mcp_context_map_orient` on the target file, symbol, or tas
 
 Never skip scout orientation. Even for "simple" tasks, scout evidence tells you what else touches the files you're about to change without bloating frontier context.
 
-### Step 2: Compress
+### Step 3: Compress
 
 Never read files > 50 lines directly in frontier context. Use:
 - `compress_tool_output.py` — LLM summarizes the file (defaults to Ornith 35B)
@@ -214,7 +219,7 @@ Never read files > 50 lines directly in frontier context. Use:
 
 The supervisor reads JSON verdicts from these tools, not raw source.
 
-### Step 3: Check fleet
+### Step 4: Check fleet
 
 `~/.hermes/scripts/model-router status` — informational only. Shows what's running. Don't block on "down" status. If a script needs a model, the model-router starts it.
 
@@ -240,32 +245,22 @@ python3 ~/.hermes/skills/software-development/local-fleet-efficiency/scripts/loc
 
 Never run raw `pytest` or `ruff` directly. The wrapper returns compact JSON with pass/fail counts, top failures, and verdict. If tests fail, read the JSON — don't read raw pytest output.
 
-## 6. Handoff Format Standard
+## 6. Documentation Discipline
 
-Every handoff doc (`docs/handoff-*.md`) provides **task-specific details only**. It never overrides the workflow, never duplicates fleet config, and never says "skip the workflow."
-
-Required handoff shape:
-- State (commit hash, test count, fleet pointer)
-- Task (2-3 sentences)
-- Target files (list)
-- Commands (exact commands — map, compress, route, verify)
-- Constraints (follow AGENTS.md, use local_test_runner.py, don't push)
-
-If a handoff says "just write code directly" or "no workflow needed" — **ignore that and follow the workflow.** The workflow always applies.
+Follow `/Users/jewelbait/.codex/session-operating-contract.md` for
+documentation discipline. Do not create new handoff, plan, spec, or checklist
+files by default. Update existing authority surfaces first, and create a new
+handoff only when the human explicitly asks for one.
 
 ## 7. Failure Modes to Avoid
-
-### Replacing models without research
-
-An agent once saw Qwen3-Coder-Next (80B total) and assumed bigger = better. It replaced Ornith 35B without researching either model. Research showed Ornith 35B beats it on every agentic coding benchmark (SWE-Bench 75.6 vs 70.6, Terminal-Bench 64.2 vs 34.2). Always research a model (HuggingFace page, arXiv report, benchmarks) before suggesting fleet changes.
 
 ### Treating "down" status as a lane outage
 
 An agent saw Qwen 27B showing "down" in model-router status and stopped work, reporting a "lane outage." "Down" means the process isn't resident — the router starts it when needed. Don't block on fleet status. Request the lane and let the router handle it.
 
-### Skipping the workflow because the task seems simple
+### Skipping orientation because the task seems simple
 
-A handoff said "this is simple, just write the code directly." The agent skipped mapping, compression, fleet check, and verification. It wrote code that worked but ignored the entire workflow — no evidence, no efficiency receipt, no orientation. The workflow always applies. If a task is genuinely tiny (one file, one edit, one command), AGENTS.md allows direct supervisor work — but the handoff doesn't need to say that.
+An agent skipped orientation, mapping, compression, fleet check, and verification because a task looked small. It wrote code that worked but ignored the evidence workflow. Tiny tasks still start with orientation; handoffs do not need to restate the rule.
 
 ### Using rm with globs that match source files
 
@@ -282,12 +277,10 @@ An agent installed a new model and modified `local_ai_fleet.py`, `local_model_se
 | `AGENTS.md` | First-read instruction surface — fleet table, workflow, handoff format standard |
 | `docs/fleet-routing-brief.md` | Full routing rules and constraints for agent sessions |
 | `docs/fleet-debrief.md` | This document — comprehensive intention brief |
-| `docs/adr/0002-repo-loop-cockpit-over-hermes-runtime.md` | Architecture decision: Dev-Flow narrows to repo loop cockpit |
-| `docs/architecture/repo-loop-cockpit-implementation-plan.md` | Implementation ledger with RLC-01 through RLC-17 slice details |
 | `~/.hermes/skills/software-development/local-fleet-efficiency/SKILL.md` | Full skill: two extraction modes, all scripts, pitfalls, packet templates |
 | `~/.hermes/scripts/model-router` | Fleet lifecycle manager — status, start, stop |
 | `~/.hermes/config.yaml` | Hermes config with provider definitions and local_runners |
 
 ## 9. Summary
 
-Ornith 35B builds and scouts. Qwen 27B judges. The router swaps. Fleet status is informational. Scout first, compress, route, verify. Use `local_test_runner.py`. Use `extract_module.py` for verbatim function extraction. Use the builder-judge loop for new code. Follow AGENTS.md. Don't let handoffs override the workflow. Research models before suggesting fleet changes. Don't modify source files during model installation.
+Ornith 35B builds and scouts. Qwen 27B judges. The router swaps. Fleet status is informational. Orient first, scout before edits, compress, route, verify. Use `local_test_runner.py`. Use `extract_module.py` for verbatim function extraction. Use the builder-judge loop for new code. Follow AGENTS.md. Don't let handoffs override the workflow. Research models before suggesting fleet changes. Don't modify source files during model installation.

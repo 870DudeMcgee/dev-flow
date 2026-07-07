@@ -16,7 +16,7 @@ Dev-Flow owns the jobsite.
 
 As of 2026-07-06, Dev-Flow's browser product is narrowing to a selected-repo loop cockpit. The Obsidian Command Center owns broad capture, project context, daily context, parking lots, and cross-project knowledge. Dev-Flow owns repo execution: repo picker, Brainstorm, classification, readiness packet, editable Hermes loop packet, loop monitoring, steering, review, verification, and promotion gates.
 
-Hermes remains the runtime for deterministic tool lanes, proven loop execution, and fleet routing. Dev-Flow wraps Hermes through repo-local execution artifacts under `.devflow/pipeline-runs/` instead of rebuilding Hermes internals. Mechanical repo operations should use parser/verifier-style tools first and escalate to model loops only when reasoning, generation, or failure diagnosis adds value. See [docs/adr/0002-repo-loop-cockpit-over-hermes-runtime.md](docs/adr/0002-repo-loop-cockpit-over-hermes-runtime.md) and [docs/architecture/repo-loop-cockpit-implementation-plan.md](docs/architecture/repo-loop-cockpit-implementation-plan.md).
+Hermes remains the runtime for deterministic tool lanes, proven loop execution, and fleet routing. Dev-Flow wraps Hermes through repo-local execution artifacts under `.devflow/pipeline-runs/` instead of rebuilding Hermes internals. Mechanical repo operations should use parser/verifier-style tools first and escalate to model loops only when reasoning, generation, or failure diagnosis adds value.
 
 ### Scope & Operating Model
 
@@ -241,11 +241,8 @@ Local or cheap workers should handle:
 - small refactors
 - status/report generation
 
-Current local-worker sessions are intentionally simpler than older routing
-ideas: local workers are opt-in, and Qwen 3.6 27B Q5 MTP is the normal single
-lane when opted in. Codex uses a visible `qwen36_27b_mtp_coder` subagent spawn
-for that lane; Hermes uses `hermes-qwen-mtp` as the same-lane MCP packet
-wrapper. See [docs/local-worker-policy.md](docs/local-worker-policy.md).
+Current Codex/local-worker session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
 Frontier models should be used for:
 
@@ -395,9 +392,9 @@ The current product is a local operating layer over Dev-Flow's task/workspace/ev
 
 The current shell-worker control-room contract is documented in [docs/mvp-contract.md](docs/mvp-contract.md). It is smaller than the long-term control-room vision and intentionally excludes database state, worktree orchestration as the default path, enabled non-shell task-run adapters, autonomous provider routing, auto-push, publication, and pull-request behavior. The approved automation direction is a DevFlow-native local loop that may create ready tasks, run shell workers, run verification, run promotion preview, and promote verified safe local work only when both durable loop policy and the run command explicitly allow it.
 
-The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker/model identity, evidence, verification, questions, close/cleanup state, and promotion readiness without reading huge logs. The canonical browser surface is `devflow operating-layer serve`, whose first viewport is the real control-room workbench: Brainstorm, Pipeline, Worker lanes, Review queue, and Evidence stream. The older static `public/` marketing/simulator page is not product authority. Broad mutating commands still stop at trusted CLI execution. This slice does not add a database, hidden memory, direct merge/push/PR automation, or provider-backed workers that silently edit outside the current task/workspace/evidence gates.
+The approved product slice is the local operating layer documented in [docs/architecture/local-operating-layer-ui.md](docs/architecture/local-operating-layer-ui.md). It promotes a browser-friendly control layer over existing Dev-Flow filesystem evidence so humans can see goals, task lanes, worker/model identity, evidence, verification, questions, close/cleanup state, and promotion readiness without reading huge logs. The canonical browser surface is `devflow operating-layer serve`, whose first viewport is the real control-room workbench: Brainstorm, Pipeline, Worker lanes, Review queue, and Evidence stream. Broad mutating commands still stop at trusted CLI execution. This slice does not add a database, hidden memory, direct merge/push/PR automation, or non-local workers that silently edit outside the current task/workspace/evidence gates.
 
-The active registry and routing architecture is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md). Registry/runtime guardrails define agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. Milestone 17 implements evidence-only task-fit scoring, context estimation, scout signals, route decisions, and routing-quality scorecards. The current OpenRouter/DeepSeek lane is explicit evidence generation for advisory reports and patch proposals, not provider-backed worker execution. Autonomous worker assignment, provider-backed task-run execution, worker-owned verification, promotion, commit, push, and publication remain excluded.
+The active registry and routing architecture is documented in [docs/architecture/agent-registry-and-adapter-runtime.md](docs/architecture/agent-registry-and-adapter-runtime.md) and [docs/architecture/agent-selection-and-context-routing.md](docs/architecture/agent-selection-and-context-routing.md). Registry/runtime guardrails define agents as permissioned execution contracts bound to provider, model, model capability, role, adapter, workspace, allowed context, allowed writes, evidence, and routing rules. Milestone 17 implements evidence-only task-fit scoring, context estimation, scout signals, route decisions, and routing-quality scorecards. Advisory lanes produce explicit evidence for reports and patch proposals; they are not non-local worker execution. Autonomous worker assignment, non-local task-run execution, worker-owned verification, promotion, commit, push, and publication remain excluded.
 
 Required commands:
 
@@ -633,14 +630,12 @@ Build in this order:
 - shell adapter alignment
 - deterministic task-fit and context-size estimator (implemented as Milestone 17 evidence through `devflow task fit`)
 - role-based context pack builder (implemented as derived evidence through `devflow agent context-pack`)
-- opt-in visible Codex `qwen36_27b_mtp_coder` worker lane, the matching
-  `hermes-qwen-mtp` packet wrapper, and explicit legacy local evidence adapters
 - OpenAI-compatible local or remote adapter
 - native provider adapters
 - local scout reports (implemented as Milestone 17 evidence through `devflow task scout`)
 - evidence-only route decisions and next-command recommendations (implemented through `devflow task route`)
 - routing-quality scorecards (implemented through `devflow task scorecard`)
-- autonomous routing engine, provider-backed task-run execution, and metrics-driven policy changes remain later autonomy/provider work
+- autonomous routing engine, non-local task-run execution, and metrics-driven policy changes remain later autonomy/provider work
 
 Success check:
 

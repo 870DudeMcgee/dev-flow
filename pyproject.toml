@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "devflow"
 version = "0.1.0"
-description = "A local-first control room for shell-worker AI development workflows."
+description = "A local operating layer for turning ideas into verified product implementations."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -52,7 +52,7 @@ dev = [
 [project.scripts]
 devflow = "devflow.cli:main"
 df = "devflow.cli:df_main"
-qwopus = "devflow.cli:qwopus_main"
+ornith = "devflow.cli:ornith_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

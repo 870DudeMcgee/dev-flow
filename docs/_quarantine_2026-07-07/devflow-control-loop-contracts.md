@@ -79,7 +79,7 @@ Dev-Flow clearly distinguishes authoritative truth from mere evidence:
 1. **Human instruction**: Ultimate source of intent.
 2. **Canonical Dev-Flow state files**: Autoritative state on disk (`goal.yaml`, `task.yaml`).
 3. **Latest verification artifact**: Autoritative verification summary (`verification.json`).
-4. **Append-only events**: Durable historical evidence (`events.jsonl`, `questions.jsonl`).
+4. **Append-only events**: Durable evidence (`events.jsonl`, `questions.jsonl`).
 5. **Worker reports**: Non-canonical worker claims (`worker-report.md`).
 6. **Summaries/caches**: Derived files for performance or convenience (`summary.json`).
 
@@ -682,11 +682,11 @@ Maximize hardware strengths safely:
 *Role: Architect, Reasoning Planner, Hard Debugger, and Large Model Host.*
 - Runs high-reasoning planners and reviewers.
 - Performs multi-file reasoning, deep diagnostics, and model bakeoffs.
-- Hosts larger local models (e.g., 32B+ models) or routes to frontier APIs.
+- Hosts larger local models (e.g., 32B+ models) or routes to supervisor handoffs.
 
 ### 2. Mac mini M1 (16GB RAM)
 *Role: Bounded Task Worker, Document Auditor, and Test Runner.*
-- Persistent execution node running local, low-resource models (`qwen2.5-coder:14b` or `qwen2.5-coder:7b-instruct`).
+- Persistent execution node using bounded packets routed through the current model-router-managed fleet.
 - Processes small, highly-bounded task packets.
 - Runs verification tests, formats documentation, and tracks workspace states.
 - *Advantage:* Persistent, cheap, local labor. Bounded packets ensure M1 memory constraints are never violated.

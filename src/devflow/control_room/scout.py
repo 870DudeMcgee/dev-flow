@@ -124,7 +124,7 @@ class RepoScout:
     def get_strategic_files(self) -> list[Path]:
         """Fetch primary strategic product guidance and architecture maps."""
         docs = []
-        for doc_name in ["PRODUCT_NORTH_STAR.md", "docs/control-room-mvp.md", "docs/architecture/agent-registry-and-adapter-runtime.md"]:
+        for doc_name in ["docs/DEVFLOW_SOURCE_OF_TRUTH.md", "docs/README.md", "docs/local-worker-policy.md"]:
             doc_path = self.root / doc_name
             if doc_path.exists() and doc_path.is_file():
                 docs.append(doc_path)

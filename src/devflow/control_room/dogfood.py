@@ -494,14 +494,14 @@ def _case_local_worker_lane(
     write_worker_evidence(
         root=scratch,
         worker_type="local_model_worker_pool",
-        profile_id="local-gemma4-qat",
-        worker_id="local-gemma4-qat",
+        profile_id="ornith-35b",
+        worker_id="ornith-35b",
         task_id=read_only.id,
         run_id="run-1",
         packet_text="deterministic dogfood packet",
         raw_output="deterministic read-only analysis",
         response_text="deterministic read-only response",
-        model="gemma4:12b-it-qat",
+        model="ornith-35b",
         adapter="ollama_chat",
         adapter_maturity="local_patch_runtime",
         permission_mode="read_only",
@@ -515,7 +515,7 @@ def _case_local_worker_lane(
     case_result.record_command(f"write deterministic read-only WorkerEvidence for {read_only.id}", status="passed")
 
     patch_workspace_file = scratch / ".devflow" / "workspaces" / patch_task.id / "hello.txt"
-    patch_agent_dir = scratch / ".devflow" / "tasks" / patch_task.id / "agents" / "qwopus-implementer"
+    patch_agent_dir = scratch / ".devflow" / "tasks" / patch_task.id / "agents" / "ornith-builder"
     patch_agent_dir.mkdir(parents=True, exist_ok=True)
     patch_text = (
         "diff --git a/hello.txt b/hello.txt\n"
@@ -532,9 +532,9 @@ def _case_local_worker_lane(
             {
                 "schema_version": 1,
                 "task_id": patch_task.id,
-                "agent_id": "qwopus-implementer",
+                "agent_id": "ornith-builder",
                 "status": "complete",
-                "model": "qwopus:latest",
+                "model": "ornith-35b",
                 "adapter": "ollama_chat",
                 "proposal_patch_found": True,
                 "proposal_patch_byte_length": len(patch_text.encode("utf-8")),
@@ -550,18 +550,18 @@ def _case_local_worker_lane(
     before_apply_exists = patch_workspace_file.exists()
     case_result.record_command(f"write deterministic local patch worker evidence for {patch_task.id}", status="passed")
 
-    normalized_run_id = normalize_agent_patch_candidate(scratch, patch_task.id, "qwopus-implementer")
+    normalized_run_id = normalize_agent_patch_candidate(scratch, patch_task.id, "ornith-builder")
     review = review_patch_candidate(scratch, patch_task.id, run_id=normalized_run_id)
-    case_result.record_command(f"devflow task review-patch {patch_task.id} --agent qwopus-implementer (scratch)",
+    case_result.record_command(f"devflow task review-patch {patch_task.id} --agent ornith-builder (scratch)",
         status=review.review_status,
     )
     dry_run = preview_patch_dry_run(scratch, patch_task.id, run_id=normalized_run_id)
-    case_result.record_command(f"devflow task patch-dry-run {patch_task.id} --agent qwopus-implementer (scratch)",
+    case_result.record_command(f"devflow task patch-dry-run {patch_task.id} --agent ornith-builder (scratch)",
         status=dry_run.dry_run_status,
     )
     apply_task_patch(scratch, patch_task.id, run_id=normalized_run_id)
     after_apply_exists = patch_workspace_file.exists()
-    case_result.record_command(f"devflow task apply-patch {patch_task.id} --agent qwopus-implementer (scratch)", status="passed")
+    case_result.record_command(f"devflow task apply-patch {patch_task.id} --agent ornith-builder (scratch)", status="passed")
     verified = verify_task(scratch, patch_task.id, ["/bin/sh", "-c", "test -f hello.txt"], timeout_seconds=20)
     case_result.record_command(f"devflow task verify {patch_task.id} --shell 'test -f hello.txt' (scratch)",
         status=verified.verification_status,
@@ -648,9 +648,9 @@ agents:
     provider: openai
     model: gpt-5
     adapter: openai_chat
-    role: frontier_planner_architect_reviewer
+    role: codex_supervisor
     tier: frontier
-    default_mode: frontier_read_only
+    default_mode: supervisor_read_only
     execution_mode: automated
     workspace: isolated_task_workspace
     can_see:
@@ -929,7 +929,7 @@ def _case_model_audition_evidence(
         4,
         report_exists
         and ranking
-        and ranking[0]["profile_id"] == "local-gemma4-qat"
+        and ranking[0]["profile_id"] == "ornith-35b"
         and summary["false_claim_flagged"]
         and scorecard["will_update_routing_policy"] is False,
         "scorecard ranked grounded output first and flagged false claims",
@@ -1346,7 +1346,7 @@ def _case_intent_scaffold_approval_path(
         "Canonical goal/task state is created only after explicit human approval." in prd
         and "TBD" not in prd
         and "Confirm the plugin boundary" in risks
-        and "PRODUCT_NORTH_STAR.md" in (context.get("required_context") or [])
+        and "docs/DEVFLOW_SOURCE_OF_TRUTH.md" in (context.get("required_context") or [])
         and open_questions.get("implementation_blocked") is False
     )
     slices_reviewable = (
@@ -1552,16 +1552,16 @@ def _intent_scaffold_file_snapshot(root: Path) -> list[str]:
 def _dogfood_audition_discovery_report() -> LocalDiscoveryReport:
     installed = parse_ollama_list(
         """NAME                              ID              SIZE      MODIFIED
-qwen2.5-coder:7b-instruct         aaa111          4.7 GB    1 day ago
-gemma4:12b-it-qat                 bbb222          18 GB     1 day ago
-qwen2.5-coder:14b                 ccc333          9 GB      1 day ago
+qwen-27b-q5-mtp         aaa111          4.7 GB    1 day ago
+ornith-35b                 bbb222          18 GB     1 day ago
+qwen-27b-q5-mtp                 ccc333          9 GB      1 day ago
 """
     )
     return LocalDiscoveryReport(installed, [], [])
 
 
 def _dogfood_audition_response(profile_id: str, *, task_id: str, task_title: str, task_status: str) -> str:
-    if profile_id == "local-gemma4-qat":
+    if profile_id == "ornith-35b":
         return (
             "## Task Grounding\n"
             f"- Task ID: {task_id}\n"
@@ -1573,7 +1573,7 @@ def _dogfood_audition_response(profile_id: str, *, task_id: str, task_title: str
             "## Suggested Next Dev-Flow Action\n"
             f"devflow task show {task_id}\n"
         )
-    if profile_id == "local-qwen25-coder-14b":
+    if profile_id == "qwen-27b-q5-mtp":
         return (
             "## Task Grounding\n"
             f"- Task ID: {task_id}\n\n"

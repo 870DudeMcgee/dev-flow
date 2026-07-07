@@ -12,7 +12,7 @@ from devflow.control_room.persistence import atomic_write_text
 from devflow.control_room.task_packet import _redact_secrets_in_value, _redact_string
 
 
-DEFAULT_RUN_ID = "gemma4-e4b-20260701"
+DEFAULT_RUN_ID = "ornith-35b-20260701"
 DEFAULT_MAX_EXAMPLES = 500
 MAX_FILE_BYTES = 200_000
 MAX_EXCERPT_CHARS = 4_000
@@ -27,9 +27,9 @@ SYSTEM_PROMPT = (
 DOC_PATHS = (
     "AGENTS.md",
     "README.md",
-    "docs/operator-centered-mission.md",
-    "docs/control-room-mvp.md",
-    "docs/devmode-contract.md",
+    "docs/DEVFLOW_SOURCE_OF_TRUTH.md",
+    "docs/README.md",
+    "docs/local-worker-policy.md",
     "docs/verification-ledger.md",
 )
 HARD_STOPS = [
@@ -53,7 +53,7 @@ LORA_SETTINGS = {
 }
 
 
-def prepare_gemma4_training_dataset(
+def prepare_ornith_training_dataset(
     root: Path,
     *,
     run_id: str = DEFAULT_RUN_ID,
@@ -112,8 +112,8 @@ def prepare_gemma4_training_dataset(
             "manifest_path": relative_path(repo_root, manifest_path),
             "remote_runtime_requirement": "NVIDIA-backed environment required for real training",
             "model_candidates": [
-                "unsloth/gemma-4-E4B-it-unsloth-bnb-4bit",
-                "google/gemma-4-E4B-it",
+                "Jackrong/Ornith3.6-35B-A3B-v1-GGUF",
+                "lmstudio-community/Ornith3.6-35B-A3B-MLX-4bit",
             ],
             "lora": LORA_SETTINGS,
             "publish_disabled": True,

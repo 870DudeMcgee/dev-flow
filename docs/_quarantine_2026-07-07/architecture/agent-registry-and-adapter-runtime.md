@@ -1,28 +1,25 @@
 # Agent Registry And Adapter Runtime
 
-Status: active architecture with current registry/adapter guardrails plus bounded configured-provider evidence lanes. This document does not expand the shell-worker MVP or enable remote provider task-run execution.
+Status: active architecture with current registry/adapter guardrails for the local-first Dev-Flow runtime.
 
-Dev-Flow is a local-first control room for replaceable coding workers. Shell remains the stable direct-edit runtime, while manual proof-agent handoffs, local patch workers, and local WorkerEvidence profiles are permissioned evidence surfaces. Future worker types need one stable layer for registration, invocation, permissions, routing, and evidence. This document defines that target architecture without making agents the source of truth.
+Dev-Flow is a local-first control room for replaceable coding workers. Shell remains the stable direct-edit runtime, while manual proof-agent handoffs and registered local worker profiles are permissioned evidence surfaces. Future worker types need one stable layer for registration, invocation, permissions, routing, and evidence. This document defines that target architecture without making agents the source of truth.
 
 Core rule: Dev-Flow owns state, verification, evidence, and promotion. Agents are replaceable runtimes. Workers propose. Dev-Flow records. Verification verifies. Humans promote.
 
-Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, `ollama_chat` is the explicitly gated local patch runtime, and provider-backed adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are not executable through normal `task run` worker lookup. The configured-provider exception is Dev-Flow-owned evidence generation: `agent advise` writes advisory reports and `agent propose-patch` writes explicit patch proposals for existing review/dry-run/apply gates. Provider-style patch evidence behavior is centralized in `src/devflow/control_room/provider_patch_worker.py`, but this helper does not make remote providers executable through the stable task runner.
+Current runtime note: stable executable adapters remain intentionally narrow. Shell/manual adapters are stable runtime adapters, and local model routes are explicit evidence surfaces. Non-local adapters such as `openai_compatible`, `openai_chat`, `anthropic_messages`, and `gemini` are not executable through normal `task run` worker lookup unless they are the approved local Ornith/Qwen lanes.
 
 Model profiles and execution surfaces are separate. A profile should name the model or route and record capabilities: reliable context, vision, thinking, code focus, speed, input modalities, tool access, and tuned archetypes such as `ui_visual_review` or `browser_ui_review`. A surface defines authority: advisory evidence, patch proposal evidence, local WorkerEvidence, shell execution, verification, apply, or promotion. Do not turn any normal model profile into a single-job identity like `patch-proposer`, `reviewer`, `planner`, `summarizer`, or `implementer` unless it is explicitly a separate wrapper profile for that surface.
 
-Milestone 16 implemented the model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, local Ollama discovery, selected-agent evidence, and explicit local patch profiles such as `qwopus-implementer` and `gemma4-12b-qat-implementer`. Milestone 17 adds evidence-only task-fit/context routing: stable fit, scout, route, and scorecard commands write derived artifacts and recommended next commands. The configured-provider slice adds registry-visible remote advisory and explicit patch-proposal evidence without making those profiles `task run` workers. The onboarding slice adds `agent catalog`, `agent add-provider`, and `agent add-model` so providers and model profiles can be registered from safe templates instead of Python builtins or hand-authored repeated YAML. These surfaces are not autonomous routing and do not create tasks, run workers, apply patches, verify, promote, commit, push, or publish.
+Milestone 16 implemented the model-agnostic registry boundary: runtime eligibility/refusal projection, role-scoped context-pack evidence, derived task-local agent evidence summaries, selected-agent evidence, and explicit local worker profiles. Milestone 17 adds evidence-only task-fit/context routing: stable fit, scout, route, and scorecard commands write derived artifacts and recommended next commands. These surfaces are not autonomous routing and do not create tasks, run workers, apply patches, verify, promote, commit, push, or publish.
 
-Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, provider-backed task-run execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
+Related routing design: [agent-selection-and-context-routing.md](agent-selection-and-context-routing.md) defines the implemented Milestone 17 task-fit profile, context estimator, scout roles, routing-decision evidence, and routing-quality scorecards. Autonomous best-available worker assignment, non-local task-run execution, and policy-driven routing remain deferred until a future autonomy policy explicitly promotes them.
 
-Current local-worker choice is intentionally simpler than the broader registry
-roadmap: local workers are opt-in, and Qwen 3.6 27B Q5 MTP is the normal single
-lane when opted in. In Codex, that means a visible `qwen36_27b_mtp_coder`
-subagent spawn; in Hermes, `hermes-qwen-mtp` mirrors the same bounded packet
-semantics. See [docs/local-worker-policy.md](../local-worker-policy.md).
+Current Codex/local-worker session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
 ## 1. Problem
 
-"Replaceable agents" are not real if every worker is wired directly into task execution. Dev-Flow needs a registry, adapter layer, permission model, and invocation lifecycle so local models, frontier APIs, manual review, and shell commands can all operate behind the same control-room contract.
+"Replaceable agents" are not real if every worker is wired directly into task execution. Dev-Flow needs a registry, adapter layer, permission model, and invocation lifecycle so local models, supervisor handoffs, manual review, and shell commands can all operate behind the same control-room contract.
 
 Without this layer, provider details leak into core task logic, agent names become informal personalities, permission rules become implicit, and evidence becomes scattered across logs, chat transcripts, and provider-specific outputs. The result would drift away from the North Star: visible, isolated, recoverable work with sacred filesystem state.
 
@@ -41,41 +38,30 @@ The registry and runtime must make each agent a permissioned execution contract 
 
 ## 2. Provider Vs Agent Vs Role
 
-A provider is how Dev-Flow talks to a backend. Provider configuration answers "what API, local service, or human handoff mechanism is available?" Examples:
+A provider is how Dev-Flow talks to a backend. Provider configuration answers "what local service or human handoff mechanism is available?" Examples:
 
-- `openai`
-- `anthropic`
-- `xai`
-- `google`
-- `openrouter`
-- `ollama`
-- `lmstudio`
-- `llama_cpp`
+- `ornith-35b`
+- `qwen-27b-q5-mtp`
+- `openai-codex`
 - `shell`
 - `manual`
 
 An agent is a named worker contract that binds a provider, model, role, adapter, capabilities, and permission mode. Agent names are operational identifiers, not personalities or single-job labels. Examples:
 
-- `qwen36_27b_mtp_coder`
-- `qwen-coder-fast`
-- `test-agent`
-- `openai-frontier-architect`
-- `claude-reviewer`
-- `gemini-large-context`
-- `grok-current-research`
-- `manual-frontier`
-
-For the simplified Hermes/local set, names such as `hermes-sonnet46`, `hermes-opus48`, `hermes-qwen37max`, `hermes-minimaxm3`, `local-gemma4-qat`, and `local-qwen25-coder-14b` are model or route identities. Their capability fields explain where they fit. Use-case labels and tuned archetypes are routing hints, not exclusive jobs.
+- `ornith-35b`
+- `qwen-27b-q5-mtp`
+- `hermes-codex-gpt55`
+- `devflow-shell-worker`
+- `devflow-manual-codex-worker`
 
 A role is what an agent is allowed and expected to do. Roles provide durable policy language that can outlive a specific provider or model. Examples:
 
 - `local_senior_worker`
 - `local_implementation_worker`
 - `test_runner`
-- `frontier_architecture_reviewer`
-- `frontier_code_reviewer`
-- `large_context_synthesizer`
-- `current_research_reviewer`
+- `codex_supervisor`
+- `local_scout`
+- `local_judge`
 - `manual_escalation_worker`
 
 ## 3. Folder Structure
@@ -97,10 +83,9 @@ Agent configuration should be durable and separate from per-task evidence. Regis
       performance.md
   providers/
     openai.yaml
-    openrouter.yaml
-    anthropic.yaml
-    xai.yaml
-    google.yaml
+    ornith-35b.yaml
+    qwen-27b-q5-mtp.yaml
+    openai-codex.yaml
     ollama.yaml
     lmstudio.yaml
     llama_cpp.yaml
@@ -136,13 +121,15 @@ Permission modes define the maximum authority an agent can receive for a run:
 - `workspace_write`: write only inside the assigned isolated task workspace.
 - `verify_only`: run explicit verification commands inside the assigned workspace.
 - `docs_only`: write approved documentation artifacts only, usually inside the task workspace or approved docs path.
-- `frontier_read_only`: send bounded context to a remote or expensive model for analysis without direct repository mutation.
+- `promotion_candidate`: prepare promotion evidence for human review without pushing or merging.
+- `supervisor_read_only`: send bounded context to a remote or expensive model for analysis without direct repository mutation.
 - `patch_proposal_only`: write patch-proposal evidence only; existing Dev-Flow review, dry-run, apply, verification, and promotion gates remain mandatory.
 - `manual_packet_only`: generate a copy-paste packet for a human-mediated model or manual reviewer.
 
 Rules:
 
 - No agent can promote to main.
+- Human approval is required before promotion, publishing, pushing, or merging.
 - Remote or frontier models cannot directly mutate the repo.
 - Local models can write only inside isolated task workspaces.
 - Powerful models may see broader context, but that does not grant broader write access.
@@ -159,9 +146,9 @@ The registry is declarative. Core task logic should resolve an agent by ID, vali
 
 ```yaml
 agents:
-  qwen36_27b_mtp_coder:
-    provider: local_qwen36_27b_mtp_bare
-    model: qwen36-27b-q5-mtp
+  local-gateway-judge-packet:
+    provider: local_qwen_27b_mtp
+    model: qwen-27b-q5-mtp
     adapter: openai_compatible
     role: local_implementation_worker
     tier: local
@@ -180,7 +167,6 @@ agents:
       - "<task>/events.jsonl"
       - "<task>/verification.json"
       - ".git/**"
-      - "src/devflow/_legacy/**"
     can_run_shell: false
     can_use_network: false
     can_promote: false
@@ -207,21 +193,21 @@ agents:
     can_use_network: false
     can_promote: false
 
-  openai-frontier-architect:
+  codex-supervisor:
     provider: openai
     model: gpt-5
     adapter: openai_responses
-    role: frontier_architecture_reviewer
+    role: codex_supervisor
     tier: frontier
-    default_mode: frontier_read_only
+    default_mode: supervisor_read_only
     workspace: none
     can_see:
       - architecture_packet
       - bounded_source_excerpts
       - failing_test_summary
     can_touch:
-      - "<task>/agents/openai-frontier-architect/result.yaml"
-      - "<task>/agents/openai-frontier-architect/raw_output.md"
+      - "<task>/agents/codex-supervisor/result.yaml"
+      - "<task>/agents/codex-supervisor/raw_output.md"
     cannot_touch:
       - "<main_checkout>/**"
       - "<workspace>/**"
@@ -261,17 +247,6 @@ adapter: openai_compatible
 base_url: https://api.x.ai/v1
 api_key_env: XAI_API_KEY
 default_timeout_seconds: 120
-```
-
-```yaml
-# .devflow/providers/openrouter.yaml
-version: 1
-provider: openrouter
-adapter: openai_compatible
-base_url: https://openrouter.ai/api/v1
-api_key_env: OPENROUTER_API_KEY
-default_timeout_seconds: 300
-enabled: true
 ```
 
 ```yaml
@@ -357,23 +332,12 @@ Current local lifecycle:
 1. Resolve `agent_id` from the registry and provider metadata.
 2. Project runtime maturity, execution surface, next command, and refusal reason through `agent_runtime`.
 3. Build role-scoped context-pack evidence when `devflow agent context-pack` is invoked.
-4. Summarize existing shell/manual/local-patch/local-model evidence when `devflow agent evidence` or operating-layer projections need it.
-5. Discover installed local Ollama models and write selected-agent evidence only when the human or dogfood ladder invokes `agent discover-local` / `agent select-local`.
-6. Show provider/profile/env/local discovery status with `agent catalog`; add providers and model profiles only through explicit `agent add-provider` / `agent add-model` validation.
-7. Run explicit shell/manual/local-patch/local-evidence/provider-evidence commands only when the command itself is invoked; no selector runs a worker by itself.
-8. Leave verification and promotion to separate Dev-Flow commands.
+4. Summarize existing shell/manual evidence when `devflow agent evidence` or operating-layer projections need it.
+5. Show local provider/profile status with `agent catalog`.
+6. Run explicit shell/manual/local-evidence commands only when the command itself is invoked; no selector runs a worker by itself.
+7. Leave verification and promotion to separate Dev-Flow commands.
 
-Current configured-provider evidence lifecycle:
-
-1. Resolve the profile from the registry and its provider config.
-2. Refuse missing or literal secrets; provider files store only environment variable names, not keys.
-3. Build bounded repo or task context from supervisor packets, task packets, verification-ledger summaries, and targeted stale-context evidence.
-4. For `agent advise`, write prompt, response, raw response, `run.json`, usage when returned, recommendations, and false `will_*` mutation flags under repo-scope or task-scope advisory run directories.
-5. For `agent propose-patch`, write only `proposal.patch`, raw output, `run.json`, and summary evidence under the selected task-local patch surface profile directory.
-6. Refuse `task run --worker <remote-profile>`; remote profiles are evidence surfaces, not task-run workers.
-7. Leave patch review, dry-run, application, verification, and promotion to separate Dev-Flow commands.
-
-Future task-run provider lifecycle:
+Future adapter lifecycle:
 
 1. Resolve `agent_id` from the registry.
 2. Resolve provider config and adapter type.
@@ -390,7 +354,7 @@ Future task-run provider lifecycle:
 
 Dev-Flow should route by task fit and capability, not by agent name first. The current local selector is intentionally narrower: it ranks installed registry agents for an explicit role and records selected-agent evidence, but it does not infer task fit or run workers. The broader routing layer must classify the task, estimate required context and risk, build role-specific context packs, and choose the cheapest capable agent for each role. Agent IDs are selected only after Dev-Flow has a task-fit profile and eligible model capability profiles.
 
-Milestone 17 implements the first evidence-only task-fit/context-routing slice: task-fit, scout, routing-decision, and routing-quality artifacts are stable derived evidence, while autonomous worker assignment and provider-backed task-run execution remain excluded.
+Milestone 17 implements the first evidence-only task-fit/context-routing slice: task-fit, scout, routing-decision, and routing-quality artifacts are stable derived evidence, while autonomous worker assignment and non-local task-run execution remain excluded.
 
 Minimum routing artifacts:
 
@@ -408,16 +372,15 @@ Routing chooses which agent contract to invoke. It should be policy-driven and c
 
 Initial suggested routing:
 
-- When current local-worker use is explicitly opted in, use the single Qwen
-  3.6 27B Q5 MTP lane from [docs/local-worker-policy.md](../local-worker-policy.md).
-- `qwen-coder-fast`: historical/mechanical example where speed matters more
-  than deep planning; not a current default worker route.
+- When current local-worker use is explicitly opted in, use the active Ornith
+  scout/build/compression lane and Qwen judge/review lane from
+  [docs/local-worker-policy.md](../local-worker-policy.md).
 - `test-agent`: verification, focused test execution, and test failure reproduction.
 - `claude-reviewer`: code review after repeated failures or when an external review pass is warranted.
-- `openai-frontier-architect`: architecture uncertainty, cross-subsystem risk, model-routing changes, or high-impact design review.
+- `codex-supervisor`: architecture uncertainty, cross-subsystem risk, model-routing changes, or high-impact design review.
 - `gemini-large-context`: broad-context synthesis or document consolidation where large input windows matter.
 - `grok-current-research`: current external API, model, ecosystem, or research questions.
-- `manual-frontier`: copy-paste escalation packet when API use is not desired or credentials are unavailable.
+- `manual-supervisor`: copy-paste escalation packet when API use is not desired or credentials are unavailable.
 
 Routing inputs can include task type, allowed files, failure count, verification status, deterministic context size, required context layer, requested role, model capability profile, and cost policy. Routing output should be recorded as evidence: selected agent, rejected agents, reason, mode, packet path, and policy version.
 
@@ -432,25 +395,21 @@ Implemented through Milestone 17:
 3. `agent list`, `agent show`, and `agent packet` commands.
 4. Manual adapter.
 5. Shell adapter alignment.
-6. Runtime eligibility/refusal projection for shell, manual, local patch, and local WorkerEvidence profiles.
+6. Runtime eligibility/refusal projection for shell and manual profiles.
 7. Role-based context-pack evidence through `agent context-pack`.
 8. Derived task-local evidence summary through `agent evidence`.
-9. Local Ollama discovery and explicit role-based selected-agent evidence through `agent discover-local` and `agent select-local`.
-10. Explicit local patch runtime profiles for approved Ollama agents, currently including Qwopus and Gemma evidence paths.
-11. Evidence-only task-fit and context estimation through `devflow task fit`.
-12. Evidence-only local scout signal capture through `devflow task scout`.
+9. Evidence-only task-fit and context estimation through `devflow task fit`.
+10. Evidence-only local scout signal capture through `devflow task scout`.
 13. Evidence-only candidate eligibility, rejection, unresolved-role, and next-command routing decisions through `devflow task route`.
 14. Evidence-only post-run routing-quality scorecards through `devflow task scorecard`.
-15. OpenRouter provider seed and registry-visible simplified Hermes/OpenRouter/local profiles for advisory evidence, with patch proposal handled as an explicit command surface.
-16. `devflow agent catalog [--provider <id>] --json`, `devflow agent add-provider ...`, and `devflow agent add-model ...` for validated provider/profile onboarding.
-17. `devflow agent advise --profile <id> [--task <task_id>] --job <gap-analysis|review|status> --json`.
-18. `devflow agent propose-patch --task <task_id> --profile <patch-surface-profile> --json`, still gated by existing patch review/dry-run/apply/verification/promotion commands.
+15. Registry-visible Hermes/local profiles with capability metadata and explicit local evidence surfaces.
+16. `devflow agent catalog [--provider <id>] --json` for read-only registry visibility.
 
 Deferred until future specs promote them:
 
 1. Full arbitrary-task context-size estimation beyond the Milestone 17 deterministic evidence slice.
 2. Autonomous best-available model routing by task and role.
-3. General OpenAI-compatible adapter task-run execution for LM Studio, Grok-style APIs, or additional remote providers.
+3. General OpenAI-compatible adapter task-run execution beyond the approved local Ornith/Qwen lanes.
 4. Native OpenAI, Anthropic, and Gemini task-run execution adapters.
 5. Routing engines that assign workers, invoke workers, or verify/promote based on routing evidence.
 6. Metrics that drive autonomous routing policy, cost optimization, or provider selection beyond the Milestone 17 scorecard artifacts.

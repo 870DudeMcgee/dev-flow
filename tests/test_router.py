@@ -14,7 +14,7 @@ from devflow.cli import app
 
 def test_router_tier_fallbacks_do_not_neuter_context_to_8k_or_32k() -> None:
     agent = AgentDefinition(
-        id="qwen-worker",
+        id="qwen-27b-q5-mtp",
         provider="ollama",
         model="qwen3.6-32b-256k:latest",
         adapter="ollama_chat",
@@ -67,7 +67,7 @@ agents:
     enabled: true
   qwen-senior:
     provider: local
-    model: qwen2.5-coder:14b
+    model: qwen-27b-q5-mtp
     adapter: ollama_chat
     role: senior_developer_worker
     tier: strong_local
@@ -78,7 +78,7 @@ agents:
     provider: openai
     model: gpt-4o
     adapter: openai_chat
-    role: frontier_planner_architect_reviewer
+    role: codex_supervisor
     tier: frontier
     default_mode: read_only
     workspace: isolated_task_workspace
@@ -126,7 +126,7 @@ def test_router_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
 
     # 2. Create task
-    task = create_task(tmp_path, "Clean up documentation in PRODUCT_NORTH_STAR.md")
+    task = create_task(tmp_path, "Clean up documentation in docs/DEVFLOW_SOURCE_OF_TRUTH.md")
     task_dir_path = tmp_path / ".devflow/tasks" / task.id
     save_task(task_dir_path, task)
 
@@ -237,7 +237,7 @@ agents:
     enabled: true
   qwen-senior:
     provider: local
-    model: qwen2.5-coder:14b
+    model: qwen-27b-q5-mtp
     adapter: ollama_chat
     role: senior_developer_worker
     tier: strong_local
@@ -248,7 +248,7 @@ agents:
     provider: openai
     model: gpt-4o
     adapter: openai_chat
-    role: frontier_planner_architect_reviewer
+    role: codex_supervisor
     tier: frontier
     default_mode: read_only
     workspace: isolated_task_workspace
@@ -300,9 +300,9 @@ def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
     agent = AgentDefinition(
-        id="local-gemma4-qat",
+        id="ornith-35b",
         provider="ollama",
-        model="gemma4:12b-it-qat",
+        model="ornith-35b",
         adapter="ollama_chat",
         role="implementation_worker",
         tier="strong_local",
@@ -326,7 +326,7 @@ def test_router_does_not_fallback_to_read_only_worker_pool_profiles(
 
     assert "worker" not in rd["selected"]
     assert any(
-        item["agent"] == "local-gemma4-qat" and "read-only profile" in item["reason"]
+        item["agent"] == "ornith-35b" and "read-only profile" in item["reason"]
         for item in rd["rejected"]
     )
 
@@ -351,16 +351,16 @@ def test_router_requires_explicit_local_selection_for_local_model_worker(tmp_pat
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
     agent = AgentDefinition(
-        id="qwopus-implementer",
+        id="ornith-builder",
         provider="ollama",
-        model="qwopus:latest",
+        model="ornith-35b",
         adapter="ollama_chat",
         role="implementation_worker",
         tier="strong_local",
         default_mode="workspace_write",
         execution_mode="automated",
         workspace="isolated_task_workspace",
-        allowed_writes=["<task>/agents/qwopus-implementer/proposal.patch"],
+        allowed_writes=["<task>/agents/ornith-builder/proposal.patch"],
         enabled=True,
     )
     registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
@@ -372,23 +372,23 @@ def test_router_requires_explicit_local_selection_for_local_model_worker(tmp_pat
 
     assert "worker" not in rd["selected"]
     assert any(item["role"] == "worker" and item["status"] == "needs_human_agent_selection" for item in rd["unresolved"])
-    assert any(item["agent"] == "qwopus-implementer" and "no selected-agent evidence" in item["reason"] for item in rd["rejected"])
+    assert any(item["agent"] == "ornith-builder" and "no selected-agent evidence" in item["reason"] for item in rd["rejected"])
 
 
 def test_router_uses_matching_selected_agent_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / ".devflow/tasks").mkdir(parents=True)
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
     agent = AgentDefinition(
-        id="qwopus-implementer",
+        id="ornith-builder",
         provider="ollama",
-        model="qwopus:latest",
+        model="ornith-35b",
         adapter="ollama_chat",
         role="implementation_worker",
         tier="strong_local",
         default_mode="workspace_write",
         execution_mode="automated",
         workspace="isolated_task_workspace",
-        allowed_writes=["<task>/agents/qwopus-implementer/proposal.patch"],
+        allowed_writes=["<task>/agents/ornith-builder/proposal.patch"],
         enabled=True,
     )
     registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
@@ -402,8 +402,8 @@ def test_router_uses_matching_selected_agent_evidence(tmp_path: Path, monkeypatc
                 "task_id": task.id,
                 "role": "implementation_worker",
                 "status": "selected",
-                "selected_agent_id": "qwopus-implementer",
-                "selected_model": "qwopus:latest",
+                "selected_agent_id": "ornith-builder",
+                "selected_model": "ornith-35b",
             }
         ),
         encoding="utf-8",
@@ -413,8 +413,8 @@ def test_router_uses_matching_selected_agent_evidence(tmp_path: Path, monkeypatc
     rd = routing_res["routing_decision"]
 
     assert rd["decision_mode"] == "evidence_only"
-    assert rd["selected"]["worker"] == "qwopus-implementer"
-    assert rd["recommended_next_commands"]["worker"] == f"devflow task run {task.id} --worker qwopus-implementer"
+    assert rd["selected"]["worker"] == "ornith-builder"
+    assert rd["recommended_next_commands"]["worker"] == f"devflow task run {task.id} --worker ornith-builder"
 
 
 def test_router_blocks_selected_local_patch_worker_when_provider_base_url_is_remote(
@@ -435,16 +435,16 @@ enabled: true
         encoding="utf-8",
     )
     agent = AgentDefinition(
-        id="qwopus-implementer",
+        id="ornith-builder",
         provider="ollama",
-        model="qwopus:latest",
+        model="ornith-35b",
         adapter="ollama_chat",
         role="implementation_worker",
         tier="strong_local",
         default_mode="workspace_write",
         execution_mode="automated",
         workspace="isolated_task_workspace",
-        allowed_writes=["<task>/agents/qwopus-implementer/proposal.patch"],
+        allowed_writes=["<task>/agents/ornith-builder/proposal.patch"],
         enabled=True,
     )
     registry = AgentRegistry(version=1, default_agent_id=agent.id, agents={agent.id: agent})
@@ -458,8 +458,8 @@ enabled: true
                 "task_id": task.id,
                 "role": "implementation_worker",
                 "status": "selected",
-                "selected_agent_id": "qwopus-implementer",
-                "selected_model": "qwopus:latest",
+                "selected_agent_id": "ornith-builder",
+                "selected_model": "ornith-35b",
             }
         ),
         encoding="utf-8",
@@ -470,11 +470,11 @@ enabled: true
 
     assert "worker" not in rd["selected"]
     assert any(
-        item["agent"] == "qwopus-implementer" and "non-local" in item["reason"]
+        item["agent"] == "ornith-builder" and "non-local" in item["reason"]
         for item in rd["rejected"]
     )
     assert any(
-        item["agent"] == "qwopus-implementer" and item["status"] == "blocked_runtime"
+        item["agent"] == "ornith-builder" and item["status"] == "blocked_runtime"
         for item in rd["blocked"]
     )
 
@@ -534,9 +534,9 @@ def test_router_blocks_remote_provider_candidates(tmp_path: Path, monkeypatch: p
         provider="openai",
         model="gpt-5",
         adapter="openai_chat",
-        role="frontier_planner_architect_reviewer",
+        role="codex_supervisor",
         tier="frontier",
-        default_mode="frontier_read_only",
+        default_mode="supervisor_read_only",
         execution_mode="automated",
         workspace="isolated_task_workspace",
         can_use_network=True,

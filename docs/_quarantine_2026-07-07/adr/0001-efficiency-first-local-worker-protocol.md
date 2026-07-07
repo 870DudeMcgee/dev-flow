@@ -10,8 +10,7 @@ MCP telemetry servers are disabled by default unless the current session needs t
 
 Default verification for telemetry MCP servers uses deterministic mocked unit tests. Live fleet checks, port probes, and smoke completions belong behind explicit reality-check commands so routine verification stays fast and does not depend on which local models happen to be running.
 
-For local implementation work, Qwen 3.6 27B Q5 MTP is the trusted single local coding worker. In Codex, the supported workflow is a visible `qwen36_27b_mtp_coder` subagent spawn; the returned subagent output is the session-level proof that the lane is exposed. In Hermes, `hermes-qwen-mtp` mirrors the same bounded packet semantics with `qwen_ready(smoke=true)` before `qwen_run`. Qwen remains one-lane and must not run beside another big local model; the supervisor still owns final verification and semantic review.
-
-This supersedes earlier local-scout-by-default and multi-route preference docs for current sessions. The old routes remain installed for explicit diagnostics and scout-only exceptions, but they are not automatic defaults.
+Current Codex/local-worker session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
 Operational summary: [docs/local-worker-policy.md](../local-worker-policy.md).

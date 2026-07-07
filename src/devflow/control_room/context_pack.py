@@ -45,7 +45,7 @@ def _get_authority(path_rel: str) -> str:
         return "archive"
     if "rejected" in path_lower:
         return "rejected"
-    if path_rel.startswith(".devflow/project/") or path_rel == "PRODUCT_NORTH_STAR.md":
+    if path_rel.startswith(".devflow/project/") or path_rel == "docs/DEVFLOW_SOURCE_OF_TRUTH.md":
         return "canonical"
     if path_rel.startswith("src/"):
         return "canonical"

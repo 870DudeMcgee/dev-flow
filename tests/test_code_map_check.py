@@ -38,8 +38,8 @@ Dev-Flow coordinates local AI coding workers with visible task evidence.
 
 ## What to read first (worker orientation)
 
-1. `docs/roadmap.md`
-2. `AGENTS.md`
+1. `AGENTS.md`
+2. `docs/DEVFLOW_SOURCE_OF_TRUTH.md`
 
 ## What to skip
 

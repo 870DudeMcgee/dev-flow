@@ -6,17 +6,12 @@ Hermes may use this allowlist when acting as a Dev-Flow operator gateway. Prefer
 PYTHONPATH=src .venv/bin/python -m devflow.cli
 ```
 
-Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. The old path `/Users/jewelbait/Desktop/DevFlow` is quarantined and forbidden for current work. Other operators should use their actual repo root or `<repo-root>`.
+Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs. Other operators should use their actual repo root or `<repo-root>`.
 
 Dev-Flow artifacts beat Hermes memory. Human approval controls mutation and promotion.
 
-Local-worker commands must also follow
-[docs/local-worker-policy.md](../local-worker-policy.md): local workers are
-opt-in, and Qwen 3.6 27B Q5 MTP is the normal single local worker lane when
-opted in. Codex should use a visible `qwen36_27b_mtp_coder` subagent spawn
-when that tool surface is available; Hermes should use `hermes-qwen-mtp` only
-as the same-lane MCP packet wrapper. Legacy commands in this allowlist are
-product evidence surfaces, not default routing.
+Local-worker commands must follow
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
 ## Read-Only Allowed
 
@@ -45,7 +40,6 @@ Hermes may run these for inspection, summarization, and non-promoting preview wo
 - `devflow agent show <profile-id> --json`
 - `devflow agent policy --json`
 - `devflow agent run --task <task-id> --profile <profile-id> --dry-run --json`
-- `devflow agent advise --profile <profile-id> --job <gap-analysis|review|status> --dry-run --json`
 - `devflow knowledge list`
 - `devflow knowledge show <knowledge-id>`
 - `devflow knowledge search <query>`
@@ -63,14 +57,11 @@ Hermes may recommend these commands only after explicit human approval. They can
 - `devflow task close`
 - `devflow task cleanup <task-id> --preview`
 - `devflow task cleanup <task-id> --apply`
-- `devflow task run <task-id> --worker qwopus-implementer`
 - `devflow task review-patch <task-id>`
 - `devflow task patch-dry-run <task-id>`
 - `devflow task apply-patch <task-id>`
 - `devflow task verify <task-id>`
 - `devflow agent run --task <task-id> --profile <profile-id> --json`
-- `devflow agent advise --profile deepseek-v4-flash-planner --job gap-analysis --json`
-- `devflow agent advise --profile deepseek-v4-pro-reviewer --task <task-id> --job review --json`
 
 ## High-Risk Explicit Approval
 
@@ -97,7 +88,6 @@ Hermes must never do these:
 - create a hidden state layer or competing orchestration brain
 - bypass `devflow task promote-preview`
 - spawn unbounded parallel workers
-- execute `devflow agent propose-patch`; Hermes may quote the exact command for a human to run directly, but the patch-proposal surface is not Hermes-delegable
 - let multiple writer agents edit one task/worktree
 - mix personal/factory/iMessage automation authority with Dev-Flow repo authority
 - expose secrets or message contents unnecessarily in logs

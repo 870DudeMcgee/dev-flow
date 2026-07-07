@@ -1,16 +1,14 @@
 # Agent Selection And Context Requirement Routing
 
-Status: active architecture with Milestone 17 evidence-only routing implementation. This document does not enable autonomous routing, provider-backed worker execution, worker-owned verification, or promotion.
+Status: active architecture with Milestone 17 evidence-only routing implementation. This document does not enable autonomous routing, non-local worker execution, worker-owned verification, or promotion.
 
 Dev-Flow should not choose agents by name first. It should classify the work, estimate the required context, ability, and risk, then route each role to the cheapest capable agent that can safely complete that role. This keeps Dev-Flow a control system: big-picture models decide direction, local and narrow models gather facts or execute bounded work, and Dev-Flow owns durable state, routing, isolation, evidence, verification, and promotion.
 
 This design extends [agent-registry-and-adapter-runtime.md](agent-registry-and-adapter-runtime.md). Execution adapters remain bounded by the registry/manual/shell-alignment sequence and explicit human or dogfood invocation.
 
-Current local-worker sessions use the simpler opt-in visible-Qwen-worker policy in
-[docs/local-worker-policy.md](../local-worker-policy.md). This routing design
-records evidence and recommendations; it does not override the visible Codex
-`qwen36_27b_mtp_coder` workflow, the `hermes-qwen-mtp` same-lane MCP wrapper,
-or auto-launch local workers.
+Current Codex/local-worker session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`. This routing design
+records evidence and recommendations; it does not auto-launch local workers.
 
 Milestone 17 promotes deterministic task-fit, scout, route, and routing-quality artifacts as derived evidence. The stable commands write evidence and recommend next commands only; humans or explicit dogfood lanes still invoke worker execution, verification, promotion, commit, push, and publication.
 
@@ -49,7 +47,7 @@ task_fit:
   verification_complexity: medium
   requires_big_picture: true
   requires_current_repo_state: true
-  requires_historical_project_context: true
+  requires_project_context: true
   context_layer: L4
   recommended_planner_tier: frontier
   recommended_worker_tier: strong_local_or_frontier
@@ -165,17 +163,19 @@ context_pack:
   estimated_tokens: 12000
 ```
 
-The builder must keep stale, archived, rejected, and historical material out of active packs unless a human or policy explicitly requests it as non-authoritative context.
+The builder must keep stale, archived, and rejected material out of active packs unless a human or policy explicitly requests it as non-authoritative context.
 
 ## 6. Model Capability Profiles
 
 Agent selection uses capability profiles, not hard-coded vendor names.
 
-Current implemented slice: `devflow agent discover-local --json` inventories installed Ollama models, parses `ollama show` manifests, and derives conservative local capability profiles. `devflow agent select-local <task-id> --role <role> --json` ranks installed registry agents for an explicit role and writes `.devflow/tasks/<task-id>/agent-selection.json`. This is selection evidence only: it does not autonomously route, run workers, create registry entries for unregistered models, apply patches, verify, promote, merge, push, or call remote providers.
+Current implemented slice writes selection evidence only. It does not
+autonomously route, run workers, create registry entries for unregistered
+models, apply patches, verify, promote, merge, push, or call non-locals.
 
 ```yaml
 model_capability_profile:
-  model_id: qwen3.6-27b-local
+  model_id: local-gateway-judge-model
   provider: local
   strengths:
     - code_review
@@ -274,8 +274,8 @@ routing_decision:
   policy_version: 1
   task_fit_profile_path: .devflow/tasks/task-123/task-fit.yaml
   selected:
-    planner: openai-frontier-architect
-    worker: qwen36_27b_mtp_coder
+    planner: codex-supervisor
+    worker: local-builder-or-judge-packet
     reviewer: frontier-code-reviewer
     verifier: deterministic-shell
   reason:
@@ -367,7 +367,7 @@ Routing quality must be measured after execution:
 - Did the context pack omit required files?
 - Did the agent exceed useful context or latency expectations?
 - Did review find architectural or safety mistakes?
-- How much cost was avoided compared with frontier-only routing?
+- How much cost was avoided compared with supervisor-only routing?
 
 Metrics should update a model scorecard without granting autonomy automatically. Higher autonomy requires explicit policy changes, not just a good score.
 
@@ -386,4 +386,4 @@ Milestone 17 activates this capability as evidence-only routing after the regist
 9. Implement conservative routing decisions through `task route`, recording selected/rejected candidates, unresolved roles, and recommended next commands without invoking workers.
 10. Implement routing-quality scorecards and escalation signals through `task scorecard`.
 
-Deferred autonomy remains explicit: do not enable provider-backed execution, autonomous worker assignment, worker-owned verification, promotion, commit, push, publication, or self-promotion as part of the Milestone 17 evidence-only design.
+Deferred autonomy remains explicit: do not enable non-local execution, autonomous worker assignment, worker-owned verification, promotion, commit, push, publication, or self-promotion as part of the Milestone 17 evidence-only design.

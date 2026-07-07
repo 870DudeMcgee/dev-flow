@@ -102,7 +102,7 @@ def test_create_goal_from_promoted_idea_consumes_scaffold_evidence(tmp_path: Pat
     assert "Confirm the plugin boundary" in risks_md
     assert "devflow goal create-task G-0001 TS-0001" in handoff_md
     assert open_questions["implementation_blocked"] is False
-    assert "PRODUCT_NORTH_STAR.md" in context_pointers["required_context"]
+    assert "docs/DEVFLOW_SOURCE_OF_TRUTH.md" in context_pointers["required_context"]
     assert link["source_scaffold_path"] == ".devflow/ideas/I-0001/scaffold-goal.json"
     assert (tmp_path / ".devflow" / "ideas" / item["id"] / "goal-brief.md").exists()
     assert not (tmp_path / ".devflow" / "tasks").exists()

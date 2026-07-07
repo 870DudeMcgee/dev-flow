@@ -54,7 +54,7 @@ def test_scorecard_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
 
     # 2. Create task
-    task = create_task(tmp_path, "Clean up documentation in PRODUCT_NORTH_STAR.md")
+    task = create_task(tmp_path, "Clean up documentation in docs/DEVFLOW_SOURCE_OF_TRUTH.md")
     task_dir_path = tmp_path / ".devflow/tasks" / task.id
     save_task(task_dir_path, task)
 

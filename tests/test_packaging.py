@@ -11,6 +11,10 @@ class TestPackaging(unittest.TestCase):
 
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
         self.assertEqual(data["project"]["name"], "devflow")
+        self.assertEqual(
+            data["project"]["description"],
+            "A local operating layer for turning ideas into verified product implementations.",
+        )
         self.assertEqual(data["project"]["readme"], "README.md")
         self.assertEqual(data["project"]["scripts"]["devflow"], "devflow.cli:main")
         self.assertEqual(data["project"]["urls"]["Repository"], "https://github.com/870DudeMcgee/dev-flow")
@@ -18,10 +22,14 @@ class TestPackaging(unittest.TestCase):
     def test_package_readme_is_devflow_product_readme(self):
         readme = pathlib.Path("README.md").read_text(encoding="utf-8")
 
-        self.assertEqual(readme.splitlines()[0], "# Dev-Flow")
-        self.assertIn("# Dev-Flow", readme)
-        self.assertIn("local-first control room", readme)
-        self.assertIn("path-isolated, not sandboxed", readme)
+        self.assertEqual(readme.splitlines()[0], "# DevFlow")
+        self.assertIn("local operating layer", readme)
+        self.assertIn("verified product implementations", readme)
+        self.assertIn("docs/DEVFLOW_SOURCE_OF_TRUTH.md", readme)
+        self.assertIn("Idea -> Brainstorm -> Spec -> Plan -> Judge -> Build -> Judge -> Verify", readme)
+        self.assertNotIn("local-first control room for parallel AI coding workers", readme)
+        self.assertNotIn("docs/control-room-mvp.md", readme)
+        self.assertNotIn("PRODUCT_NORTH_STAR.md", readme)
 
     def test_declared_devflow_cli_entrypoint_resolves_to_callable(self):
         data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))

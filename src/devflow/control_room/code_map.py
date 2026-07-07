@@ -33,8 +33,8 @@ _DEFAULT_TEMPLATE = """\
 ## What to read first (worker orientation)
 
 <!-- Ordered list. Workers read this before broad repo scans. -->
-1. `docs/roadmap.md`           — current direction and milestone status
-2. `AGENTS.md`                 — agent operating rules (mandatory)
+1. `AGENTS.md`                         — agent operating rules (mandatory)
+2. `docs/DEVFLOW_SOURCE_OF_TRUTH.md`   — active product and architecture direction
 
 ## What to skip
 

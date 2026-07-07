@@ -1,8 +1,8 @@
 # Dev-Flow Domain Context
 
-Status: active vocabulary for architecture reviews.
+Status: active vocabulary for source-of-truth aligned reviews.
 
-This file records domain terms used by architecture and refactoring work. Product authority still lives in `PRODUCT_NORTH_STAR.md` and `docs/control-room-mvp.md`; this file exists so agents use stable names when discussing Modules, Interfaces, Seams, and Adapters.
+This file records domain terms used by architecture and refactoring work. Product authority lives in `docs/DEVFLOW_SOURCE_OF_TRUTH.md`; quarantined historical docs are recovery material only.
 
 ## Terms
 
@@ -108,20 +108,10 @@ The higher-risk Edit-capable loop preset for architecture cleanup or failed runs
 
 ### Active loop fleet
 
-The simplified Hermes loop routing set used by Dev-Flow. The active local fleet
-is only Ornith 35B on `8084` for scout/build work and Qwen 27B MTP on `8083`
-for judging. Ornith runs with `-np 3`, so up to three independent scout/builder
-jobs can share the one Ornith process. Ornith and Qwen cannot run
-simultaneously; the model-router swaps between them.
+The simplified Hermes loop routing set used by Dev-Flow follows
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
-Retired models such as Ornith 9B, Qwopus 35B, and Qwen3-Coder-Next may still
-exist in old docs or local config, but they are not active Dev-Flow scout,
-builder, judge, UI, fallback, or emergency lanes. Cloud/frontier models remain
-intent bridges and supervisors.
-
-### Fleet cleanup migration
-
-A separate Hermes inventory and configuration cleanup task for removing obsolete local-model surfaces after Dev-Flow loop routing has stopped using them.
+Cloud/frontier models remain intent bridges and supervisors.
 
 ### Current-loop compatibility
 
@@ -231,8 +221,6 @@ Context Map may later expose an MCP server for Codex, Hermes, Dev-Flow, or other
 - **Builder-Judge Loop** requires a **Builder-Judge readiness packet** with a **Supervisor intent summary**, whether it was produced by Obsidian, Brainstorm, or Spec/Planning.
 - The **Hermes loop runtime** should prefer a **Deterministic tool lane** for mechanical transformations and use local models when reasoning, seam selection, UI judgment, or generation actually adds value.
 - **Model escalation** happens only after the **Deterministic tool lane** is insufficient or the work shape inherently needs model judgment.
-- The **Active loop fleet** removes Ornith 9B, Qwopus 35B, and Qwen3-Coder-Next from Dev-Flow loop routing; they may remain installed as assets, but they are not part of the cockpit path.
-- A **Fleet cleanup migration** may later remove obsolete Hermes config or UI references, but it is separate from defining the Dev-Flow cockpit path.
 - The **Active loop fleet** treats cloud/frontier models as intent bridges and supervisors, not routine workers.
 - **Current-loop compatibility** takes priority over immediately implementing the full desired fleet-routing matrix.
 
@@ -240,7 +228,7 @@ Context Map may later expose an MCP server for Codex, Hermes, Dev-Flow, or other
 
 A source-tree hygiene activity that classifies repository material before changing, archiving, untracking, or deleting it.
 
-Repository cleanup candidates are classified as active product, compatibility bridge, generated/local runtime state, historical reference, future roadmap, stale context candidate, or stale artifact.
+Repository cleanup candidates are classified against the current product contract and either kept current, rewritten, or deleted.
 
 ### Stale context candidate
 
@@ -268,8 +256,6 @@ A document or reference whose current accuracy is untrusted until reconciled aga
 - "loop finished" could mean ready to promote; resolved: completion enters the **Loop review gate** before verification and promotion.
 - "verification" could mean trusting Hermes prechecks; resolved: promotion depends on a Dev-Flow-owned **Verification gate**.
 - "loop catalog" could become a broad toolbox; resolved: V1 exposes four job-oriented **Loop job presets**.
-- "Ornith 9B", "Qwopus", or "Qwen3-Coder-Next" could remain fallback lanes by inertia; resolved: the **Active loop fleet** excludes them from Dev-Flow/Hermes loop routing.
-- "scrapping retired models" could mean immediate asset/config deletion; resolved: cockpit routing excludes them now, while physical/config cleanup belongs to a separate **Fleet cleanup migration**.
 - "best model" could mean either smartest, fastest, or most reliable; resolved: the **Active loop fleet** separates Ornith scout/build throughput, Qwen judge precision, and frontier intent-bridge roles.
 - "routing matrix" could imply rewriting the current loop setup; resolved: preserve **Current-loop compatibility** in V1 and refine routing after the cockpit works.
 - "edit loop" could imply one generic write path with no shape; resolved: all four V1 loops are **Edit-capable loop presets** with different default write budgets, risk gates, and expected artifacts.

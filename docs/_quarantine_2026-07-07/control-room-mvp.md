@@ -11,7 +11,7 @@ Dev-Flow is now a nearly production-shaped local operating layer, not a speculat
 
 The next product direction narrows the browser product from broad command center to repo loop cockpit. Obsidian Command Center owns broad capture, project library, daily context, parking lots, and cross-project knowledge. Dev-Flow owns the selected-repository guided execution pipeline: repo picker, Brainstorm, classification, readiness packet, free-form Hermes loop packet editing, validation, launch, live monitoring, steering, review, verification, and promotion gates.
 
-Hermes is the runtime for deterministic tool lanes, proven loop execution, fleet routing, codebase mapping, compression, local model work, and handoff mechanics. Dev-Flow wraps Hermes through repo-local execution artifacts under `.devflow/pipeline-runs/`; it does not rebuild Hermes internals or become a second Obsidian browser. Mechanical repo operations should use exact parser/verifier tooling before model loops. The implementation ledger is [docs/architecture/repo-loop-cockpit-implementation-plan.md](architecture/repo-loop-cockpit-implementation-plan.md), and the boundary decision is [ADR 0002](adr/0002-repo-loop-cockpit-over-hermes-runtime.md).
+Hermes is the runtime for deterministic tool lanes, proven loop execution, fleet routing, codebase mapping, compression, local model work, and handoff mechanics. Dev-Flow wraps Hermes through repo-local execution artifacts under `.devflow/pipeline-runs/`; it does not rebuild Hermes internals or become a second Obsidian browser. Mechanical repo operations should use exact parser/verifier tooling before model loops.
 
 The first screen should help the operator answer these questions without opening random logs:
 
@@ -68,14 +68,10 @@ The product is not a coding agent, model provider, memory framework, IDE workflo
 - verification evidence
 - merge readiness
 
-Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, manual packets, or future tools later. The current code-changing runtime intentionally keeps shell workers as the stable direct editor, with manual proof-agent handoffs and registry-backed local patch workers producing bounded evidence that Dev-Flow reviews, applies, verifies, and promotes separately. Future worker types must be introduced through the registry and adapter-runtime sequence, not wired directly into task execution.
+Workers can be shell commands today and Aider, Hermes, OpenCode, Codex, Claude Code, local models, manual packets, or future tools later. The current code-changing runtime intentionally keeps shell workers as the stable direct editor. Future worker types must be introduced through the registry and adapter-runtime sequence, not wired directly into task execution.
 
-Current local-worker choice is governed by [docs/local-worker-policy.md](local-worker-policy.md):
-local workers are opt-in, Qwen 3.6 27B Q5 MTP is the normal single lane when
-opted in, and the supported Codex workflow is a visible
-`qwen36_27b_mtp_coder` subagent spawn. `hermes-qwen-mtp` mirrors that same
-bounded Qwen packet contract for Hermes sessions. Older local worker-pool or
-patch-worker surfaces are explicit evidence paths rather than default routing.
+Current Codex/local-worker session behavior is defined by
+`/Users/jewelbait/.codex/session-operating-contract.md`.
 
 ## Non-Negotiable Principles
 
@@ -100,7 +96,7 @@ The current product should make automation usable without making it mysterious:
 - Evidence stream should link concrete events/logs/artifacts to tasks.
 - System health counts should be explorable; if it says `7 active`, the operator should be able to see the seven tasks.
 
-Major cleanup should preserve this contract while making the architecture easier to navigate. Use Graphify checkpoints especially around `src/devflow/cli.py`, `src/devflow/control_room/service.py`, `src/devflow/control_room/loop_engine.py`, `src/devflow/control_room/task_next_gate.py`, operating-layer modules, and legacy/shim surfaces.
+Major cleanup should preserve this contract while making the architecture easier to navigate. Use Graphify checkpoints especially around `src/devflow/cli.py`, `src/devflow/control_room/service.py`, `src/devflow/control_room/loop_engine.py`, `src/devflow/control_room/task_next_gate.py`, and operating-layer modules.
 
 Detailed command coverage follows as reference. Do not load or validate every command for a focused UI change.
 
@@ -176,25 +172,13 @@ devflow task create --project factory-scheduler "example task"
 devflow task run <task_id> --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --project factory-scheduler --worker shell -- /bin/sh -c "echo hello > result.txt"
 devflow task run <task_id> --shell "echo hello > result.txt"
-devflow task run <task_id> --worker qwopus-implementer
-devflow task run <task_id> --worker gemma4-12b-qat-implementer
 devflow task review-patch <task_id>
 devflow task review-patch <task_id> --project factory-scheduler
-devflow task review-patch <task_id> --agent qwopus-implementer
-devflow task review-patch <task_id> --agent gemma4-12b-qat-implementer
 devflow task patch-dry-run <task_id>
 devflow task patch-dry-run <task_id> --project factory-scheduler
-devflow task patch-dry-run <task_id> --agent qwopus-implementer
-devflow task patch-dry-run <task_id> --agent gemma4-12b-qat-implementer
-devflow task apply-patch <task_id> --agent qwopus-implementer
-devflow task apply-patch <task_id> --agent gemma4-12b-qat-implementer
-devflow task apply-patch <task_id> --project factory-scheduler --agent qwopus-implementer
 devflow task apply-patch <task_id> --run-id <run_id>
 devflow task verify <task_id> --shell "test -f result.txt"
 devflow task verify <task_id> --project factory-scheduler --shell "test -f result.txt"
-devflow task local <task_id> --agent qwen-planner
-devflow task local <task_id> --agent qwopus-implementer
-devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer
 devflow task fit <task_id>
 devflow task fit <task_id> --json
 devflow task scout <task_id> --role all
@@ -269,27 +253,13 @@ devflow agent show devflow-shell-worker
 devflow agent show devflow-manual-codex-worker
 devflow agent list --json
 devflow agent show devflow-shell-worker --json
-devflow agent show local-gemma4-qat --json
 devflow agent policy --json
 devflow agent catalog --json
 devflow agent catalog --provider ollama --json
-devflow agent add-provider local_gateway --adapter openai_compatible --base-url http://127.0.0.1:8000/v1 --api-key-env LOCAL_GATEWAY_API_KEY --dry-run --json
-devflow agent add-provider local_gateway --adapter openai_compatible --base-url http://127.0.0.1:8000/v1 --api-key-env LOCAL_GATEWAY_API_KEY --json
-devflow agent add-model --provider ollama --model <model_id> --authority read-only --role local_senior_worker --dry-run --json
-devflow agent add-model --provider ollama --model <model_id> --authority patch-proposer --role implementation_worker --json
-devflow agent add-model --provider openrouter --model <remote/model-slug> --authority advisory --role frontier_planner_architect_reviewer --json
-devflow agent context-pack <task_id> qwopus-implementer --role implementation_worker --json
+devflow agent context-pack <task_id> <agent-id> --role implementation_worker --json
 devflow agent evidence <task_id> --json
-devflow agent discover-local --json
-devflow agent select-local <task_id> --role implementation_worker --json
 devflow agent audition <task_id> --job review-debug --dry-run --json
 devflow agent audition <task_id> --job review-debug --execute --json
-devflow agent run --task <task_id> --profile local-gemma4-qat --dry-run --json
-devflow agent run --task <task_id> --profile local-gemma4-qat --json
-devflow agent advise --profile hermes-qwen37plus --job gap-analysis --dry-run --json
-devflow agent advise --profile hermes-qwen37plus --job gap-analysis --json
-devflow agent advise --profile hermes-sonnet46 --task <task_id> --job review --json
-devflow agent propose-patch --task <task_id> --profile <patch-surface-profile> --json
 devflow agent packet <task_id> devflow-shell-worker
 devflow agent packet <task_id> devflow-manual-codex-worker
 devflow task run <task_id> --worker devflow-shell-worker -- <command>
@@ -298,11 +268,11 @@ devflow task run <task_id> --worker devflow-manual-codex-worker
 
 The preferred shell-worker form is `devflow task run <task_id> --worker shell -- <command>`. The `--shell "<command>"` form remains supported.
 
-The registry-visible shell alias is `devflow-shell-worker`. It uses the same stable shell adapter and isolated workspace boundary as the daily shell command, but writes agent-scoped packet/log/result evidence under `.devflow/tasks/<task_id>/agents/devflow-shell-worker/` so registry, packet, and dogfood surfaces can inspect the shell lane. `agent list --json`, `agent show --json`, and `agent packet` include `runtime_contract` with execution surface, `task_run_allowed`, `agent_run_allowed`, `packet_allowed`, refusal reason, next command, and evidence contract. Provider-backed and frontier read-only agents still refuse `task run`; frontier read-only agents may produce local packets only when their runtime contract reports `packet_allowed: true`.
+The registry-visible shell alias is `devflow-shell-worker`. It uses the same stable shell adapter and isolated workspace boundary as the daily shell command, but writes agent-scoped packet/log/result evidence under `.devflow/tasks/<task_id>/agents/devflow-shell-worker/` so registry, packet, and dogfood surfaces can inspect the shell lane. `agent list --json`, `agent show --json`, and `agent packet` include `runtime_contract` with execution surface, `task_run_allowed`, `agent_run_allowed`, `packet_allowed`, refusal reason, next command, and evidence contract. Non-executable supervisor handoff profiles may produce local packets only when their runtime contract reports `packet_allowed: true`.
 
 The project-management form is `devflow project create "Name"`. It creates a separate local project root under the configured projects root, initializes local Git by default, creates that project's own `.devflow/` scaffold, and registers the project in `~/.devflow/registry/projects.json`. It does not create a GitHub repository, add a remote, push, publish, or create a hidden initial commit by default. For local-Git managed projects, create an explicit local baseline from the project root with `devflow git checkpoint --message "chore: initialize project baseline" --yes` before creating project-scoped tasks; `task create --project` refuses unborn managed Git projects so copied workspaces and promotion previews have a real baseline commit. Existing project roots can be registered with `devflow project import /path/to/project`. `devflow dashboard --all-projects` renders the registry as a multi-project control-room view while preserving the existing single-project dashboard behavior.
 
-A missing registered project path is handled as explicit human-decision registry hygiene. The first command is `devflow project doctor <project_id>`. If the project exists elsewhere, the human repairs the registry by importing or re-registering the real project root. If the project was temporary, deleted, or intentionally retired, the default cleanup is `devflow project archive <project_id>` so the record remains audit-visible through `project list --include-archived` but drops out of normal lists and all-project scans. `devflow project remove <project_id> --registry-only` is reserved for junk registry entries that should not remain in audit history. Read-only all-project surfaces report missing paths and recommend `project doctor`; they do not recreate, archive, remove, publish, push, or call providers.
+A missing registered project path is handled as explicit human-decision registry hygiene. The first command is `devflow project doctor <project_id>`. If the project exists elsewhere, the human repairs the registry by importing or re-registering the real project root. If the project was temporary, deleted, or intentionally inactive, the default cleanup is `devflow project archive <project_id>` so the record remains audit-visible through `project list --include-archived` but drops out of normal lists and all-project scans. `devflow project remove <project_id> --registry-only` is reserved for junk registry entries that should not remain in audit history. Read-only all-project surfaces report missing paths and recommend `project doctor`; they do not recreate, archive, remove, publish, push, or call providers.
 
 Project task state is project-local. Without `--project`, task commands resolve the nearest ancestor that owns a `.devflow/` directory, falling back to the current directory only when no project-local state exists. With `--project <project_id>`, task create/list/show/run/verify/packet/review/next-action/log/review-patch/patch-dry-run/apply-patch/promote-preview/promote resolve the project root from `~/.devflow/registry/projects.json` and read or write that project's `.devflow/tasks/` and `.devflow/workspaces/` as appropriate. Task IDs remain unique within each project, not globally; cross-project output displays task refs as `<project_id>:<task_id>`. Project-scoped `promote-preview` is read-only. Project-scoped `promote` preserves the existing human confirmation and promotion safety gates while applying changes to the registered project root, not the caller's current directory.
 
@@ -312,19 +282,9 @@ The proof-agent form is `devflow task run <task_id> --worker devflow-manual-code
 
 The Project Code Map form is `CODE_MAP.md` plus `devflow map init`, `devflow map show`, and `devflow map check`. The map is a human-authored orientation artifact. When present, `devflow task packet <task_id>` includes a bounded excerpt so workers can orient before broad repo scans. The map is read-only context, not canonical task state, and it does not route models, call providers, or generate itself from source.
 
-The registry-backed local patch form is `devflow task run <task_id> --worker qwopus-implementer` or `devflow task run <task_id> --worker gemma4-12b-qat-implementer` when that model is installed and selected by explicit local-agent evidence. It calls local Ollama, writes `proposal.patch`, `raw_output.md`, `result.md`, `run.json`, and `logs/worker.log` under `.devflow/tasks/<task_id>/agents/<worker_id>/`, and stops. Dev-Flow remains responsible for explicit patch review, dry-run preview, application to the isolated workspace, verification, merge readiness, and human-controlled promotion. The `review-patch --agent` and `patch-dry-run --agent` forms normalize agent patch evidence into `.devflow/tasks/<task_id>/local-model-runs/<run_id>/`; apply-patch refuses mutation unless matching fresh acceptable review and dry-run evidence exists in the resolved project root. Normalized local-model patch review and patch dry-run evidence are documented in [docs/architecture/patch-evidence-ladder.md](architecture/patch-evidence-ladder.md); dry-run preview is evidence only and does not mutate source or workspace files.
+The model onboarding form is `devflow agent catalog --json`. Catalog is read-only: it shows active local providers, registered profiles, runtime contracts, and any missing local readiness state. Onboarding new model providers is not a default Dev-Flow workflow.
 
-The model onboarding form is `devflow agent catalog --json`, `devflow agent add-provider ...`, and `devflow agent add-model ...`. Catalog is read-only: it shows configured providers, registered profiles, runtime contracts, missing provider env vars, installed local Ollama models, and unregistered installed Ollama models. `add-provider` writes one `.devflow/providers/<provider_id>.yaml` after validation. `add-model` writes or upserts one `.devflow/agents/registry.yaml` profile from safe templates, deriving a deterministic profile id unless `--profile-id` is supplied. Local Ollama `read-only` profiles map to `agent run`, local Ollama `patch-proposer` profiles map to the existing local `proposal.patch` runtime, and remote `advisory` / `patch-proposer` profiles map to `agent advise` / `agent propose-patch`. Remote slugs for OpenRouter, OpenAI-compatible, OpenAI chat, Anthropic, Gemini, and custom configured providers are accepted without remote catalog calls. All generated profiles remain evidence-only or proposal-only: no autonomous routing, direct main checkout edits, worker-owned verification, promotion, commit, merge, or push.
-
-The local agent discovery form is `devflow agent discover-local --json` and `devflow agent select-local <task_id> --role implementation_worker --json`. Discovery calls only local Ollama, parses installed model manifests, and derives conservative capability profiles. Selection ranks installed registry agents for the requested role and writes `.devflow/tasks/<task_id>/agent-selection.json`. This is the current model-agnostic selection boundary: Dev-Flow should choose the best eligible installed profile for the explicit role from registry and manifest evidence, not from hard-coded model names. It does not run a worker, silently substitute a model, apply patches, verify, promote, merge, push, or call remote providers. Unregistered installed Ollama models are surfaced by catalog and become selectable only after explicit `agent add-model`. `task run` remains explicit and uses the selected worker only when the human or dogfood ladder invokes it.
-
-The task-fit/context-routing evidence form writes derived artifacts only. It classifies task fit, context size, scout signals, candidate eligibility, rejected candidates, unresolved roles, and post-run quality signals. It does not run workers, call remote providers, silently substitute models, verify, promote, commit, push, or create pull requests.
-
-The remote advisory form is `devflow agent advise --profile <profile_id> [--task <task_id>] --job <gap-analysis|review|status> --json`. Advisory runs are remote model evidence, not worker execution. They build bounded repo or task context, call only the configured provider for that profile when not in `--dry-run`, and write prompt, response, raw response, and `run.json` evidence under `.devflow/reports/agent-advisory-runs/<run_id>/` for repo-scope runs or `.devflow/tasks/<task_id>/agent-advisory-runs/<run_id>/` for task-scope runs. Run metadata records provider, model, prompt/response paths, usage when returned, recommendations, and `will_create_tasks`, `will_run_workers`, `will_apply_patch`, `will_verify`, `will_promote`, `will_commit`, `will_push`, and `will_write_source` as false. Provider config stores only environment variable names, never literal keys.
-
-The remote patch-proposal form is `devflow agent propose-patch --task <task_id> --profile <patch-surface-profile> --json`. It is an explicit human-invoked execution surface, not a Hermes cron command and not a task-run worker. Real model profiles should remain model/capability identities; a patch surface profile is a separate wrapper only when Dev-Flow needs that narrower write contract. It writes only `proposal.patch`, raw output, `run.json`, and summary evidence under `.devflow/tasks/<task_id>/agents/<profile_id>/`. The default `DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE=standard` path uses bounded TaskPacket/context-pack evidence; `DEVFLOW_OPENROUTER_PATCH_PROMPT_MODE=minimal` is an opt-in path for tiny explicit repair proposals that sends only task identity, referenced target snippets, verification guidance, and the JSON patch schema. The proposal must still pass the existing `task review-patch`, `task patch-dry-run`, `task apply-patch`, verification, and promotion gates before source changes can land.
-
-OpenRouter operator note: Hermes may be working with OpenRouter while a Codex/Desktop shell still reports `OPENROUTER_API_KEY` as unset, because Hermes keeps its local env in `~/.hermes/.env` and that file is not automatically inherited by Codex subprocesses, `launchctl`, or normal shell startup files. For one-off direct CLI proofs, load only the `OPENROUTER_API_KEY` value from `~/.hermes/.env`; do not source the whole Hermes env file because unrelated values may contain spaces or shell-sensitive paths. Minimal Flash patch proposals must disable provider-side reasoning with `{"enabled": false, "exclude": true}`. Do not use `reasoning.effort=minimal` for the minimal patch path: it can spend the entire 2,048-token completion budget on hidden reasoning, return `finish_reason: length`, `content: null`, and write failed evidence even though OpenRouter itself is working.
+The task-fit/context-routing evidence form writes derived artifacts only. It classifies task fit, context size, scout signals, candidate eligibility, rejected candidates, unresolved roles, and post-run quality signals. It does not run workers, call non-locals, silently substitute models, verify, promote, commit, push, or create pull requests.
 
 The role-scoped context-pack form is `devflow agent context-pack <task_id> <agent_id> --role <role> --json`. It writes derived context-pack evidence under `.devflow/tasks/<task_id>/context-packs/` from canonical TaskPacket data, without becoming canonical task state or routing authority. The derived agent-evidence form is `devflow agent evidence <task_id> --json`; it summarizes shell, manual proof-agent, local patch, and local model WorkerEvidence paths for inspection and operating-layer projection without mutating task state.
 
@@ -334,7 +294,7 @@ The guardrail outcome metadata form is `devflow worker validate-outcome <path-to
 
 The freshness loop form is `devflow freshness loop`. It runs one control-loop iteration against canonical goal and task state, writes a derived snapshot to `.devflow/freshness/latest.json`, appends `.devflow/freshness/events.jsonl`, updates each goal's derived `.devflow/goals/<goal_id>/loop-state.json`, records the loop-start Git checkpoint/push decision, projects per-goal loop state plus parallel-safe task lane recommendations, groups ready lanes into conflict-aware parallel batches using declared `shared_files`, projects conflict-aware shell-worker batches from concrete slice `worker_policy` command lists, projects conflict-aware verification batches from concrete slice `verification_policy` command lists, and reports stale or contradictory goal/task/handoff guidance. `devflow freshness run --max-iterations N` repeats that PLC-style loop within a strict iteration bound, persists a derived run report under `.devflow/freshness/control-runs/`, stops when state is stable, and stops before dispatch when Git checkpoint/push/sync/repair or human decisions are required. `devflow freshness run --all-projects --max-iterations N` repeats bounded-parallel, read-mostly scans across registered project roots, writes an aggregate bounded run report under `~/.devflow/freshness/control-runs/`, and refuses dispatch flags because project-level integration remains a controlled lane. `devflow freshness create-batch <goal_id> <batch_id>` creates tasks for one currently projected conflict-safe parallel batch, using the existing goal slice task-creation path and serializing canonical state writes. `devflow freshness run --create-tasks` is the explicit task-creation dispatch mode: it may create the first currently projected parallel task batch in a safe iteration, then loops again so the resulting checkpoint opportunity is surfaced before more work. `devflow freshness worker-batch <goal_id> <batch_id> --max-parallel N` executes one currently projected safe shell-worker batch with task-grained parallel subprocesses while preserving existing `run_shell_task` locks, logs, task events, and workspaces. `devflow freshness run --execute-workers` is the explicit worker dispatch mode: it may run the first currently projected shell-worker batch in a safe iteration, then loops again so changed workspace/task evidence is observed and the next Git checkpoint opportunity is surfaced before more work. `devflow freshness run --execute-verification` is the explicit verification dispatch mode: it may run the first currently projected verification batch in a safe iteration, then loops again so the next Git checkpoint opportunity is surfaced before more work. `devflow freshness verify-batch <goal_id> <batch_id> --max-parallel N` executes one currently projected safe verification batch with task-grained parallel subprocesses while preserving the existing `verify_task` locks, logs, `verification.json`, and task events. Batch creation, worker runs, and verification write derived reports under `.devflow/freshness/task-batch-runs/`, `.devflow/freshness/worker-runs/`, `.devflow/freshness/verification-runs/`, and `.devflow/freshness/control-runs/`; those reports are evidence about bounded control activity, never goal-completion certificates. The single-iteration CLI loop still projects only. `devflow freshness loop --all-projects` runs that same project-local loop across registered project roots with bounded concurrency, writes each project's local freshness snapshot, reassembles aggregate output in registry order, and writes a registry-level snapshot to `~/.devflow/freshness/latest-all-projects.json`. Missing active project paths are reported as human-decision items pointing to `devflow project doctor <project_id>` instead of crashing the loop. When repair is ambiguous, the loop exits with a human-decision status instead of rewriting docs, canonical goal artifacts, registry entries, commits, remotes, spawning workers, or starting verification processes.
 
-The reusable automation-loop form is `devflow loop`. `devflow loop init <loop_id> --template goal-autopilot` writes `.devflow/loops/<loop_id>/loop.yaml`; `loop show` and `loop list` expose those durable definitions. `devflow loop run <loop_id>` reads active goal/freshness projections and may create ready parallel-safe tasks by default. Shell-worker batches require `--allow-workers`; verification batches require `--allow-verify`; promotion requires the loop config's `policy.allow_promotion: true` plus `--allow-promote`, passed task verification, a clean promotion preview, and no open questions/blockers. Goal-linked tasks also honor `goal-link.yaml` promotion policy and high-risk lanes stop unless the loop policy explicitly allows them. Standalone verified tasks may be promoted when the loop-level gates pass. Every run writes `.devflow/loops/<loop_id>/runs/<run_id>.json` with final status, iteration count, created tasks, worker runs, verification results, promotion previews, promotions completed, stop reason, and next safe action. V1 refuses unknown actions and does not enable provider-backed workers, remote APIs, push, PR creation, publication, auto-commit, background daemons, or arbitrary command loops outside DevFlow task/workspace state.
+The reusable automation-loop form is `devflow loop`. `devflow loop init <loop_id> --template goal-autopilot` writes `.devflow/loops/<loop_id>/loop.yaml`; `loop show` and `loop list` expose those durable definitions. `devflow loop run <loop_id>` reads active goal/freshness projections and may create ready parallel-safe tasks by default. Shell-worker batches require `--allow-workers`; verification batches require `--allow-verify`; promotion requires the loop config's `policy.allow_promotion: true` plus `--allow-promote`, passed task verification, a clean promotion preview, and no open questions/blockers. Goal-linked tasks also honor `goal-link.yaml` promotion policy and high-risk lanes stop unless the loop policy explicitly allows them. Standalone verified tasks may be promoted when the loop-level gates pass. Every run writes `.devflow/loops/<loop_id>/runs/<run_id>.json` with final status, iteration count, created tasks, worker runs, verification results, promotion previews, promotions completed, stop reason, and next safe action. V1 refuses unknown actions and does not enable non-local workers, external APIs, push, PR creation, publication, auto-commit, background daemons, or arbitrary command loops outside DevFlow task/workspace state.
 
 Knowledge Foundry commands write proposed/promoted/rejected reusable notes under `.devflow/knowledge/`. Knowledge promotion is separate from task promotion; capture never silently converts ideas into tasks or goals. This is local human-reviewed curation, not ML training, hidden agent memory, vector search, or RAG.
 
@@ -344,13 +304,9 @@ The dogfood production-readiness form is `devflow dogfood run --suite production
 
 The release-readiness form is `devflow release readiness --pytest-evidence <pytest-log> --stale-context-evidence <stale-context-log>`. It is a read-only milestone gate over explicit evidence: clean Dev-Flow Git status, captured full-suite pytest output, latest production-readiness dogfood Silver-or-better scorecard, operating-layer visual QA desktop/mobile evidence, stale-context scan evidence, and a standard handoff report with one next safe action. It does not run heavy suites, mutate task state, promote, push, tag, build, or publish; it makes the release gate explicit after the expensive verification commands have already been run and captured.
 
-The local operating-layer form is `devflow operating-layer snapshot --json`, `devflow operating-layer serve --host 127.0.0.1 --port 8765`, and `devflow operating-layer install-service` for a per-user macOS LaunchAgent that starts the local server at login. It is the approved UI contract for a browser-friendly control-room surface. It composes existing project, goal, task, idea, freshness, verification, evidence, question, lane, and promotion projections into one derived snapshot and serves the bundled Python-owned UI over that same snapshot. The canonical first viewport is the actual control loop: Brainstorm, Pipeline, Worker lanes, Review queue, and Evidence stream. Idea Greenhouse V1 is visible in this surface as the current local intake UI for Raw / Clarify / Candidate / Promoted / Parked / Archived idea lanes derived from `.devflow/ideas/`. The deleted root `public/` static marketing/simulator surface is not the active Dev-Flow UI and must not be used for product validation. The normal browser loop starts with a DeepSeek V4 Flash Free brainstorm chat that writes local transcript/spec/plan evidence, then escalates through exact approval-gated task creation, shell worker execution, verification, and human promotion. The brainstorm model is advisory evidence only; it does not edit files, run workers, verify, promote, commit, push, or route work autonomously. Advanced Commands may execute supervisor-classified read-only Dev-Flow commands through the local server. The approval-gated browser mutation path is limited to exact idea capture, idea parking, idea archive, task creation, shell worker execution, task verification, and task promotion commands after explicit human approval; the server rechecks the supervisor classifier, refuses placeholder idea/title/command text, limits browser worker runs to `--worker shell`, blocks local/provider model commands, and preserves the existing verification and promotion safety gates. Non-shell worker execution, patch application, cleanup apply, sync, push, project publication, provider-backed task execution, autonomous routing, and other broad mutations remain blocked for trusted CLI execution. The filesystem remains the source of truth; the snapshot is derived and disposable. See [docs/architecture/local-operating-layer-ui.md](architecture/local-operating-layer-ui.md).
+The local operating-layer form is `devflow operating-layer snapshot --json`, `devflow operating-layer serve --host 127.0.0.1 --port 8765`, and `devflow operating-layer install-service` for a per-user macOS LaunchAgent that starts the local server at login. It is the approved UI contract for a browser-friendly control-room surface. It composes existing project, goal, task, idea, freshness, verification, evidence, question, lane, and promotion projections into one derived snapshot and serves the bundled Python-owned UI over that same snapshot. The canonical first viewport is the actual control loop: Brainstorm, Pipeline, Worker lanes, Review queue, and Evidence stream. Idea Greenhouse V1 is visible in this surface as the current local intake UI for Raw / Clarify / Candidate / Promoted / Parked / Archived idea lanes derived from `.devflow/ideas/`. Advanced Commands may execute supervisor-classified read-only Dev-Flow commands through the local server. The approval-gated browser mutation path is limited to exact idea capture, idea parking, idea archive, task creation, shell worker execution, task verification, and task promotion commands after explicit human approval; the server rechecks the supervisor classifier, refuses placeholder idea/title/command text, limits browser worker runs to `--worker shell`, blocks local/provider model commands, and preserves the existing verification and promotion safety gates. Non-shell worker execution, patch application, cleanup apply, sync, push, project publication, non-local task execution, autonomous routing, and other broad mutations remain blocked for trusted CLI execution. The filesystem remains the source of truth; the snapshot is derived and disposable. See [docs/architecture/local-operating-layer-ui.md](architecture/local-operating-layer-ui.md).
 
 During the repo cockpit transition, Idea Greenhouse, multi-project overview, and broad task boards are compatibility/read surfaces. They should not drive the target first viewport, which is the selected-repo guided pipeline over `.devflow/pipeline-runs/`.
-
-The legacy local Ollama advisory form is `devflow task local <task_id> --agent qwen-planner`, `devflow task local <task_id> --agent qwopus-implementer`, or `devflow task local <task_id> --agent gemma-reviewer --input-worker qwopus-implementer`. It runs `ollama run <model>` through a local subprocess, writes prompt/response/run metadata under `.devflow/workspaces/<task_id>/local-workers/<worker-name>/`, and updates `task.yaml` plus hash-chained events. It does not write `proposal.patch`, auto-edit repo files, parse model output as truth, route autonomously, verify, commit, merge, promote, or call remote provider APIs.
-
-The registry-backed local model worker-pool form is `devflow agent run --task <task_id> --profile local-gemma4-qat --dry-run --json` for preview and `devflow agent run --task <task_id> --profile local-gemma4-qat --json` for a long-context/vision local WorkerEvidence run. Use `local-qwen25-coder-14b` when code-specialist local review is the better fit. Profiles include machine class, weight class, model role name, capability metadata, caution notes, and manifest verification command. The real slice builds a bounded TaskPacket, calls `local_model_client.py`, writes WorkerEvidence under `.devflow/tasks/<task_id>/local-model-runs/<run-id>/`, caps raw output, captures failure, and stops. `local-gemma4-qat` uses a compact evidence packet plus native Ollama `/api/chat` with thinking disabled when required by the model/template. It does not edit source files, write `proposal.patch`, apply patches, verify, commit, merge, push, promote, or mutate canonical task state. See [docs/architecture/local-model-worker-pool.md](architecture/local-model-worker-pool.md).
 
 Do not implement these in the first milestone:
 
@@ -360,8 +316,6 @@ Do not implement these in the first milestone:
 - memory
 - complex scheduling
 - autonomous routing
-- remote provider-backed task-run adapter calls before explicit promotion into the runtime contract
-- autonomous remote provider escalation beyond explicit `agent advise` / `agent propose-patch` evidence commands
 - old task-packet workflow orchestration
 - PR automation
 - autonomous browser/web dashboard mutation surfaces
@@ -448,25 +402,6 @@ The default control-room task path does not create a SQLite database or `.devflo
 
 The production direction after the copy-workspace MVP is Git-native worker isolation and promotion: workers run in `.devflow/worktrees/<task_id>/<worker_id>/` on branches like `devflow/<task_id>/<worker_id>`, verification records the exact worker branch commit it checked, and promotion preview reports Git merge readiness instead of only copy-workspace changes. The first opt-in shell-worker slice is active.
 
-## Files To Keep Or Salvage Later
-
-These were useful historical ingredients, but active implementation now lives in the control-room modules instead of top-level legacy surfaces:
-
-- `src/devflow/cli.py`: current CLI entry point; likely replace argparse with Typer or simplify heavily.
-- `tests/`: salvage patterns, but expect the first MVP tests to be new shell-worker/control-room tests.
-- `pyproject.toml`: keep packaging entry point, but update dependencies when implementation begins.
-
-## Files And Surfaces To Bypass
-
-These belong to the old product direction and should not guide implementation:
-
-- legacy workflow, instruction, and skill copies if encountered outside the active repository tree
-- deleted legacy runtime paths and pure top-level legacy shims
-- old task-file unified-diff runner
-- old task claim/release/transition/status protocol
-
-Bypass means do not treat these surfaces as source of truth for the rebuild; deleted surfaces should not be restored just to satisfy old imports.
-
 ## Files To Create For The MVP
 
 Expected implementation files:
@@ -502,7 +437,7 @@ For default copy-workspace tasks, the explicit `devflow task promote <task_id>` 
 
 ## Acceptance Gauntlet
 
-Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No provider-backed task-run adapter, database, autonomous browser dashboard mutation surface, or worktree orchestration is part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
+Create one shell task, run `echo hello > result.txt`, verify `test -f result.txt`, list it, show it, inspect the dashboard, preview promotion, and promote only after explicit human approval. Before promotion, the command result must exist only under `.devflow/workspaces/<task_id>/`. No worker may mutate the main checkout directly. No non-local task-run adapter, database, autonomous browser dashboard mutation surface, or worktree orchestration is part of this acceptance test. The manual proof-agent acceptance path additionally requires `agent show`, `agent packet`, and `task run --worker devflow-manual-codex-worker` to produce bounded handoff/evidence surfaces without executing provider APIs.
 
 ## Current Implementation Status
 
@@ -539,15 +474,9 @@ Implemented:
 - task closure evidence with explicit outcomes, inactive closed status, and preserved logs/artifacts
 - preview-first cleanup for closed tasks that removes only conservative task-owned `.devflow` runtime artifacts on `--apply`
 - preview-first pruning for old closed-task evidence that deletes only safe `.devflow/tasks/<task_id>/` evidence on explicit `--apply` and records `.devflow/prune-runs/<run-id>.json`
-- `devflow task local` for local Qwen/Qwopus/Gemma advisory evidence capture with 600-second defaults, raw response preservation, stderr capture, and run metadata under the task workspace
-- `devflow task run --worker qwopus-implementer` and `devflow task run --worker gemma4-12b-qat-implementer` for canonical local Ollama `proposal.patch` evidence that Dev-Flow applies and verifies separately
 - `devflow agent context-pack` and `devflow agent evidence` for derived, non-canonical role context and task-local worker evidence summaries
-- `devflow agent discover-local` and `devflow agent select-local` for model-agnostic installed local agent ranking by explicit role
-- `devflow agent catalog`, `devflow agent add-provider`, and `devflow agent add-model` for one-command provider/profile onboarding from safe templates
-- OpenRouter provider seed config using `https://openrouter.ai/api/v1`, `openai_compatible`, and `OPENROUTER_API_KEY`
-- registry-visible simplified Hermes/OpenRouter/local profiles with capability metadata and explicit configured-provider evidence surfaces
-- `devflow agent advise` for dry-run or explicit configured-provider advisory evidence without task creation, worker runs, patch application, verification, promotion, commit, or push
-- `devflow agent propose-patch` for explicit registry-backed configured-provider patch proposal evidence that still depends on existing patch review/dry-run/apply/verification/promotion gates
+- `devflow agent catalog` for read-only registry and local readiness visibility
+- registry-visible simplified Hermes/local profiles with capability metadata and explicit local evidence surfaces
 - `devflow task orchestrate --plan-only` for plan-only parallel-worker policy evidence
 - `devflow worker validate-outcome` for structured guardrail outcome metadata validation
 - Knowledge Foundry commands for proposed/promoted/rejected local reusable knowledge notes
@@ -559,12 +488,10 @@ Outside the current product contract:
 - autonomous browser/web dashboard mutation surface
 - token-context helper (Completed helper; acts purely as a visible planning helper that recommends context strategy. It does not execute token tools, route models, install hooks, or change shell-worker, merge, or verification behavior.)
 - autonomous task-fit/context routing runtime beyond the Milestone 17 evidence-only commands. The current local selector ranks eligible installed agents for an explicit role, and the routing evidence commands write derived fit, scout, route, and scorecard artifacts only; they do not autonomously pick the best model for arbitrary tasks, invoke workers, or change shell-worker behavior.
-- provider-backed non-shell task-run adapters
-- Ollama keep-alive/model-stop controls for local resource pressure
-- remote provider-backed registry and adapter-runtime task execution beyond the current shell/manual/local-patch/local-evidence/OpenRouter-evidence guardrails
+- non-local non-shell task-run adapters
 - SQLite or other databases
-- provider-backed `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
-- multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and provider-backed Git worktree promotion beyond the current opt-in shell-worker slice
+- non-local `.devflow/worktrees/` orchestration beyond the opt-in shell-worker slice
+- multi-worker worktree scheduling, branch-sharing cleanup beyond strict doctor detection, and non-local Git worktree promotion beyond the current opt-in shell-worker slice
 - vector databases, RAG, ML training, hidden memory, and automatic self-training
 
 > [!IMPORTANT]
@@ -577,7 +504,7 @@ Milestone 26 closed the Operational Baseline / Trust Pass. The accepted proof us
 
 The proof originally failed because non-git copy-workspace promotion reused Git-only baseline and dirty-check guards. The closure repair keeps Git baseline/dirty checks for Git projects, keeps extra confirmation for deletion-applying and Git-native promotions, and allows default copy-workspace promotion in non-git scratch projects after verification and promotion preview.
 
-The next safe product direction is aggressive local automation with hard stops: preserve the operational baseline, make verification evidence easy to find, expose concrete task controls in the operating layer, and use `devflow loop` where it removes babysitting from routine DevFlow-native work. Do not jump directly to provider-backed task-run adapters, hidden autonomous routing, databases, auto-resume without clear state, ungated auto-promotion, push/PR/publication automation, or new worker capability. If a later milestone moves toward non-shell workers, begin with architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, and context pack building before any local/OpenAI-compatible/native provider adapter.
+The next safe product direction is aggressive local automation with hard stops: preserve the operational baseline, make verification evidence easy to find, expose concrete task controls in the operating layer, and use `devflow loop` where it removes babysitting from routine DevFlow-native work. Do not jump directly to non-local task-run adapters, hidden autonomous routing, databases, auto-resume without clear state, ungated auto-promotion, push/PR/publication automation, or new worker capability. If a later milestone moves toward non-shell workers, begin with architecture/contract alignment, registry loading/list/show/packet surfaces, manual adapter and shell alignment, deterministic task-fit/context estimation, and context pack building before any local/OpenAI-compatible/native provider adapter.
 
 
 ## Milestone 1 Checkpoint: Shell-Worker Control Room Completed
@@ -635,7 +562,7 @@ The following areas are out-of-scope for the completed MVP and deferred:
 
 ### Dogfooding Requirement
 
-Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add provider-backed task-run adapters, autonomous routing, scheduling, or old workflow machinery before the shell-worker and manual proof-agent loop stays stable.
+Future implementation slices should use Dev-Flow shell tasks or local worker commands where practical. This is required dogfooding for task isolation, logs, verification evidence, dashboard visibility, promotion previews, and handoff quality. It must not be used as justification to add non-local task-run adapters, autonomous routing, scheduling before the shell-worker and manual proof-agent loop stays stable.
 
 Run `devflow dogfood run --suite production-readiness` as the lightweight milestone readiness harness when changing the control-room pipeline. Silver is the current local readiness gate; lower scores should drive the smallest real improvement rather than weaker cases. Operating-layer changes must preserve the visual QA case, including desktop/mobile evidence, no-overflow checks, guided first viewport, active work cards, approval states, Advanced Commands, and current/baseline status.
 

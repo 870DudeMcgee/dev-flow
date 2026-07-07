@@ -22,8 +22,10 @@ def test_context_pack_generation_and_saving(tmp_path: Path) -> None:
     save_task(task_dir_path, task)
 
     # Add strategic files in mock root
-    sf = tmp_path / "PRODUCT_NORTH_STAR.md"
-    sf.write_text("# Product Vision\ncontrol room first milestone\n", encoding="utf-8")
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(parents=True)
+    sf = docs_dir / "DEVFLOW_SOURCE_OF_TRUTH.md"
+    sf.write_text("# DevFlow Source of Truth\nIdea -> Brainstorm -> Spec -> Plan -> Judge -> Build -> Judge -> Verify\n", encoding="utf-8")
 
     # Add dummy source files
     src_dir = tmp_path / "src/devflow/control_room"
@@ -35,7 +37,7 @@ def test_context_pack_generation_and_saving(tmp_path: Path) -> None:
     planner_pack = build_context_pack(tmp_path, task.id, "planner")
     cp = planner_pack["context_pack"]
     assert cp["role"] == "planner"
-    assert any("PRODUCT_NORTH_STAR.md" in inc for inc in cp["includes"])
+    assert any("docs/DEVFLOW_SOURCE_OF_TRUTH.md" in inc for inc in cp["includes"])
     # Planner excludes raw source code content
     assert any("src/devflow/control_room/service.py" in exc for exc in cp["excludes"])
 
@@ -46,7 +48,7 @@ def test_context_pack_generation_and_saving(tmp_path: Path) -> None:
     # Worker includes raw source code
     assert any("src/devflow/control_room/service.py" in inc for inc in cp_w["includes"])
     # Worker excludes vision docs
-    assert any("PRODUCT_NORTH_STAR.md" in exc for exc in cp_w["excludes"])
+    assert any("docs/DEVFLOW_SOURCE_OF_TRUTH.md" in exc for exc in cp_w["excludes"])
 
     # 4. Save pack and verify yaml existence
     save_context_pack(tmp_path, task.id, "planner", planner_pack)
@@ -55,7 +57,7 @@ def test_context_pack_generation_and_saving(tmp_path: Path) -> None:
     
     yaml_content = yaml_file.read_text(encoding="utf-8")
     assert "role: planner" in yaml_content
-    assert "PRODUCT_NORTH_STAR.md" in yaml_content
+    assert "docs/DEVFLOW_SOURCE_OF_TRUTH.md" in yaml_content
 
 
 def test_context_pack_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,7 +66,7 @@ def test_context_pack_cli_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     (tmp_path / ".devflow/workspaces").mkdir(parents=True)
 
     # 2. Create task
-    task = create_task(tmp_path, "Clean up documentation in PRODUCT_NORTH_STAR.md")
+    task = create_task(tmp_path, "Clean up documentation in docs/DEVFLOW_SOURCE_OF_TRUTH.md")
     task_dir_path = tmp_path / ".devflow/tasks" / task.id
     save_task(task_dir_path, task)
 
@@ -90,16 +92,16 @@ def test_build_context_pack_is_role_scoped_and_derived(tmp_path: Path) -> None:
     pack = build_context_pack(
         tmp_path,
         task.id,
-        agent_id="qwopus-implementer",
+        agent_id="ornith-builder",
         role="implementation_worker",
     )
 
     assert pack.task_id == task.id
-    assert pack.agent_id == "qwopus-implementer"
+    assert pack.agent_id == "ornith-builder"
     assert pack.role == "implementation_worker"
     assert (
         pack.source_packet_path
-        == f".devflow/tasks/{task.id}/context-packs/implementation_worker-qwopus-implementer.packet.json"
+        == f".devflow/tasks/{task.id}/context-packs/implementation_worker-ornith-builder.packet.json"
     )
     assert "<task>/task.yaml" in pack.included_sources
     assert ".env" in "\n".join(pack.excluded_sources)
@@ -115,7 +117,7 @@ def test_write_context_pack_writes_json_and_markdown_without_mutating_task(tmp_p
     result = write_context_pack(
         tmp_path,
         task.id,
-        agent_id="qwopus-implementer",
+        agent_id="ornith-builder",
         role="reviewer",
     )
 
@@ -123,7 +125,7 @@ def test_write_context_pack_writes_json_and_markdown_without_mutating_task(tmp_p
     assert result.markdown_path.is_file()
     payload = json.loads(result.json_path.read_text(encoding="utf-8"))
     assert payload["role"] == "reviewer"
-    assert payload["agent_id"] == "qwopus-implementer"
+    assert payload["agent_id"] == "ornith-builder"
     assert task_yaml.read_text(encoding="utf-8") == before
 
 
@@ -134,11 +136,11 @@ def test_agent_context_pack_cli_writes_paths(tmp_path: Path, monkeypatch: pytest
 
     result = runner.invoke(
         app,
-        ["agent", "context-pack", "task-0001", "qwopus-implementer", "--role", "implementation_worker", "--json"],
+        ["agent", "context-pack", "task-0001", "ornith-builder", "--role", "implementation_worker", "--json"],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["task_id"] == "task-0001"
-    assert payload["agent_id"] == "qwopus-implementer"
-    assert payload["json_path"].endswith("implementation_worker-qwopus-implementer.json")
+    assert payload["agent_id"] == "ornith-builder"
+    assert payload["json_path"].endswith("implementation_worker-ornith-builder.json")
