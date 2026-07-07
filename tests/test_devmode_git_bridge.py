@@ -97,7 +97,7 @@ def test_generated_task_packet_includes_devmode_bridge_instructions() -> None:
         packet = build_task_packet("task-0001", root=root)
         rendered = render_task_packet_text(packet)
 
-        assert "Before modifying files, load/use DevMode `using-devmode`." in packet.devmode_discipline
+        assert "Before modifying files, follow `AGENTS.md` and the DevFlow workflow adapter." in packet.devmode_discipline
         assert "## DevMode Discipline" in rendered
         assert "Do not merge, promote, push, rebase, or resolve conflicts" in rendered
 

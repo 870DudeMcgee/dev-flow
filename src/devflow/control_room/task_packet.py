@@ -633,7 +633,7 @@ def _constraints(virtual_workspace_path: str) -> list[str]:
         "summary.json is derived/cache only and cannot override canonical state.",
         f"Worker execution must stay inside {virtual_workspace_path}.",
         "Dev-Flow owns verification, merge readiness, and human approval gates.",
-        "DevMode is the agent-facing discipline layer; load `using-devmode` before modifying files.",
+        "Follow `AGENTS.md` and the DevFlow workflow adapter before modifying files.",
     ]
 
 

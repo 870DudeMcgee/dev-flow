@@ -80,8 +80,8 @@ def devmode_discipline_lines(root: Path | None = None) -> list[str]:
         else:
             skill_refs.append(f"{skill.name}: missing")
     return [
-        "DevMode discipline:",
-        "Before modifying files, load/use DevMode `using-devmode`.",
+        "DevFlow workflow discipline:",
+        "Before modifying files, follow `AGENTS.md` and the DevFlow workflow adapter.",
         "Because `.devflow/` exists, also apply `workspace-isolation`.",
         "Use `using-git-worktrees` when creating or entering workspaces.",
         "Use `verification-before-completion` before completion claims.",
@@ -89,7 +89,7 @@ def devmode_discipline_lines(root: Path | None = None) -> list[str]:
         "Use `finishing-a-development-branch` only when explicitly finishing a branch.",
         "Do not write to the main checkout from a worker workspace.",
         "Do not merge, promote, push, rebase, or resolve conflicts unless the Dev-Flow command explicitly authorizes it.",
-        "Installed/local DevMode skill references: " + "; ".join(skill_refs),
+        "Installed/local workflow skill references: " + "; ".join(skill_refs),
     ]
 
 

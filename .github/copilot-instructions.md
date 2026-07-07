@@ -7,7 +7,7 @@ This harness file is an adapter, not the source of truth.
 Instruction priority:
 1. Platform, system, developer, and safety instructions
 2. Explicit user instructions
-3. Repository instructions such as this file, `AGENTS.md`, and DevMode skills
+3. Repository instructions such as this file, `AGENTS.md`, and task-relevant skills
 
 Operating rules:
 - Prefer targeted search/read operations before opening whole files.
