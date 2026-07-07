@@ -71,6 +71,7 @@ class OperatingLayerRequestHandler(ActionsAgentsTaskContextHandlerMixin, BrowseS
         "/api/brainstorm/escalate": "_handle_brainstorm_escalation",
         "/api/brainstorm/start-from-idea": "_handle_start_from_idea",
         "/api/brainstorm/create-task": "_handle_brainstorm_create_task",
+        "/api/brainstorm/classify": "_handle_brainstorm_classify",
         "/api/obsidian/task-preview": "_handle_obsidian_task_preview",
         "/api/obsidian/task-create": "_handle_obsidian_task_create",
         "/api/obsidian/scout-pack-preview": "_handle_obsidian_scout_pack_preview",

@@ -166,3 +166,25 @@ def _payload_project_root(repo_root: Path, payload: dict[str, object]) -> Path:
     if isinstance(project_id, str) and project_id.strip():
         return resolve_project_root(repo_root, project_id.strip()).root
     return repo_root
+
+
+def classify_brainstorm_payload(repo_root: Path, payload: dict[str, object]) -> dict[str, Any]:
+    """Validate payload and classify brainstorm intent.
+
+    POST /api/brainstorm/classify body: {operator_intent, run_id?, project?}
+    If run_id is provided, writes classification.json to the pipeline run.
+    """
+    from devflow.control_room.brainstorm_pipeline import (
+        build_classification_preview,
+        classify_and_attach_to_run,
+    )
+
+    root = _payload_project_root(repo_root, payload)
+    operator_intent = payload.get("operator_intent")
+    if not isinstance(operator_intent, str) or not operator_intent.strip():
+        raise BrainstormError("operator_intent is required and must be a non-empty string")
+
+    run_id = payload.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        return classify_and_attach_to_run(root, run_id.strip(), operator_intent.strip())
+    return build_classification_preview({"operator_intent": operator_intent.strip()})

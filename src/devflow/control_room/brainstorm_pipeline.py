@@ -911,3 +911,287 @@ def _read_transcript(path: Path) -> list[dict[str, Any]]:
 
 def _session_dir(root: Path, session_id: str) -> Path:
     return root / ".devflow" / "brainstorms" / session_id
+
+
+# ---------------------------------------------------------------------------
+# Classification gate (RLC-04) — rule-based, no LLM needed
+# ---------------------------------------------------------------------------
+
+# Known deterministic-tool commands that can be handled without models.
+DETERMINISTIC_TOOL_COMMANDS: dict[str, str] = {
+    "extract_module": "Extract a module using tree-sitter",
+    "lint_check": "Run lint/format checks",
+    "test_run": "Run test suite",
+    "dependency_scan": "Scan dependency graph",
+    "codebase_survey": "Survey codebase structure",
+}
+
+# Known loop presets for the repo-loop cockpit.
+LOOP_PRESETS: dict[str, str] = {
+    "single_file_edit": "Single-file edit with verification",
+    "multi_file_refactor": "Multi-file refactor with builder-judge",
+    "new_feature": "New feature scaffold with tests",
+    "bug_fix": "Bug fix with regression test",
+    "documentation": "Documentation update or generation",
+    "performance": "Performance optimization pass",
+}
+
+# Keyword-to-work-type rules (ordered by specificity, first match wins).
+_WORK_TYPE_RULES: list[tuple[list[str], str]] = [
+    (["extract", "refactor", "rename", "move"], "refactor"),
+    (["bug", "fix", "regression", "crash", "error"], "bug_fix"),
+    (["test", "coverage", "spec", "assert"], "testing"),
+    (["doc", "readme", "comment", "describe", "document"], "documentation"),
+    (["perf", "speed", "slow", "optimize", "fast", "latency"], "performance"),
+    (["feature", "add", "new", "implement", "build", "create", "scaffold"], "new_feature"),
+    (["review", "audit", "check", "verify", "inspect"], "review"),
+    (["cleanup", "tidy", "remove dead", "prune", "unused"], "cleanup"),
+    (["config", "setup", "install", "deploy", "infra"], "infrastructure"),
+]
+
+# Keyword-to-deterministic-tool rules.
+_DETERMINISTIC_TOOL_RULES: list[tuple[list[str], str]] = [
+    (["extract module", "extract function", "tree-sitter"], "extract_module"),
+    (["lint", "ruff", "format", "style check"], "lint_check"),
+    (["test", "pytest", "unit test", "integration test"], "test_run"),
+    (["dependen", "import", "graph"], "dependency_scan"),
+    (["survey", "map", "scan codebase", "codebase structure"], "codebase_survey"),
+]
+
+
+class ClassificationResult(BaseModel):
+    """Output of the brainstorm-to-classification gate.
+
+    Rule-based classification that produces a serializable ``classification.json``
+    artifact. No LLM calls — pure keyword/pattern matching.
+    """
+
+    schema_version: int = 1
+    work_type: str
+    rationale: str
+    deterministic_tool_eligible: bool = False
+    deterministic_tool_command: str | None = None
+    eligible_presets: list[str] = Field(default_factory=list)
+    recommended_preset: str | None = None
+    why_not_alternatives: str = ""
+
+
+def classify_brainstorm_intent(intent_text: str) -> ClassificationResult:
+    """Classify brainstorm intent using rule-based keyword matching.
+
+    Args:
+        intent_text: The operator's brainstorm intent or implementation description.
+
+    Returns:
+        A ``ClassificationResult`` with work type, rationale, deterministic-tool
+        eligibility, eligible presets, and a recommended preset.
+    """
+    text = str(intent_text or "").strip().lower()
+    if not text:
+        return ClassificationResult(
+            work_type="unknown",
+            rationale="No intent text provided for classification.",
+            eligible_presets=list(LOOP_PRESETS.keys()),
+            recommended_preset=None,
+            why_not_alternatives="Cannot recommend without intent.",
+        )
+
+    # --- Work type classification ---
+    work_type = "general"
+    matched_keywords: list[str] = []
+    for keywords, wt in _WORK_TYPE_RULES:
+        for kw in keywords:
+            if kw in text:
+                work_type = wt
+                matched_keywords.append(kw)
+                break
+        if matched_keywords:
+            break
+
+    rationale_parts: list[str] = []
+    if matched_keywords:
+        rationale_parts.append(
+            f"Matched keyword(s): {', '.join(repr(k) for k in matched_keywords)}."
+        )
+    else:
+        rationale_parts.append("No specific work-type keywords matched.")
+    rationale_parts.append(f"Classified as '{work_type}' based on intent text.")
+    rationale = " ".join(rationale_parts)
+
+    # --- Deterministic-tool eligibility ---
+    deterministic_tool_eligible = False
+    deterministic_tool_command: str | None = None
+    for keywords, command in _DETERMINISTIC_TOOL_RULES:
+        for kw in keywords:
+            if kw in text:
+                deterministic_tool_eligible = True
+                deterministic_tool_command = command
+                break
+        if deterministic_tool_eligible:
+            break
+
+    # --- Eligible presets ---
+    eligible_presets = _eligible_presets_for_work_type(work_type)
+
+    # --- Recommended preset ---
+    recommended_preset = _recommend_preset(
+        work_type, deterministic_tool_eligible, deterministic_tool_command
+    )
+
+    # --- Why not alternatives ---
+    why_not = _build_why_not(
+        work_type,
+        recommended_preset,
+        eligible_presets,
+        deterministic_tool_eligible,
+        deterministic_tool_command,
+    )
+
+    return ClassificationResult(
+        work_type=work_type,
+        rationale=rationale,
+        deterministic_tool_eligible=deterministic_tool_eligible,
+        deterministic_tool_command=deterministic_tool_command,
+        eligible_presets=eligible_presets,
+        recommended_preset=recommended_preset,
+        why_not_alternatives=why_not,
+    )
+
+
+def build_classification_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    """Build a classification preview from a request payload.
+
+    Validates required fields and returns a preview dict without writing
+    any files. Used by the classification route for operator confirmation.
+
+    Raises ``ValueError`` if ``operator_intent`` is missing.
+    """
+    operator_intent = payload.get("operator_intent")
+    if not isinstance(operator_intent, str) or not operator_intent.strip():
+        raise ValueError("operator_intent is required and must be a non-empty string")
+
+    result = classify_brainstorm_intent(operator_intent.strip())
+    return {
+        "ok": True,
+        "operator_intent": operator_intent.strip(),
+        "classification": result.model_dump(mode="json"),
+        "will_write_classification": True,
+    }
+
+
+def write_classification_to_pipeline_run(
+    root: Path,
+    run_id: str,
+    classification: ClassificationResult,
+) -> None:
+    """Write classification.json into an existing pipeline run directory.
+
+    Raises ``FileNotFoundError`` if the run does not exist.
+    """
+    from devflow.control_room.pipeline_run import (
+        _run_dir,
+        update_pipeline_run_record,
+    )
+
+    run_dir = _run_dir(root, run_id)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Pipeline run not found: {run_id}")
+    update_pipeline_run_record(
+        root, run_id, "classification.json", classification.model_dump(mode="json")
+    )
+
+
+def classify_and_attach_to_run(
+    root: Path,
+    run_id: str,
+    operator_intent: str,
+) -> dict[str, Any]:
+    """Classify intent and write classification.json to a pipeline run.
+
+    Convenience function combining classification and persistence.
+    Returns the classification result plus run metadata.
+    """
+    from devflow.control_room.pipeline_run import _run_dir, pipeline_runs_dir
+
+    classification = classify_brainstorm_intent(operator_intent)
+    write_classification_to_pipeline_run(root, run_id, classification)
+    run_dir = _run_dir(root, run_id)
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "classification": classification.model_dump(mode="json"),
+        "classification_path": str(run_dir / "classification.json"),
+        "pipeline_runs_dir": str(pipeline_runs_dir(root)),
+    }
+
+
+def _eligible_presets_for_work_type(work_type: str) -> list[str]:
+    """Return eligible presets for a given work type."""
+    preset_map: dict[str, list[str]] = {
+        "refactor": ["multi_file_refactor", "single_file_edit"],
+        "bug_fix": ["bug_fix", "single_file_edit"],
+        "testing": ["single_file_edit", "multi_file_refactor"],
+        "documentation": ["documentation", "single_file_edit"],
+        "performance": ["performance", "multi_file_refactor"],
+        "new_feature": ["new_feature", "multi_file_refactor"],
+        "review": ["single_file_edit"],
+        "cleanup": ["single_file_edit", "multi_file_refactor"],
+        "infrastructure": ["single_file_edit"],
+        "general": list(LOOP_PRESETS.keys()),
+        "unknown": list(LOOP_PRESETS.keys()),
+    }
+    return preset_map.get(work_type, list(LOOP_PRESETS.keys()))
+
+
+def _recommend_preset(
+    work_type: str,
+    deterministic_tool_eligible: bool,
+    deterministic_tool_command: str | None,
+) -> str | None:
+    """Recommend a preset based on work type and deterministic-tool eligibility."""
+    if deterministic_tool_eligible and deterministic_tool_command:
+        return None  # Deterministic tool lane, not a loop preset
+    recommendations: dict[str, str] = {
+        "refactor": "multi_file_refactor",
+        "bug_fix": "bug_fix",
+        "testing": "single_file_edit",
+        "documentation": "documentation",
+        "performance": "performance",
+        "new_feature": "new_feature",
+        "review": "single_file_edit",
+        "cleanup": "single_file_edit",
+        "infrastructure": "single_file_edit",
+    }
+    return recommendations.get(work_type)
+
+
+def _build_why_not(
+    work_type: str,
+    recommended_preset: str | None,
+    eligible_presets: list[str],
+    deterministic_tool_eligible: bool,
+    deterministic_tool_command: str | None,
+) -> str:
+    """Build explanation for why alternatives were not recommended."""
+    parts: list[str] = []
+    if deterministic_tool_eligible and deterministic_tool_command:
+        parts.append(
+            f"Deterministic tool '{deterministic_tool_command}' is eligible; "
+            "a deterministic tool lane may handle this without a loop preset."
+        )
+        if recommended_preset is None:
+            parts.append("No loop preset recommended — route to deterministic tool lane instead.")
+    elif recommended_preset:
+        alternatives = [p for p in eligible_presets if p != recommended_preset]
+        if alternatives:
+            parts.append(
+                f"Recommended '{recommended_preset}' over "
+                f"{', '.join(repr(a) for a in alternatives)} based on work type '{work_type}'."
+            )
+        else:
+            parts.append(f"'{recommended_preset}' is the only eligible preset for '{work_type}'.")
+    elif work_type in ("general", "unknown"):
+        parts.append("Work type is general/unknown; no specific recommendation available.")
+    else:
+        parts.append(f"No preset recommendation for work type '{work_type}'.")
+    return " ".join(parts)

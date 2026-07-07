@@ -17,6 +17,7 @@ from devflow.control_room.operating_layer_brainstorm_routes import (
     BrainstormRouteBadRequest,
     build_brainstorm_sessions_payload,
     build_brainstorm_transcript_payload,
+    classify_brainstorm_payload,
     create_brainstorm_task_payload,
     escalate_brainstorm_payload,
     run_brainstorm_message_payload,
@@ -79,6 +80,15 @@ class BrainstormHandlerMixin:
         try:
             payload = self._read_json_body()
             result = create_brainstorm_task_payload(self.server.repo_root, payload)
+        except BRAINSTORM_POST_BAD_REQUEST_ERRORS as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_brainstorm_classify(self) -> None:
+        try:
+            payload = self._read_json_body()
+            result = classify_brainstorm_payload(self.server.repo_root, payload)
         except BRAINSTORM_POST_BAD_REQUEST_ERRORS as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return
