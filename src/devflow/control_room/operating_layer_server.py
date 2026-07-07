@@ -75,6 +75,7 @@ class OperatingLayerRequestHandler(ActionsAgentsTaskContextHandlerMixin, BrowseS
         "/api/obsidian/task-create": "_handle_obsidian_task_create",
         "/api/obsidian/scout-pack-preview": "_handle_obsidian_scout_pack_preview",
         "/api/obsidian/scout-pack-create": "_handle_obsidian_scout_pack_create",
+        "/api/pipeline/intake": "_handle_pipeline_intake",
         "/api/builder-judge/start": "_handle_builder_judge_start",
         "/api/builder-judge/quality-gate": "_handle_builder_judge_quality_gate",
         "/api/workbench/project": "_handle_workbench_project",

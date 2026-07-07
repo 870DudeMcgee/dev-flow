@@ -170,6 +170,53 @@ def _task_create_command(title: str, definition_of_done: str) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
 
+def build_curated_packet_preview(payload: dict[str, Any]) -> dict[str, Any]:
+    source = _clean(payload.get("source"))
+    operator_intent = _clean(payload.get("operator_intent"))
+    if not source:
+        raise ValueError("source is required")
+    if not operator_intent:
+        raise ValueError("operator_intent is required")
+    return {
+        "ok": True,
+        "source": source,
+        "repo": payload.get("repo"),
+        "operator_intent": operator_intent,
+        "constraints": payload.get("constraints"),
+        "acceptance_criteria": payload.get("acceptance_criteria"),
+        "suggested_preset": payload.get("suggested_preset"),
+        "known_docs_files": payload.get("known_docs_files"),
+        "will_create_run": True,
+    }
+
+
+def create_pipeline_run_from_curated_packet(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    from devflow.control_room.pipeline_run import (
+        create_pipeline_run,
+        pipeline_runs_dir,
+        update_pipeline_run_record,
+    )
+
+    preview = build_curated_packet_preview(payload)
+    source_dict = {
+        "source": preview["source"],
+        "repo": preview["repo"],
+        "operator_intent": preview["operator_intent"],
+        "constraints": preview["constraints"],
+        "acceptance_criteria": preview["acceptance_criteria"],
+        "suggested_preset": preview["suggested_preset"],
+    }
+    run_id = create_pipeline_run(root, source_dict)
+    update_pipeline_run_record(root, run_id, "intent.md", preview["operator_intent"])
+    runs = pipeline_runs_dir(root)
+    return {
+        **preview,
+        "run_id": run_id,
+        "status": "created",
+        "pipeline_runs_dir": str(runs),
+    }
+
+
 def _clean(value: Any) -> str | None:
     if value is None:
         return None

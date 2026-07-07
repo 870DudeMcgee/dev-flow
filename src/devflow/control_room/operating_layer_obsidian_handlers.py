@@ -17,6 +17,7 @@ from devflow.control_room.obsidian_cards import fetch_obsidian_cards_payload
 from devflow.control_room.obsidian_task_bridge import (
     build_obsidian_scout_pack_preview,
     build_obsidian_task_preview,
+    create_pipeline_run_from_curated_packet,
     create_task_from_obsidian_card,
     create_tasks_from_obsidian_scout_pack,
 )
@@ -66,6 +67,16 @@ class ObsidianHandlerMixin:
             payload = self._read_json_body()
             root = self._payload_project_root(payload)
             result = create_tasks_from_obsidian_scout_pack(root, payload)
+        except (ProjectRegistryError, ValueError, OSError) as exc:
+            self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json(result, HTTPStatus.OK)
+
+    def _handle_pipeline_intake(self) -> None:
+        try:
+            payload = self._read_json_body()
+            root = self._payload_project_root(payload)
+            result = create_pipeline_run_from_curated_packet(root, payload)
         except (ProjectRegistryError, ValueError, OSError) as exc:
             self._send_json_error(str(exc), HTTPStatus.BAD_REQUEST)
             return

@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from devflow.control_room.obsidian_task_bridge import (
+    build_curated_packet_preview,
     build_obsidian_task_preview,
     build_obsidian_scout_pack_preview,
+    create_pipeline_run_from_curated_packet,
     create_task_from_obsidian_card,
     create_tasks_from_obsidian_scout_pack,
 )
@@ -151,3 +155,48 @@ def test_obsidian_scout_pack_create_makes_five_tasks_and_link_events(tmp_path: P
         assert events[1]["source_path"] == "Inbox/scout-pack-create.md"
         assert events[1]["source_card_id"] == "card-scout-pack-2"
         assert events[1]["project"] == "[[Dev-Flow]]"
+
+
+def test_curated_packet_preview_validates_required_fields() -> None:
+    with pytest.raises(ValueError):
+        build_curated_packet_preview({"repo": "test"})
+    with pytest.raises(ValueError):
+        build_curated_packet_preview({"source": "obsidian", "repo": "test"})
+
+
+def test_curated_packet_preview_returns_fields(tmp_path: Path) -> None:
+    payload = {
+        "source": "obsidian-handoff",
+        "repo": "/tmp/test-repo",
+        "operator_intent": "Refactor the handler module",
+        "constraints": "No breaking changes",
+        "acceptance_criteria": "All tests pass",
+        "suggested_preset": "builder-judge",
+        "known_docs_files": ["docs/arch.md"],
+    }
+    preview = build_curated_packet_preview(payload)
+    assert preview["ok"] is True
+    assert preview["source"] == "obsidian-handoff"
+    assert preview["operator_intent"] == "Refactor the handler module"
+    assert preview["will_create_run"] is True
+    assert not (tmp_path / ".devflow").exists()
+
+
+def test_curated_packet_create_creates_pipeline_run(tmp_path: Path) -> None:
+    setup_temp_git_repo(tmp_path)
+    payload = {
+        "source": "obsidian-handoff",
+        "repo": str(tmp_path),
+        "operator_intent": "Extract handler methods",
+        "constraints": None,
+        "acceptance_criteria": "Tests pass",
+        "suggested_preset": "refactor-recovery",
+        "known_docs_files": [],
+    }
+    result = create_pipeline_run_from_curated_packet(tmp_path, payload)
+    assert result["ok"] is True
+    assert result["run_id"]
+    assert result["status"] == "created"
+    runs_dir = tmp_path / ".devflow" / "pipeline-runs" / result["run_id"]
+    assert (runs_dir / "intent.md").exists()
+    assert (runs_dir / "source.json").exists()
