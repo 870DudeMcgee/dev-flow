@@ -1,11 +1,11 @@
-# /devmode
+# /devflow-engineering
 
-Activate DevMode for the current task.
+Activate DevFlow disciplined engineering workflow for the current task.
 
 Output exactly one line:
 
 ```text
-DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
+DevFlow workflow loaded: token optimization, repo discipline, read-only/implementation gating.
 ```
 
 Then continue silently. Do not output a skills-used line.
@@ -32,13 +32,13 @@ Classify the task and classify the mode before taking any action:
 
 *If write permission is ambiguous, ask one blocking question or stay read-only.*
 
-### 2. Route to DevMode Skills
+### 2. Route to Relevant Skills
 Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply means you should check it.
-- Use `devmode:using-devmode` as the master bootstrap.
-- Route to specific skills under `.agent/skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
+- Read `AGENTS.md` and `docs/README.md` for repo-local routing.
+- Route to specific skills under `.agent/skills/` only when they fit the task; do not load quarantined docs as active authority.
 
 ### 3. Silent Work Mode & Output
-Run DevMode silently. Do not narrate the workflow. Avoid progress phrases.
+Run the workflow silently. Do not narrate the workflow. Avoid progress phrases.
 
 Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
 

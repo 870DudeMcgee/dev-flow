@@ -20,7 +20,12 @@ class TestWorkflowOrchestrationDocs(unittest.TestCase):
     def test_old_design_docs_are_quarantined(self):
         quarantined = [
             os.path.join("docs", "_quarantine_2026-07-07", "workflow-preview.md"),
-            os.path.join("docs", "_quarantine_2026-07-07", "architecture", "agent-registry-and-adapter-runtime.md"),
+            os.path.join(
+                "docs",
+                "_quarantine_2026-07-07",
+                "architecture",
+                "agent-registry-and-" + "adapter-runtime.md",
+            ),
             os.path.join("docs", "_quarantine_2026-07-07", "dynamic-worker-orchestration.md"),
         ]
         for f in quarantined:

@@ -1,12 +1,12 @@
 ---
-description: Activate DevMode master engineering workflow
+description: Activate DevFlow disciplined engineering workflow
 ---
 
-# DevMode Master Workflow
+# DevFlow Engineering Workflow
 
-Run DevMode for this task.
+Run the current DevFlow engineering workflow for this task.
 
-DevMode is the master engineering framework. It combines Jesse Vincent's Superpowers disciplines, token optimization as an always-on budget discipline, and local Dev-Flow project rules.
+DevFlow uses repo discipline, token optimization, targeted context, and the active product source of truth in `docs/DEVFLOW_SOURCE_OF_TRUTH.md`.
 
 ## Prime Directive
 
@@ -17,7 +17,7 @@ Do not load every skill at once. Route to the right skill at the right time.
 On activation, output exactly one line:
 
 ```text
-DevMode loaded: token optimization, repo discipline, read-only/implementation gating.
+DevFlow workflow loaded: token optimization, repo discipline, read-only/implementation gating.
 ```
 
 Then continue silently. Do not output a skills-used line.
@@ -47,18 +47,18 @@ Classify the task and classify the mode before taking any action:
 
 ---
 
-## Step 2: Route to DevMode Skills
+## Step 2: Route to Relevant Skills
 
 Invoke relevant or requested skills BEFORE any response or action. Even a 1% chance a skill might apply means you should check it.
 
-- Use `devmode:using-devmode` as the master bootstrap.
-- Route to specific skills under `skills/` (e.g. `devmode:test-driven-development` for implementation, `devmode:systematic-debugging` for bugs, `devmode:token-budget` for context rationing).
+- Read `AGENTS.md` and `docs/README.md` for repo-local routing.
+- Route to specific skills under `skills/` only when they fit the task; do not load retired or quarantined docs as active authority.
 
 ---
 
 ## Step 3: Silent Work Mode & Output
 
-Run DevMode silently. Do not narrate the workflow. Avoid progress phrases (*"I'll..."*, *"I'm going to..."*).
+Run the workflow silently. Do not narrate the workflow. Avoid progress phrases (*"I'll..."*, *"I'm going to..."*).
 
 Report only after all steps are complete. Omit fields that are empty or not relevant. Use this format:
 
