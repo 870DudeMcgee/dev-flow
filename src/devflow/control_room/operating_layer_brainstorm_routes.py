@@ -13,8 +13,12 @@ from devflow.control_room.brainstorm import (
     start_brainstorm_from_idea,
 )
 from devflow.control_room.brainstorm_pipeline import (
+    build_intent_summary_preview,
+    build_manual_intent_summary,
+    classify_and_attach_intent_summary,
     create_task_from_brainstorm,
     load_brainstorm_session_snapshot,
+    write_intent_summary_to_run,
 )
 from devflow.control_room.project_registry import ProjectRegistryError, resolve_project_root
 
@@ -188,3 +192,36 @@ def classify_brainstorm_payload(repo_root: Path, payload: dict[str, object]) -> 
     if isinstance(run_id, str) and run_id.strip():
         return classify_and_attach_to_run(root, run_id.strip(), operator_intent.strip())
     return build_classification_preview({"operator_intent": operator_intent.strip()})
+
+
+def build_intent_summary_payload(repo_root: Path, payload: dict[str, object]) -> dict[str, Any]:
+    """Validate payload and generate (or import manual) intent summary.
+
+    POST /api/brainstorm/intent-summary body: {operator_intent, run_id?, project?, manual_summary?}
+    If manual_summary is provided, uses it directly instead of generating.
+    If run_id is provided, writes intent-summary.json to the pipeline run.
+    """
+    root = _payload_project_root(repo_root, payload)
+    operator_intent = payload.get("operator_intent")
+    if not isinstance(operator_intent, str) or not operator_intent.strip():
+        raise BrainstormError("operator_intent is required and must be a non-empty string")
+
+    manual_summary = payload.get("manual_summary")
+    run_id = payload.get("run_id")
+
+    # Manual override path
+    if isinstance(manual_summary, dict) and manual_summary:
+        result = build_manual_intent_summary(operator_intent.strip(), manual_summary)
+        if isinstance(run_id, str) and run_id.strip():
+            write_intent_summary_to_run(root, run_id.strip(), result["intent_summary"])
+            from devflow.control_room.pipeline_run import _run_dir, pipeline_runs_dir
+            run_dir = _run_dir(root, run_id.strip())
+            result["run_id"] = run_id.strip()
+            result["intent_summary_path"] = str(run_dir / "intent-summary.json")
+            result["pipeline_runs_dir"] = str(pipeline_runs_dir(root))
+        return result
+
+    # Generated path
+    if isinstance(run_id, str) and run_id.strip():
+        return classify_and_attach_intent_summary(root, run_id.strip(), operator_intent.strip())
+    return build_intent_summary_preview(operator_intent.strip())

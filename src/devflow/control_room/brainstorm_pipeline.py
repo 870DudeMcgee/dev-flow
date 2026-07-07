@@ -1125,6 +1125,249 @@ def classify_and_attach_to_run(
     }
 
 
+
+
+# ---------------------------------------------------------------------------
+# Intent Summary generation (rule-based, no LLM)
+# ---------------------------------------------------------------------------
+
+# Keyword/pattern rules for intent summary field extraction.
+# Each rule: (pattern_list, field_name, default_text).
+_WANTS_RULES: list[tuple[list[str], str]] = [
+    (["i want", "we need", "add ", "build ", "create ", "implement ", "make "], "user_wants"),
+    (["should ", "must ", "result ", "outcome ", "goal ", "deliver "], "product_outcome"),
+]
+
+_NON_NEGOTIABLE_PATTERNS: list[str] = [
+    "must", "never", "always", "don't break", "regression", "no regress",
+    "backward compatible", "backwards compatible", "mandatory", "required",
+    "critical", "blocker", "non-negotiable",
+]
+
+_MISUNDERSTANDING_PATTERNS: list[str] = [
+    "not ", "do not ", "don't ", "avoid ", "skip ", "no ", "without ",
+    "except ", "only ", "just ", "simply ",
+]
+
+_DONE_CRITERIA_PATTERNS: list[str] = [
+    "done when", "done looks like", "completion", "passing tests",
+    "all tests pass", "verified", "working", "deployed",
+]
+
+
+def build_intent_summary_preview(intent_text: str) -> dict[str, Any]:
+    """Build an intent summary preview from operator intent text.
+
+    Rule-based extraction using keyword/pattern heuristics. Returns a
+    preview dict without writing any files.
+    """
+
+    text = str(intent_text or "").strip()
+    if not text:
+        return _empty_intent_summary_preview()
+
+    summary = _extract_intent_summary(text)
+    return {
+        "ok": True,
+        "operator_intent": text,
+        "intent_summary": summary.model_dump(mode="json"),
+        "source": "generated",
+    }
+
+
+def build_manual_intent_summary(
+    operator_intent: str,
+    manual_summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Build an intent summary from a manual override provided by the operator.
+
+    Validates that the manual_summary contains at least one non-empty field.
+    """
+    from devflow.control_room.pipeline_run import IntentSummary
+
+    intent_text = str(operator_intent or "").strip()
+    if not intent_text:
+        raise ValueError("operator_intent is required and must be a non-empty string")
+
+    if not isinstance(manual_summary, dict) or not manual_summary:
+        raise ValueError("manual_summary must be a non-empty dict")
+
+    # Build from manual fields, falling back to empty defaults
+    summary = IntentSummary(
+        user_wants=str(manual_summary.get("user_wants", "") or ""),
+        product_outcome=str(manual_summary.get("product_outcome", "") or ""),
+        non_negotiables=[str(x) for x in (manual_summary.get("non_negotiables") or []) if str(x).strip()],
+        worker_misunderstandings=[str(x) for x in (manual_summary.get("worker_misunderstandings") or []) if str(x).strip()],
+        what_done_feels_like=str(manual_summary.get("what_done_feels_like", "") or ""),
+        source="manual",
+    )
+    return {
+        "ok": True,
+        "operator_intent": intent_text,
+        "intent_summary": summary.model_dump(mode="json"),
+        "source": "manual",
+    }
+
+
+def write_intent_summary_to_run(
+    root: Path,
+    run_id: str,
+    summary,
+) -> None:
+    """Write intent-summary.json into an existing pipeline run directory.
+
+    Accepts an IntentSummary model or a dict. Raises ``FileNotFoundError``
+    if the run does not exist.
+    """
+    from devflow.control_room.pipeline_run import _run_dir, update_pipeline_run_record
+
+    run_dir = _run_dir(root, run_id)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Pipeline run not found: {run_id}")
+
+    if hasattr(summary, "model_dump"):
+        data = summary.model_dump(mode="json")
+    elif isinstance(summary, dict):
+        data = summary
+    else:
+        raise TypeError("summary must be an IntentSummary model or dict")
+
+    update_pipeline_run_record(root, run_id, "intent-summary.json", data)
+
+
+def classify_and_attach_intent_summary(
+    root: Path,
+    run_id: str,
+    operator_intent: str,
+) -> dict[str, Any]:
+    """Generate intent summary and write intent-summary.json to a pipeline run.
+
+    Convenience combining generation and persistence. Returns the summary
+    result plus run metadata.
+    """
+    from devflow.control_room.pipeline_run import _run_dir, pipeline_runs_dir
+
+    preview = build_intent_summary_preview(operator_intent)
+    summary_data = preview["intent_summary"]
+    write_intent_summary_to_run(root, run_id, summary_data)
+    run_dir = _run_dir(root, run_id)
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "intent_summary": summary_data,
+        "intent_summary_path": str(run_dir / "intent-summary.json"),
+        "pipeline_runs_dir": str(pipeline_runs_dir(root)),
+        "source": "generated",
+    }
+
+
+def _empty_intent_summary_preview() -> dict[str, Any]:
+    from devflow.control_room.pipeline_run import IntentSummary
+    empty = IntentSummary()
+    return {
+        "ok": True,
+        "operator_intent": "",
+        "intent_summary": empty.model_dump(mode="json"),
+        "source": "generated",
+    }
+
+
+def _extract_intent_summary(text: str):
+    """Rule-based extraction of intent summary fields from text.
+
+    Uses keyword/pattern matching heuristics — no LLM calls.
+    """
+    from devflow.control_room.pipeline_run import IntentSummary
+
+    text_lower = text.lower()
+
+    # user_wants: first sentence or up to 200 chars as the core want
+    user_wants = _extract_first_meaningful_segment(text, max_chars=200)
+
+    # product_outcome: sentences with outcome/goal/result language
+    product_outcome = _extract_matching_sentences(text, [
+        "result", "outcome", "goal", "deliver", "should", "will be",
+        "produces", "enables", "provides",
+    ], max_chars=200)
+
+    # non_negotiables: sentences containing strong constraint language
+    non_negotiables = _extract_matching_sentences_list(text_lower, text, _NON_NEGOTIABLE_PATTERNS)
+
+    # worker_misunderstandings: sentences with negation/avoidance language
+    worker_misunderstandings = _extract_matching_sentences_list(text_lower, text, _MISUNDERSTANDING_PATTERNS)
+
+    # what_done_feels_like: sentences with completion criteria language
+    what_done_feels_like = _extract_matching_sentences(text, _DONE_CRITERIA_PATTERNS, max_chars=200)
+
+    return IntentSummary(
+        user_wants=user_wants,
+        product_outcome=product_outcome,
+        non_negotiables=non_negotiables,
+        worker_misunderstandings=worker_misunderstandings,
+        what_done_feels_like=what_done_feels_like,
+        source="generated",
+    )
+
+
+def _extract_first_meaningful_segment(text: str, max_chars: int = 200) -> str:
+    """Extract the first sentence or segment as the core want."""
+    # Try to get first sentence
+    for sep in [".", "\n"]:
+        if sep in text:
+            segment = text.split(sep, 1)[0].strip()
+            if len(segment) <= max_chars and len(segment) > 5:
+                return segment
+    # Fall back to truncation
+    result = text.strip()
+    if len(result) > max_chars:
+        result = result[:max_chars].rsplit(" ", 1)[0] + "..."
+    return result
+
+
+def _extract_matching_sentences(
+    original_text: str,
+    patterns: list[str],
+    max_chars: int = 200,
+) -> str:
+    """Extract sentences from original_text that match any of the patterns (case-insensitive)."""
+    import re
+
+    sentences = re.split(r'(?<=[.!?])\s+|\n+', original_text)
+    matching = []
+    for sentence in sentences:
+        sent_lower = sentence.lower()
+        for pat in patterns:
+            if pat.lower() in sent_lower:
+                matching.append(sentence.strip())
+                break
+        if sum(len(s) for s in matching) > max_chars:
+            break
+    return " ".join(matching)[:max_chars]
+
+
+def _extract_matching_sentences_list(
+    text_lower: str,
+    original_text: str,
+    patterns: list[str],
+) -> list[str]:
+    """Extract individual sentences matching patterns as a list."""
+    import re
+
+    sentences = re.split(r'(?<=[.!?])\s+|\n+', original_text)
+    results: list[str] = []
+    seen: set[str] = set()
+    for sentence in sentences:
+        sent_lower = sentence.lower().strip()
+        for pat in patterns:
+            if pat in sent_lower:
+                cleaned = sentence.strip()
+                if cleaned and cleaned not in seen:
+                    seen.add(cleaned)
+                    results.append(cleaned)
+                break
+    return results
+
+
 def _eligible_presets_for_work_type(work_type: str) -> list[str]:
     """Return eligible presets for a given work type."""
     preset_map: dict[str, list[str]] = {
