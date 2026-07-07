@@ -1,1 +1,1 @@
-"""Control-room MVP for shell-worker Dev-Flow."""
+"""DevFlow product-building operating layer."""

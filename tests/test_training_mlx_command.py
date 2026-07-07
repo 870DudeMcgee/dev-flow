@@ -109,4 +109,4 @@ def test_training_mlx_matrix_can_attach_written_result_to_task(tmp_path: Path, m
 
 def _write_minimal_training_sources(root: Path) -> None:
     (root / "AGENTS.md").write_text("# Agent rules\nKeep work grounded.\n", encoding="utf-8")
-    (root / "README.md").write_text("# Dev-Flow\nLocal-first control room.\n", encoding="utf-8")
+    (root / "README.md").write_text("# DevFlow\nLocal operating layer.\n", encoding="utf-8")

@@ -115,7 +115,7 @@ TBD
 - No database
 
 ## Architectural constraints
-- Local-first control room architecture
+- Local operating layer architecture
 
 ## Affected DevFlow concepts
 - None

@@ -267,13 +267,13 @@ def test_run_load_smoke_records_timeout_as_failure(tmp_path: Path) -> None:
 
 def _write_training_fixture_repo(root: Path) -> None:
     (root / "AGENTS.md").write_text("# Agent rules\nKeep work grounded.\n", encoding="utf-8")
-    (root / "README.md").write_text("# Dev-Flow\nLocal-first control room.\n", encoding="utf-8")
+    (root / "README.md").write_text("# DevFlow\nLocal operating layer.\n", encoding="utf-8")
 
     docs_dir = root / "docs"
     docs_dir.mkdir(parents=True, exist_ok=True)
-    (docs_dir / "operator-centered-mission.md").write_text("# Mission\nVisible next safe actions.\n", encoding="utf-8")
-    (docs_dir / "control-room-mvp.md").write_text("# MVP\nExplicit evidence lanes.\n", encoding="utf-8")
-    (docs_dir / "devmode-contract.md").write_text("# DevMode\nNo hidden automation.\n", encoding="utf-8")
+    (docs_dir / "DEVFLOW_SOURCE_OF_TRUTH.md").write_text("# Source of Truth\nVisible next safe actions.\n", encoding="utf-8")
+    (docs_dir / "README.md").write_text("# Docs\nUse the source of truth.\n", encoding="utf-8")
+    (docs_dir / "local-worker-policy.md").write_text("# Local Worker Policy\nBounded lanes only.\n", encoding="utf-8")
     (docs_dir / "verification-ledger.md").write_text("# Verification\nReuse bounded checks.\n", encoding="utf-8")
 
     task_dir = root / ".devflow" / "tasks" / "task-0001"

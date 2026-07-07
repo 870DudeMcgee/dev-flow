@@ -408,7 +408,7 @@ def _render_scaffold_prd(
         "- No promotion, commit, push, pull request, provider call, database, memory, RAG, embeddings, or training",
         "",
         "## Architectural Constraints",
-        "- Local-first control room architecture",
+        "- Local operating layer architecture",
         "- Idea Foundry remains the raw intake authority",
         "- Canonical goal/task state requires explicit human approval",
         "",
