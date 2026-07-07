@@ -12,6 +12,7 @@ from devflow.control_room.brainstorm_pipeline import (
     load_brainstorm_pipeline_detail,
 )
 from devflow.control_room.paths import relative_path
+from devflow.control_room.pipeline_run import PipelineRunProjection
 from devflow.control_room.task_workbench import (
     TaskWorkbench,
     TaskWorkbenchControl,
@@ -181,6 +182,7 @@ class FirstViewportPresentation(BaseModel):
     review_queue: list[FirstViewportReviewCard] = Field(default_factory=list)
     evidence_stream: list[FirstViewportEvidenceCard] = Field(default_factory=list)
     launchpad: FirstViewportLaunchpad
+    pipeline_run: PipelineRunProjection = Field(default_factory=PipelineRunProjection)
 
 
 def build_first_viewport_presentation(
@@ -237,6 +239,7 @@ def build_first_viewport_presentation(
             action_label=_action_label(selected_task),
             reason=selected_task.next_action.reason if selected_task else None,
         ),
+        pipeline_run=PipelineRunProjection(),
     )
 
 

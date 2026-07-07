@@ -37,6 +37,11 @@ from devflow.control_room.local_model_inventory import build_local_model_invento
 from devflow.control_room.local_model_readiness import build_local_model_readiness_plan
 from devflow.control_room.local_model_runtime_lock import list_local_model_runtime_status
 from devflow.control_room.operator_readiness import OperatorReadinessSnapshot
+from devflow.control_room.pipeline_run import (
+    PipelineRunProjection,
+    load_pipeline_run,
+    pipeline_runs_dir,
+)
 from devflow.control_room.project_registry import ProjectRegistryError, load_project_metadata
 from devflow.control_room.question_resume import QuestionSnapshot, build_question_snapshot
 from devflow.control_room.scheduler_projection import SchedulerSnapshot, build_scheduler_snapshot
@@ -205,8 +210,66 @@ class OperatingLayerSnapshot(BaseModel):
     serial_local_agent_run: dict[str, Any] = Field(default_factory=dict)
     architecture_evidence: ArchitectureEvidenceProjection = Field(default_factory=ArchitectureEvidenceProjection)
     workbench: WorkbenchState
+    pipeline_run: PipelineRunProjection = Field(default_factory=PipelineRunProjection)
     action_rail: list[OperatingLayerAction] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+def _try_pipeline_run_projection(
+    root: Path,
+    warnings: list[str],
+) -> PipelineRunProjection:
+    """Load the most recent pipeline run and project compact metadata."""
+    try:
+        runs_dir = pipeline_runs_dir(root)
+        if not runs_dir.exists():
+            return PipelineRunProjection()
+        run_ids = sorted(runs_dir.iterdir(), key=lambda p: p.name, reverse=True)
+        if not run_ids:
+            return PipelineRunProjection()
+        latest_id = run_ids[0].name
+        data = load_pipeline_run(root, latest_id)
+        classification = data.get("classification.json", {})
+        if isinstance(classification, str):
+            classification = {}
+        validation = data.get("validation.json", {})
+        if isinstance(validation, str):
+            validation = {}
+        run_log = data.get("run-log.jsonl", [])
+        artifact_paths: dict[str, str] = {}
+        for file_name in ("intent.md", "source.json", "readiness-packet.md",
+                          "loop-packet.md", "artifacts.json", "review.md"):
+            if file_name in data:
+                artifact_paths[file_name] = str(
+                    runs_dir / latest_id / file_name,
+                )
+        hermes_status = "not_started"
+        for event in (run_log if isinstance(run_log, list) else []):
+            if isinstance(event, dict) and "type" in event:
+                hermes_status = event.get("status", hermes_status)
+        next_action = "create_readiness_packet"
+        if validation:
+            blockers = validation.get("blockers", [])
+            if not blockers:
+                next_action = "launch"
+        if classification.get("chosen_preset"):
+            next_action = "build_readiness_packet"
+        if hermes_status in ("running", "paused"):
+            next_action = "monitor_or_steer"
+        if hermes_status == "completed":
+            next_action = "review"
+        return PipelineRunProjection(
+            run_id=latest_id,
+            stage=classification.get("work_type"),
+            chosen_preset=classification.get("chosen_preset"),
+            validation_status="blocked" if validation.get("blockers") else "clear",
+            hermes_run_status=hermes_status,
+            next_safe_action=next_action,
+            artifact_paths=artifact_paths,
+        )
+    except Exception as exc:
+        warnings.append(f"pipeline_run projection failed: {exc}")
+        return PipelineRunProjection()
 
 
 def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id: str | None = None) -> OperatingLayerSnapshot:
@@ -294,6 +357,7 @@ def build_operating_layer_snapshot(repo_root: Path | None = None, *, project_id:
         serial_local_agent_run=_serial_local_agent_run_card(root, warnings),
         architecture_evidence=architecture_evidence,
         workbench=build_workbench_state(root, project_id=project_id, first_viewport=first_viewport),
+        pipeline_run=_try_pipeline_run_projection(root, warnings),
         action_rail=_project_actions(project_id),
         warnings=warnings,
     )

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+from pydantic import BaseModel, Field
+
 # ---------------------------------------------------------------------------
 # Minimum files created for each pipeline run (filesystem contract)
 # ---------------------------------------------------------------------------
@@ -202,3 +204,19 @@ def append_pipeline_event(
 
     with open(str(target), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Compact projection model for the operating layer snapshot
+# ---------------------------------------------------------------------------
+
+class PipelineRunProjection(BaseModel):
+    """Compact pipeline run metadata for the snapshot — no large artifacts."""
+
+    run_id: str | None = None
+    stage: str | None = None
+    chosen_preset: str | None = None
+    validation_status: str | None = None
+    hermes_run_status: str | None = None
+    next_safe_action: str | None = None
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
