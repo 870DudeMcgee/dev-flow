@@ -177,6 +177,9 @@ def test_agent_advise_writes_repo_scoped_openrouter_evidence_without_logging_sec
                                             "title": "Create a focused cleanup task",
                                             "rationale": "The bounded packet points at stale direction risk.",
                                             "next_safe_action": 'devflow task create "Clean stale DeepSeek docs"',
+                                            "evidence_path": "docs/verification-ledger.md",
+                                            "verification_command": "git diff --check",
+                                            "acceptance_criteria": "stale direction references removed",
                                         }
                                     ],
                                     "highest_impact_next_safe_action": 'devflow task create "Clean stale DeepSeek docs"',
@@ -211,11 +214,15 @@ def test_agent_advise_writes_repo_scoped_openrouter_evidence_without_logging_sec
     assert payload["model"] == ADVISORY_MODEL
     assert payload["usage"]["total_tokens"] == 18
     assert payload["recommendations"][0]["next_safe_action"].startswith("devflow task create")
+    assert payload["recommendations"][0]["evidence_path"] == "docs/verification-ledger.md"
+    assert payload["recommendations"][0]["verification_command"] == "git diff --check"
+    assert payload["recommendations"][0]["acceptance_criteria"] == "stale direction references removed"
     assert payload["safety_flags"]["will_run_workers"] is False
     assert payload["safety_flags"]["will_commit"] is False
 
     assert captured_requests[0]["url"] == "https://openrouter.ai/api/v1/chat/completions"
     assert captured_requests[0]["payload"]["model"] == ADVISORY_MODEL
+    assert captured_requests[0]["payload"]["max_tokens"] == 4096
 
     evidence_dir = tmp_path / payload["evidence_dir"]
     assert evidence_dir.is_dir()

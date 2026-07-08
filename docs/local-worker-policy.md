@@ -30,35 +30,22 @@ Agents-A1 is not the primary coding builder. Use it before Ornith when the loop
 needs a better spec or planning packet. Keep heavy-model residency explicit via
 `~/.hermes/scripts/model-router`; the router owns swaps between lanes.
 
-## Actual-model quality scoring loop
+## Model evaluation posture
 
-Use the repo-local scoring loop when the question is whether the active
-Agents-A1/Ornith/Qwen chain is producing dense, grounded, role-appropriate
-output rather than merely returning syntactically valid responses.
+The previous repo-local model-tuning/scoring loop is retired. It produced noisy
+comparisons because it used tiny prompts, circular model-as-its-own-judge
+scoring, and single-run scores that did not match DevFlow's real
+planner/builder/judge workload.
 
-```bash
-python scripts/model_quality_scoring_loop.py \
-  --evidence-dir .devflow/evidence/<actual-e2e-run-id> \
-  --threshold 9.5 \
-  --max-iterations 3
-```
+Current evaluation work should be ground-truth-first and role-specific:
 
-The loop writes prompts, raw responses, scorecards, and run metadata under
-`.devflow/model-quality-runs/<run-id>/`. It starts the configured builder lane
-first (`local-ornith-35b`), swaps to the judge lane (`local-llama-mtp`), and
-feeds judge feedback back into the next builder iteration until the score meets
-the threshold or the iteration budget is exhausted.
+- preserve raw run data under `.devflow/model-tuning-runs/` as historical evidence;
+- evaluate planner, builder, and judge roles separately;
+- use real DevFlow packets near the actual workload size for each role;
+- compare candidates against an incumbent and a known-good/known-bad ground-truth set;
+- treat Qwen 27B Q5 MTP on `local-llama-mtp` as the incumbent judge until better evidence exists;
+- do not promote a model from a single score, self-judged result, or synthetic micro-prompt.
 
-Scoring dimensions are:
-
-- format compliance
-- grounding to evidence
-- role specificity
-- density
-- actionability
-- adversarial review
-- absence of weird or unsupported output
-
-Treat a score below 9.5 as useful evidence, not success. Improve the packet,
-prompt, schema, or model role contract and rerun the loop until every model in
-the chain produces high-density, evidence-cited output for its role.
+If a new scoring loop is added, it should land as normal DevFlow source/tests
+with explicit ground-truth fixtures and deterministic verification before any
+model-role routing changes are made.

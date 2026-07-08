@@ -40,6 +40,7 @@ from devflow.control_room.task_packet import build_agent_packet
 
 ADVISORY_JOBS = {"gap-analysis", "review", "status"}
 SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9][A-Za-z0-9_-]{6,}")
+ADVISORY_MAX_TOKENS = 4096
 PATCH_REQUEST_TIMEOUT_SECONDS = 90
 PATCH_MAX_TOKENS = 2048
 PATCH_REASONING_EFFORT = "minimal"
@@ -152,6 +153,7 @@ def run_advice(
             system_prompt=_advisory_system_prompt(profile, job),
             user_prompt=prompt,
             api_key=api_key,
+            max_tokens=_env_int("DEVFLOW_OPENROUTER_ADVISORY_MAX_TOKENS", ADVISORY_MAX_TOKENS),
         )
         raw_text = _safe_json(response_body, api_key=api_key)
         content = _assistant_content(response_body)
@@ -676,8 +678,12 @@ def _advisory_system_prompt(profile: AgentDefinition, job: str) -> str:
     return (
         "You are a Dev-Flow advisory reviewer. Produce recommendation evidence only. "
         "Do not execute or claim mutations. Output JSON with keys: summary, recommendations, "
-        "highest_impact_next_safe_action, risks. Each recommendation should include title, rationale, "
-        "and next_safe_action. "
+        "highest_impact_next_safe_action, risks. Each recommendation must include title, rationale, "
+        "next_safe_action, evidence_path, verification_command, and acceptance_criteria. "
+        "Be dense and adversarial: no generic lifecycle hygiene unless the supplied evidence makes it the "
+        "highest-impact gap. Prefer concrete repo gaps, exact commands, and measurable acceptance criteria. "
+        "For review jobs, critique the supplied output and identify at least one assumption to challenge; "
+        "do not echo gap-analysis recommendations without adding independent review value. "
         f"Profile: {profile.id}. Job: {job}."
     )
 
@@ -936,15 +942,17 @@ def _extract_recommendations(content: str) -> list[dict[str, str]]:
         for item in raw_recommendations[:8]:
             if not isinstance(item, dict):
                 continue
-            recommendations.append(
-                {
-                    "title": str(item.get("title") or item.get("action") or "Recommendation"),
-                    "rationale": str(item.get("rationale") or item.get("reason") or ""),
-                    "next_safe_action": str(
-                        item.get("next_safe_action") or item.get("command") or item.get("action") or "human review"
-                    ),
-                }
-            )
+            recommendation = {
+                "title": str(item.get("title") or item.get("action") or "Recommendation"),
+                "rationale": str(item.get("rationale") or item.get("reason") or ""),
+                "next_safe_action": str(
+                    item.get("next_safe_action") or item.get("command") or item.get("action") or "human review"
+                ),
+            }
+            for extra_key in ("evidence_path", "verification_command", "acceptance_criteria"):
+                if item.get(extra_key) is not None:
+                    recommendation[extra_key] = str(item.get(extra_key))
+            recommendations.append(recommendation)
     if not recommendations:
         next_action = str(parsed.get("highest_impact_next_safe_action") or "human review")
         recommendations.append(

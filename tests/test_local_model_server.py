@@ -70,7 +70,7 @@ def test_known_local_model_server_profiles_are_manifest_backed() -> None:
     assert ornith9b.base_url == "http://127.0.0.1:8085/v1"
     assert ornith9b.port == 8085
     assert ornith9b.command[ornith9b.command.index("--ctx-size") + 1] == "131072"
-    assert ornith9b.command[ornith9b.command.index("--chat-template") + 1] == "chatml"
+    assert "--chat-template" not in ornith9b.command
 
     ornith35b = profiles["ornith-35b"]
     assert ornith35b.profile_id == "hermes-ornith-35b"
@@ -79,7 +79,7 @@ def test_known_local_model_server_profiles_are_manifest_backed() -> None:
     assert ornith35b.base_url == "http://127.0.0.1:8084/v1"
     assert ornith35b.port == 8084
     assert ornith35b.command[ornith35b.command.index("--ctx-size") + 1] == "65536"
-    assert ornith35b.command[ornith35b.command.index("--chat-template") + 1] == "chatml"
+    assert "--chat-template" not in ornith35b.command
 
 
 def test_resolve_local_model_server_profile_rejects_retired_aliases() -> None:
