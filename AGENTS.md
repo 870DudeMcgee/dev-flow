@@ -37,6 +37,7 @@ evidence only.
 
 | Task | Tool | LLM needed? |
 |---|---|---|
+| Spec/planner packet from rough intent or research evidence | Agents-A1 Q4 via `local-agents-a1-q4` | Yes (Agents-A1 Q4) |
 | Module-level function extraction (refactoring) | `extract_module.py` | No — deterministic |
 | Test + lint verification | `local_test_runner.py` | No — wrapper script |
 | Codebase survey / seam analysis | `codebase_survey.py` | Yes (Ornith 35B) |
