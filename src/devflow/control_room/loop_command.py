@@ -64,6 +64,33 @@ def loop_list(
         typer.echo(loop_id)
 
 
+@loop_app.command("spine-fixture")
+def loop_spine_fixture(
+    target_file: str = typer.Option(
+        "src/devflow/loop/models.py",
+        "--target-file",
+        help="Existing repo file used to ground the deterministic fixture.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print harness report as JSON."),
+) -> None:
+    """Run the deterministic V2 loop-spine fixture harness."""
+    from devflow.loop.e2e_harness import run_e2e_loop_harness
+
+    try:
+        report = run_e2e_loop_harness(Path.cwd(), target_file=target_file)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
+        return
+
+    typer.echo(f"run_id: {report.run_id}")
+    typer.echo(f"final_stage: {report.final_stage.value}")
+    typer.echo("stage_chain: " + " -> ".join(stage.value for stage in report.observed_stage_chain))
+
+
 @loop_app.command("run")
 def loop_run(
     loop_id: str = typer.Argument(..., help="Loop ID to run."),
