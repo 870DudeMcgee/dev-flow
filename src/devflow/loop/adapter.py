@@ -64,6 +64,19 @@ def infer_stage(run_data: dict) -> LoopStage:
 def load_loop_state(root: Path | str, run_id: str) -> DevFlowLoopState:
     """Read the pipeline run directory and return a DevFlowLoopState."""
     data = load_pipeline_run(root, run_id)
+
+    # Try to load saved state from loop-state.json first
+    saved_state = data.get("loop-state.json")
+    if isinstance(saved_state, dict):
+        try:
+            state = DevFlowLoopState.model_validate(saved_state)
+            # Refresh updated_at timestamp
+            state = state.model_copy(update={"updated_at": datetime.now(timezone.utc).isoformat()})
+            return state
+        except Exception:
+            pass  # Fall through to inference if parsing fails
+
+    # Fall back to inferring stage from file contents
     stage = infer_stage(data)
 
     now = datetime.now(timezone.utc).isoformat()
