@@ -103,6 +103,65 @@ class RevisingBuilderClient:
         return "def add(a, b):\n    return a + b\n", {}
 
 
+class CapturingPlannerContextClient:
+    """Captures planner and judge prompts so tests can assert context routing."""
+
+    planner_user_prompt = ""
+    judge_user_prompt = ""
+
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat(self, *, messages, max_tokens=2048, temperature=0.0,
+             reasoning=False, stop=None):
+        sys = messages[0]["content"].lower()
+        user = messages[1]["content"]
+        if "planning judge" in sys:
+            type(self).judge_user_prompt = user
+            return json.dumps({"decision": "approve", "rationale": "ok"}), {}
+        type(self).planner_user_prompt = user
+        return json.dumps({
+            "spec": "create a cron-backed semantic scorer",
+            "plan": "write cron scorer and Obsidian queue integration",
+            "target_files": ["brief_sorter.py"],
+            "verification_command": "python -m pytest tests/test_sorter.py -q",
+        }), {}
+
+
+class StreamingBuilderClient:
+    """Exercises the role-generic streaming contract without a live model."""
+
+    streamed = False
+
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat_stream(self, *, messages, max_tokens=2048, temperature=0.0,
+                    reasoning=False, stop=None, on_delta=None, on_reasoning_delta=None):
+        type(self).streamed = True
+        if on_delta:
+            on_delta("def add(a, b):\n")
+            on_delta("    return a + b\n")
+        if on_reasoning_delta:
+            on_reasoning_delta("I need to write a function that adds two numbers.\n")
+        return (
+            "def add(a, b):\n    return a + b\n",
+            {"completion_tokens": max_tokens},
+            "length",
+            "I need to write a function that adds two numbers.\n",
+        )
+
+
+class FailingStreamingClient:
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat_stream(self, *, on_delta=None, on_reasoning_delta=None, **kwargs):
+        if on_delta:
+            on_delta("partial implementation")
+        raise RuntimeError("model disconnected")
+
+
 def _fresh_root(tmp_path: Path) -> tuple[str, str]:
     root = tmp_path / "proj"
     root.mkdir()
@@ -115,6 +174,166 @@ def _fresh_root(tmp_path: Path) -> tuple[str, str]:
     st = st.model_copy(update={"stage": LoopStage.assignment})
     save_loop_state(root, st)
     return str(root), run_id
+
+
+def test_planner_and_qwen_judge_receive_persisted_readiness_context(tmp_path):
+    CapturingPlannerContextClient.planner_user_prompt = ""
+    CapturingPlannerContextClient.judge_user_prompt = ""
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(str(root), {"title": "t", "description": "d"})
+    pr.update_pipeline_run_record(root, run_id, "readiness-packet.md", "frontier model semantic scoring into Obsidian")
+    pr.update_pipeline_run_record(root, run_id, "brainstorm.md", "persistent Brainstorm Queue")
+    st = load_loop_state(root, run_id)
+    st = st.model_copy(update={"stage": LoopStage.planning_judge})
+    save_loop_state(root, st)
+
+    out = ex.run_planning_loop(
+        root, run_id,
+        topic="AI Brief Intelligence Sorter",
+        max_rounds=1,
+        ensure_lane_on=False,
+        client_factory=CapturingPlannerContextClient,
+    )
+
+    assert out["planning_decision"] == "approve"
+    assert "frontier model semantic scoring into Obsidian" in CapturingPlannerContextClient.planner_user_prompt
+    assert "persistent Brainstorm Queue" in CapturingPlannerContextClient.planner_user_prompt
+    assert "frontier model semantic scoring into Obsidian" in CapturingPlannerContextClient.judge_user_prompt
+    state = load_loop_state(root, run_id)
+    assert state.spec_path == "spec.md"
+    assert state.plan_path == "plan.md"
+    assert state.planning_judge_path == "planning-judge.json"
+
+
+def test_role_budgets_and_streaming_metadata_are_persisted(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+    StreamingBuilderClient.streamed = False
+
+    result = ex.run_role(
+        root,
+        role="builder",
+        system_prompt="build",
+        user_prompt="implement",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=StreamingBuilderClient,
+    )
+
+    assert ex.ROLE_TOKEN_BUDGETS == {
+        "builder": 16384,
+        "planner": 4096,
+        "judge": 2048,
+        "planning_judge": 2048,
+        "verifier": 2048,
+    }
+    assert StreamingBuilderClient.streamed is True
+    assert result.raw["finish_reason"] == "length"
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert feed[0]["requested_max_tokens"] == 16384
+    assert feed[-1]["finish_reason"] == "length"
+    assert feed[-1]["token_cap_reached"] is True
+    assert "worker-live.json" not in pr.load_pipeline_run(root, run_id)
+
+
+def test_stream_failure_preserves_partial_output_and_stalled_state(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+
+    with pytest.raises(RuntimeError, match="model disconnected"):
+        ex.run_role(
+            root, role="builder", system_prompt="build", user_prompt="implement",
+            task_id=run_id, ensure_lane_on=False,
+            client_factory=FailingStreamingClient,
+        )
+
+    data = pr.load_pipeline_run(root, run_id)
+    assert data["worker-live.json"]["content"] == "partial implementation"
+    assert data["worker-live.json"]["status"] == "stalled"
+    assert data["execution-control.json"]["status"] == "stalled"
+
+
+def test_builder_materializes_declared_patch_in_isolated_workspace(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+    patch = """diff --git a/calc.py b/calc.py
+new file mode 100644
+--- /dev/null
++++ b/calc.py
+@@ -0,0 +1,2 @@
++def add(a, b):
++    return a + b
+"""
+
+    manifest = ex.materialize_builder_output(
+        root, run_id, patch, target_files=["calc.py"]
+    )
+
+    workspace = Path(manifest["workspace"])
+    assert (workspace / "calc.py").read_text() == "def add(a, b):\n    return a + b\n"
+    assert manifest["changed_files"] == ["calc.py"]
+    assert not (Path(root) / "calc.py").exists()
+    assert (Path(root) / ".devflow" / "pipeline-runs" / run_id / "build-diff.patch").is_file()
+
+
+def test_builder_rejects_undeclared_or_truncated_multi_file_output(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+    undeclared = """diff --git a/other.py b/other.py
+new file mode 100644
+--- /dev/null
++++ b/other.py
+@@ -0,0 +1 @@
++bad = True
+"""
+    with pytest.raises(ex.BuilderOutputError, match="undeclared"):
+        ex.materialize_builder_output(root, run_id, undeclared, target_files=["calc.py"])
+
+    with pytest.raises(ex.BuilderOutputError, match="Could not parse multi-file greenfield"):
+        ex.materialize_builder_output(
+            root, run_id, "def a():\n    pass\n", target_files=["a.py", "b.py"]
+        )
+
+
+def test_builder_materializes_multi_file_greenfield_output(tmp_path):
+    """Multi-file greenfield output using path-comment markers should be split
+    into individual files in the isolated workspace."""
+    root, run_id = _fresh_root(tmp_path)
+    greenfield = (
+        "# src/models.py\n"
+        "from dataclasses import dataclass\n"
+        "\n"
+        "@dataclass\n"
+        "class Item:\n"
+        "    id: str\n"
+        "\n"
+        "# src/parser.py\n"
+        "def parse(content):\n"
+        "    return []\n"
+    )
+    manifest = ex.materialize_builder_output(
+        root, run_id, greenfield, target_files=["src/models.py", "src/parser.py"]
+    )
+    workspace = Path(manifest["workspace"])
+    assert sorted(manifest["changed_files"]) == ["src/models.py", "src/parser.py"]
+    assert "class Item" in (workspace / "src/models.py").read_text()
+    assert "def parse" in (workspace / "src/parser.py").read_text()
+
+
+def test_builder_refuses_oversized_packet_and_planner_chunks_files(tmp_path):
+    files = [f"src/module_{index}.py" for index in range(13)]
+    packets = ex.build_packets(files)
+
+    assert [len(packet["target_files"]) for packet in packets] == [6, 6, 1]
+    assert [packet["id"] for packet in packets] == ["packet-01", "packet-02", "packet-03"]
+
+    root, run_id = _fresh_root(tmp_path)
+    with pytest.raises(ex.BuilderOutputError, match="at most 6"):
+        ex.run_builder(
+            root, run_id,
+            assignment="too broad",
+            definition_of_done="all modules exist",
+            target_files=files,
+            ensure_lane_on=False,
+            client_factory=FakeClient,
+        )
 
 
 def test_execute_full_chain_offline(tmp_path):

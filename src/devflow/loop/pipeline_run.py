@@ -39,6 +39,8 @@ MINIMUM_RUN_FILES: Dict[str, str] = {
 
 RUN_LOG_FILE = "run-log.jsonl"
 WORKER_FEED_FILE = "worker-feed.jsonl"
+WORKER_LIVE_FILE = "worker-live.json"
+EXECUTION_CONTROL_FILE = "execution-control.json"
 _LAST_RUN_ID_BASE = ""
 _LAST_RUN_ID_COUNTER = 0
 
@@ -236,3 +238,63 @@ def append_worker_feed_entry(
 
     with open(str(target), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def write_worker_live_output(
+    root: Path | str,
+    run_id: str,
+    payload: dict,
+) -> None:
+    """Atomically publish the bounded in-flight output for one active role."""
+    run_dir = _run_dir(root, run_id)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Pipeline run not found: {run_dir}")
+    target = _validate_write_path(run_dir, WORKER_LIVE_FILE)
+    temp = _validate_write_path(run_dir, f"{WORKER_LIVE_FILE}.tmp")
+    record = dict(payload)
+    record.setdefault("updated_at", datetime.now(timezone.utc).isoformat())
+    content = str(record.get("content") or "")
+    record["content"] = content[-64000:]
+    temp.write_text(
+        json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temp.replace(target)
+
+
+def clear_worker_live_output(root: Path | str, run_id: str) -> None:
+    """Remove the transient live snapshot after its final feed receipt exists."""
+    run_dir = _run_dir(root, run_id)
+    target = _validate_write_path(run_dir, WORKER_LIVE_FILE)
+    target.unlink(missing_ok=True)
+
+
+def read_execution_control(root: Path | str, run_id: str) -> dict:
+    """Return persisted execution ownership/cancellation state for a run."""
+    run_dir = _run_dir(root, run_id)
+    target = _validate_write_path(run_dir, EXECUTION_CONTROL_FILE)
+    if not target.is_file():
+        return {}
+    try:
+        value = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def update_execution_control(
+    root: Path | str,
+    run_id: str,
+    **changes: Any,
+) -> dict:
+    """Merge and atomically persist execution ownership and operator intent."""
+    current = read_execution_control(root, run_id)
+    current.update(changes)
+    current["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_pipeline_run_record(root, run_id, EXECUTION_CONTROL_FILE, current)
+    return current
+
+
+def cancellation_requested(root: Path | str, run_id: str) -> bool:
+    control = read_execution_control(root, run_id)
+    return str(control.get("status") or "") in {"cancelling", "cancelled"}

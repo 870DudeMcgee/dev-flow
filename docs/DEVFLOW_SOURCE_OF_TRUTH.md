@@ -206,6 +206,38 @@ DevFlow must always be able to answer:
 
 Output: evidence-backed next action.
 
+The browser status board is an auto-refreshing live feed. Any interactive UI
+state on that page (selected worker output, expanded worker loop, open artifact,
+collapsed worker loop, or nested scroll position) must survive refresh and must
+not depend on a stable DOM node between refreshes. Defaults apply only until the
+operator makes an explicit choice; refresh must not re-open, reset, or reselect
+after that choice.
+
+Worker evidence must distinguish execution status from product outcome. A
+finished model call or dispatch is not a successful result when its judge
+failed, the loop exhausted its retry cap, or verification did not pass. The
+status board presents active runs as a compact queue with exactly one focused
+workspace. It leads with live model output while a role is running and raw
+evidence after completion, then keeps summary, prompt/context, metadata, token
+budget, token usage, and finish reason available without hiding the source
+evidence.
+
+Every launched run must have explicit ownership and control state. Operators
+can request cancellation after the current role or stop the run-owned process
+group immediately; neither action stops a shared model server. Incomplete role
+events with no live owner become `stalled`, and stale local-model locks may be
+reclaimed only after owner validation. Partial model output remains inspectable
+after failure or cancellation.
+
+Builder work is file-producing, bounded, and isolated. A builder packet may
+touch at most six declared files. Multi-file output must be a complete unified
+diff, is checked before application, and is materialized in the pipeline run's
+isolated workspace. The judge reviews the materialized change manifest, diff,
+and verification receipt rather than treating a long model response as built
+code. Frontier-provider adapters are verified with mocked transports during
+local execution; local workers must not replace semantic API integration with
+keyword matching.
+
 ## Canonical Stage Artifacts
 
 DevFlow should prefer a small set of stage artifacts over sprawling architecture docs.
