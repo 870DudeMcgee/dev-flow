@@ -37,6 +37,7 @@ from typing import Callable, Optional
 
 from devflow.loop.model_router import acquire_role_slot, resolve_role_slot
 from devflow.loop import builder_judge as bj
+from devflow.loop import planning_judge as pj
 from devflow.loop import verification as ver
 from devflow.loop.adapter import load_loop_state
 from devflow.loop.pipeline_run import (
@@ -223,6 +224,13 @@ BUILDER_SYSTEM = (
     "or a complete file. Output only the implementation — no commentary."
 )
 
+PLANNER_SYSTEM = (
+    "You are the DevFlow planner. Given a task, produce a bounded, concrete "
+    "implementation plan as a single JSON object and nothing else: "
+    '{"spec": "<what to build and why>", "plan": "<step-by-step steps>", '
+    '"target_files": ["relative/path/to/file.py"], '
+    '"verification_command": "<shell command that verifies the change>"}'
+)
 JUDGE_SYSTEM = (
     "You are the DevFlow judge. Evaluate the builder output against the "
     "definition of done. Respond with a single JSON object and nothing else: "
@@ -355,6 +363,143 @@ def run_judge(
     return result, decision
 
 
+def _parse_planner_json(text: str) -> dict:
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
+        raise ValueError(f"Planner did not return JSON: {text[:200]!r}")
+    return json.loads(m.group(0))
+
+
+def run_planner(
+    root: Path | str,
+    run_id: str,
+    *,
+    topic: str,
+    target_files: Optional[list[str]] = None,
+    worker_id: str = "native-planner",
+    max_tokens: int = 2048,
+    ensure_lane_on: bool = True,
+    client_factory: Optional[ClientFactory] = None,
+) -> tuple[RoleResult, pj.PlanningJudgeReport]:
+    """Run the planner lane (8087) then the deterministic planning judge.
+
+    Produces spec.md + plan.md artifacts, builds PlanningEvidence from the
+    model output, and evaluates it via ``pj.run_planning_judge`` (which writes
+    planning-judge.json and advances the stage on approve).
+    """
+    state = load_loop_state(root, run_id)
+    if state.stage != LoopStage.planning_judge:
+        raise ValueError(f"Expected planning_judge, got {state.stage.value}.")
+
+    files_block = "\n".join(target_files or [])
+    user = f"# Task\n{topic}\n\n# Existing target files to plan against\n{files_block}\n"
+    result = run_role(
+        root,
+        role="planner",
+        system_prompt=PLANNER_SYSTEM,
+        user_prompt=user,
+        task_id=run_id,
+        worker_id=worker_id,
+        max_tokens=max_tokens,
+        ensure_lane_on=ensure_lane_on,
+        client_factory=client_factory,
+    )
+
+    plan = _parse_planner_json(result.content)
+    spec = plan.get("spec", "")
+    plan_text = plan.get("plan", "")
+    planned_files = plan.get("target_files", target_files or [])
+    verification_command = plan.get("verification_command")
+
+    update_pipeline_run_record(root, run_id, "spec.md", spec)
+    update_pipeline_run_record(root, run_id, "plan.md", plan_text)
+
+    root_path = Path(root)
+    files_exist = all(
+        (root_path / f).exists() for f in planned_files
+    ) if planned_files else False
+
+    evidence = pj.PlanningEvidence(
+        run_id=run_id,
+        plan_path="plan.md",
+        spec_path="spec.md",
+        target_files=planned_files,
+        verification_command=verification_command,
+        constraints=[],
+        files_exist=files_exist,
+        has_verification=bool(verification_command),
+    )
+    _, report = pj.run_planning_judge(root, run_id, evidence)
+    return result, report
+
+
+def run_plan_build_judge(
+    root: Path | str,
+    run_id: str,
+    *,
+    topic: str,
+    target_files: Optional[list[str]] = None,
+    definition_of_done: str,
+    worker_id: str = "native-executor",
+    ensure_lane_on: bool = True,
+    client_factory: Optional[ClientFactory] = None,
+) -> dict:
+    """Full plan -> build -> judge chain across three lanes (serial single-flight).
+
+    planner (8087) -> planning judge (deterministic) -> builder (8084) ->
+    build judge (8083). Each model step swaps its lane in via ``ensure_lane``.
+    """
+    planner_result, planning_report = run_planner(
+        root,
+        run_id,
+        topic=topic,
+        target_files=target_files,
+        worker_id=worker_id,
+        ensure_lane_on=ensure_lane_on,
+        client_factory=client_factory,
+    )
+
+    out: dict = {
+        "planner": planner_result,
+        "planning_decision": planning_report.decision.value,
+        "build": None,
+        "judge": None,
+        "decision": None,
+    }
+
+    # Only proceed to build if the planning judge approved.
+    if planning_report.decision.value != pj.JudgeDecision.approve.value:
+        return out
+
+    assignment = (
+        f"# Spec\n{planning_report.repo_grounding}\n\n"
+        f"# Plan\n{(target_files or [])}\n\n"
+        f"Implement per the planner output for: {topic}"
+    )
+    build = run_builder(
+        root,
+        run_id,
+        assignment=assignment,
+        definition_of_done=definition_of_done,
+        target_files=target_files,
+        worker_id=worker_id,
+        ensure_lane_on=ensure_lane_on,
+        client_factory=client_factory,
+    )
+    judge_result, decision = run_judge(
+        root,
+        run_id,
+        definition_of_done=definition_of_done,
+        worker_id=worker_id,
+        ensure_lane_on=ensure_lane_on,
+        client_factory=client_factory,
+    )
+    out["build"] = build
+    out["judge"] = judge_result
+    out["decision"] = decision
+    return out
+
+
 def run_verification(
     root: Path | str,
     run_id: str,
@@ -454,11 +599,15 @@ __all__ = [
     "LocalModelClient",
     "ensure_lane",
     "run_role",
+    "run_planner",
+    "run_planning",
+    "run_plan_build_judge",
     "run_builder",
     "run_judge",
     "run_verification",
     "run_build_judge_verify",
     "BUILDER_SYSTEM",
+    "PLANNER_SYSTEM",
     "JUDGE_SYSTEM",
     "MODEL_ROUTER_SCRIPT",
 ]

@@ -23,7 +23,7 @@ import pytest
 
 from devflow.loop import execution as ex
 from devflow.loop import pipeline_run as pr
-from devflow.loop.adapter import load_loop_state
+from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.models import LoopStage
 from devflow.loop.model_router import _global_local_model_runtime_status
 
@@ -37,9 +37,16 @@ class FakeClient:
 
     def chat(self, *, messages, max_tokens=2048, temperature=0.0,
              reasoning=False, stop=None):
-        sys = messages[0]["content"]
+        sys = messages[0]["content"].lower()
         self.calls.append(sys)
-        if "judge" in sys.lower():
+        if "planner" in sys:
+            return json.dumps({
+                "spec": "add a calculator module",
+                "plan": "create calc.py with add()",
+                "target_files": ["calc.py"],
+                "verification_command": "python -c 'import ast,pathlib;ast.parse(pathlib.Path(\"calc.py\").read_text())'",
+            }), {}
+        if "judge" in sys:
             return json.dumps({"status": "passed", "rationale": "ok"}), {}
         return "def add(a, b):\n    return a + b\n", {}
 
@@ -130,3 +137,56 @@ def test_execute_real_build_on_live_fleet(tmp_path):
     assert len(packet.strip()) > 0
     state = load_loop_state(root, run_id)
     assert state.stage == LoopStage.build_judge
+
+
+def test_plan_build_judge_offline(tmp_path):
+    """Full plan->build->judge chain with a fake client (no fleet)."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(str(root), {"title": "t", "description": "d"})
+    st = load_loop_state(root, run_id)
+    st = st.model_copy(update={"stage": LoopStage.planning_judge})
+    save_loop_state(root, st)
+    # Pre-create the planned target file so files_exist -> True -> APPROVE.
+    (root / "calc.py").write_text("")
+
+    out = ex.run_plan_build_judge(
+        root, run_id,
+        topic="Add an add() function to calc.py",
+        target_files=["calc.py"],
+        definition_of_done="add() sums two numbers",
+        ensure_lane_on=False,
+        client_factory=FakeClient,
+    )
+    assert out["planning_decision"] == "approve"
+    assert out["build"] is not None
+    assert out["decision"] == "passed"
+    state = load_loop_state(root, run_id)
+    assert state.stage == LoopStage.verification
+    # Planner artifacts persisted.
+    assert "plan.md" in pr.load_pipeline_run(root, run_id)
+
+
+@pytest.mark.skipif(
+    not _port_healthy(8087),
+    reason="planner lane (8087) not resident; run model-router start 8087 first",
+)
+def test_execute_real_planner_on_live_fleet(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(str(root), {"title": "t", "description": "d"})
+    st = load_loop_state(root, run_id)
+    st = st.model_copy(update={"stage": LoopStage.planning_judge})
+    save_loop_state(root, st)
+    (root / "calc.py").write_text("")
+
+    result, report = ex.run_planner(
+        root, run_id,
+        topic="Add an add(a,b) function to calc.py",
+        target_files=["calc.py"],
+    )
+    assert result.role == "planner"
+    assert len(result.content.strip()) > 0
+    data = pr.load_pipeline_run(root, run_id)
+    assert "spec.md" in data and "plan.md" in data
+    assert report.decision.value in ("approve", "revise", "block")
