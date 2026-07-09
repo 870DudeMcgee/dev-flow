@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from devflow.legacy.control_room.pipeline_run import load_pipeline_run, update_pipeline_run_record
+from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
 from devflow.loop.adapter import create_run_with_state, load_loop_state, save_loop_state
 from devflow.loop.builder_judge import (
     BuilderJudgeAssignment,

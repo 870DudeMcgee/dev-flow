@@ -15,7 +15,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from devflow.legacy.control_room.pipeline_run import update_pipeline_run_record
+from devflow.loop.pipeline_run import update_pipeline_run_record
 from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.models import DevFlowLoopState, LoopStage
 

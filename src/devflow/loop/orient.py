@@ -127,6 +127,6 @@ def save_orient_evidence(root: Path | str, run_id: str, json_str: str) -> None:
 
 def _run_dir(root: Path | str, run_id: str) -> Path:
     """Resolve the pipeline run directory for a given run_id."""
-    from devflow.legacy.control_room.pipeline_run import _run_dir as _internal_run_dir
+    from devflow.loop.pipeline_run import _run_dir as _internal_run_dir
 
     return _internal_run_dir(Path(root), run_id)
