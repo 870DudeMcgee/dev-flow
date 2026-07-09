@@ -5,6 +5,7 @@ and decides whether a plan is ready to be broken into bounded tasks.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -198,6 +199,24 @@ def run_planning_judge(
     # Write the report to the pipeline run dir as planning-judge.json
     report_json = report.model_dump_json(indent=2, ensure_ascii=False)
     update_pipeline_run_record(root, run_id, "planning-judge.json", report_json)
+
+    # Also write to worker-feed.jsonl so the status board shows the judge's decision
+    from devflow.loop.pipeline_run import append_worker_feed_entry
+    append_worker_feed_entry(root, run_id, {
+        "event": "completed",
+        "role": "planning_judge",
+        "model": "deterministic-rules-engine",
+        "content": json.dumps({
+            "decision": report.decision.value,
+            "required_changes": report.required_changes,
+            "next_safe_action": report.next_safe_action,
+            "repo_grounding": report.repo_grounding,
+            "task_boundaries": report.task_boundaries,
+            "overbuild_risk": report.overbuild_risk,
+            "simpler_path": report.simpler_path,
+        }, indent=2),
+        "usage": {},
+    })
 
     # Update state based on decision
     if report.decision == JudgeDecision.approve and state.stage == LoopStage.planning_judge:

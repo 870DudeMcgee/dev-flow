@@ -129,6 +129,7 @@ from devflow.legacy.control_room.training_command import training_app
 from devflow.legacy.control_room.question_command import (  # noqa: F401
     question_answer, question_app, question_list, question_resolve, question_show,
 )
+from devflow.control_room.command import status_app
 from devflow.legacy.control_room.scheduler_command import scheduler_app, scheduler_retry, scheduler_status  # noqa: F401
 from devflow.legacy.control_room.devmode_bridge import detect_devmode, render_devmode_status
 from devflow.legacy.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
@@ -191,6 +192,7 @@ app.add_typer(freshness_app, name="freshness")
 app.add_typer(scheduler_app, name="scheduler")
 app.add_typer(question_app, name="question")
 app.add_typer(operating_layer_app, name="operating-layer")
+app.add_typer(status_app, name="status")
 app.add_typer(local_ai_app, name="local-ai")
 app.add_typer(local_model_app, name="local-model")
 app.add_typer(loop_app, name="loop")

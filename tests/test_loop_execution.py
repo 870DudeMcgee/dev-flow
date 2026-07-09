@@ -15,7 +15,6 @@ Two layers of evidence:
 from __future__ import annotations
 
 import json
-import os
 import urllib.request
 from pathlib import Path
 
@@ -39,6 +38,10 @@ class FakeClient:
              reasoning=False, stop=None):
         sys = messages[0]["content"].lower()
         self.calls.append(sys)
+        if "judge" in sys:
+            if "planning judge" in sys:
+                return json.dumps({"decision": "approve", "rationale": "ok"}), {}
+            return json.dumps({"status": "passed", "rationale": "ok"}), {}
         if "planner" in sys:
             return json.dumps({
                 "spec": "add a calculator module",
@@ -46,8 +49,57 @@ class FakeClient:
                 "target_files": ["calc.py"],
                 "verification_command": "python -c 'import ast,pathlib;ast.parse(pathlib.Path(\"calc.py\").read_text())'",
             }), {}
+        return "def add(a, b):\n    return a + b\n", {}
+
+
+class RevisingPlannerClient:
+    """Planner returns one revise-worthy plan, then a grounded plan."""
+
+    planner_calls = 0
+
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat(self, *, messages, max_tokens=2048, temperature=0.0,
+             reasoning=False, stop=None):
+        sys = messages[0]["content"].lower()
+        user = messages[1]["content"]
         if "judge" in sys:
-            return json.dumps({"status": "passed", "rationale": "ok"}), {}
+            if "missing.py" in user:
+                return json.dumps({
+                    "decision": "revise",
+                    "required_changes": ["Use grounded target files or clearly mark new files."],
+                    "next_safe_action": "Revise the plan target files.",
+                }), {}
+            return json.dumps({"decision": "approve", "rationale": "ok"}), {}
+        if "planner" in sys:
+            type(self).planner_calls += 1
+            target = "missing.py" if type(self).planner_calls == 1 else "calc.py"
+            return json.dumps({
+                "spec": "add a calculator module",
+                "plan": f"create {target} with add()",
+                "target_files": [target],
+                "verification_command": "python -m pytest tests/test_loop_models.py -q",
+            }), {}
+        return "def add(a, b):\n    return a + b\n", {}
+
+
+class RevisingBuilderClient:
+    """Builder/judge fails once, then passes after feedback is supplied."""
+
+    judge_calls = 0
+
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat(self, *, messages, max_tokens=2048, temperature=0.0,
+             reasoning=False, stop=None):
+        sys = messages[0]["content"].lower()
+        if "judge" in sys:
+            type(self).judge_calls += 1
+            if type(self).judge_calls == 1:
+                return json.dumps({"status": "failed", "rationale": "missing edge case"}), {}
+            return json.dumps({"status": "passed", "rationale": "DoD satisfied"}), {}
         return "def add(a, b):\n    return a + b\n", {}
 
 
@@ -165,6 +217,52 @@ def test_plan_build_judge_offline(tmp_path):
     assert state.stage == LoopStage.verification
     # Planner artifacts persisted.
     assert "plan.md" in pr.load_pipeline_run(root, run_id)
+
+
+def test_planning_loop_retries_until_approved(tmp_path):
+    """A revise decision returns to the planner until the cap or approval."""
+    RevisingPlannerClient.planner_calls = 0
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(str(root), {"title": "t", "description": "d"})
+    st = load_loop_state(root, run_id)
+    st = st.model_copy(update={"stage": LoopStage.planning_judge})
+    save_loop_state(root, st)
+    (root / "calc.py").write_text("")
+
+    out = ex.run_planning_loop(
+        root, run_id,
+        topic="Add add()",
+        max_rounds=3,
+        ensure_lane_on=False,
+        client_factory=RevisingPlannerClient,
+    )
+
+    assert out["planning_decision"] == "approve"
+    assert len(out["planning_rounds"]) == 2
+    assert out["planning_cap_exhausted"] is False
+    assert load_loop_state(root, run_id).stage == LoopStage.assignment
+
+
+def test_build_judge_loop_retries_until_passed(tmp_path):
+    """A failed build judge result loops back to the builder before passing."""
+    RevisingBuilderClient.judge_calls = 0
+    root, run_id = _fresh_root(tmp_path)
+
+    out = ex.run_build_judge_verify(
+        root, run_id,
+        assignment="Implement add()",
+        definition_of_done="add returns sum",
+        target_files=["calc.py"],
+        max_rounds=3,
+        client_factory=RevisingBuilderClient,
+        ensure_lane_on=False,
+    )
+
+    assert out["decision"] == "passed"
+    assert len(out["build_rounds"]) == 2
+    assert out["build_cap_exhausted"] is False
+    assert load_loop_state(root, run_id).stage == LoopStage.verification
 
 
 @pytest.mark.skipif(

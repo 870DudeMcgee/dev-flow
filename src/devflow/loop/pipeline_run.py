@@ -38,6 +38,7 @@ MINIMUM_RUN_FILES: Dict[str, str] = {
 }
 
 RUN_LOG_FILE = "run-log.jsonl"
+WORKER_FEED_FILE = "worker-feed.jsonl"
 _LAST_RUN_ID_BASE = ""
 _LAST_RUN_ID_COUNTER = 0
 
@@ -207,6 +208,30 @@ def append_pipeline_event(
     target = _validate_write_path(run_dir, RUN_LOG_FILE)
 
     record = dict(event)
+    record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+
+    with open(str(target), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def append_worker_feed_entry(
+    root: Path | str,
+    run_id: str,
+    entry: dict,
+) -> None:
+    """Append a JSON line to ``worker-feed.jsonl``.
+
+    Worker feed entries capture actual model outputs — the content, role,
+    model, prompt, and status — so the status board can show what each worker
+    is actually thinking and producing, not just that it's "active".
+    """
+    run_dir = _run_dir(root, run_id)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Pipeline run not found: {run_dir}")
+
+    target = _validate_write_path(run_dir, WORKER_FEED_FILE)
+
+    record = dict(entry)
     record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
 
     with open(str(target), "a", encoding="utf-8") as fh:

@@ -324,6 +324,7 @@ def _optional_str(value: Any) -> str | None:
 # Source of truth: project model-role direction.
 #   planner -> Agents-A1 Q4        (http://localhost:8087)
 #   builder -> Ornith 35B MoE      (http://localhost:8084)
+#   planning_judge -> Qwen 27B Q5_K_M (http://localhost:8083) [live]
 #   judge   -> Qwen 27B Q5_K_M     (http://localhost:8083)  [live]
 #   verifier-> Qwen 27B Q5_K_M     (http://localhost:8083)  [live]
 #
@@ -334,6 +335,7 @@ def _optional_str(value: Any) -> str | None:
 ROLE_SLOTS: dict[str, dict[str, str]] = {
     "planner": {"provider": "local", "model": "agents-a1-q4", "endpoint": "http://localhost:8087"},
     "builder": {"provider": "local", "model": "ornith-35b", "endpoint": "http://localhost:8084"},
+    "planning_judge": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
     "judge": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
     "verifier": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
 }

@@ -26,7 +26,6 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -39,13 +38,18 @@ from devflow.loop.model_router import acquire_role_slot, resolve_role_slot
 from devflow.loop import builder_judge as bj
 from devflow.loop import planning_judge as pj
 from devflow.loop import verification as ver
-from devflow.loop.adapter import load_loop_state
+from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.pipeline_run import (
     append_pipeline_event,
+    append_worker_feed_entry,
     load_pipeline_run,
     update_pipeline_run_record,
 )
-from devflow.loop.models import DevFlowLoopState, LoopStage
+from devflow.loop.models import LoopStage, advance_stage
+
+
+DEFAULT_MAX_PLANNING_ROUNDS = 3
+DEFAULT_MAX_BUILD_ROUNDS = 3
 
 
 # Canonical launcher. Overridable via env for tests / non-default homes.
@@ -183,9 +187,22 @@ def run_role(
         ensure_lane(role)
 
     factory = client_factory or LocalModelClient
+
+    # Write "started" entry to worker feed so the board shows what's about to happen
+    append_worker_feed_entry(root, task_id or slot.role, {
+        "event": "started",
+        "role": role,
+        "model": slot.model,
+        "endpoint": slot.endpoint,
+        "worker_id": worker_id,
+        "task_id": task_id,
+        "system_prompt": system_prompt[:500],
+        "user_prompt": user_prompt[:2000],
+    })
+
     with acquire_role_slot(
         Path(root), role=role, task_id=task_id, worker_id=worker_id
-    ) as held:
+    ):
         client = factory(slot.endpoint)
         content, usage = client.chat(
             messages=[
@@ -205,6 +222,18 @@ def run_role(
                 "usage": usage,
             },
         )
+
+        # Write "completed" entry with the actual model output
+        append_worker_feed_entry(root, task_id or slot.role, {
+            "event": "completed",
+            "role": role,
+            "model": slot.model,
+            "worker_id": worker_id,
+            "task_id": task_id,
+            "content": content,
+            "usage": usage,
+        })
+
         return RoleResult(
             role=role,
             model=slot.model,
@@ -237,6 +266,41 @@ JUDGE_SYSTEM = (
     '{"status": "passed"|"failed"|"needs_review", "rationale": "..."}.'
 )
 
+PLANNING_JUDGE_SYSTEM = (
+    "You are the DevFlow planning judge using Qwen. Review the planner's spec "
+    "and execution plan against repo evidence and DevFlow's definition of done. "
+    "Greenfield files are allowed when the plan clearly identifies them as files "
+    "to create; do not reject a plan merely because new target files do not yet "
+    "exist. Return one JSON object only with: "
+    '{"decision":"approve|revise|block|escalate_to_user",'
+    '"repo_grounding":"...","task_boundaries":"...",'
+    '"verification_reality":"...","overbuild_risk":"...",'
+    '"simpler_path":"...","required_changes":["..."],'
+    '"next_safe_action":"..."}'
+)
+
+
+def _loop_exhausted(
+    root: Path | str,
+    run_id: str,
+    *,
+    role: str,
+    max_rounds: int,
+    last_decision: str,
+    next_action: str,
+) -> None:
+    append_worker_feed_entry(root, run_id, {
+        "event": "loop_exhausted",
+        "role": role,
+        "model": "devflow-orchestrator",
+        "content": json.dumps({
+            "max_rounds": max_rounds,
+            "last_decision": last_decision,
+            "next_safe_action": next_action,
+        }, indent=2),
+        "usage": {},
+    })
+
 
 def _read_record(root: Path | str, run_id: str, name: str) -> Optional[str]:
     data = load_pipeline_run(root, run_id)
@@ -256,6 +320,8 @@ def run_builder(
     definition_of_done: str,
     target_files: Optional[list[str]] = None,
     verification_command: Optional[str] = None,
+    revision_feedback: Optional[str] = None,
+    round_index: int = 1,
     max_tokens: int = 4096,
     worker_id: str = "native-builder",
     ensure_lane_on: bool = True,
@@ -282,10 +348,13 @@ def run_builder(
 
     files_block = "\n".join(target_files or [])
     user = (
+        f"# Builder/Judge Round\n{round_index}\n\n"
         f"# Assignment\n{assignment}\n\n"
         f"# Definition of Done\n{definition_of_done}\n\n"
         f"# Target files\n{files_block}\n"
     )
+    if revision_feedback:
+        user += f"\n# Previous judge feedback to fix\n{revision_feedback}\n"
 
     result = run_role(
         root,
@@ -319,6 +388,142 @@ def _parse_judge_decision(text: str) -> str:
         if s in low:
             return s
     return "needs_review"
+
+
+def _parse_judge_payload(text: str) -> dict:
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+    return {"status": _parse_judge_decision(text), "rationale": text.strip()}
+
+
+def _planning_decision_from_payload(payload: dict) -> pj.JudgeDecision:
+    raw = str(payload.get("decision") or payload.get("status") or "").lower()
+    aliases = {
+        "approved": "approve",
+        "pass": "approve",
+        "passed": "approve",
+        "fail": "revise",
+        "failed": "revise",
+        "needs_review": "revise",
+        "needs-revision": "revise",
+        "escalate": "escalate_to_user",
+        "escalate_to_human": "escalate_to_user",
+    }
+    raw = aliases.get(raw, raw)
+    if raw in {d.value for d in pj.JudgeDecision}:
+        return pj.JudgeDecision(raw)
+    return pj.JudgeDecision.revise
+
+
+def _planning_report_from_payload(
+    run_id: str,
+    payload: dict,
+) -> pj.PlanningJudgeReport:
+    decision = _planning_decision_from_payload(payload)
+    required_changes = payload.get("required_changes") or []
+    if isinstance(required_changes, str):
+        required_changes = [required_changes]
+    if decision == pj.JudgeDecision.approve:
+        required_changes = []
+    return pj.PlanningJudgeReport(
+        run_id=run_id,
+        decision=decision,
+        repo_grounding=str(payload.get("repo_grounding") or "Qwen planning judge reviewed repo grounding."),
+        task_boundaries=str(payload.get("task_boundaries") or "Qwen planning judge reviewed task boundaries."),
+        verification_reality=str(payload.get("verification_reality") or "Qwen planning judge reviewed verification reality."),
+        overbuild_risk=str(payload.get("overbuild_risk") or "Qwen planning judge reviewed overbuild risk."),
+        simpler_path=str(payload.get("simpler_path") or "Qwen planning judge reviewed simpler paths."),
+        required_changes=[str(item) for item in required_changes],
+        next_safe_action=str(payload.get("next_safe_action") or "Return to the orchestrator for the next safe action."),
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def _record_planning_judge_report(
+    root: Path | str,
+    run_id: str,
+    report: pj.PlanningJudgeReport,
+) -> None:
+    update_pipeline_run_record(
+        root,
+        run_id,
+        "planning-judge.json",
+        report.model_dump_json(indent=2, ensure_ascii=False),
+    )
+    append_worker_feed_entry(root, run_id, {
+        "event": "completed",
+        "role": "planning_judge_report",
+        "model": "qwen-27b-q5km",
+        "content": json.dumps({
+            "decision": report.decision.value,
+            "required_changes": report.required_changes,
+            "next_safe_action": report.next_safe_action,
+            "repo_grounding": report.repo_grounding,
+            "task_boundaries": report.task_boundaries,
+            "overbuild_risk": report.overbuild_risk,
+            "simpler_path": report.simpler_path,
+        }, indent=2),
+        "usage": {},
+    })
+
+    state = load_loop_state(root, run_id)
+    if report.decision == pj.JudgeDecision.approve and state.stage == LoopStage.planning_judge:
+        state = advance_stage(state, LoopStage.assignment)
+    elif report.decision == pj.JudgeDecision.block:
+        state = advance_stage(state, LoopStage.blocked)
+    elif report.decision == pj.JudgeDecision.escalate_to_user:
+        state = state.model_copy(update={
+            "stage": LoopStage.blocked,
+            "next_human_decision": "Make a human decision on the planning judge escalation.",
+        })
+    save_loop_state(root, state)
+
+
+def run_planning_judge_model(
+    root: Path | str,
+    run_id: str,
+    *,
+    evidence: pj.PlanningEvidence,
+    planner_content: str,
+    worker_id: str = "native-planning-judge",
+    ensure_lane_on: bool = True,
+    client_factory: Optional[ClientFactory] = None,
+) -> tuple[RoleResult, pj.PlanningJudgeReport]:
+    """Run Qwen as the planning judge, using deterministic checks as context only."""
+    deterministic_report = pj.judge_plan(evidence)
+    spec = _read_record(root, run_id, "spec.md") or ""
+    plan = _read_record(root, run_id, "plan.md") or ""
+    user = (
+        f"# Planner Output\n{planner_content}\n\n"
+        f"# Persisted Spec\n{spec}\n\n"
+        f"# Persisted Plan\n{plan}\n\n"
+        f"# Evidence JSON\n{evidence.model_dump_json(indent=2)}\n\n"
+        f"# Deterministic Guardrail Findings (context, not final decision)\n"
+        f"{deterministic_report.model_dump_json(indent=2)}\n\n"
+        "Decide whether this plan is executable. Approve greenfield files when "
+        "they are plausible files to create and verification is concrete."
+    )
+    result = run_role(
+        root,
+        role="planning_judge",
+        system_prompt=PLANNING_JUDGE_SYSTEM,
+        user_prompt=user,
+        task_id=run_id,
+        worker_id=worker_id,
+        max_tokens=2048,
+        ensure_lane_on=ensure_lane_on,
+        client_factory=client_factory,
+    )
+    payload = _parse_judge_payload(result.content)
+    report = _planning_report_from_payload(run_id, payload)
+    _record_planning_judge_report(root, run_id, report)
+    return result, report
 
 
 def run_judge(
@@ -376,6 +581,8 @@ def run_planner(
     *,
     topic: str,
     target_files: Optional[list[str]] = None,
+    revision_feedback: Optional[str] = None,
+    round_index: int = 1,
     worker_id: str = "native-planner",
     max_tokens: int = 2048,
     ensure_lane_on: bool = True,
@@ -392,7 +599,13 @@ def run_planner(
         raise ValueError(f"Expected planning_judge, got {state.stage.value}.")
 
     files_block = "\n".join(target_files or [])
-    user = f"# Task\n{topic}\n\n# Existing target files to plan against\n{files_block}\n"
+    user = (
+        f"# Planning Round\n{round_index}\n\n"
+        f"# Task\n{topic}\n\n"
+        f"# Existing target files to plan against\n{files_block}\n"
+    )
+    if revision_feedback:
+        user += f"\n# Previous planning judge feedback to fix\n{revision_feedback}\n"
     result = run_role(
         root,
         role="planner",
@@ -429,8 +642,88 @@ def run_planner(
         files_exist=files_exist,
         has_verification=bool(verification_command),
     )
-    _, report = pj.run_planning_judge(root, run_id, evidence)
+    _, report = run_planning_judge_model(
+        root,
+        run_id,
+        evidence=evidence,
+        planner_content=result.content,
+        worker_id=f"{worker_id}-planning-judge",
+        ensure_lane_on=ensure_lane_on,
+        client_factory=client_factory,
+    )
     return result, report
+
+
+def run_planning_loop(
+    root: Path | str,
+    run_id: str,
+    *,
+    topic: str,
+    target_files: Optional[list[str]] = None,
+    max_rounds: int = DEFAULT_MAX_PLANNING_ROUNDS,
+    worker_id: str = "native-planner",
+    ensure_lane_on: bool = True,
+    client_factory: Optional[ClientFactory] = None,
+) -> dict:
+    """Run planner → planning judge until approved, blocked, or capped."""
+    rounds: list[dict] = []
+    last_result: Optional[RoleResult] = None
+    last_report: Optional[pj.PlanningJudgeReport] = None
+    feedback: Optional[str] = None
+
+    for round_index in range(1, max_rounds + 1):
+        result, report = run_planner(
+            root,
+            run_id,
+            topic=topic,
+            target_files=target_files,
+            revision_feedback=feedback,
+            round_index=round_index,
+            worker_id=worker_id,
+            ensure_lane_on=ensure_lane_on,
+            client_factory=client_factory,
+        )
+        last_result = result
+        last_report = report
+        rounds.append({
+            "round": round_index,
+            "planner": result,
+            "decision": report.decision.value,
+            "required_changes": report.required_changes,
+            "next_safe_action": report.next_safe_action,
+        })
+        if report.decision == pj.JudgeDecision.approve:
+            break
+        if report.decision in (pj.JudgeDecision.block, pj.JudgeDecision.escalate_to_user):
+            break
+        feedback = json.dumps({
+            "decision": report.decision.value,
+            "required_changes": report.required_changes,
+            "next_safe_action": report.next_safe_action,
+        }, indent=2)
+
+    cap_exhausted = bool(
+        last_report
+        and last_report.decision == pj.JudgeDecision.revise
+        and len(rounds) >= max_rounds
+    )
+    if cap_exhausted and last_report:
+        _loop_exhausted(
+            root,
+            run_id,
+            role="planning_loop",
+            max_rounds=max_rounds,
+            last_decision=last_report.decision.value,
+            next_action=last_report.next_safe_action,
+        )
+
+    return {
+        "planner": last_result,
+        "planning_report": last_report,
+        "planning_decision": last_report.decision.value if last_report else None,
+        "planning_rounds": rounds,
+        "planning_cap_exhausted": cap_exhausted,
+    }
 
 
 def run_plan_build_judge(
@@ -440,35 +733,40 @@ def run_plan_build_judge(
     topic: str,
     target_files: Optional[list[str]] = None,
     definition_of_done: str,
+    max_planning_rounds: int = DEFAULT_MAX_PLANNING_ROUNDS,
+    max_build_rounds: int = DEFAULT_MAX_BUILD_ROUNDS,
     worker_id: str = "native-executor",
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> dict:
-    """Full plan -> build -> judge chain across three lanes (serial single-flight).
-
-    planner (8087) -> planning judge (deterministic) -> builder (8084) ->
-    build judge (8083). Each model step swaps its lane in via ``ensure_lane``.
-    """
-    planner_result, planning_report = run_planner(
+    """Full capped plan/judge loop → build/judge loop chain."""
+    planning_loop = run_planning_loop(
         root,
         run_id,
         topic=topic,
         target_files=target_files,
+        max_rounds=max_planning_rounds,
         worker_id=worker_id,
         ensure_lane_on=ensure_lane_on,
         client_factory=client_factory,
     )
+    planning_report = planning_loop["planning_report"]
 
     out: dict = {
-        "planner": planner_result,
-        "planning_decision": planning_report.decision.value,
+        "planner": planning_loop["planner"],
+        "planning_decision": planning_loop["planning_decision"],
+        "planning_rounds": planning_loop["planning_rounds"],
+        "planning_cap_exhausted": planning_loop["planning_cap_exhausted"],
         "build": None,
         "judge": None,
         "decision": None,
+        "verification": None,
+        "build_rounds": [],
+        "build_cap_exhausted": False,
     }
 
     # Only proceed to build if the planning judge approved.
-    if planning_report.decision.value != pj.JudgeDecision.approve.value:
+    if not planning_report or planning_report.decision != pj.JudgeDecision.approve:
         return out
 
     assignment = (
@@ -476,27 +774,18 @@ def run_plan_build_judge(
         f"# Plan\n{(target_files or [])}\n\n"
         f"Implement per the planner output for: {topic}"
     )
-    build = run_builder(
+    out.update(run_build_judge_verify(
         root,
         run_id,
         assignment=assignment,
         definition_of_done=definition_of_done,
         target_files=target_files,
+        verification_command=None,
+        max_rounds=max_build_rounds,
         worker_id=worker_id,
         ensure_lane_on=ensure_lane_on,
         client_factory=client_factory,
-    )
-    judge_result, decision = run_judge(
-        root,
-        run_id,
-        definition_of_done=definition_of_done,
-        worker_id=worker_id,
-        ensure_lane_on=ensure_lane_on,
-        client_factory=client_factory,
-    )
-    out["build"] = build
-    out["judge"] = judge_result
-    out["decision"] = decision
+    ))
     return out
 
 
@@ -553,45 +842,80 @@ def run_build_judge_verify(
     definition_of_done: str,
     target_files: Optional[list[str]] = None,
     verification_command: Optional[str] = None,
+    max_rounds: int = DEFAULT_MAX_BUILD_ROUNDS,
     worker_id: str = "native-executor",
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> dict:
-    """Run the full native execution chain.
+    """Run build → judge until DoD passes or the capped loop is exhausted.
 
     Each model step swaps in its lane via ``ensure_lane`` (single-flight).
     Judge runs only after build; verification only after a passing judge.
     """
-    build = run_builder(
-        root,
-        run_id,
-        assignment=assignment,
-        definition_of_done=definition_of_done,
-        target_files=target_files,
-        verification_command=verification_command,
-        worker_id=worker_id,
-        ensure_lane_on=ensure_lane_on,
-        client_factory=client_factory,
-    )
-    judge_result, decision = run_judge(
-        root,
-        run_id,
-        definition_of_done=definition_of_done,
-        worker_id=worker_id,
-        ensure_lane_on=ensure_lane_on,
-        client_factory=client_factory,
-    )
-    out: dict = {
+    build: Optional[RoleResult] = None
+    judge_result: Optional[RoleResult] = None
+    decision: Optional[str] = None
+    verification: Optional[ver.VerificationReceipt] = None
+    rounds: list[dict] = []
+    feedback: Optional[str] = None
+
+    for round_index in range(1, max_rounds + 1):
+        build = run_builder(
+            root,
+            run_id,
+            assignment=assignment,
+            definition_of_done=definition_of_done,
+            target_files=target_files,
+            verification_command=verification_command,
+            revision_feedback=feedback,
+            round_index=round_index,
+            worker_id=worker_id,
+            ensure_lane_on=ensure_lane_on,
+            client_factory=client_factory,
+        )
+        judge_result, decision = run_judge(
+            root,
+            run_id,
+            definition_of_done=definition_of_done,
+            worker_id=worker_id,
+            ensure_lane_on=ensure_lane_on,
+            client_factory=client_factory,
+        )
+        payload = _parse_judge_payload(judge_result.content)
+        rounds.append({
+            "round": round_index,
+            "build": build,
+            "judge": judge_result,
+            "decision": decision,
+            "rationale": payload.get("rationale", ""),
+        })
+        if decision == "passed":
+            if verification_command:
+                verification = run_verification(
+                    root, run_id, verification_command=verification_command
+                )
+            break
+        feedback = json.dumps(payload, indent=2)
+
+    cap_exhausted = bool(decision != "passed" and len(rounds) >= max_rounds)
+    if cap_exhausted:
+        _loop_exhausted(
+            root,
+            run_id,
+            role="build_judge_loop",
+            max_rounds=max_rounds,
+            last_decision=decision or "unknown",
+            next_action="Return to the orchestrator with the last judge feedback.",
+        )
+
+    return {
         "build": build,
         "judge": judge_result,
         "decision": decision,
-        "verification": None,
+        "verification": verification,
+        "build_rounds": rounds,
+        "build_cap_exhausted": cap_exhausted,
     }
-    if decision == "passed" and verification_command:
-        out["verification"] = run_verification(
-            root, run_id, verification_command=verification_command
-        )
-    return out
 
 
 __all__ = [
@@ -600,7 +924,8 @@ __all__ = [
     "ensure_lane",
     "run_role",
     "run_planner",
-    "run_planning",
+    "run_planning_judge_model",
+    "run_planning_loop",
     "run_plan_build_judge",
     "run_builder",
     "run_judge",
@@ -609,5 +934,6 @@ __all__ = [
     "BUILDER_SYSTEM",
     "PLANNER_SYSTEM",
     "JUDGE_SYSTEM",
+    "PLANNING_JUDGE_SYSTEM",
     "MODEL_ROUTER_SCRIPT",
 ]
