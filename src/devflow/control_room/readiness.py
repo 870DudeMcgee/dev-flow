@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -26,14 +27,16 @@ def promotion_readiness_errors(
         else:
             errors.append(f"verification exit code is {task.verification_exit_code}, expected 0")
     if task_path is not None:
+        root = task_path.parents[2]
         errors.extend(_verification_json_readiness_errors(task, task_path / "verification.json"))
         errors.extend(_patch_application_readiness_errors(task, task_path))
+        errors.extend(_stale_baseline_readiness_errors(root, task, allow_stale_baseline=allow_stale_baseline))
         if task.workspace_kind == "git_worktree":
             from devflow.control_room.git_worktree import git_worktree_readiness_errors
 
             errors.extend(
                 git_worktree_readiness_errors(
-                    task_path.parents[2],
+                    root,
                     task,
                     allow_stale_baseline=allow_stale_baseline,
                 )
@@ -88,6 +91,47 @@ def readiness_state(task: TaskRecord, task_path: Path) -> tuple[bool, list[str]]
     if task.workspace_dirty:
         reasons.append("Warning: Workspace was created from a dirty worktree (uncommitted changes)")
     return ready, reasons
+
+
+def _stale_baseline_readiness_errors(
+    root: Path,
+    task: TaskRecord,
+    *,
+    allow_stale_baseline: bool = False,
+) -> list[str]:
+    if allow_stale_baseline or not task.workspace_commit:
+        return []
+    current_head = _current_main_head(root)
+    if current_head is None:
+        return ["current main checkout HEAD is unavailable"]
+    if task.workspace_commit != current_head:
+        return [f"current main checkout HEAD differs from task base commit: {current_head}"]
+    return []
+
+
+def _current_main_head(root: Path) -> str | None:
+    try:
+        inside = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if inside.returncode != 0 or inside.stdout.strip() != "true":
+            return None
+        head_proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if head_proc.returncode != 0:
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return head_proc.stdout.strip() or None
 
 
 def _read_goal_link(task_path: Path) -> dict[str, Any] | None:

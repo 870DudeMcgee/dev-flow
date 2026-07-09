@@ -152,6 +152,17 @@ def _promotion_guard_lines(
             lines.append("Warning: Bypassing safety check for uncommitted changes in main checkout.")
 
     task = get_task(root, task_id)
+    baseline = promotion_baseline(root, task)
+    if git_state.is_repo:
+        if baseline["baseline_status"] == "unavailable":
+            raise ValueError(format_stale_baseline_refusal(root, task))
+        if baseline["baseline_status"] == "changed":
+            if not force_stale_baseline:
+                raise ValueError(format_stale_baseline_refusal(root, task))
+            lines.append("Warning: Forcing promotion with stale task baseline.")
+            lines.append(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
+            lines.append(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
+
     task_path = root / ".devflow" / "tasks" / task.id
     readiness_errors = promotion_readiness_errors(
         task,
@@ -166,17 +177,6 @@ def _promotion_guard_lines(
                 allow_stale_baseline=force_stale_baseline,
             )
         )
-
-    baseline = promotion_baseline(root, task)
-    if git_state.is_repo:
-        if baseline["baseline_status"] == "unavailable":
-            raise ValueError(format_stale_baseline_refusal(root, task))
-        if baseline["baseline_status"] == "changed":
-            if not force_stale_baseline:
-                raise ValueError(format_stale_baseline_refusal(root, task))
-            lines.append("Warning: Forcing promotion with stale task baseline.")
-            lines.append(f"task_baseline_commit: {baseline['task_baseline_commit'] or 'unavailable'}")
-            lines.append(f"current_main_head: {baseline['current_main_head'] or 'unavailable'}")
     return lines
 
 

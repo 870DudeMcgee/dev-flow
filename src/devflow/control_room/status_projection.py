@@ -259,9 +259,10 @@ def list_task_status_projections(
 
 
 def choose_task_focus_projection(projections: list[TaskStatusProjection]) -> TaskStatusProjection | None:
-    if not projections:
+    active = [projection for projection in projections if projection.is_active]
+    if not active:
         return None
-    return sorted(projections, key=_dashboard_priority_sort_key)[0]
+    return sorted(active, key=_dashboard_priority_sort_key)[0]
 
 
 def choose_task_dashboard_action(
