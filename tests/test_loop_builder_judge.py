@@ -13,7 +13,7 @@ from devflow.loop.builder_judge import (
     record_builder_judge_result,
 )
 from devflow.loop.models import DevFlowLoopState, LoopStage, new_loop_state
-from devflow.control_room.pipeline_run import create_pipeline_run, update_pipeline_run_record
+from devflow.legacy.control_room.pipeline_run import create_pipeline_run, update_pipeline_run_record
 
 
 @pytest.fixture

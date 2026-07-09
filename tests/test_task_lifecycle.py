@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from devflow.control_room.persistence import get_task, utc_now
-from devflow.control_room.service import create_task, verify_task
-from devflow.control_room.task_lifecycle import (
+from devflow.legacy.control_room.persistence import get_task, utc_now
+from devflow.legacy.control_room.service import create_task, verify_task
+from devflow.legacy.control_room.task_lifecycle import (
     invalidate_verification_after_workspace_mutation,
     record_task_update,
 )

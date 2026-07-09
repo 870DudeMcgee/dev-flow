@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from devflow.control_room.architecture_audit import (
+from devflow.legacy.control_room.architecture_audit import (
     ArchitectureAuditResult,
     DiagnosticStatus,
     GraphMetrics,
     GraphifyStatus,
 )
-from devflow.control_room.refactor_loop import (
+from devflow.legacy.control_room.refactor_loop import (
     REFACTOR_APPROVAL_ACTION,
     RefactorLoopError,
     load_refactor_run_status,
@@ -250,7 +250,7 @@ def test_refactor_run_status_uses_loop_status_for_stopped_needs_review(
 ) -> None:
     slug = "needs-review-loop"
     monkeypatch.setattr(
-        "devflow.control_room.refactor_loop._collect_loop_status_snapshot",
+        "devflow.legacy.control_room.refactor_loop._collect_loop_status_snapshot",
         lambda root, record: {
             "loop_status": {
                 "returncode": 0,
@@ -285,7 +285,7 @@ def test_refactor_run_status_keeps_completed_when_watch_has_no_loop(
 ) -> None:
     slug = "completed-loop"
     monkeypatch.setattr(
-        "devflow.control_room.refactor_loop._collect_loop_status_snapshot",
+        "devflow.legacy.control_room.refactor_loop._collect_loop_status_snapshot",
         lambda root, record: {
             "loop_status": {
                 "returncode": 0,
@@ -381,7 +381,7 @@ def test_refactor_approval_requires_exact_action_and_worker() -> None:
 def test_operating_layer_refactor_endpoint_blocks_unapproved_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer
+    from devflow.legacy.control_room.operating_layer_server import OperatingLayerHTTPServer
 
     calls: list[tuple[Path, str]] = []
 
@@ -389,7 +389,7 @@ def test_operating_layer_refactor_endpoint_blocks_unapproved_start(
         calls.append((root, worker))
         return {"started": True, "issue_count": 2, "worker": worker, "error": None}
 
-    monkeypatch.setattr("devflow.control_room.operating_layer_refactor_handlers.start_refactor_loop", fake_start)
+    monkeypatch.setattr("devflow.legacy.control_room.operating_layer_refactor_handlers.start_refactor_loop", fake_start)
     server = OperatingLayerHTTPServer(("127.0.0.1", 0), tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -428,7 +428,7 @@ def test_operating_layer_refactor_endpoint_blocks_unapproved_start(
 def test_operating_layer_refactor_status_endpoint_reads_persisted_run(
     tmp_path: Path,
 ) -> None:
-    from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer
+    from devflow.legacy.control_room.operating_layer_server import OperatingLayerHTTPServer
 
     log_path = tmp_path / ".devflow" / "architecture-rehab" / "logs" / "loop.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)

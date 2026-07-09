@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from devflow.control_room.pipeline_run import create_pipeline_run
-from devflow.control_room.scout_discovery import AgentScoutDiscovery
+from devflow.legacy.control_room.pipeline_run import create_pipeline_run
+from devflow.legacy.control_room.scout_discovery import AgentScoutDiscovery
 from devflow.loop.adapter import load_loop_state
 from devflow.loop.models import LoopStage
 from devflow.loop.orient import OrientResult, orient_packet, run_orient
@@ -137,7 +137,7 @@ class TestRunOrient:
         run_id = create_pipeline_run(tmp_path, {"repo": "test/repo"})
         run_orient(tmp_path, run_id)
 
-        from devflow.control_room.pipeline_run import _run_dir
+        from devflow.legacy.control_room.pipeline_run import _run_dir
         run_dir = _run_dir(tmp_path, run_id)
         orient_file = run_dir / "orient-result.json"
         assert orient_file.exists()

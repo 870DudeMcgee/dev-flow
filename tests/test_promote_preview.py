@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.service import get_task
+from devflow.legacy.control_room.service import get_task
 
 runner = CliRunner()
 
@@ -642,7 +642,7 @@ def test_promote_apply_deletions_safety_boundaries() -> None:
 
             _mark_task_verified_with_evidence()
 
-            from devflow.control_room.service import promote_task
+            from devflow.legacy.control_room.service import promote_task
             task = promote_task(Path.cwd(), "task-0001", apply_deletions=True)
             assert task.status == "promoted"
             assert Path("stay.txt").exists()
@@ -652,7 +652,7 @@ def test_promote_apply_deletions_safety_boundaries() -> None:
 
 def test_promote_harden_copy_escapes_root(monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
-    from devflow.control_room.service import promote_task
+    from devflow.legacy.control_room.service import promote_task
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
         try:
@@ -671,7 +671,7 @@ def test_promote_harden_copy_escapes_root(monkeypatch: pytest.MonkeyPatch) -> No
             _mark_task_verified_with_evidence()
 
             # Monkeypatch _get_relative_files to return a path that escapes root
-            from devflow.control_room import service
+            from devflow.legacy.control_room import service
             def mock_get_relative_files(base_dir: Path, *args, **kwargs) -> set[str]:
                 if base_dir == Path(tmp):
                     return {"file.txt"}
@@ -695,7 +695,7 @@ def test_promote_harden_copy_escapes_root(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_promote_harden_copy_ignored_path(monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
-    from devflow.control_room.service import promote_task
+    from devflow.legacy.control_room.service import promote_task
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmp:
         try:
@@ -714,7 +714,7 @@ def test_promote_harden_copy_ignored_path(monkeypatch: pytest.MonkeyPatch) -> No
             _mark_task_verified_with_evidence()
 
             # Monkeypatch _get_relative_files to return a path in .git
-            from devflow.control_room import service
+            from devflow.legacy.control_room import service
             def mock_get_relative_files(base_dir: Path, *args, **kwargs) -> set[str]:
                 if base_dir == Path(tmp):
                     return {"file.txt"}

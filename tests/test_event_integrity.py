@@ -8,7 +8,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.persistence import event_content_hash, validate_event_log
+from devflow.legacy.control_room.persistence import event_content_hash, validate_event_log
 
 
 runner = CliRunner()
@@ -70,7 +70,7 @@ def test_doctor_reports_tampered_task_event_hash_chain() -> None:
 
 def test_event_append_durability(tmp_path: Path) -> None:
     # Directly test the append_event function's durability path
-    from devflow.control_room.persistence import append_event, validate_event_log
+    from devflow.legacy.control_room.persistence import append_event, validate_event_log
 
     # Setup necessary paths
     task_dir = tmp_path / ".devflow" / "tasks" / "task-durable-1"

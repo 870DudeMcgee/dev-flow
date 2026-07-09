@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from devflow.control_room.pipeline_run import (
+from devflow.legacy.control_room.pipeline_run import (
     append_pipeline_event,
     create_pipeline_run,
     load_pipeline_run,

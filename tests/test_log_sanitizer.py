@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from devflow.control_room.log_sanitizer import latest_visible_log_line, sanitize_log_line
-from devflow.control_room.shell_worker import _latest_log_line as worker_latest_log_line
-from devflow.control_room.verification import _latest_log_line as verification_latest_log_line
+from devflow.legacy.control_room.log_sanitizer import latest_visible_log_line, sanitize_log_line
+from devflow.legacy.control_room.shell_worker import _latest_log_line as worker_latest_log_line
+from devflow.legacy.control_room.verification import _latest_log_line as verification_latest_log_line
 
 
 def test_sanitize_log_line_strips_ansi_and_control_sequences() -> None:

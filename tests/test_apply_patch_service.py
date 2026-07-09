@@ -2,8 +2,8 @@ import pytest
 import shutil
 import json
 from pathlib import Path
-from devflow.control_room.service import create_task, apply_task_patch, verify_task
-from devflow.control_room.patch_applier import PatchApplicationError
+from devflow.legacy.control_room.service import create_task, apply_task_patch, verify_task
+from devflow.legacy.control_room.patch_applier import PatchApplicationError
 
 
 def _write_reviewed_dry_run(

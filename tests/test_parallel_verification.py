@@ -9,9 +9,9 @@ import yaml
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.freshness import run_freshness_loop
-from devflow.control_room.parallel_verification import run_parallel_verification_batch
-from devflow.control_room.persistence import get_task
+from devflow.legacy.control_room.freshness import run_freshness_loop
+from devflow.legacy.control_room.parallel_verification import run_parallel_verification_batch
+from devflow.legacy.control_room.persistence import get_task
 from tests.helpers import setup_temp_git_repo
 
 

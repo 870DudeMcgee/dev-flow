@@ -12,9 +12,9 @@ import yaml
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.freshness import FreshnessReport, LoopStartGitDecision
-from devflow.control_room.multi_project_freshness import run_multi_project_freshness_loop
-from devflow.control_room.persistence import get_task, save_task, utc_now
+from devflow.legacy.control_room.freshness import FreshnessReport, LoopStartGitDecision
+from devflow.legacy.control_room.multi_project_freshness import run_multi_project_freshness_loop
+from devflow.legacy.control_room.persistence import get_task, save_task, utc_now
 from tests.helpers import setup_temp_git_repo
 
 
@@ -343,8 +343,8 @@ def test_multi_project_freshness_scans_registered_projects_in_parallel(
             next_action="Continue.",
         )
 
-    monkeypatch.setattr("devflow.control_room.multi_project_freshness.list_project_records", lambda: records)
-    monkeypatch.setattr("devflow.control_room.multi_project_freshness.run_freshness_loop", fake_scan)
+    monkeypatch.setattr("devflow.legacy.control_room.multi_project_freshness.list_project_records", lambda: records)
+    monkeypatch.setattr("devflow.legacy.control_room.multi_project_freshness.run_freshness_loop", fake_scan)
 
     report = run_multi_project_freshness_loop(write_snapshot=False, max_parallel=2)
 

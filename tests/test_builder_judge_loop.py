@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from devflow.control_room.builder_judge_loop import (
+from devflow.legacy.control_room.builder_judge_loop import (
     BuilderJudgeConfig,
     BuilderJudgeConfigError,
     get_builder_judge_run,
@@ -55,7 +55,7 @@ def _setup_mock_provider(
 ) -> None:
     """Mock OpenRouter API calls for builder and judge."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-key")
-    import devflow.control_room.env_loader as env_loader_mod
+    import devflow.legacy.control_room.env_loader as env_loader_mod
     monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
 
     builder_queue = list(builder_responses or [_make_builder_response()])
@@ -409,7 +409,7 @@ def test_list_and_get_run(
 
 def test_judge_response_parsing_fallback() -> None:
     """Judge response without JSON should still extract a score via regex."""
-    from devflow.control_room.builder_judge_loop import _parse_judge_response
+    from devflow.legacy.control_room.builder_judge_loop import _parse_judge_response
 
     score, issues, feedback = _parse_judge_response(
         "The draft is decent. Score: 72. Missing CTA and too verbose."
@@ -467,7 +467,7 @@ def test_loop_failed_on_builder_error(
 ) -> None:
     setup_temp_git_repo(tmp_path)
     monkeypatch.setenv("OPENROUTER_API_KEY", "***")
-    import devflow.control_room.env_loader as env_loader_mod
+    import devflow.legacy.control_room.env_loader as env_loader_mod
     monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
 
     def fail_urlopen(req: urllib.request.Request, timeout: float | None = None) -> MockResponse:
@@ -570,7 +570,7 @@ def test_quality_gate_runs(
         judge_responses=[_make_judge_response(92, [], "Excellent spec.")],
     )
 
-    from devflow.control_room.builder_judge_loop import run_quality_gate
+    from devflow.legacy.control_room.builder_judge_loop import run_quality_gate
 
     run = run_quality_gate(
         tmp_path,
@@ -585,7 +585,7 @@ def test_quality_gate_runs(
 
 def test_quality_gate_invalid_stage(tmp_path: Path) -> None:
     setup_temp_git_repo(tmp_path)
-    from devflow.control_room.builder_judge_loop import run_quality_gate
+    from devflow.legacy.control_room.builder_judge_loop import run_quality_gate
 
     with pytest.raises(BuilderJudgeConfigError, match="Unknown quality-gate stage"):
         run_quality_gate(tmp_path, stage="invalid", transcript_text="test")
@@ -605,7 +605,7 @@ def test_quality_gate_passed_writes_stage_artifact_with_passed_status(
         judge_responses=[_make_judge_response(92, [], "Excellent.")],
     )
 
-    from devflow.control_room.builder_judge_loop import run_quality_gate
+    from devflow.legacy.control_room.builder_judge_loop import run_quality_gate
 
     run = run_quality_gate(
         tmp_path,
@@ -618,7 +618,7 @@ def test_quality_gate_passed_writes_stage_artifact_with_passed_status(
     assert run.final_score == 92
 
     # StageArtifact should exist with 'passed' status.
-    from devflow.control_room.stage_artifact import load_stage_artifact
+    from devflow.legacy.control_room.stage_artifact import load_stage_artifact
 
     sa = load_stage_artifact(tmp_path, "session-qg-001", "spec")
     assert sa is not None
@@ -628,7 +628,7 @@ def test_quality_gate_passed_writes_stage_artifact_with_passed_status(
     assert sa.quality_gate_path is not None
     assert (tmp_path / sa.artifact_path).exists()
 
-    from devflow.control_room.brainstorm_pipeline import build_brainstorm_pipeline_state
+    from devflow.legacy.control_room.brainstorm_pipeline import build_brainstorm_pipeline_state
 
     pipeline = build_brainstorm_pipeline_state(tmp_path, session_id="session-qg-001")
     spec_stage = {stage.id: stage for stage in pipeline.stages}["spec"]
@@ -657,10 +657,10 @@ def test_quality_gate_escalated_writes_stage_artifact_with_escalated_status(
 
     monkeypatch.setattr(urllib.request, "urlopen", capture_urlopen)
     monkeypatch.setenv("OPENROUTER_API_KEY", "***")
-    import devflow.control_room.env_loader as env_loader_mod
+    import devflow.legacy.control_room.env_loader as env_loader_mod
     monkeypatch.setattr(env_loader_mod, "_HERMES_ENV_PATH", tmp_path / "nonexistent.env")
 
-    from devflow.control_room.builder_judge_loop import run_quality_gate
+    from devflow.legacy.control_room.builder_judge_loop import run_quality_gate
 
     # Max rounds = 1 so it hits escalation immediately.
     run = run_quality_gate(
@@ -679,14 +679,14 @@ def test_quality_gate_escalated_writes_stage_artifact_with_escalated_status(
     assert len(question_files) == 1
 
     # StageArtifact should exist with 'escalated' status.
-    from devflow.control_room.stage_artifact import load_stage_artifact
+    from devflow.legacy.control_room.stage_artifact import load_stage_artifact
 
     sa = load_stage_artifact(tmp_path, "session-qg-002", "plan")
     assert sa is not None
     assert sa.status == "escalated"
     assert sa.source == "builder_judge"
 
-    from devflow.control_room.brainstorm_pipeline import build_brainstorm_pipeline_state
+    from devflow.legacy.control_room.brainstorm_pipeline import build_brainstorm_pipeline_state
 
     pipeline = build_brainstorm_pipeline_state(tmp_path, session_id="session-qg-002")
     plan_stage = {stage.id: stage for stage in pipeline.stages}["plan"]

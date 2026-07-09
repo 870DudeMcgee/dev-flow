@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.service import create_task, get_task, verify_task
-from devflow.control_room.task_promotion_command import (
+from devflow.legacy.control_room.service import create_task, get_task, verify_task
+from devflow.legacy.control_room.task_promotion_command import (
     TaskPromotionCommandError,
     TaskPromotionPreviewView,
     TaskPromotionRunView,

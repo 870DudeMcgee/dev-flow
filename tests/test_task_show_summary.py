@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.service import create_task
-from devflow.control_room.task_show_summary import (
+from devflow.legacy.control_room.service import create_task
+from devflow.legacy.control_room.task_show_summary import (
     TaskShowSummary,
     TaskShowSummaryError,
     build_task_show_summary,

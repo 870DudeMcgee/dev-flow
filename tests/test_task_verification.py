@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.persistence import get_task
-from devflow.control_room.service import create_task, verify_task as service_verify_task
-from devflow.control_room.task_verification import verify_task_command
+from devflow.legacy.control_room.persistence import get_task
+from devflow.legacy.control_room.service import create_task, verify_task as service_verify_task
+from devflow.legacy.control_room.task_verification import verify_task_command
 
 
 def _task_path(root: Path, task_id: str) -> Path:

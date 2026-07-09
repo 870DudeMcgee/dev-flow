@@ -6,7 +6,7 @@ import json
 
 import typer
 
-from devflow.control_room.task_command_policy import (
+from devflow.legacy.control_room.task_command_policy import (
     experimental_command_hidden,
     experimental_refusal_lines,
 )
@@ -20,7 +20,7 @@ def _enforce_experimental(cmd_name: str) -> None:
         raise typer.Exit(code=1)
 
 
-from devflow.control_room.dashboard import (
+from devflow.legacy.control_room.dashboard import (
     run_dashboard,
     render_dashboard_json,
     render_multi_project_dashboard,
@@ -28,7 +28,7 @@ from devflow.control_room.dashboard import (
     render_next_action,
     render_task_history,
 )
-from devflow.control_room.service import (
+from devflow.legacy.control_room.service import (
     create_task,
     doctor,
     get_task,
@@ -36,49 +36,49 @@ from devflow.control_room.service import (
     run_local_model_task,
     verify_task,
 )
-from devflow.control_room.task_apply_patch_command import (
+from devflow.legacy.control_room.task_apply_patch_command import (
     TaskApplyPatchCommandError,
     build_task_apply_patch_result,
     render_task_apply_patch_result,
 )
-from devflow.control_room.task_auto_run_command import run_task_auto_run_command
-from devflow.control_room.task_patch_gate_command import (
+from devflow.legacy.control_room.task_auto_run_command import run_task_auto_run_command
+from devflow.legacy.control_room.task_patch_gate_command import (
     TaskPatchGateCommandError,
     build_task_patch_dry_run_result,
     build_task_patch_review_result,
     render_task_patch_dry_run_lines,
     render_task_patch_review_lines,
 )
-from devflow.control_room.task_closure import (
+from devflow.legacy.control_room.task_closure import (
     TaskClosureError,
     cleanup_task as cleanup_closed_task,
     close_task,
 )
-from devflow.control_room.task_evidence_summary import (
+from devflow.legacy.control_room.task_evidence_summary import (
     TaskEvidenceSummaryError,
     build_task_evidence_summary,
     render_task_evidence_summary,
 )
-from devflow.control_room.task_show_summary import (
+from devflow.legacy.control_room.task_show_summary import (
     TaskShowSummaryError,
     build_task_show_summary,
     render_task_show_summary,
 )
-from devflow.control_room.task_artifact_open import (
+from devflow.legacy.control_room.task_artifact_open import (
     TaskArtifactOpenError,
     open_task_artifact,
     render_task_open_candidates,
     select_task_open_artifact,
 )
-from devflow.control_room.task_pruning import TaskPruneError, prune_closed_tasks
-from devflow.control_room.reconciliation import build_reconciliation_report
+from devflow.legacy.control_room.task_pruning import TaskPruneError, prune_closed_tasks
+from devflow.legacy.control_room.reconciliation import build_reconciliation_report
 
-from devflow.control_room.status_projection import list_task_status_projections
-from devflow.control_room.models import TaskRecord
-from devflow.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
-from devflow.control_room.token_context import write_context_packet
-from devflow.control_room.proposal_normalizer import normalize_proposal
-from devflow.control_room.git_worktree import (
+from devflow.legacy.control_room.status_projection import list_task_status_projections
+from devflow.legacy.control_room.models import TaskRecord
+from devflow.legacy.control_room.supervisor import DEFAULT_WORKER_COMMAND, supervise_once, supervise_poll
+from devflow.legacy.control_room.token_context import write_context_packet
+from devflow.legacy.control_room.proposal_normalizer import normalize_proposal
+from devflow.legacy.control_room.git_worktree import (
     GitWorktreeError,
     archive_devflow_branch,
     cleanup_task_git_resources,
@@ -86,60 +86,60 @@ from devflow.control_room.git_worktree import (
     list_devflow_worktrees,
     prune_orphan_worktrees,
 )
-from devflow.control_room.task_promotion_command import (
+from devflow.legacy.control_room.task_promotion_command import (
     TaskPromotionCommandError,
     build_task_promotion_preview_view,
     build_task_promotion_run_view,
     execute_task_promotion_run,
 )
-from devflow.control_room.task_routing_command import (
+from devflow.legacy.control_room.task_routing_command import (
     TaskRoutingCommandError,
     build_task_routing_result,
     render_task_routing_json,
     render_task_routing_lines,
 )
-from devflow.control_room.task_run_command import (
+from devflow.legacy.control_room.task_run_command import (
     TaskRunCommandError,
     render_task_run_lines,
     run_task_command,
 )
-from devflow.control_room.task_scorecard_command import (
+from devflow.legacy.control_room.task_scorecard_command import (
     TaskScorecardCommandError,
     build_task_scorecard_result,
     render_task_scorecard_json,
     render_task_scorecard_lines,
 )
-from devflow.control_room.architecture_command import architecture_app, architecture_audit_command  # noqa: F401
-from devflow.control_room.builder_judge_command import builder_judge_app
-from devflow.control_room.dogfood_command import dogfood_app
-from devflow.control_room.freshness_command import (  # noqa: F401
+from devflow.legacy.control_room.architecture_command import architecture_app, architecture_audit_command  # noqa: F401
+from devflow.legacy.control_room.builder_judge_command import builder_judge_app
+from devflow.legacy.control_room.dogfood_command import dogfood_app
+from devflow.legacy.control_room.freshness_command import (  # noqa: F401
     freshness_app, freshness_create_batch, freshness_loop, freshness_run,
     freshness_verify_batch, freshness_worker_batch,
 )
-from devflow.control_room.goal_command import goal_app
-from devflow.control_room.idea_command import idea_app
-from devflow.control_room.local_ai_command import local_ai_app
-from devflow.control_room.local_model_command import local_model_app
-from devflow.control_room.loop_command import loop_app
-from devflow.control_room.agent_command import agent_app
-from devflow.control_room.maintenance_command import maintenance_app
-from devflow.control_room.operating_layer_command import operating_layer_app
-from devflow.control_room.project_command import project_app
-from devflow.control_room.training_command import training_app
-from devflow.control_room.question_command import (  # noqa: F401
+from devflow.legacy.control_room.goal_command import goal_app
+from devflow.legacy.control_room.idea_command import idea_app
+from devflow.legacy.control_room.local_ai_command import local_ai_app
+from devflow.legacy.control_room.local_model_command import local_model_app
+from devflow.legacy.control_room.loop_command import loop_app
+from devflow.legacy.control_room.agent_command import agent_app
+from devflow.legacy.control_room.maintenance_command import maintenance_app
+from devflow.legacy.control_room.operating_layer_command import operating_layer_app
+from devflow.legacy.control_room.project_command import project_app
+from devflow.legacy.control_room.training_command import training_app
+from devflow.legacy.control_room.question_command import (  # noqa: F401
     question_answer, question_app, question_list, question_resolve, question_show,
 )
-from devflow.control_room.scheduler_command import scheduler_app, scheduler_retry, scheduler_status  # noqa: F401
-from devflow.control_room.devmode_bridge import detect_devmode, render_devmode_status
-from devflow.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
-from devflow.control_room.qwopus_evidence import write_qwopus_escalation_packet
-from devflow.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
-from devflow.control_room.review_readiness import (
+from devflow.legacy.control_room.scheduler_command import scheduler_app, scheduler_retry, scheduler_status  # noqa: F401
+from devflow.legacy.control_room.devmode_bridge import detect_devmode, render_devmode_status
+from devflow.legacy.control_room.git_state import GitStateError, push_main, render_git_status, sync_main
+from devflow.legacy.control_room.qwopus_evidence import write_qwopus_escalation_packet
+from devflow.legacy.control_room.review_capsule import export_review_capsule_markdown, render_review_capsule
+from devflow.legacy.control_room.review_readiness import (
     build_review_readiness_projection,
     render_review_readiness,
     summarize_review_readiness,
 )
-from devflow.control_room.supervisor_surface import (
+from devflow.legacy.control_room.supervisor_surface import (
     render_control_room_status,
     render_supervisor_command_classification,
     render_supervisor_packet,
@@ -147,16 +147,16 @@ from devflow.control_room.supervisor_surface import (
     render_task_next_action,
     render_task_review,
 )
-from devflow.control_room.telegram_routing import render_telegram_route
-from devflow.control_room.hermes_readiness import render_hermes_imessage_check
-from devflow.control_room.hermes_profiles_command import hermes_profiles_app
-from devflow.control_room.project_registry import (
+from devflow.legacy.control_room.telegram_routing import render_telegram_route
+from devflow.legacy.control_room.hermes_readiness import render_hermes_imessage_check
+from devflow.legacy.control_room.hermes_profiles_command import hermes_profiles_app
+from devflow.legacy.control_room.project_registry import (
     ProjectRootResolution,
     ProjectRegistryError,
     project_task_ref,
     resolve_project_root,
 )
-from devflow.control_room.paths import relative_path
+from devflow.legacy.control_room.paths import relative_path
 
 
 app = typer.Typer(help="Dev-Flow local control room")
@@ -250,7 +250,7 @@ def doctor_command(
         typer.echo("Error: doctor --provision --json is read-only and cannot be combined with --apply.", err=True)
         raise typer.Exit(code=1)
     if provision:
-        from devflow.control_room.local_model_readiness import (
+        from devflow.legacy.control_room.local_model_readiness import (
             LocalModelReadinessError,
             apply_local_model_readiness_plan,
             build_local_model_readiness_plan,
@@ -277,7 +277,7 @@ def doctor_command(
             typer.echo(line)
         return
     if repair:
-        from devflow.control_room.control_room_doctor import repair_macos_path_hygiene
+        from devflow.legacy.control_room.control_room_doctor import repair_macos_path_hygiene
 
         fixed = repair_macos_path_hygiene(root)
         if fixed:
@@ -352,7 +352,7 @@ def status_command(
     if json_output:
         typer.echo(render_control_room_status(Path.cwd()), nl=False)
     else:
-        from devflow.control_room.dashboard import render_dashboard
+        from devflow.legacy.control_room.dashboard import render_dashboard
         typer.echo(render_dashboard(Path.cwd()), nl=False)
 
 
@@ -412,7 +412,7 @@ def git_checkpoint_command(
     yes: bool = typer.Option(False, "--yes", help="Stage all unignored changes and create the checkpoint commit."),
 ) -> None:
     """Preview or create an explicit local checkpoint commit."""
-    from devflow.control_room.git_checkpoint import checkpoint, render_checkpoint
+    from devflow.legacy.control_room.git_checkpoint import checkpoint, render_checkpoint
 
     try:
         typer.echo(render_checkpoint(checkpoint(Path.cwd(), message=message, yes=yes)), nl=False)
@@ -884,7 +884,7 @@ def task_orchestrate(
         typer.echo("Error: task orchestrate currently requires --plan-only.", err=True)
         raise typer.Exit(code=1)
     try:
-        from devflow.control_room.orchestration_plan import (
+        from devflow.legacy.control_room.orchestration_plan import (
             OrchestrationPlanError,
             create_orchestration_plan,
             render_orchestration_plan_summary,
@@ -907,7 +907,7 @@ def task_fit_command(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        from devflow.control_room.estimator import estimate_task_fit, save_task_fit
+        from devflow.legacy.control_room.estimator import estimate_task_fit, save_task_fit
         fit_data = estimate_task_fit(root, task_id)
         save_task_fit(root, task_id, fit_data)
     except Exception as exc:
@@ -969,7 +969,7 @@ def task_pack_command(task_id: str, role: str) -> None:
     _enforce_experimental("task pack")
     root = Path.cwd()
     try:
-        from devflow.control_room.context_pack import build_context_pack, save_context_pack
+        from devflow.legacy.control_room.context_pack import build_context_pack, save_context_pack
         pack_data = build_context_pack(root, task_id, role)
         save_context_pack(root, task_id, role, pack_data)
     except Exception as exc:
@@ -1011,7 +1011,7 @@ def task_scout_command(
     root = scope.root
 
     try:
-        from devflow.control_room.scout import run_scout_reports, save_scout_report
+        from devflow.legacy.control_room.scout import run_scout_reports, save_scout_report
 
         reports = run_scout_reports(root, task_id, role=role)
         artifact_paths = {
@@ -1109,7 +1109,7 @@ def task_packet(
     scope = _resolve_task_project_root(project)
     root = scope.root
     try:
-        from devflow.control_room.task_packet import (
+        from devflow.legacy.control_room.task_packet import (
             build_task_packet,
             render_task_packet_text,
             save_task_packet,
@@ -1371,7 +1371,7 @@ def task_local_review(
     max_packet_chars: int = typer.Option(200_000, "--max-packet-chars", help="Capping size of rendered task packet text."),
 ) -> None:
     """Run an advisory local model packet review for a task."""
-    from devflow.control_room.local_packet_worker import run_local_packet_review
+    from devflow.legacy.control_room.local_packet_worker import run_local_packet_review
 
     try:
         result = run_local_packet_review(
@@ -1506,7 +1506,7 @@ def task_finalize(
 ) -> None:
     """Preview or commit safe task-owned changes in its isolated Git worktree."""
     root = Path.cwd()
-    from devflow.control_room.finalizer import finalize_task, FinalizationError
+    from devflow.legacy.control_room.finalizer import finalize_task, FinalizationError
     try:
         evidence = finalize_task(root, task_id, commit=commit)
     except FinalizationError as exc:
@@ -1856,7 +1856,7 @@ def _echo_task_prune_result(result: dict[str, Any]) -> None:
 def worker_validate_outcome(outcome_json: str) -> None:
     """Validate worker outcome metadata without running agents or mutating task state."""
     try:
-        from devflow.control_room.worker_outcome import (
+        from devflow.legacy.control_room.worker_outcome import (
             render_worker_outcome_validation,
             validate_worker_outcome_file,
         )
@@ -1886,7 +1886,7 @@ def release_readiness_command(
     json_output: bool = typer.Option(False, "--json", help="Print release-readiness report as JSON."),
 ) -> None:
     """Check explicit release-readiness gates without running heavy suites."""
-    from devflow.control_room.release_readiness import (
+    from devflow.legacy.control_room.release_readiness import (
         build_release_readiness_report,
         render_release_readiness_report,
     )
@@ -1919,7 +1919,7 @@ def knowledge_capture(
         typer.echo("Error: choose exactly one of --from-task or --from-validation.", err=True)
         raise typer.Exit(code=1)
     try:
-        from devflow.control_room.knowledge_foundry import (
+        from devflow.legacy.control_room.knowledge_foundry import (
             KnowledgeFoundryError,
             capture_from_task,
             capture_from_validation,
@@ -1944,7 +1944,7 @@ def knowledge_capture(
 @knowledge_app.command("list")
 def knowledge_list() -> None:
     """List local Knowledge Foundry items."""
-    from devflow.control_room.knowledge_foundry import list_knowledge, render_knowledge_list
+    from devflow.legacy.control_room.knowledge_foundry import list_knowledge, render_knowledge_list
 
     typer.echo(render_knowledge_list(list_knowledge(Path.cwd())), nl=False)
 
@@ -1953,7 +1953,7 @@ def knowledge_list() -> None:
 def knowledge_show(knowledge_id: str) -> None:
     """Show one Knowledge Foundry item and its note."""
     try:
-        from devflow.control_room.knowledge_foundry import KnowledgeFoundryError, render_knowledge_show, show_knowledge
+        from devflow.legacy.control_room.knowledge_foundry import KnowledgeFoundryError, render_knowledge_show, show_knowledge
 
         metadata, note = show_knowledge(Path.cwd(), knowledge_id)
     except (KnowledgeFoundryError, ValueError) as exc:
@@ -1966,7 +1966,7 @@ def knowledge_show(knowledge_id: str) -> None:
 def knowledge_promote(knowledge_id: str) -> None:
     """Promote a reviewed knowledge item without promoting task code."""
     try:
-        from devflow.control_room.knowledge_foundry import KnowledgeFoundryError, promote_knowledge
+        from devflow.legacy.control_room.knowledge_foundry import KnowledgeFoundryError, promote_knowledge
 
         item = promote_knowledge(Path.cwd(), knowledge_id)
     except (KnowledgeFoundryError, ValueError) as exc:
@@ -1981,7 +1981,7 @@ def knowledge_promote(knowledge_id: str) -> None:
 def knowledge_reject(knowledge_id: str) -> None:
     """Reject a knowledge item while preserving its source references."""
     try:
-        from devflow.control_room.knowledge_foundry import KnowledgeFoundryError, reject_knowledge
+        from devflow.legacy.control_room.knowledge_foundry import KnowledgeFoundryError, reject_knowledge
 
         item = reject_knowledge(Path.cwd(), knowledge_id)
     except (KnowledgeFoundryError, ValueError) as exc:
@@ -1995,7 +1995,7 @@ def knowledge_reject(knowledge_id: str) -> None:
 @knowledge_app.command("search")
 def knowledge_search(query: str) -> None:
     """Search local knowledge title, tags, and note text."""
-    from devflow.control_room.knowledge_foundry import render_knowledge_list, search_knowledge
+    from devflow.legacy.control_room.knowledge_foundry import render_knowledge_list, search_knowledge
 
     typer.echo(render_knowledge_list(search_knowledge(Path.cwd(), query)), nl=False)
 
@@ -2066,7 +2066,7 @@ def df_ask(
         )
         raise typer.Exit(code=1)
     prompt_text = " ".join(prompt)
-    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    from devflow.legacy.control_room.agent_terminal import AgentTerminalRunner
     runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent, allow_disabled=allow_disabled)
     runner.run_one_shot(
         command="ask",
@@ -2107,7 +2107,7 @@ def df_run(
         typer.echo("Error: One of --prompt, --prompt-file, or --stdin is required.", err=True)
         raise typer.Exit(code=1)
 
-    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    from devflow.legacy.control_room.agent_terminal import AgentTerminalRunner
     runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent, allow_disabled=allow_disabled)
     runner.run_one_shot(
         command="run",
@@ -2126,7 +2126,7 @@ def df_chat(
     allow_disabled: bool = typer.Option(False, "--allow-disabled", help="Allow using disabled agents."),
 ) -> None:
     """Start an interactive chat session with a local agent."""
-    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    from devflow.legacy.control_room.agent_terminal import AgentTerminalRunner
     runner = AgentTerminalRunner(repo_root=Path.cwd(), agent_name=agent, allow_disabled=allow_disabled)
     runner.run_chat(no_save=no_save)
 
@@ -2153,7 +2153,7 @@ def qwopus_main() -> None:
         if not sys.stdin.isatty():
             prompt_text = sys.stdin.read().strip()
             if prompt_text:
-                from devflow.control_room.agent_terminal import AgentTerminalRunner
+                from devflow.legacy.control_room.agent_terminal import AgentTerminalRunner
                 runner = AgentTerminalRunner(
                     repo_root=Path.cwd(),
                     agent_name="qwopus-implementer",
@@ -2179,7 +2179,7 @@ def qwopus_main() -> None:
         )
         sys.exit(1)
 
-    from devflow.control_room.agent_terminal import AgentTerminalRunner
+    from devflow.legacy.control_room.agent_terminal import AgentTerminalRunner
     runner = AgentTerminalRunner(
         repo_root=Path.cwd(),
         agent_name="qwopus-implementer",
@@ -2205,7 +2205,7 @@ def map_init_command(
     force: bool = typer.Option(False, "--force", help="Overwrite an existing CODE_MAP.md."),
 ) -> None:
     """Scaffold a blank CODE_MAP.md project orientation file at the repo root."""
-    from devflow.control_room.code_map import CodeMapError, map_init
+    from devflow.legacy.control_room.code_map import CodeMapError, map_init
 
     try:
         target = map_init(Path.cwd(), force=force)
@@ -2220,7 +2220,7 @@ def map_init_command(
 @map_app.command("show")
 def map_show_command() -> None:
     """Print the contents of CODE_MAP.md to stdout."""
-    from devflow.control_room.code_map import CodeMapError, map_show
+    from devflow.legacy.control_room.code_map import CodeMapError, map_show
 
     try:
         content = map_show(Path.cwd())
@@ -2233,7 +2233,7 @@ def map_show_command() -> None:
 @map_app.command("check")
 def map_check_command() -> None:
     """Validate CODE_MAP.md required sections and entry-point paths."""
-    from devflow.control_room.code_map import CodeMapError, map_check
+    from devflow.legacy.control_room.code_map import CodeMapError, map_check
 
     try:
         result = map_check(Path.cwd())

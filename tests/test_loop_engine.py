@@ -8,7 +8,7 @@ import yaml
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.persistence import get_task
+from devflow.legacy.control_room.persistence import get_task
 from tests.helpers import setup_temp_git_repo
 
 

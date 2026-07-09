@@ -9,7 +9,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.service import get_task
+from devflow.legacy.control_room.service import get_task
 
 
 runner = CliRunner()

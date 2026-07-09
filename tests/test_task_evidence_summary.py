@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.service import create_task, get_task
-from devflow.control_room.task_evidence_summary import (
+from devflow.legacy.control_room.service import create_task, get_task
+from devflow.legacy.control_room.task_evidence_summary import (
     TaskEvidenceSummaryError,
     build_task_evidence_summary,
     render_task_evidence_summary,

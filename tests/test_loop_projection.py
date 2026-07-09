@@ -1,4 +1,4 @@
-from devflow.control_room.loops import loop_artifact, loop_envelope, loop_phase, status_label
+from devflow.legacy.control_room.loops import loop_artifact, loop_envelope, loop_phase, status_label
 
 
 def test_status_label_normalizes_separators() -> None:

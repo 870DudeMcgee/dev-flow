@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from devflow.control_room.loop_command import loop_app
+from devflow.legacy.control_room.loop_command import loop_app
 
 
 def test_loop_command_init_show_and_list_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

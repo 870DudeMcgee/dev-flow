@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.env_loader import load_hermes_env_file, resolve_api_key
-import devflow.control_room.env_loader as env_loader_mod
+from devflow.legacy.control_room.env_loader import load_hermes_env_file, resolve_api_key
+import devflow.legacy.control_room.env_loader as env_loader_mod
 
 
 def test_load_hermes_env_file_loads_missing_keys(tmp_path: Path) -> None:

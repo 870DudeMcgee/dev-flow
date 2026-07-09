@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.patch_applier import PatchApplicationError, PatchSelectionError
-from devflow.control_room.service import apply_task_patch as service_apply_task_patch
-from devflow.control_room.service import create_task
-from devflow.control_room.task_patch_application import apply_task_patch_command
+from devflow.legacy.control_room.patch_applier import PatchApplicationError, PatchSelectionError
+from devflow.legacy.control_room.service import apply_task_patch as service_apply_task_patch
+from devflow.legacy.control_room.service import create_task
+from devflow.legacy.control_room.task_patch_application import apply_task_patch_command
 
 
 def _task_path(root: Path, task_id: str) -> Path:

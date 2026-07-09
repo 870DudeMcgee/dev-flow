@@ -3,10 +3,10 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from devflow.control_room import builder_judge_runtime_registry as bj_runtime
-from devflow.control_room.builder_judge_async_runtime import start_workbench_implementation_async
-from devflow.control_room.builder_judge_loop import BuilderJudgeConfig
-from devflow.control_room.unified_workbench import WorkbenchImplementationPackage
+from devflow.legacy.control_room import builder_judge_runtime_registry as bj_runtime
+from devflow.legacy.control_room.builder_judge_async_runtime import start_workbench_implementation_async
+from devflow.legacy.control_room.builder_judge_loop import BuilderJudgeConfig
+from devflow.legacy.control_room.unified_workbench import WorkbenchImplementationPackage
 
 
 class _FakePassedRun:

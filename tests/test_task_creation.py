@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.persistence import get_task
-from devflow.control_room.project_models import ProjectMetadata
-from devflow.control_room.service import create_task, init_control_room
-from devflow.control_room.task_artifacts import BASELINE_TASK_ARTIFACTS
-from devflow.control_room.task_creation import (
+from devflow.legacy.control_room.persistence import get_task
+from devflow.legacy.control_room.project_models import ProjectMetadata
+from devflow.legacy.control_room.service import create_task, init_control_room
+from devflow.legacy.control_room.task_artifacts import BASELINE_TASK_ARTIFACTS
+from devflow.legacy.control_room.task_creation import (
     create_control_room_task,
     initialize_control_room,
 )

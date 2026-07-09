@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room import persistence
+from devflow.legacy.control_room import persistence
 
 
 def test_atomic_write_text_preserves_existing_file_when_replace_fails(

@@ -9,14 +9,14 @@ import pytest
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.dashboard import collect_dashboard_state
-from devflow.control_room.service import create_task
-from devflow.control_room.status_projection import (
+from devflow.legacy.control_room.dashboard import collect_dashboard_state
+from devflow.legacy.control_room.service import create_task
+from devflow.legacy.control_room.status_projection import (
     choose_task_dashboard_action,
     choose_task_focus_projection,
     list_task_status_projections,
 )
-from devflow.control_room.task_closure import close_task
+from devflow.legacy.control_room.task_closure import close_task
 from tests.helpers import git_commit, init_test_git_repo, setup_temp_repo
 
 
@@ -190,7 +190,7 @@ def test_collect_dashboard_state_collects_goal_projection_warnings(tmp_path: Pat
     init_res = runner.invoke(app, ["goal", "init", "--from", goal_md.name])
     assert init_res.exit_code == 0, init_res.output
 
-    from devflow.control_room import goal_projection
+    from devflow.legacy.control_room import goal_projection
 
     original = goal_projection.build_goal_status_projection
 

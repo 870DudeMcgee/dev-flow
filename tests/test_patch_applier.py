@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import pytest
 from pathlib import Path
-from devflow.control_room.patch_applier import (
+from devflow.legacy.control_room.patch_applier import (
     PatchError,
     PatchParseError,
     PatchSelectionError,

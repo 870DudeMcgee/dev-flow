@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.patch_proposal import (
+from devflow.legacy.control_room.patch_proposal import (
     PatchProposalParseError,
     inspect_patch_proposal,
     is_dangerous_patch_path,
@@ -122,6 +122,6 @@ def test_patch_evidence_modules_delegate_to_shared_proposal_module() -> None:
         Path("src/devflow/control_room/patch_applier.py").read_text(encoding="utf-8"),
     ]
 
-    assert all("devflow.control_room.patch_proposal" in source for source in module_sources)
+    assert all("devflow.legacy.control_room.patch_proposal" in source for source in module_sources)
     assert "def _strip_patch_prefix" not in "\n".join(module_sources)
     assert "def _file_from_diff_git" not in "\n".join(module_sources)

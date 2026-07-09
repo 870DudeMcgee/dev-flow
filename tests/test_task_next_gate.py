@@ -19,8 +19,8 @@ def _write_json(path: Path, payload: dict) -> None:
 
 def _create_task(root: Path, task_id: str, title: str = "test task", status: str = "created") -> None:
     """Write a real DevFlow task record with the given status."""
-    from devflow.control_room.models import TaskRecord, TaskStatus
-    from devflow.control_room.persistence import save_task
+    from devflow.legacy.control_room.models import TaskRecord, TaskStatus
+    from devflow.legacy.control_room.persistence import save_task
 
     now = datetime.now(timezone.utc)
     save_task(
@@ -95,7 +95,7 @@ def _patch_hash(patch_path: Path) -> str:
 
 # ---- unit tests for the resolver ---------------------------------------
 
-from devflow.control_room.task_next_gate import TaskNextGate, resolve_task_next_gate, DashboardActionAdapter
+from devflow.legacy.control_room.task_next_gate import TaskNextGate, resolve_task_next_gate, DashboardActionAdapter
 
 
 class TestResolveTaskNextGate:
@@ -219,7 +219,7 @@ def test_review_readiness_shows_review_patch_not_verify(
     _create_task(tmp_path, "task-0001", status="complete")
     _seed_qwopus_patch_evidence(tmp_path, "task-0001")
 
-    from devflow.control_room.review_readiness import build_review_readiness_projection
+    from devflow.legacy.control_room.review_readiness import build_review_readiness_projection
     proj = build_review_readiness_projection(tmp_path, "task-0001")
     assert proj.review_state == "review_patch"
 
@@ -233,7 +233,7 @@ def test_review_readiness_shows_patch_dry_run_after_review(
     _seed_qwopus_patch_evidence(tmp_path, "task-0002")
     _seed_qwopus_review(tmp_path, "task-0002")
 
-    from devflow.control_room.review_readiness import build_review_readiness_projection
+    from devflow.legacy.control_room.review_readiness import build_review_readiness_projection
     proj = build_review_readiness_projection(tmp_path, "task-0002")
     assert proj.review_state == "patch_dry_run"
 
@@ -252,7 +252,7 @@ def test_operating_layer_snapshot_includes_browser_review_loop_summary(
     # Seed Qwopus patch evidence so the next gate is `review-patch`, not verification.
     _seed_qwopus_patch_evidence(tmp_path, "task-0001")
 
-    from devflow.control_room.operating_layer import build_operating_layer_snapshot
+    from devflow.legacy.control_room.operating_layer import build_operating_layer_snapshot
     snapshot = build_operating_layer_snapshot(tmp_path)
     p = snapshot.model_dump(mode="json")
     review_loop = p["review_loop"]
@@ -272,7 +272,7 @@ def test_operating_layer_server_blocks_approval_required_actions(
     assert TRunner().invoke(cli_app, ["task", "create", "blocked runtime action"]).exit_code == 0
     worker_log = tmp_path / ".devflow" / "tasks" / "task-0001" / "logs" / "worker.log"
 
-    from devflow.control_room.operating_layer_server import OperatingLayerHTTPServer
+    from devflow.legacy.control_room.operating_layer_server import OperatingLayerHTTPServer
     import threading
     import json
     from http.client import HTTPConnection

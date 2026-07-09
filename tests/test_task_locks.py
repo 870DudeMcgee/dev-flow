@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.locks import TaskLockError, inspect_task_lock_status, task_mutation_lock
-from devflow.control_room.service import apply_task_patch, create_task, promote_task, run_shell_task, verify_task
+from devflow.legacy.control_room.locks import TaskLockError, inspect_task_lock_status, task_mutation_lock
+from devflow.legacy.control_room.service import apply_task_patch, create_task, promote_task, run_shell_task, verify_task
 
 
 def test_task_mutation_lock_writes_owner_metadata_and_cleans_up(tmp_path: Path) -> None:

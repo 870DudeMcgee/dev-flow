@@ -5,7 +5,7 @@ recorded into the pipeline run, and the loop state advances from idea to
 definition when the discovery is ready to proceed.
 
 Imported surfaces (and NOT modified):
-  - devflow.control_room.scout_discovery
+  - devflow.legacy.control_room.scout_discovery
   - devflow.loop.adapter
   - devflow.loop.models
 """
@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from devflow.control_room.scout_discovery import AgentScoutDiscovery
-from devflow.control_room.scout_discovery import (
+from devflow.legacy.control_room.scout_discovery import AgentScoutDiscovery
+from devflow.legacy.control_room.scout_discovery import (
     discover_agent_scout_context,
 )
 from devflow.loop.adapter import load_loop_state, save_loop_state
@@ -127,6 +127,6 @@ def save_orient_evidence(root: Path | str, run_id: str, json_str: str) -> None:
 
 def _run_dir(root: Path | str, run_id: str) -> Path:
     """Resolve the pipeline run directory for a given run_id."""
-    from devflow.control_room.pipeline_run import _run_dir as _internal_run_dir
+    from devflow.legacy.control_room.pipeline_run import _run_dir as _internal_run_dir
 
     return _internal_run_dir(Path(root), run_id)

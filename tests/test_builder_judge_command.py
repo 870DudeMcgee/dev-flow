@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from devflow.control_room.builder_judge_command import builder_judge_app
+from devflow.legacy.control_room.builder_judge_command import builder_judge_app
 
 
 def _write_run(root: Path, loop_id: str, payload: dict[str, Any]) -> None:
@@ -165,7 +165,7 @@ def test_builder_judge_run_json_outputs_passed_run(
         return FakeRun()
 
     monkeypatch.setattr(
-        "devflow.control_room.builder_judge_loop.run_builder_judge_loop",
+        "devflow.legacy.control_room.builder_judge_loop.run_builder_judge_loop",
         fake_run_builder_judge_loop,
     )
     runner = CliRunner()
@@ -209,7 +209,7 @@ def test_builder_judge_run_json_exits_2_for_non_passing_run(
             return {"loop_id": "bj-run", "status": self.status}
 
     monkeypatch.setattr(
-        "devflow.control_room.builder_judge_loop.run_builder_judge_loop",
+        "devflow.legacy.control_room.builder_judge_loop.run_builder_judge_loop",
         lambda root, config: FakeRun(),
     )
     runner = CliRunner()

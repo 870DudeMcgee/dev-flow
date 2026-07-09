@@ -9,8 +9,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.git_worktree import git_worker_lane_summary
-from devflow.control_room.persistence import get_task
+from devflow.legacy.control_room.git_worktree import git_worker_lane_summary
+from devflow.legacy.control_room.persistence import get_task
 
 
 runner = CliRunner()

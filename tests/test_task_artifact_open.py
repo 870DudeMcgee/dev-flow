@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devflow.control_room.service import create_task
-from devflow.control_room.task_artifact_open import (
+from devflow.legacy.control_room.service import create_task
+from devflow.legacy.control_room.task_artifact_open import (
     TaskArtifactOpenError,
     open_task_artifact,
     render_task_open_candidates,
@@ -91,9 +91,9 @@ def test_symlink_escape_is_filtered_from_candidates(tmp_path: Path) -> None:
 def test_open_task_artifact_uses_platform_opener(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     artifact = tmp_path / "response.md"
     artifact.write_text("response", encoding="utf-8")
-    monkeypatch.setattr("devflow.control_room.task_artifact_open.sys.platform", "linux")
+    monkeypatch.setattr("devflow.legacy.control_room.task_artifact_open.sys.platform", "linux")
 
-    with patch("devflow.control_room.task_artifact_open.subprocess.run") as mock_run:
+    with patch("devflow.legacy.control_room.task_artifact_open.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0)
 
         assert open_task_artifact(artifact) is True
@@ -107,7 +107,7 @@ def test_open_task_artifact_returns_false_on_open_failure(
 ) -> None:
     artifact = tmp_path / "response.md"
     artifact.write_text("response", encoding="utf-8")
-    monkeypatch.setattr("devflow.control_room.task_artifact_open.sys.platform", "linux")
+    monkeypatch.setattr("devflow.legacy.control_room.task_artifact_open.sys.platform", "linux")
 
-    with patch("devflow.control_room.task_artifact_open.subprocess.run", side_effect=Exception("boom")):
+    with patch("devflow.legacy.control_room.task_artifact_open.subprocess.run", side_effect=Exception("boom")):
         assert open_task_artifact(artifact) is False

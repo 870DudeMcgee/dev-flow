@@ -10,7 +10,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.seed import validate_seed_contract
+from devflow.legacy.control_room.seed import validate_seed_contract
 
 
 runner = CliRunner()

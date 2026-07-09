@@ -7,13 +7,13 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.service import create_task
-from devflow.control_room.supervisor_surface import (
+from devflow.legacy.control_room.service import create_task
+from devflow.legacy.control_room.supervisor_surface import (
     APPROVAL_REQUIRED_TASK_STATE,
     APPROVAL_REQUIRED_WORKER_RUNTIME,
     PURE_READ_ONLY,
 )
-from devflow.control_room.telegram_routing import (
+from devflow.legacy.control_room.telegram_routing import (
     DEFAULT_TELEGRAM_MODEL,
     DEFAULT_TELEGRAM_PROVIDER_ID,
     route_telegram_message,

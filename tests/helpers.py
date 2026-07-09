@@ -65,7 +65,7 @@ def setup_temp_repo(tmp_path: Path) -> Path:
     produces the same .devflow/ directory + seed files without booting
     the full Typer CLI app (~21ms → ~5ms per invocation).
     """
-    from devflow.control_room.task_creation import initialize_control_room
+    from devflow.legacy.control_room.task_creation import initialize_control_room
 
     initialize_control_room(tmp_path)
 

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 import concurrent.futures
 
-from devflow.control_room.service import create_task, get_task, init_control_room
+from devflow.legacy.control_room.service import create_task, get_task, init_control_room
 
 def test_concurrent_task_creation() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:

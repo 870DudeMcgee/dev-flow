@@ -7,7 +7,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devflow.cli import app
-from devflow.control_room.pipeline_run import pipeline_runs_dir
+from devflow.legacy.control_room.pipeline_run import pipeline_runs_dir
 from devflow.loop.e2e_harness import EXPECTED_STAGE_CHAIN, run_e2e_loop_harness
 from devflow.loop.models import LoopStage
 

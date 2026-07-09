@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from devflow.control_room.service import create_task
-from devflow.control_room.task_apply_patch_command import (
+from devflow.legacy.control_room.service import create_task
+from devflow.legacy.control_room.task_apply_patch_command import (
     TaskApplyPatchCommandError,
     build_task_apply_patch_result,
     render_task_apply_patch_result,
