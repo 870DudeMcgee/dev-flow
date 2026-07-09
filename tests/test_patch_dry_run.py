@@ -484,7 +484,7 @@ def test_idempotent_and_no_task_or_workspace_mutation(tmp_path: Path, monkeypatc
 
 
 def test_no_network_model_or_heavy_imports() -> None:
-    source = Path("src/devflow/control_room/patch_dry_run.py").read_text(encoding="utf-8")
+    source = Path("src/devflow/legacy/control_room/patch_dry_run.py").read_text(encoding="utf-8")
     forbidden = ["urllib", "requests", "local_model_client", "transformers", "torch", "llama_cpp", "openai"]
     assert not any(token in source for token in forbidden)
 

@@ -117,9 +117,9 @@ def test_workspace_target_resolution_enforces_boundary(tmp_path: Path) -> None:
 
 def test_patch_evidence_modules_delegate_to_shared_proposal_module() -> None:
     module_sources = [
-        Path("src/devflow/control_room/patch_review.py").read_text(encoding="utf-8"),
-        Path("src/devflow/control_room/patch_dry_run.py").read_text(encoding="utf-8"),
-        Path("src/devflow/control_room/patch_applier.py").read_text(encoding="utf-8"),
+        Path("src/devflow/legacy/control_room/patch_review.py").read_text(encoding="utf-8"),
+        Path("src/devflow/legacy/control_room/patch_dry_run.py").read_text(encoding="utf-8"),
+        Path("src/devflow/legacy/control_room/patch_applier.py").read_text(encoding="utf-8"),
     ]
 
     assert all("devflow.legacy.control_room.patch_proposal" in source for source in module_sources)

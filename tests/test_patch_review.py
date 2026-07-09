@@ -317,7 +317,7 @@ def test_no_source_workspace_or_task_state_mutation(tmp_path: Path, monkeypatch:
 
 
 def test_no_network_or_model_imports() -> None:
-    source = Path("src/devflow/control_room/patch_review.py").read_text(encoding="utf-8")
+    source = Path("src/devflow/legacy/control_room/patch_review.py").read_text(encoding="utf-8")
     forbidden = ["urllib", "requests", "httpx", "ollama", "openai", "socket"]
     assert not any(token in source for token in forbidden)
 
