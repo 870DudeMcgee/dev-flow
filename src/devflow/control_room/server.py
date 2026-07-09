@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
 from pathlib import Path
 from devflow.loop.pipeline_run import load_pipeline_run, pipeline_runs_dir, _ensure_relative_to
+from devflow.control_room.git_status import git_status_snapshot
 from devflow.control_room.page import STATUS_PAGE_HTML
 from devflow.control_room.system_memory import memory_pressure_snapshot
 
@@ -79,6 +80,10 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
         """Return the compact system memory signal used by the header graph."""
         self._send_json(memory_pressure_snapshot())
 
+    def _handle_git(self) -> None:
+        """Return the compact Git status signal used by the header badge."""
+        self._send_json(git_status_snapshot(self.server.repo_root))
+
     def _handle_artifact(self, query: dict) -> None:
         """Serve the raw text content of a single artifact file from a run dir."""
         run_id = (query.get("run") or [""])[0]
@@ -123,6 +128,8 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
             self._handle_status()
         elif path == "/api/memory":
             self._handle_memory()
+        elif path == "/api/git":
+            self._handle_git()
         elif path == "/api/artifact":
             self._handle_artifact(query)
         else:

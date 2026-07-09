@@ -64,6 +64,30 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     font-size: 16px;
   }
   .header-right { display: flex; align-items: center; gap: 16px; }
+  .git-widget {
+    display: grid;
+    grid-template-columns: 28px minmax(120px, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    min-width: 286px;
+    max-width: 380px;
+    padding: 7px 10px;
+    border: 1px solid rgba(99,102,241,0.28);
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(15,17,23,0.86));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 0 18px rgba(99,102,241,0.08);
+  }
+  .git-widget.dirty { border-color: rgba(245,158,11,0.42); background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(15,17,23,0.86)); }
+  .git-widget.unpushed, .git-widget.behind, .git-widget.local { border-color: rgba(14,165,233,0.38); background: linear-gradient(135deg, rgba(14,165,233,0.12), rgba(15,17,23,0.86)); }
+  .git-icon { width: 24px; height: 24px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: rgba(99,102,241,0.20); color: #c4b5fd; font-size: 13px; }
+  .git-widget.dirty .git-icon { background: rgba(245,158,11,0.18); color: var(--warning); }
+  .git-widget.unpushed .git-icon, .git-widget.behind .git-icon, .git-widget.local .git-icon { background: rgba(14,165,233,0.16); color: #7dd3fc; }
+  .git-copy { min-width: 0; }
+  .git-repo { font-size: 10px; line-height: 1; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .git-branch { margin-top: 3px; font: 700 12px/1 'SF Mono','Fira Code',monospace; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .git-state { font-size: 10px; padding: 4px 8px; border-radius: 999px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; background: rgba(16,185,129,0.16); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
+  .git-widget.dirty .git-state { background: rgba(245,158,11,0.16); color: var(--warning); border-color: rgba(245,158,11,0.28); }
+  .git-widget.unpushed .git-state, .git-widget.behind .git-state, .git-widget.local .git-state { background: rgba(14,165,233,0.14); color: #7dd3fc; border-color: rgba(14,165,233,0.25); }
   .memory-widget {
     display: grid;
     grid-template-columns: 84px 78px;
@@ -93,6 +117,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .memory-widget.critical .memory-graph .area { fill: rgba(239,68,68,0.16); }
   .memory-widget.critical .memory-graph .line { stroke: var(--error); filter: drop-shadow(0 0 3px rgba(239,68,68,0.42)); }
   .repo-path {
+    display: none;
     font-size: 12px; color: var(--text-dim);
     font-family: 'SF Mono', 'Fira Code', monospace;
     max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -269,6 +294,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   @media (max-width: 900px) {
     .repo-path { display: none; }
+    .git-widget { min-width: 210px; grid-template-columns: 24px minmax(92px, 1fr) auto; }
     .memory-widget { grid-template-columns: 72px 58px; min-width: 150px; }
     .memory-graph { width: 58px; }
   }
@@ -282,6 +308,14 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     DevFlow Pipeline
   </h1>
   <div class="header-right">
+    <div class="git-widget" id="git-widget" title="Git status unavailable">
+      <span class="git-icon">⑂</span>
+      <span class="git-copy">
+        <span class="git-repo" id="git-repo">repo</span>
+        <span class="git-branch" id="git-branch">branch</span>
+      </span>
+      <span class="git-state" id="git-state">--</span>
+    </div>
     <div class="memory-widget" id="memory-widget" title="Approximate macOS memory pressure">
       <div class="memory-copy">
         <div class="memory-label"><span class="memory-dot"></span>Memory</div>
@@ -337,6 +371,43 @@ async function refreshMemory() {
     const data = await resp.json();
     renderMemory(data);
   } catch (e) { console.error('memory refresh failed:', e); }
+}
+
+async function refreshGit() {
+  try {
+    const resp = await fetch('/api/git');
+    const data = await resp.json();
+    renderGit(data);
+  } catch (e) { console.error('git refresh failed:', e); }
+}
+
+function renderGit(data) {
+  const widget = document.getElementById('git-widget');
+  const repo = document.getElementById('git-repo');
+  const branch = document.getElementById('git-branch');
+  const state = document.getElementById('git-state');
+  if (!widget || !repo || !branch || !state) return;
+  widget.classList.remove('dirty', 'unpushed', 'behind', 'local');
+  if (!data || data.available === false) {
+    repo.textContent = 'Git';
+    branch.textContent = 'not available';
+    state.textContent = '--';
+    widget.title = (data && data.reason) ? data.reason : 'Git status unavailable';
+    return;
+  }
+  const gitState = data.state || 'clean';
+  if (gitState !== 'clean') widget.classList.add(gitState);
+  repo.textContent = data.repo_name || 'repo';
+  branch.textContent = data.branch || 'branch';
+  state.textContent = data.label || gitState;
+  const details = [
+    data.repo_path || '',
+    `branch ${data.branch || 'unknown'} @ ${data.commit || 'unknown'}`,
+    `${data.staged || 0} staged · ${data.unstaged || 0} unstaged · ${data.untracked || 0} untracked`,
+    `${data.ahead || 0} ahead · ${data.behind || 0} behind`,
+    data.upstream ? `upstream ${data.upstream}` : 'no upstream',
+  ].filter(Boolean);
+  widget.title = details.join('\n');
 }
 
 function renderMemory(data) {
@@ -434,7 +505,8 @@ function restoreScrollState(state) {
 }
 
 function render(data) {
-  document.getElementById('repo-path').textContent = data.repo || '';
+  const repoPath = document.getElementById('repo-path');
+  if (repoPath) repoPath.textContent = data.repo || '';
   const el = document.getElementById('content');
   const runs = data.runs || [];
   if (runs.length === 0) {
@@ -625,8 +697,10 @@ function escapeHtml(text) {
 }
 
 refresh();
+refreshGit();
 refreshMemory();
 setInterval(refresh, 3000);
+setInterval(refreshGit, 3000);
 setInterval(refreshMemory, 2000);
 </script>
 </body>
