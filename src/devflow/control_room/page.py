@@ -63,7 +63,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     display: flex; align-items: center; justify-content: center;
     font-size: 16px;
   }
-  .header-right { display: flex; align-items: center; gap: 16px; }
+  .header-right { display: flex; align-items: center; gap: 16px; position: relative; }
   .git-widget {
     display: grid;
     grid-template-columns: 28px minmax(120px, 1fr) auto;
@@ -76,7 +76,10 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     border-radius: 999px;
     background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(15,17,23,0.86));
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 0 18px rgba(99,102,241,0.08);
+    cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
   }
+  .git-widget:hover, .git-widget.open { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 0 24px rgba(99,102,241,0.14); }
   .git-widget.dirty { border-color: rgba(245,158,11,0.42); background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(15,17,23,0.86)); }
   .git-widget.unpushed, .git-widget.behind, .git-widget.local { border-color: rgba(14,165,233,0.38); background: linear-gradient(135deg, rgba(14,165,233,0.12), rgba(15,17,23,0.86)); }
   .git-icon { width: 24px; height: 24px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: rgba(99,102,241,0.20); color: #c4b5fd; font-size: 13px; }
@@ -88,6 +91,41 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .git-state { font-size: 10px; padding: 4px 8px; border-radius: 999px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; background: rgba(16,185,129,0.16); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
   .git-widget.dirty .git-state { background: rgba(245,158,11,0.16); color: var(--warning); border-color: rgba(245,158,11,0.28); }
   .git-widget.unpushed .git-state, .git-widget.behind .git-state, .git-widget.local .git-state { background: rgba(14,165,233,0.14); color: #7dd3fc; border-color: rgba(14,165,233,0.25); }
+  .git-popover {
+    position: absolute;
+    top: 44px;
+    right: 214px;
+    width: min(520px, calc(100vw - 48px));
+    max-height: min(560px, calc(100vh - 96px));
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 20;
+    background: rgba(18,20,31,0.98);
+    border: 1px solid rgba(99,102,241,0.34);
+    border-radius: 16px;
+    box-shadow: 0 20px 70px rgba(0,0,0,0.42), 0 0 28px rgba(99,102,241,0.13);
+    backdrop-filter: blur(12px);
+  }
+  .git-popover.open { display: flex; }
+  .git-popover-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+  .git-popover-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); font-weight: 800; }
+  .git-popover-branch { margin-top: 4px; font: 700 13px 'SF Mono','Fira Code',monospace; color: var(--text); word-break: break-all; }
+  .git-popover-meta { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .git-meta-pill { font-size: 10px; padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); background: rgba(255,255,255,0.03); }
+  .git-popover-close { border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); border-radius: 8px; width: 28px; height: 28px; cursor: pointer; }
+  .git-popover-close:hover { color: var(--text); border-color: var(--accent); }
+  .git-change-list { padding: 8px; overflow-y: auto; }
+  .git-change-row { display: grid; grid-template-columns: 84px 1fr 42px; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; color: var(--text); }
+  .git-change-row:hover { background: rgba(99,102,241,0.08); }
+  .git-change-label { font-size: 10px; padding: 3px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 800; text-align: center; color: var(--text-dim); background: rgba(156,163,175,0.12); }
+  .git-change-label.staged { color: var(--success); background: rgba(16,185,129,0.13); }
+  .git-change-label.unstaged { color: var(--warning); background: rgba(245,158,11,0.13); }
+  .git-change-label.untracked { color: #7dd3fc; background: rgba(14,165,233,0.13); }
+  .git-change-label.mixed { color: #c4b5fd; background: rgba(99,102,241,0.16); }
+  .git-change-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px 'SF Mono','Fira Code',monospace; }
+  .git-change-code { color: var(--text-dim); font: 11px 'SF Mono','Fira Code',monospace; text-align: right; }
+  .git-empty { padding: 20px; color: var(--text-dim); font-size: 13px; text-align: center; }
   .memory-widget {
     display: grid;
     grid-template-columns: 84px 78px;
@@ -295,6 +333,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   @media (max-width: 900px) {
     .repo-path { display: none; }
     .git-widget { min-width: 210px; grid-template-columns: 24px minmax(92px, 1fr) auto; }
+    .git-popover { right: 0; }
     .memory-widget { grid-template-columns: 72px 58px; min-width: 150px; }
     .memory-graph { width: 58px; }
   }
@@ -308,7 +347,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     DevFlow Pipeline
   </h1>
   <div class="header-right">
-    <div class="git-widget" id="git-widget" title="Git status unavailable">
+    <div class="git-widget" id="git-widget" title="Git status unavailable" role="button" tabindex="0" aria-expanded="false" onclick="toggleGitDetails(event)" onkeydown="handleGitWidgetKey(event)">
       <span class="git-icon">⑂</span>
       <span class="git-copy">
         <span class="git-repo" id="git-repo">repo</span>
@@ -316,6 +355,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
       </span>
       <span class="git-state" id="git-state">--</span>
     </div>
+    <div class="git-popover" id="git-popover" role="dialog" aria-label="Git status details"></div>
     <div class="memory-widget" id="memory-widget" title="Approximate macOS memory pressure">
       <div class="memory-copy">
         <div class="memory-label"><span class="memory-dot"></span>Memory</div>
@@ -347,6 +387,7 @@ const STAGE_SHORT = ['Idea','Def','Spec','Plan','Judge','Assign','Build','Verify
 let OPEN_ARTIFACT = null;  // { runId, fileName }
 let SELECTED_OUTPUT = null; // { runId, index }
 let MEMORY_HISTORY = [];
+let LATEST_GIT = null;
 
 async function refresh() {
   try {
@@ -382,6 +423,7 @@ async function refreshGit() {
 }
 
 function renderGit(data) {
+  LATEST_GIT = data || null;
   const widget = document.getElementById('git-widget');
   const repo = document.getElementById('git-repo');
   const branch = document.getElementById('git-branch');
@@ -393,6 +435,7 @@ function renderGit(data) {
     branch.textContent = 'not available';
     state.textContent = '--';
     widget.title = (data && data.reason) ? data.reason : 'Git status unavailable';
+    renderGitDetails();
     return;
   }
   const gitState = data.state || 'clean';
@@ -408,6 +451,68 @@ function renderGit(data) {
     data.upstream ? `upstream ${data.upstream}` : 'no upstream',
   ].filter(Boolean);
   widget.title = details.join('\n');
+  renderGitDetails();
+}
+
+function toggleGitDetails(event) {
+  if (event) event.stopPropagation();
+  const popover = document.getElementById('git-popover');
+  const widget = document.getElementById('git-widget');
+  if (!popover || !widget) return;
+  const opening = !popover.classList.contains('open');
+  popover.classList.toggle('open', opening);
+  widget.classList.toggle('open', opening);
+  widget.setAttribute('aria-expanded', opening ? 'true' : 'false');
+  if (opening) renderGitDetails();
+}
+
+function closeGitDetails() {
+  const popover = document.getElementById('git-popover');
+  const widget = document.getElementById('git-widget');
+  if (!popover || !widget) return;
+  popover.classList.remove('open');
+  widget.classList.remove('open');
+  widget.setAttribute('aria-expanded', 'false');
+}
+
+function handleGitWidgetKey(event) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    toggleGitDetails(event);
+  }
+}
+
+function renderGitDetails() {
+  const popover = document.getElementById('git-popover');
+  if (!popover || !popover.classList.contains('open')) return;
+  const data = LATEST_GIT;
+  if (!data || data.available === false) {
+    popover.innerHTML = `<div class="git-empty">Git status is unavailable.</div>`;
+    return;
+  }
+  const changes = data.changes || [];
+  const rows = changes.length ? changes.map(change => `
+    <div class="git-change-row">
+      <span class="git-change-label ${escapeHtml(change.tone || '')}">${escapeHtml(change.label || 'changed')}</span>
+      <span class="git-change-path" title="${escapeHtml(change.path || '')}">${escapeHtml(change.path || '')}</span>
+      <span class="git-change-code">${escapeHtml(`${change.index || ' '} ${change.worktree || ' '}`)}</span>
+    </div>`).join('') : '<div class="git-empty">No working tree changes. This checkout is clean.</div>';
+  popover.innerHTML = `
+    <div class="git-popover-head">
+      <div>
+        <div class="git-popover-title">${escapeHtml(data.repo_name || 'Repository')}</div>
+        <div class="git-popover-branch">${escapeHtml(data.branch || 'branch')} · ${escapeHtml(data.commit || 'unknown')}</div>
+        <div class="git-popover-meta">
+          <span class="git-meta-pill">${escapeHtml(data.label || data.state || 'status')}</span>
+          <span class="git-meta-pill">${data.staged || 0} staged</span>
+          <span class="git-meta-pill">${data.unstaged || 0} unstaged</span>
+          <span class="git-meta-pill">${data.untracked || 0} untracked</span>
+          <span class="git-meta-pill">${data.ahead || 0} ahead · ${data.behind || 0} behind</span>
+        </div>
+      </div>
+      <button class="git-popover-close" onclick="closeGitDetails()" aria-label="Close Git details">×</button>
+    </div>
+    <div class="git-change-list">${rows}</div>`;
 }
 
 function renderMemory(data) {
@@ -695,6 +800,16 @@ function escapeHtml(text) {
   div.textContent = text || '';
   return div.innerHTML;
 }
+
+document.addEventListener('click', event => {
+  const popover = document.getElementById('git-popover');
+  const widget = document.getElementById('git-widget');
+  if (!popover || !widget) return;
+  if (!popover.contains(event.target) && !widget.contains(event.target)) closeGitDetails();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeGitDetails();
+});
 
 refresh();
 refreshGit();

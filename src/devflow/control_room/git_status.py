@@ -28,6 +28,7 @@ def git_status_snapshot(repo_root: Path) -> dict:
     upstream = _safe_git(repo_path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     status_text = _safe_git(repo_path, "status", "--porcelain=v1", "--branch") or ""
     counts = _parse_porcelain_status(status_text)
+    changes = _parse_porcelain_changes(status_text)
 
     ahead = counts["ahead"]
     behind = counts["behind"]
@@ -43,8 +44,8 @@ def git_status_snapshot(repo_root: Path) -> dict:
         state = "behind"
         label = f"{behind} behind"
     elif not upstream:
-        state = "local"
-        label = "No upstream"
+        state = "clean"
+        label = "Clean tree"
     else:
         state = "clean"
         label = "Clean + pushed"
@@ -65,6 +66,7 @@ def git_status_snapshot(repo_root: Path) -> dict:
         "staged": counts["staged"],
         "unstaged": counts["unstaged"],
         "untracked": counts["untracked"],
+        "changes": changes,
     }
 
 
@@ -101,6 +103,68 @@ def _parse_porcelain_status(status_text: str) -> dict[str, int]:
             if line[1] not in {" ", "?"}:
                 counts["unstaged"] += 1
     return counts
+
+
+def _parse_porcelain_changes(status_text: str) -> list[dict[str, str]]:
+    changes: list[dict[str, str]] = []
+    for line in status_text.splitlines():
+        if not line or line.startswith("## "):
+            continue
+        if line.startswith("??"):
+            changes.append({
+                "path": line[3:].strip(),
+                "index": "?",
+                "worktree": "?",
+                "label": "untracked",
+                "tone": "untracked",
+            })
+            continue
+        if len(line) < 4:
+            continue
+        index_status = line[0]
+        worktree_status = line[1]
+        changes.append({
+            "path": line[3:].strip(),
+            "index": index_status,
+            "worktree": worktree_status,
+            "label": _change_label(index_status, worktree_status),
+            "tone": _change_tone(index_status, worktree_status),
+        })
+    return changes
+
+
+def _change_label(index_status: str, worktree_status: str) -> str:
+    staged = index_status != " "
+    unstaged = worktree_status != " "
+    if staged and unstaged:
+        return "staged + unstaged"
+    if staged:
+        return _status_name(index_status, fallback="staged")
+    if unstaged:
+        return _status_name(worktree_status, fallback="unstaged")
+    return "clean"
+
+
+def _change_tone(index_status: str, worktree_status: str) -> str:
+    if index_status == "?" or worktree_status == "?":
+        return "untracked"
+    if index_status != " " and worktree_status != " ":
+        return "mixed"
+    if index_status != " ":
+        return "staged"
+    return "unstaged"
+
+
+def _status_name(status: str, *, fallback: str) -> str:
+    return {
+        "A": "added",
+        "C": "copied",
+        "D": "deleted",
+        "M": "modified",
+        "R": "renamed",
+        "T": "type changed",
+        "U": "unmerged",
+    }.get(status, fallback)
 
 
 def _parse_count(line: str, label: str) -> int:

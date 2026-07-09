@@ -35,6 +35,26 @@ def test_git_status_snapshot_reports_dirty_counts(tmp_path: Path) -> None:
     assert payload["unstaged"] == 1
     assert payload["untracked"] == 1
     assert payload["pushed"] is False
+    assert payload["changes"] == [
+        {"path": "tracked.txt", "index": " ", "worktree": "M", "label": "modified", "tone": "unstaged"},
+        {"path": "new.txt", "index": "?", "worktree": "?", "label": "untracked", "tone": "untracked"},
+    ]
+
+
+def test_git_status_snapshot_treats_clean_no_upstream_as_clean_tree(tmp_path: Path) -> None:
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "devflow@example.invalid")
+    _git(tmp_path, "config", "user.name", "DevFlow Test")
+    (tmp_path / "tracked.txt").write_text("one\n", encoding="utf-8")
+    _git(tmp_path, "add", "tracked.txt")
+    _git(tmp_path, "commit", "-m", "initial")
+
+    payload = git_status_snapshot(tmp_path)
+
+    assert payload["upstream"] == ""
+    assert payload["state"] == "clean"
+    assert payload["label"] == "Clean tree"
+    assert payload["changes"] == []
 
 
 def test_git_status_endpoint_returns_probe_payload(tmp_path: Path, monkeypatch) -> None:
