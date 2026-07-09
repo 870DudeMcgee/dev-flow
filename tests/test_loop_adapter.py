@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from devflow.legacy.control_room.pipeline_run import (
+from devflow.loop.pipeline_run import (
     create_pipeline_run,
     pipeline_runs_dir,
     update_pipeline_run_record,

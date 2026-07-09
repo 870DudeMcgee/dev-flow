@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from devflow.legacy.control_room.pipeline_run import create_pipeline_run
+from devflow.loop.pipeline_run import create_pipeline_run
 from devflow.loop.models import (
     LoopStage,
     new_loop_state,

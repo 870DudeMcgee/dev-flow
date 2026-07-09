@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from devflow.legacy.control_room.pipeline_run import create_pipeline_run, update_pipeline_run_record
+from devflow.loop.pipeline_run import create_pipeline_run, update_pipeline_run_record
 from devflow.loop.models import DevFlowLoopState, LoopStage, new_loop_state
 from devflow.loop.verification import (
     VerificationStatus,

@@ -1,21 +1,22 @@
-"""Orient/Scout adapter — wraps scout_discovery into the v2 loop spine.
+"""Orient/Scout adapter — wraps native V2 scout discovery into the loop spine.
 
 This module provides the orient step: scout discovery runs, evidence is
 recorded into the pipeline run, and the loop state advances from idea to
 definition when the discovery is ready to proceed.
 
-Imported surfaces (and NOT modified):
-  - devflow.legacy.control_room.scout_discovery
+Imported surfaces (native, no legacy dependency):
+  - devflow.loop.scout_discovery
   - devflow.loop.adapter
   - devflow.loop.models
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
 
-from devflow.legacy.control_room.scout_discovery import AgentScoutDiscovery
-from devflow.legacy.control_room.scout_discovery import (
+from devflow.loop.scout_discovery import AgentScoutDiscovery
+from devflow.loop.scout_discovery import (
     discover_agent_scout_context,
 )
 from devflow.loop.adapter import load_loop_state, save_loop_state

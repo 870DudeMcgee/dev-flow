@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from devflow.legacy.control_room.pipeline_run import (
+from devflow.loop.pipeline_run import (
     RUN_LOG_FILE,
     append_pipeline_event,
     create_pipeline_run,
