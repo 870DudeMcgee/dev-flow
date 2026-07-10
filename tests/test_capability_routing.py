@@ -380,8 +380,10 @@ class TestProfiles:
         set_active_profile("studio-local-heavy")
         assert get_active_profile_name() == "studio-local-heavy"
         slot = resolve_role("verifier")
-        # studio-local-heavy routes verifier to qwen-27b (local)
-        assert slot.model_name == "qwen-27b-q5km"
+        # studio-local-heavy prefers qwen-27b, but it's unavailable on the
+        # Mini (available: false), so routing falls through to auto.
+        assert slot.model_name != "qwen-27b-q5km"
+        assert slot.resolved_via == "auto"
         set_active_profile("legacy-current")
 
     def test_profile_routes_to_available_free_model(self):
@@ -408,7 +410,7 @@ class TestProfiles:
             "brainstorm": "gpt-5.6-terra",
             "planner": "gpt-5.6-terra",
             "planning_judge": "gpt-5.6-luna",
-            "builder": "qwen2.5-coder-14b",
+            "builder": "qwen2.5-coder-7b-mini",
             "build_judge": "gpt-5.6-luna",
             "verifier": "gpt-5.6-luna",
             "final_judge": "gpt-5.6-terra",
@@ -421,8 +423,8 @@ class TestProfiles:
             assert slot.resolved_via == "profile"
 
         builder = resolve_role("builder")
-        assert builder.endpoint == "http://127.0.0.1:11434/v1"
-        assert builder.model_id == "qwen2.5-coder:14b"
+        assert builder.endpoint == "http://127.0.0.1:8088"
+        assert builder.model_id == "qwen2.5-coder-7b-mini"
         assert builder.cost_class == "local"
 
     def test_hy3_free_entry_uses_openrouter_free_slug(self):

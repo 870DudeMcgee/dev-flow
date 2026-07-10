@@ -410,10 +410,13 @@ class HermesSubscriptionClient:
 # Lane lifecycle (uses the real model-router launcher)
 # ---------------------------------------------------------------------------
 def ensure_lane(role: str, *, script: Optional[Path] = None) -> None:
-    """Bring the role's server up, swapping out any heavy-group sibling.
+    """Bring the role's server up, swapping out any different local model.
 
     For local openai-http endpoints (llama-server), delegates to
-    ``model-router start <port>`` — the canonical launcher.
+    ``model-router start <port>`` — the canonical launcher.  When the
+    resolved slot carries a ``model_path``, it is passed via the
+    ``MINI_QWEN_MODEL_PATH`` and ``MINI_MODEL_ALIAS`` env vars so the
+    launcher loads the correct GGUF.
 
     For hermes-chat (subscription) and remote openai-http (OpenRouter),
     this is a no-op: no local server to start.
@@ -423,12 +426,18 @@ def ensure_lane(role: str, *, script: Optional[Path] = None) -> None:
     if slot.transport == "hermes-chat":
         return
     # Remote openai-http endpoints (OpenRouter etc.) don't need a local server.
-    if "openrouter.ai" in slot.endpoint or "localhost" not in slot.endpoint:
+    if "openrouter.ai" in slot.endpoint:
+        return
+    if not LocalModelClient._is_local_endpoint(slot.endpoint):
         return
     port = slot.endpoint.rsplit(":", 1)[-1]
     script = script or MODEL_ROUTER_SCRIPT
+    env = dict(os.environ)
+    if slot.model_path:
+        env["MINI_QWEN_MODEL_PATH"] = os.path.expanduser(slot.model_path)
+        env["MINI_MODEL_ALIAS"] = slot.model_id or slot.model_name
     # model-router prints; we only care about the side effect.
-    subprocess.run([str(script), "start", port], check=False)
+    subprocess.run([str(script), "start", port], check=False, env=env)
 
 
 # ---------------------------------------------------------------------------

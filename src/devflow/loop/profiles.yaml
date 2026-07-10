@@ -63,20 +63,35 @@ profiles:
       brainstorm: "hy3-free"
 
   # -----------------------------------------------------------------
-  # Mini-Ollama: Mac mini with a local Qwen builder.
-  # Keep bulk implementation on local hardware; reserve included
-  # subscriptions for the small, high-value reasoning and review roles.
+  # Mini-Ollama: legacy profile, now routes to the Mini llama.cpp fleet.
+  # Kept for backward compatibility — prefer mini-baseline for new work.
   # -----------------------------------------------------------------
   mini-ollama:
-    description: "Mac mini with Ollama. Local Qwen builder plus subscription reasoning."
+    description: "Mac mini local builder plus subscription reasoning. (Legacy alias for mini-baseline.)"
     roles:
       planner: "gpt-5.6-terra"
       planning_judge: "gpt-5.6-luna"
-      builder: "qwen2.5-coder-14b"
+      builder: "qwen2.5-coder-7b-mini"
       build_judge: "gpt-5.6-luna"
       verifier: "gpt-5.6-luna"
       final_judge: "gpt-5.6-terra"
       brainstorm: "gpt-5.6-terra"
+
+  # -----------------------------------------------------------------
+  # Mini-baseline: Mac Mini M1 (16GB) with proven llama.cpp fleet.
+  # Local builder/scout/review via single-flight port 8088.
+  # Subscription models for planning, judging, and verification.
+  # -----------------------------------------------------------------
+  mini-baseline:
+    description: "Mac Mini M1 llama.cpp fleet. Local builder+scout, subscription reasoning."
+    roles:
+      planner: "gpt-5.6-terra"
+      planning_judge: "gpt-5.6-luna"
+      builder: "qwen2.5-coder-7b-mini"
+      build_judge: "ornith-9b-mini"
+      verifier: "gpt-5.6-luna"
+      final_judge: "glm-5.2"
+      brainstorm: "glm-5.2"
 
   # -----------------------------------------------------------------
   # Custom: operator assigns every role manually via overrides.

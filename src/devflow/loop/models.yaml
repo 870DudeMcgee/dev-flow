@@ -11,7 +11,7 @@
 
 models:
   # -----------------------------------------------------------------
-  # Local fleet (Mac Studio M4 Max)
+  # Mac Studio fleet (unavailable on Mini — left for cross-machine runs)
   # -----------------------------------------------------------------
   ornith-35b:
     display_name: "Ornith 35B MoE"
@@ -22,12 +22,13 @@ models:
     context_window: 32768
     structured_output: true
     tool_support: false
+    available: false
     capabilities:
       - code_generation
       - structured_output
       - edit_planning
       - repository_awareness
-    notes: "Primary local builder lane. Q4_K_XL quantization."
+    notes: "Mac Studio builder lane. Not available on Mini."
 
   qwen-27b-q5km:
     display_name: "Qwen 2.5 Coder 27B Q5_K_M"
@@ -38,6 +39,7 @@ models:
     context_window: 32768
     structured_output: true
     tool_support: false
+    available: false
     capabilities:
       - spec_review
       - gap_detection
@@ -47,7 +49,7 @@ models:
       - correctness_evaluation
       - evidence_review
       - structured_output
-    notes: "Local judge/verifier lane. Single-flight with builder."
+    notes: "Mac Studio judge/verifier lane. Not available on Mini."
 
   agents-a1-q4:
     display_name: "Agents-A1 Q4"
@@ -58,32 +60,76 @@ models:
     context_window: 32768
     structured_output: true
     tool_support: false
+    available: false
     capabilities:
       - architecture
       - specification_writing
       - structured_planning
       - decomposition
       - research_scouting
-    notes: "Local planner lane. Lightweight quantization."
+    notes: "Mac Studio planner lane. Not available on Mini."
 
   # -----------------------------------------------------------------
-  # Mac mini local fleet (Ollama default endpoint)
+  # Mac Mini local fleet (llama.cpp, single-flight on port 8088)
+  # One model resident at a time — model-router swaps via env vars.
   # -----------------------------------------------------------------
-  qwen2.5-coder-14b:
-    display_name: "Qwen 2.5 Coder 14B (Ollama)"
+  qwen2.5-coder-7b-mini:
+    display_name: "Qwen 2.5 Coder 7B (llama.cpp Mini)"
     provider: local
     transport: openai-http
-    endpoint: "http://127.0.0.1:11434/v1"
-    model_id: "qwen2.5-coder:14b"
+    endpoint: "http://127.0.0.1:8088"
+    model_id: "qwen2.5-coder-7b-mini"
+    model_path: "~/models/qwen2.5-coder-7b-q4_k_m.gguf"
     cost_class: local
-    context_window: 32768
+    context_window: 8192
     structured_output: true
     tool_support: false
     capabilities:
       - code_generation
       - structured_output
       - edit_planning
-    notes: "Mac mini local builder lane. Select with the mini-ollama profile."
+      - repository_awareness
+    notes: "Mini builder. Fastest gen (12-16 t/s). 4.4 GB Q4_K_M. Path: ~/models/qwen2.5-coder-7b-q4_k_m.gguf"
+
+  qwythos-9b-mini:
+    display_name: "Qwythos-9B Claude Mythos (llama.cpp Mini)"
+    provider: local
+    transport: openai-http
+    endpoint: "http://127.0.0.1:8088"
+    model_id: "qwythos-9b-mini"
+    model_path: "~/models/qwythos-9b-q4_k_m.gguf"
+    cost_class: local
+    context_window: 8192
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - repository_reasoning
+      - structured_reasoning
+      - structured_output
+      - spec_review
+      - gap_detection
+      - research_scouting
+    notes: "Mini scout/comprehension. Richest summaries, 10+ t/s gen. 5.5 GB Q4_K_M. Path: ~/models/qwythos-9b-q4_k_m.gguf"
+
+  ornith-9b-mini:
+    display_name: "Ornith 1.0 9B (llama.cpp Mini)"
+    provider: local
+    transport: openai-http
+    endpoint: "http://127.0.0.1:8088"
+    model_id: "ornith-9b-mini"
+    model_path: "~/models/ornith-9b-q4_k_m.gguf"
+    cost_class: local
+    context_window: 8192
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+      - structured_output
+      - spec_review
+      - gap_detection
+    notes: "Mini review/compression. Fastest prompt eval (110 t/s). 5.2 GB Q4_K_M. Path: ~/models/ornith-9b-q4_k_m.gguf"
 
   # -----------------------------------------------------------------
   # Subscription models (via Hermes chat — no per-token cost)
