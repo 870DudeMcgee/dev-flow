@@ -319,58 +319,49 @@ def _optional_str(value: Any) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# V2-native role -> slot table (replaces the legacy agent-registry scorer)
+# Role resolution (delegates to the routing layer)
 # ---------------------------------------------------------------------------
-# Source of truth: project model-role direction.
-#   planner -> Agents-A1 Q4        (http://localhost:8087)
-#   builder -> Ornith 35B MoE      (http://localhost:8084)
-#   planning_judge -> Qwen 27B Q5_K_M (http://localhost:8083) [live]
-#   judge   -> Qwen 27B Q5_K_M     (http://localhost:8083)  [live]
-#   verifier-> Qwen 27B Q5_K_M     (http://localhost:8083)  [live]
+# The hardcoded ROLE_SLOTS table has been replaced by a three-layer
+# capability-driven architecture:
 #
-# The lock is keyed by (provider, model). judge and verifier share the same
-# model, so they serialize against each other too. Because only one large
-# model server is resident at a time in this fleet, the per-model lock yields
-# machine-wide single-flight as required.
-ROLE_SLOTS: dict[str, dict[str, str]] = {
-    "planner": {"provider": "local", "model": "agents-a1-q4", "endpoint": "http://localhost:8087"},
-    "builder": {"provider": "local", "model": "ornith-35b", "endpoint": "http://localhost:8084"},
-    "planning_judge": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
-    "judge": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
-    "verifier": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
-    # GLM verifier: routes through the user's Hermes Z.AI subscription
-    # (no per-token local API). Distinct (provider,model) so it does NOT
-    # serialize against the local Qwen judge lane.
-    "glm_verifier": {"provider": "zai", "model": "glm-5.2", "endpoint": "hermes://chat/zai/glm-5.2"},
-}
+#   registry.py   — describes what models exist (models.yaml)
+#   roles.py      — describes what each role requires (capabilities)
+#   routing.py    — connects roles to models (profiles.yaml + auto routing)
+#
+# This module now ONLY owns the single-flight filesystem lock. Role
+# resolution is delegated to routing.resolve_role_compatible(), which
+# accepts both canonical role names (builder, verifier) and legacy names
+# (judge, glm_verifier) for backward compatibility.
 
-KNOWN_ROLES = tuple(ROLE_SLOTS.keys())
+from devflow.loop.routing import (
+    ResolvedSlot,
+    resolve_role_compatible,
+    known_roles as _routing_known_roles,
+)
 
 
-@dataclass(frozen=True)
-class ModelSlot:
-    role: str
-    provider: str
-    model: str
-    endpoint: str
+# Backward-compat: expose the same names callers expect.
+KNOWN_ROLES = _routing_known_roles()
+
+# Backward-compat shim: ModelSlot keeps the old shape (.role, .provider,
+# .model, .endpoint) so existing attribute access in execution.py and
+# server.py works unchanged. ResolvedSlot already provides all four
+# attributes (.model is an alias for .model_name).
+ModelSlot = ResolvedSlot
 
 
 def resolve_role_slot(role: str) -> ModelSlot:
     """Return the (provider, model, endpoint) a role is routed to.
 
+    Delegates to the routing layer, which evaluates capabilities,
+    deployment profiles, and cost-class preferences.
+
+    Accepts both canonical role names (builder, verifier, planner, etc.)
+    and legacy names (judge, glm_verifier) for backward compatibility.
+
     Raises ValueError for unknown roles so callers fail loud, not silent.
     """
-    slot = ROLE_SLOTS.get(role)
-    if slot is None:
-        raise ValueError(
-            f"Unknown model-router role '{role}'. Known roles: {', '.join(KNOWN_ROLES)}"
-        )
-    return ModelSlot(
-        role=role,
-        provider=slot["provider"],
-        model=slot["model"],
-        endpoint=slot["endpoint"],
-    )
+    return resolve_role_compatible(role)
 
 
 @contextmanager
@@ -408,7 +399,6 @@ __all__ = [
     "local_model_runtime_status",
     "list_local_model_runtime_status",
     "reclaim_stale_local_model_runtime_lock",
-    "ROLE_SLOTS",
     "KNOWN_ROLES",
     "ModelSlot",
     "resolve_role_slot",

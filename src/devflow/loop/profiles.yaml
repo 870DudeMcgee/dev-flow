@@ -1,0 +1,71 @@
+# DevFlow Deployment Profiles
+#
+# Profiles describe environments, not architectures. They influence routing
+# by providing per-role model preferences. They do NOT modify pipeline logic.
+#
+# A profile entry for a role says: "in this environment, prefer this model
+# for this role." The routing layer still verifies that the model satisfies
+# the role's required capabilities before assigning it.
+#
+# Profile precedence (highest to lowest):
+#   1. Explicit per-run override (passed to resolve_role directly)
+#   2. Active deployment profile (below)
+#   3. Role policy (roles.py preferred_cost_classes)
+#   4. Automatic routing (cheapest eligible model)
+#   5. Safe fallback (first eligible model in registry)
+
+profiles:
+  # -----------------------------------------------------------------
+  # Legacy-current: replicate today's known-good configuration exactly.
+  # This is the default profile so existing behavior is preserved.
+  # -----------------------------------------------------------------
+  legacy-current:
+    description: "Replicate the current known-good fleet configuration."
+    roles:
+      planner: "agents-a1-q4"
+      planning_judge: "qwen-27b-q5km"
+      builder: "ornith-35b"
+      build_judge: "qwen-27b-q5km"
+      verifier: "glm-5.2"
+      final_judge: "glm-5.2"
+      brainstorm: "glm-5.2"
+
+  # -----------------------------------------------------------------
+  # Studio-local-heavy: large local models available.
+  # Prefer local planning, building, and judging. Use frontier
+  # reasoning only where it provides significant value.
+  # -----------------------------------------------------------------
+  studio-local-heavy:
+    description: "Mac Studio with local fleet. Prefer local execution."
+    roles:
+      planner: "agents-a1-q4"
+      planning_judge: "qwen-27b-q5km"
+      builder: "ornith-35b"
+      build_judge: "qwen-27b-q5km"
+      verifier: "qwen-27b-q5km"
+      final_judge: "glm-5.2"
+      brainstorm: "glm-5.2"
+
+  # -----------------------------------------------------------------
+  # Mini-free-cloud: minimal local compute.
+  # Prefer free cloud workers. Reserve subscription models for
+  # high-value reasoning only.
+  # -----------------------------------------------------------------
+  mini-free-cloud:
+    description: "Minimal local compute. Prefer free cloud workers."
+    roles:
+      builder: "hy3-free"
+      # planner/planning_judge/build_judge left unset — hy3-free lacks those
+      # capabilities, so routing falls through to automatic selection.
+      verifier: "glm-5.2"
+      final_judge: "glm-5.2"
+      brainstorm: "glm-5.2"
+
+  # -----------------------------------------------------------------
+  # Custom: operator assigns every role manually via overrides.
+  # This profile leaves everything unset — all roles resolve through
+  # automatic routing (cheapest eligible model).
+  # -----------------------------------------------------------------
+  custom:
+    description: "All roles resolved through automatic routing."
+    roles: {}

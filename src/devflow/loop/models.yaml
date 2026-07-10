@@ -1,0 +1,146 @@
+# DevFlow Model Registry
+#
+# Describes available execution targets. The registry NEVER assigns models
+# to roles — it only describes what exists. Role assignment is handled by
+# routing.py, guided by roles.py (capability requirements) and profiles.yaml
+# (deployment profile preferences).
+#
+# To add a new model: add an entry here. No pipeline code changes.
+# To retire a model: set retired: true. No pipeline code changes.
+# To swap a model: change the endpoint/properties here. No pipeline code changes.
+
+models:
+  # -----------------------------------------------------------------
+  # Local fleet (Mac Studio M4 Max)
+  # -----------------------------------------------------------------
+  ornith-35b:
+    display_name: "Ornith 35B MoE"
+    provider: local
+    transport: openai-http
+    endpoint: "http://localhost:8084"
+    cost_class: local
+    context_window: 32768
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - code_generation
+      - structured_output
+      - edit_planning
+      - repository_awareness
+    notes: "Primary local builder lane. Q4_K_XL quantization."
+
+  qwen-27b-q5km:
+    display_name: "Qwen 2.5 Coder 27B Q5_K_M"
+    provider: local
+    transport: openai-http
+    endpoint: "http://localhost:8083"
+    cost_class: local
+    context_window: 32768
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+      - evidence_review
+      - structured_output
+    notes: "Local judge/verifier lane. Single-flight with builder."
+
+  agents-a1-q4:
+    display_name: "Agents-A1 Q4"
+    provider: local
+    transport: openai-http
+    endpoint: "http://localhost:8087"
+    cost_class: local
+    context_window: 32768
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - architecture
+      - specification_writing
+      - structured_planning
+      - decomposition
+      - research_scouting
+    notes: "Local planner lane. Lightweight quantization."
+
+  # -----------------------------------------------------------------
+  # Subscription models (via Hermes chat — no per-token cost)
+  # -----------------------------------------------------------------
+  glm-5.2:
+    display_name: "GLM-5.2 (Z.AI subscription)"
+    provider: zai
+    transport: hermes-chat
+    endpoint: "hermes://chat/zai/glm-5.2"
+    cost_class: included_subscription
+    context_window: 128000
+    structured_output: true
+    tool_support: true
+    auth_method: hermes-oauth
+    capabilities:
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+      - structured_output
+      - code_generation
+      - architecture
+      - specification_writing
+      - structured_planning
+      - decomposition
+      - ambiguity_resolution
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - evidence_review
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+    notes: "Frontier orchestrator. Routes through Hermes subscription."
+
+  gpt-5.5:
+    display_name: "GPT-5.5 (OpenAI via Hermes)"
+    provider: openai-codex
+    transport: hermes-chat
+    endpoint: "hermes://chat/openai-codex/gpt-5.5"
+    cost_class: included_subscription
+    context_window: 128000
+    structured_output: true
+    tool_support: true
+    auth_method: hermes-oauth
+    capabilities:
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+      - structured_output
+      - code_generation
+      - architecture
+      - specification_writing
+      - ambiguity_resolution
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - evidence_review
+      - deterministic_verification
+    notes: "Subscription fallback for GLM. Frontier reasoning."
+
+  # -----------------------------------------------------------------
+  # Free cloud workers (OpenRouter :free tier)
+  # -----------------------------------------------------------------
+  hy3-free:
+    display_name: "Tencent Hy3 (OpenRouter free)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 32768
+    structured_output: true
+    tool_support: false
+    auth_method: openrouter-key
+    available: false  # disabled until operator provides OpenRouter key
+    capabilities:
+      - code_generation
+      - structured_output
+      - edit_planning
+    notes: "Free-cloud worker candidate. Enable when OpenRouter key configured."
