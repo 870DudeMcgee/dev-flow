@@ -831,7 +831,7 @@ def run_server(
 ) -> None:
     """Start the status board server. Blocks until interrupted."""
     server = StatusServer((host, port), repo_root)
-    print(f"DevFlow Pipeline Status Board → http://{host}:{port}")
+    print(f"DevFlow Pipeline Status Board → http://{host}:{server.server_port}")
     print(f"  repo: {repo_root}")
     print("  Press Ctrl+C to stop.")
     try:

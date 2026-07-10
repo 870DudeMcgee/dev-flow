@@ -2,7 +2,7 @@
 
 Filesystem-backed, deterministic, and intentionally boring: just Path, json,
 and file append. The public API mirrors the original
-``devflow.legacy.control_room.pipeline_run`` contract exactly so the V2 loop
+the previous pipeline-run contract exactly so the V2 loop
 adapters can switch to native execution with a one-line import swap.
 
 Contract (must stay byte-compatible with adapter.infer_stage):

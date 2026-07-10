@@ -5,7 +5,7 @@ Date: 2026-07-07
 
 This document is the active source of truth for DevFlow.
 
-Older architecture, roadmap, cockpit, orchestration, local-worker, model-routing, and software-factory documents are non-authoritative unless explicitly listed here as canonical references. Historical documents may be useful for recovery, but they must not be loaded as active context by default.
+Older architecture, roadmap, cockpit, orchestration, local-worker, model-routing, and software-factory documents are absent from the active checkout. Recover historical material from the Git archive only when a human explicitly asks; it must never be loaded as active context by default.
 
 ## One-Sentence Purpose
 
@@ -284,7 +284,7 @@ A document remains active only if it directly supports one of:
 9. local worker/runtime boundary;
 10. user-facing operation of the current loop.
 
-Historical docs should be quarantined or deleted. Quarantined docs are non-authoritative recovery material and must not be loaded by default.
+Historical docs should be deleted from the active checkout after an archive reference is created. They are not default context.
 
 ## Canonical References
 
@@ -296,7 +296,7 @@ The following files may remain active when they are kept aligned with this sourc
 - `docs/local-worker-policy.md` — compact local worker boundary, if kept short and aligned.
 - `docs/verification-ledger.md` — evidence history, if kept factual and non-prescriptive.
 
-Any other document must earn active status by directly supporting the current loop. Otherwise it belongs in quarantine, archive, or deletion.
+Any other document must earn active status by directly supporting the current loop. Otherwise archive it and delete it from the active checkout.
 
 ## Non-Negotiable Principles
 

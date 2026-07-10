@@ -1,53 +1,50 @@
-# Code Map
+# DevFlow V2 Code Map
 
-## What this repo does
+## Purpose
 
-DevFlow is the local operating layer that turns a user's rough idea into a verified product implementation through brainstorm, specification, planning, planning review, bounded worker delegation, builder/judge execution, and evidence-backed verification.
+DevFlow turns a rough idea into a verified product change through the V2 stage
+chain:
 
-## Layout
+```text
+Idea -> Brainstorm -> Spec -> Plan -> Judge -> Build -> Judge -> Verify -> Next human decision
+```
 
-- `src/devflow/control_room/` - active control-room implementation. New product behavior belongs here.
-- `src/devflow/cli.py` - Typer CLI entry point and command wiring.
-- Legacy runtime note: `src/devflow/_legacy/` and pure top-level legacy shims were removed. Do not recreate them.
-- `tests/` - pytest coverage for control-room commands, projections, dogfood, release gates, and safety behavior.
-- `docs/` - intentionally sparse active docs. The active source of truth is `docs/DEVFLOW_SOURCE_OF_TRUTH.md`.
-- `docs/_quarantine_2026-07-07/` - non-authoritative historical recovery material. Do not load as active context unless explicitly requested.
-- `.devflow/` - ignored local runtime materialization created by DevFlow commands. Seed/template authority lives in `src/devflow/control_room/seed.py`.
-- `graphify-out/` - generated local architecture evidence. Use it for cleanup review only when requested; do not treat it as canonical source or blindly commit the full directory.
+Hermes owns brainstorm interaction and bounded orchestration. DevFlow owns the
+stage artifacts and evidence. The browser is a read-only status board.
 
-## Entry points
+## Active Layout
 
-- CLI: `src/devflow/cli.py`
-- Task lifecycle writes: `src/devflow/control_room/task_lifecycle.py`
-- Core task service: `src/devflow/control_room/service.py`
-- Task packets: `src/devflow/control_room/task_packet.py`
-- Project code map: `src/devflow/control_room/code_map.py`
-- Freshness loop: `src/devflow/control_room/freshness.py`
-- Operating layer snapshot: `src/devflow/control_room/operating_layer.py`
-- Operating layer browser UI: `src/devflow/control_room/operating_layer_html.py`, `src/devflow/control_room/operating_layer_styles.py`, `src/devflow/control_room/operating_layer_script.py`, and `src/devflow/control_room/operating_layer_server.py`
-- Release readiness gate: `src/devflow/control_room/release_readiness.py`
+- `src/devflow/cli.py` — V2-only Typer entrypoint.
+- `src/devflow/loop/` — loop models, state transitions, persistence, scout, and model-slot contracts.
+- `src/devflow/control_room/` — V2 status board server, page, and support probes.
+- `tests/test_v2_cli.py` — CLI isolation and deterministic fixture regression.
+- `tests/test_loop_*.py` — V2 loop behavior.
+- `tests/test_control_room_*.py` — status-board support behavior.
+- `docs/DEVFLOW_SOURCE_OF_TRUTH.md` — canonical product direction.
+- `AGENTS.md` — required agent workflow.
 
-## What to read first (worker orientation)
+## Entry Points
 
-1. `AGENTS.md` - mandatory repo operating rules.
-2. `docs/DEVFLOW_SOURCE_OF_TRUTH.md` - canonical product and architecture direction.
-3. `docs/README.md` - active docs index.
-4. `docs/local-worker-policy.md` - compact local worker boundary when local model work is explicitly needed.
-5. `docs/verification-ledger.md` - factual evidence history when rerunning expensive verification.
+```bash
+PYTHONPATH=src .venv/bin/python -m devflow.cli status serve
+PYTHONPATH=src .venv/bin/python -m devflow.cli loop spine-fixture --json
+```
 
-## What to skip
+The status board defaults to `http://127.0.0.1:8770/`. The fixture command is
+deterministic and makes no model calls.
 
-- Quarantined historical docs under `docs/_quarantine_2026-07-07/` unless the user explicitly asks for recovery or comparison.
-- Deleted legacy runtime paths such as `src/devflow/_legacy/` and old top-level shims; do not restore them for current product work.
-- Archived workflow docs or stale plans that conflict with the source-of-truth loop.
-- `.devflow/` runtime evidence unless the current task explicitly needs local DevFlow state. Use `src/devflow/control_room/seed.py` for seed/template authority.
-- The deleted root `public/` static surface for current UI work. It was older marketing/simulator content, not the active operating-layer browser surface.
-- Non-local adapters, autonomous route selection, memory, or unapproved dashboard expansion unless an approved active spec promotes that slice.
+## Orientation Order
 
-## Owners / contacts
+1. `AGENTS.md`
+2. `docs/DEVFLOW_SOURCE_OF_TRUTH.md`
+3. This file
+4. The exact `src/devflow/loop/` or `src/devflow/control_room/` module being changed
+5. Its focused test file
 
-- Primary: Josh
+## Do Not Reintroduce
 
-## Last reviewed
-
-2026-07-07
+- retired command surfaces or compatibility shims;
+- former browser UI flows;
+- unbounded worker orchestration or hidden model starts;
+- broad historical plans as active instructions;
+- any second chat interface in the status board.

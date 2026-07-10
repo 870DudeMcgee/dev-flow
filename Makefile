@@ -25,9 +25,6 @@ help: ## Show this help.
 install: ## Install the package in editable mode with dev tools (ruff, pytest).
 	$(PYTHON) -m pip install -e ".[dev]"
 
-.PHONY: repair
-repair: ## Clear the macOS hidden flag that breaks `import devflow` (recurs on Desktop).
-	$(PYTHON) -m devflow.cli doctor --repair
 
 .PHONY: lint
 lint: ## Static checks (ruff). Catches unused imports, dead vars, repeated dict keys.
@@ -62,9 +59,9 @@ verify: ## Canonical gate: the full release-readiness check CI runs.
 	./scripts/release-check.sh
 
 .PHONY: serve
-serve: ## Restart the operating-layer UI cleanly (kills any stale server on the port).
-	$(PYTHON) -m devflow.cli operating-layer restart
+serve: ## Start the V2 read-only pipeline status board on port 8770.
+	$(PYTHON) -m devflow.cli status serve
 
 .PHONY: health
-health: ## Probe the running operating-layer server's real data path (/api/snapshot).
-	$(PYTHON) -m devflow.cli operating-layer health
+health: ## Probe the V2 status board health endpoint.
+	$(PYTHON) -c "from urllib.request import urlopen; print(urlopen('http://127.0.0.1:8770/healthz', timeout=5).read().decode())"

@@ -3,7 +3,7 @@
 Deterministic discovery for scout-first agent workflow packets. This is a
 self-contained reimplementation of the orient/scout contract the V2 loop spine
 consumes via ``devflow.loop.orient``. It replaces
-``devflow.legacy.control_room.scout_discovery`` for the orient path.
+the previous scout-discovery implementation for the orient path.
 
 Only the surfaces the orient step actually uses are implemented:
   - RepoScout.get_referenced_files / get_test_files / get_task_description

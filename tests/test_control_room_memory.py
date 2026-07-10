@@ -69,3 +69,13 @@ def test_memory_pressure_endpoint_returns_probe_payload(tmp_path: Path, monkeypa
 
     assert resp.status == 200
     assert json.loads(body) == {"available": True, "status": "ok", "pressure": 0.42, "available_gib": 24.0}
+
+
+def test_run_server_reports_the_bound_ephemeral_port(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(StatusServer, "serve_forever", lambda self: None)
+
+    from devflow.control_room.server import run_server
+
+    run_server(tmp_path, port=0)
+
+    assert ":0\n" not in capsys.readouterr().out

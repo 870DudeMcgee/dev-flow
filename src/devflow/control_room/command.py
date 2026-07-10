@@ -26,6 +26,6 @@ def status_serve_command(
 
     repo_root = Path.cwd()
 
-    typer.echo(f"Starting status board on {host}:{port}...")
+    typer.echo("Starting status board...")
     typer.echo(f"  repo: {repo_root}")
     run_server(repo_root, host=host, port=port)

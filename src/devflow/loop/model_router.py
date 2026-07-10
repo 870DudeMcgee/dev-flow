@@ -1,18 +1,18 @@
 """Native V2 model router — single-flight gate for local large-model access.
 
 This is the prerequisite for native DevFlow execution: it enforces "only one
-large model resident at a time" across the whole machine, including any legacy
-``devflow loop run`` still in flight, by sharing the exact same lock path.
+large model resident at a time" across the whole machine by sharing one lock
+path with any earlier runner still in flight.
 
 The single-flight lock is copied verbatim from
-``devflow.legacy.control_room.local_model_runtime_lock`` (the working code is
+the previous local-model runtime lock (the working code is
 the intended design). The only deviation is that the two ``paths`` helpers it
 depended on are inlined here so this module is self-contained and carries zero
 legacy imports.
 
 On top of the lock sits a thin V2-native role->slot table. The V2 spine's
 fleet is a fixed set of known endpoints (from the project model-role direction),
-so a small table replaces the legacy agent-registry scorer without pulling in
+so a small table replaces the earlier agent-registry scorer without pulling in
 the worker-client tree. The execution engine that *calls* these slots is a
 separate, later milestone.
 """
@@ -32,11 +32,11 @@ from typing import Any, Iterator, Literal
 
 
 # ---------------------------------------------------------------------------
-# Inlined path helpers (copied logic from devflow.legacy.control_room.paths)
+# Inlined path helpers copied from the earlier implementation.
 # ---------------------------------------------------------------------------
 def _devflow_dir(root: Path) -> Path:
-    # Mirrors legacy devflow_dir EXACTLY so the V2 and legacy lock share the
-    # same directory. Do NOT add .resolve() here — legacy does not.
+    # Preserve the previous path shape so older and V2 runners share one lock.
+    # Do NOT add .resolve() here.
     return Path(root) / ".devflow"
 
 
@@ -48,7 +48,7 @@ def _relative_path(root: Path, path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Single-flight lock (copied verbatim from local_model_runtime_lock.py)
+# Single-flight lock copied from the prior runtime implementation.
 # ---------------------------------------------------------------------------
 RuntimeLockState = Literal["free", "running", "stale"]
 
