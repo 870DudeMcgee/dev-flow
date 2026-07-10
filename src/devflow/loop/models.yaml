@@ -138,9 +138,86 @@ models:
     structured_output: true
     tool_support: false
     auth_method: openrouter-key
-    available: false  # disabled until operator provides OpenRouter key
+    available: true
+    model_id: "tencent/hy3-preview"
     capabilities:
       - code_generation
       - structured_output
       - edit_planning
-    notes: "Free-cloud worker candidate. Enable when OpenRouter key configured."
+      - architecture
+      - specification_writing
+      - structured_planning
+      - decomposition
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+      - evidence_review
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+      - ambiguity_resolution
+    notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active."
+
+  # -----------------------------------------------------------------
+  # GPT-5.6 family (via Hermes subscription — no per-token cost)
+  # -----------------------------------------------------------------
+  gpt-5.6-terra:
+    display_name: "GPT-5.6 Terra (OpenAI via Hermes)"
+    provider: openai-codex
+    transport: hermes-chat
+    endpoint: "hermes://chat/openai-codex/gpt-5.6-terra"
+    cost_class: included_subscription
+    context_window: 128000
+    structured_output: true
+    tool_support: true
+    auth_method: hermes-oauth
+    capabilities:
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+      - structured_output
+      - code_generation
+      - architecture
+      - specification_writing
+      - structured_planning
+      - decomposition
+      - ambiguity_resolution
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - evidence_review
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+    notes: "GPT-5.6 Terra. Balanced everyday model. Routes through Hermes subscription."
+
+  gpt-5.6-luna:
+    display_name: "GPT-5.6 Luna (OpenAI via Hermes)"
+    provider: openai-codex
+    transport: hermes-chat
+    endpoint: "hermes://chat/openai-codex/gpt-5.6-luna"
+    cost_class: included_subscription
+    context_window: 128000
+    structured_output: true
+    tool_support: true
+    auth_method: hermes-oauth
+    capabilities:
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+      - structured_output
+      - code_generation
+      - architecture
+      - specification_writing
+      - ambiguity_resolution
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - evidence_review
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+    notes: "GPT-5.6 Luna. Fast and affordable model. Routes through Hermes subscription."

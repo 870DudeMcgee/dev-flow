@@ -19,6 +19,7 @@ from devflow.loop.registry import (
     COST_CLASSES,
     ModelEntry,
     ModelRegistry,
+    get_registry,
     load_registry_from_yaml,
 )
 from devflow.loop.roles import ROLES, get_role, known_roles, role_requires
@@ -375,12 +376,38 @@ class TestProfiles:
         assert slot.model_name == "qwen-27b-q5km"
         set_active_profile("legacy-current")
 
+    def test_profile_routes_to_available_free_model(self):
+        """When the profile's preferred model IS available, routing uses it."""
+        set_active_profile("mini-free-cloud")
+        slot = resolve_role("builder")
+        assert slot.model_name == "hy3-free"
+        assert slot.resolved_via == "profile"
+        set_active_profile("legacy-current")
+
     def test_profile_falls_through_when_model_unavailable(self):
         """When a profile's preferred model is unavailable, routing falls
         through to automatic selection rather than failing."""
+        from devflow.loop.registry import ModelEntry, ModelRegistry
+        # Build a registry where hy3-free is explicitly unavailable
+        reg = get_registry()
+        hy3_entry = reg.get("hy3-free")
+        assert hy3_entry is not None
+        unavailable_hy3 = ModelEntry(
+            name="hy3-free",
+            display_name="HY3 (unavailable test)",
+            provider="openrouter",
+            transport="openai-http",
+            endpoint="https://openrouter.ai/api/v1",
+            capabilities=hy3_entry.capabilities,
+            cost_class="free_cloud",
+            available=False,
+        )
+        test_entries = {name: e for name, e in zip(reg.names(), reg.all())}
+        test_entries["hy3-free"] = unavailable_hy3
+        from devflow.loop.registry import ModelRegistry
+        test_reg = ModelRegistry(test_entries)
         set_active_profile("mini-free-cloud")
-        # hy3-free is unavailable, so builder should fall through to auto
-        slot = resolve_role("builder")
+        slot = resolve_role("builder", registry=test_reg)
         assert slot.resolved_via == "auto"
         assert slot.model_name != "hy3-free"
         set_active_profile("legacy-current")

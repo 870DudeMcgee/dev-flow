@@ -119,15 +119,53 @@ def build_packets(target_files: list[str]) -> list[dict]:
 # Local OpenAI-compatible client (stdlib only — no new dependency)
 # ---------------------------------------------------------------------------
 class LocalModelClient:
-    """Tiny OpenAI-compatible client for llama-server-style local endpoints."""
+    """Tiny OpenAI-compatible client for llama-server-style local endpoints.
 
-    def __init__(self, endpoint: str, *, timeout: int = 240):
+    Also supports remote OpenAI-compatible endpoints (OpenRouter, etc.) when
+    the endpoint URL is not localhost. In that case, the model name is
+    extracted from the registry entry and the API key is read from env.
+    """
+
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        timeout: int = 240,
+        model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ):
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
-        self._model_id: Optional[str] = None
+        self._model_id: Optional[str] = model_name
+        self._api_key: Optional[str] = api_key
+        self._is_remote = not self._is_local_endpoint(self.endpoint)
+
+    @staticmethod
+    def _is_local_endpoint(endpoint: str) -> bool:
+        """True for localhost / 127.0.0.1 / 0.0.0.0 endpoints."""
+        return any(
+            host in endpoint
+            for host in ("localhost", "127.0.0.1", "0.0.0.0", "[::1]")
+        )
+
+    def _resolve_api_key(self) -> Optional[str]:
+        """Resolve the API key for remote endpoints."""
+        if self._api_key:
+            return self._api_key
+        if not self._is_remote:
+            return None
+        # OpenRouter endpoints use OPENROUTER_API_KEY
+        if "openrouter.ai" in self.endpoint:
+            return os.environ.get("OPENROUTER_API_KEY")
+        return None
 
     def _fetch_model_id(self) -> str:
         if self._model_id is not None:
+            return self._model_id
+        # For remote endpoints, don't probe /v1/models — use a generic name
+        # and let the registry/routing layer supply the real model name.
+        if self._is_remote:
+            self._model_id = "remote-model"
             return self._model_id
         try:
             with urllib.request.urlopen(f"{self.endpoint}/v1/models", timeout=10) as r:
@@ -142,12 +180,15 @@ class LocalModelClient:
         return self._model_id
 
     @staticmethod
-    def _do_post(endpoint: str, payload: dict, timeout: int) -> dict:
+    def _do_post(endpoint: str, payload: dict, timeout: int, api_key: Optional[str] = None) -> dict:
         body = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(
             f"{endpoint}/v1/chat/completions",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -163,6 +204,7 @@ class LocalModelClient:
         stop: Optional[list[str]] = None,
     ) -> tuple[str, dict]:
         model_id = self._fetch_model_id()
+        api_key = self._resolve_api_key()
         payload: dict = {
             "model": model_id,
             "messages": messages,
@@ -173,15 +215,15 @@ class LocalModelClient:
             payload["stop"] = stop
         # Ornith runs with --reasoning auto; disable the thinking trace so the
         # content budget is spent on the actual answer, not a CoT dump.
-        if not reasoning:
+        if not reasoning and not self._is_remote:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
         try:
-            data = self._do_post(self.endpoint, payload, self.timeout)
+            data = self._do_post(self.endpoint, payload, self.timeout, api_key)
         except urllib.error.HTTPError:
             # Some servers reject chat_template_kwargs; retry without it.
-            if not reasoning and "chat_template_kwargs" in payload:
+            if "chat_template_kwargs" in payload:
                 payload.pop("chat_template_kwargs")
-                data = self._do_post(self.endpoint, payload, self.timeout)
+                data = self._do_post(self.endpoint, payload, self.timeout, api_key)
             else:
                 raise
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
@@ -216,14 +258,19 @@ class LocalModelClient:
         }
         if stop:
             payload["stop"] = stop
-        if not reasoning:
+        if not reasoning and not self._is_remote:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
 
+        api_key = self._resolve_api_key()
+
         def request(active_payload: dict):
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             req = urllib.request.Request(
                 f"{self.endpoint}/v1/chat/completions",
                 data=json.dumps(active_payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=headers,
                 method="POST",
             )
             return urllib.request.urlopen(req, timeout=self.timeout)
@@ -381,7 +428,14 @@ def run_role(
     if ensure_lane_on:
         ensure_lane(role)
 
-    factory = client_factory or LocalModelClient
+    # Transport-aware client selection: hermes-chat → HermesSubscriptionClient,
+    # everything else → LocalModelClient. Caller can override via client_factory.
+    if client_factory is not None:
+        factory = client_factory
+    elif slot.transport == "hermes-chat":
+        factory = HermesSubscriptionClient
+    else:
+        factory = LocalModelClient
 
     with acquire_role_slot(
         Path(root), role=role, task_id=task_id, worker_id=worker_id
@@ -410,7 +464,11 @@ def run_role(
             requested_max_tokens=requested_max_tokens,
             heartbeat_at=datetime.now(timezone.utc).isoformat(),
         )
-        client = factory(slot.endpoint)
+        # Pass model_id to LocalModelClient for remote endpoints (OpenRouter etc.)
+        if factory is LocalModelClient and slot.model_id:
+            client = factory(slot.endpoint, model_name=slot.model_id)
+        else:
+            client = factory(slot.endpoint)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -1870,12 +1928,16 @@ def run_glm_verification(
         "tests pass. Output only the JSON decision."
     )
 
-    # Route through GLM via Hermes subscription client. The GLM verifier is a
-    # Hermes subscription call (no local resident server), so it does NOT take
-    # the local-model single-flight lock — that lock is only for resident
-    # llama-server lanes. We call the client directly.
-    factory = client_factory or HermesSubscriptionClient
+    # Route through the verifier role's assigned transport. The verifier may
+    # be GLM (hermes-chat), GPT Luna (hermes-chat), or HY3 (openai-http).
+    factory = client_factory
     slot = resolve_role_slot("glm_verifier")
+    if factory is None:
+        if slot.transport == "hermes-chat":
+            factory = HermesSubscriptionClient
+        else:
+            # For openai-http (e.g. HY3), use LocalModelClient with model_id
+            factory = LocalModelClient
     try:
         append_worker_feed_entry(root, run_id, {
             "event": "started",
@@ -1885,7 +1947,11 @@ def run_glm_verification(
             "worker_id": worker_id,
             "task_id": run_id,
         })
-        client = factory(slot.endpoint)
+        # Construct client with model_id for remote HTTP endpoints
+        if factory is LocalModelClient and slot.model_id:
+            client = factory(slot.endpoint, model_name=slot.model_id)
+        else:
+            client = factory(slot.endpoint)
         content, _ = client.chat(
             messages=[
                 {"role": "system", "content": GLM_VERIFIER_SYSTEM},

@@ -60,6 +60,7 @@ class ModelEntry:
     retired: bool = False              # superseded / withdrawn?
     auth_method: str = ""              # how it authenticates (informational)
     notes: str = ""                    # operator notes
+    model_id: str = ""                 # API model ID (e.g. "tencent/hy3-preview" for OpenRouter)
 
     def __post_init__(self):
         if self.cost_class not in COST_CLASSES:
@@ -161,6 +162,7 @@ def _entry_from_dict(name: str, raw: dict) -> ModelEntry:
         retired=bool(raw.get("retired", False)),
         auth_method=str(raw.get("auth_method", "")),
         notes=str(raw.get("notes", "")),
+        model_id=str(raw.get("model_id", "")),
     )
 
 

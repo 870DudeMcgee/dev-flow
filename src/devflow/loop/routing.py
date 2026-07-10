@@ -57,6 +57,7 @@ class ResolvedSlot:
     transport: str
     cost_class: str
     resolved_via: str  # "override" | "profile" | "policy" | "auto" | "fallback"
+    model_id: str = ""  # API model ID (e.g. "tencent/hy3-preview")
 
     @property
     def model(self) -> str:
@@ -210,6 +211,7 @@ def _make_slot(role_name: str, entry: ModelEntry, resolved_via: str) -> Resolved
         transport=entry.transport,
         cost_class=entry.cost_class,
         resolved_via=resolved_via,
+        model_id=entry.model_id,
     )
 
 

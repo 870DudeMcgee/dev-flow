@@ -69,3 +69,33 @@ profiles:
   custom:
     description: "All roles resolved through automatic routing."
     roles: {}
+
+  # -----------------------------------------------------------------
+  # HY3 swap: all local model roles replaced by Hy3 free cloud worker.
+  # Tests routing through OpenRouter :free tier for every pipeline role.
+  # -----------------------------------------------------------------
+  hy3-swap:
+    description: "All local roles replaced by Hy3 free cloud worker via OpenRouter."
+    roles:
+      planner: "hy3-free"
+      planning_judge: "hy3-free"
+      builder: "hy3-free"
+      build_judge: "hy3-free"
+      verifier: "hy3-free"
+      final_judge: "hy3-free"
+      brainstorm: "hy3-free"
+
+  # -----------------------------------------------------------------
+  # GPT swap: GLM-5.2 roles replaced by GPT-5.6 family.
+  # Terra handles brainstorm; Luna handles verifier + final_judge.
+  # -----------------------------------------------------------------
+  gpt-swap:
+    description: "GLM-5.2 roles replaced: Terra=brainstorm, Luna=verifier+final_judge."
+    roles:
+      planner: "agents-a1-q4"
+      planning_judge: "qwen-27b-q5km"
+      builder: "ornith-35b"
+      build_judge: "qwen-27b-q5km"
+      verifier: "gpt-5.6-luna"
+      final_judge: "gpt-5.6-luna"
+      brainstorm: "gpt-5.6-terra"
