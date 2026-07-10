@@ -52,14 +52,31 @@ profiles:
   # high-value reasoning only.
   # -----------------------------------------------------------------
   mini-free-cloud:
-    description: "Minimal local compute. Prefer free cloud workers."
+    description: "Mac mini fast path. Use the zero-cost HY3 cloud worker for all text roles."
     roles:
+      planner: "hy3-free"
+      planning_judge: "hy3-free"
       builder: "hy3-free"
-      # planner/planning_judge/build_judge left unset — hy3-free lacks those
-      # capabilities, so routing falls through to automatic selection.
-      verifier: "glm-5.2"
-      final_judge: "glm-5.2"
-      brainstorm: "glm-5.2"
+      build_judge: "hy3-free"
+      verifier: "hy3-free"
+      final_judge: "hy3-free"
+      brainstorm: "hy3-free"
+
+  # -----------------------------------------------------------------
+  # Mini-Ollama: Mac mini with a local Qwen builder.
+  # Keep bulk implementation on local hardware; reserve included
+  # subscriptions for the small, high-value reasoning and review roles.
+  # -----------------------------------------------------------------
+  mini-ollama:
+    description: "Mac mini with Ollama. Local Qwen builder plus subscription reasoning."
+    roles:
+      planner: "gpt-5.6-terra"
+      planning_judge: "gpt-5.6-luna"
+      builder: "qwen2.5-coder-14b"
+      build_judge: "gpt-5.6-luna"
+      verifier: "gpt-5.6-luna"
+      final_judge: "gpt-5.6-terra"
+      brainstorm: "gpt-5.6-terra"
 
   # -----------------------------------------------------------------
   # Custom: operator assigns every role manually via overrides.

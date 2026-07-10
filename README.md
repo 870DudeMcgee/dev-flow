@@ -54,6 +54,34 @@ The status board is a supporting live-evidence view, not a second chat surface.
 It reads pipeline-run state from disk while Hermes performs brainstorming and
 orchestration.
 
+## Deployment Profiles
+
+DevFlow routes roles through capability-checked model profiles. The default
+`legacy-current` profile assumes the Mac Studio local fleet. On this Mac mini,
+set the low-resource `mini-free-cloud` profile in the environment of any
+model-backed execution process:
+
+```bash
+export DEVFLOW_PROFILE=mini-free-cloud
+# Required by DevFlow's direct OpenRouter client; supply it securely, never in Git.
+export OPENROUTER_API_KEY="..."
+```
+
+`mini-free-cloud` routes every V2 text role to the zero-cost OpenRouter HY3
+worker, so it does not load a local model. Hermes may manage an OpenRouter
+credential separately, but DevFlow's V2 remote executor requires that key to be
+exported in its own process environment. `devflow status serve` is read-only: it
+observes pipeline evidence and does not call the selected profile.
+
+When local implementation work is desired instead, set
+`DEVFLOW_PROFILE=mini-ollama`. It routes the builder role to local
+`qwen2.5-coder:14b` at Ollama's default endpoint and keeps the smaller,
+high-value reasoning and review roles on Hermes-routed included subscriptions.
+
+These profiles contain no credentials. For a different fleet, provide an
+external registry/profile with `DEVFLOW_MODELS_YAML` and
+`DEVFLOW_PROFILES_YAML`.
+
 ## Development Boundary
 
 ```text

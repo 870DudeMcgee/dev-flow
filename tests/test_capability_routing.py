@@ -40,6 +40,16 @@ from devflow.loop.model_router import (
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def restore_active_profile():
+    """Prevent one profile-routing test from leaking global state into another."""
+    original = get_active_profile_name()
+    try:
+        yield
+    finally:
+        set_active_profile(original)
+
+
 SAMPLE_YAML = """\
 models:
   model-a:
@@ -381,6 +391,39 @@ class TestProfiles:
         assert slot.model_name == "hy3-free"
         assert slot.resolved_via == "profile"
         set_active_profile("legacy-current")
+
+    def test_mini_free_cloud_profile_routes_every_role_to_hy3_free(self):
+        """Mac-mini free-cloud profile never wakes a local model."""
+        set_active_profile("mini-free-cloud")
+        for role_name in known_roles():
+            slot = resolve_role(role_name)
+            assert slot.model_name == "hy3-free"
+            assert slot.cost_class == "free_cloud"
+            assert slot.resolved_via == "profile"
+        set_active_profile("legacy-current")
+
+    def test_mini_ollama_profile_routes_all_roles_and_pins_qwen_model_id(self):
+        """Mac-mini local profile uses Qwen for building and subscriptions for reasoning."""
+        expected_models = {
+            "brainstorm": "gpt-5.6-terra",
+            "planner": "gpt-5.6-terra",
+            "planning_judge": "gpt-5.6-luna",
+            "builder": "qwen2.5-coder-14b",
+            "build_judge": "gpt-5.6-luna",
+            "verifier": "gpt-5.6-luna",
+            "final_judge": "gpt-5.6-terra",
+        }
+        assert set(expected_models) == set(known_roles())
+        set_active_profile("mini-ollama")
+        for role_name, expected_model in expected_models.items():
+            slot = resolve_role(role_name)
+            assert slot.model_name == expected_model
+            assert slot.resolved_via == "profile"
+
+        builder = resolve_role("builder")
+        assert builder.endpoint == "http://127.0.0.1:11434/v1"
+        assert builder.model_id == "qwen2.5-coder:14b"
+        assert builder.cost_class == "local"
 
     def test_hy3_free_entry_uses_openrouter_free_slug(self):
         """The free-cloud route must never silently select a metered HY3 SKU."""

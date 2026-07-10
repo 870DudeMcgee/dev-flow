@@ -67,6 +67,25 @@ models:
     notes: "Local planner lane. Lightweight quantization."
 
   # -----------------------------------------------------------------
+  # Mac mini local fleet (Ollama default endpoint)
+  # -----------------------------------------------------------------
+  qwen2.5-coder-14b:
+    display_name: "Qwen 2.5 Coder 14B (Ollama)"
+    provider: local
+    transport: openai-http
+    endpoint: "http://127.0.0.1:11434/v1"
+    model_id: "qwen2.5-coder:14b"
+    cost_class: local
+    context_window: 32768
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - code_generation
+      - structured_output
+      - edit_planning
+    notes: "Mac mini local builder lane. Select with the mini-ollama profile."
+
+  # -----------------------------------------------------------------
   # Subscription models (via Hermes chat — no per-token cost)
   # -----------------------------------------------------------------
   glm-5.2:
