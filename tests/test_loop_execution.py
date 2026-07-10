@@ -176,6 +176,81 @@ def _fresh_root(tmp_path: Path) -> tuple[str, str]:
     return str(root), run_id
 
 
+def test_remote_non_reasoning_call_disables_provider_reasoning(monkeypatch):
+    captured = {}
+
+    def fake_post(endpoint, payload, timeout, api_key=None):
+        captured.update(payload)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(ex.LocalModelClient, "_do_post", staticmethod(fake_post))
+    client = ex.LocalModelClient(
+        "https://openrouter.ai/api/v1",
+        model_name="tencent/hy3:free",
+        api_key="test-key",
+    )
+
+    content, _ = client.chat(messages=[{"role": "user", "content": "ping"}], reasoning=False)
+
+    assert content == "ok"
+    assert captured["reasoning_effort"] == "none"
+    assert captured["include_reasoning"] is False
+
+
+def test_remote_reasoning_call_uses_bounded_reasoning_effort(monkeypatch):
+    captured = {}
+
+    def fake_post(endpoint, payload, timeout, api_key=None):
+        captured.update(payload)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    monkeypatch.setattr(ex.LocalModelClient, "_do_post", staticmethod(fake_post))
+    client = ex.LocalModelClient(
+        "https://openrouter.ai/api/v1",
+        model_name="tencent/hy3:free",
+        api_key="test-key",
+    )
+
+    client.chat(messages=[{"role": "user", "content": "ping"}], reasoning=True)
+
+    assert captured["reasoning_effort"] == "low"
+    assert captured["include_reasoning"] is False
+
+
+def test_remote_non_reasoning_stream_disables_provider_reasoning(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def __iter__(self):
+            return iter([b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n'])
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    client = ex.LocalModelClient(
+        "https://openrouter.ai/api/v1",
+        model_name="tencent/hy3:free",
+        api_key="test-key",
+    )
+
+    content, _, _, _ = client.chat_stream(
+        messages=[{"role": "user", "content": "ping"}],
+        reasoning=False,
+    )
+
+    assert content == "ok"
+    assert captured["reasoning_effort"] == "none"
+    assert captured["include_reasoning"] is False
+
+
 def test_planner_and_qwen_judge_receive_persisted_readiness_context(tmp_path):
     CapturingPlannerContextClient.planner_user_prompt = ""
     CapturingPlannerContextClient.judge_user_prompt = ""

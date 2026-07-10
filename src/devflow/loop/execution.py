@@ -221,6 +221,9 @@ class LocalModelClient:
         }
         if stop:
             payload["stop"] = stop
+        if self._is_remote:
+            payload["reasoning_effort"] = "low" if reasoning else "none"
+            payload["include_reasoning"] = False
         # Ornith runs with --reasoning auto; disable the thinking trace so the
         # content budget is spent on the actual answer, not a CoT dump.
         if not reasoning and not self._is_remote:
@@ -266,6 +269,9 @@ class LocalModelClient:
         }
         if stop:
             payload["stop"] = stop
+        if self._is_remote:
+            payload["reasoning_effort"] = "low" if reasoning else "none"
+            payload["include_reasoning"] = False
         if not reasoning and not self._is_remote:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
 
