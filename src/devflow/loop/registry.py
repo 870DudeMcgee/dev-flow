@@ -11,7 +11,7 @@ removed, or modified without touching pipeline code.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -60,7 +60,7 @@ class ModelEntry:
     retired: bool = False              # superseded / withdrawn?
     auth_method: str = ""              # how it authenticates (informational)
     notes: str = ""                    # operator notes
-    model_id: str = ""                 # API model ID (e.g. "tencent/hy3-preview" for OpenRouter)
+    model_id: str = ""                 # API model ID (e.g. "tencent/hy3:free" for OpenRouter)
 
     def __post_init__(self):
         if self.cost_class not in COST_CLASSES:

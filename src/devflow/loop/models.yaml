@@ -139,7 +139,7 @@ models:
     tool_support: false
     auth_method: openrouter-key
     available: true
-    model_id: "tencent/hy3-preview"
+    model_id: "tencent/hy3:free"
     capabilities:
       - code_generation
       - structured_output

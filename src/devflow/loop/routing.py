@@ -36,7 +36,7 @@ from devflow.loop.registry import (
     ModelRegistry,
     get_registry,
 )
-from devflow.loop.roles import RoleDefinition, ROLES, get_role, known_roles
+from devflow.loop.roles import RoleDefinition, get_role, known_roles
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ class ResolvedSlot:
     transport: str
     cost_class: str
     resolved_via: str  # "override" | "profile" | "policy" | "auto" | "fallback"
-    model_id: str = ""  # API model ID (e.g. "tencent/hy3-preview")
+    model_id: str = ""  # API model ID (e.g. "tencent/hy3:free")
 
     @property
     def model(self) -> str:

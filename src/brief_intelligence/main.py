@@ -16,7 +16,6 @@ from pathlib import Path
 
 from .formatter import format_obsidian
 from .loader import load_briefs
-from .models import Item
 from .queue_appender import append_to_queue
 from .scorer import score_items
 

@@ -16,13 +16,12 @@ from pathlib import Path
 import pytest
 
 from devflow.loop.registry import (
-    COST_CLASSES,
     ModelEntry,
     ModelRegistry,
     get_registry,
     load_registry_from_yaml,
 )
-from devflow.loop.roles import ROLES, get_role, known_roles, role_requires
+from devflow.loop.roles import get_role, known_roles, role_requires
 from devflow.loop.routing import (
     ResolvedSlot,
     resolve_role,
@@ -33,7 +32,6 @@ from devflow.loop.routing import (
 )
 from devflow.loop.model_router import (
     resolve_role_slot,
-    acquire_role_slot,
     KNOWN_ROLES,
     ModelSlot,
 )
@@ -384,10 +382,16 @@ class TestProfiles:
         assert slot.resolved_via == "profile"
         set_active_profile("legacy-current")
 
+    def test_hy3_free_entry_uses_openrouter_free_slug(self):
+        """The free-cloud route must never silently select a metered HY3 SKU."""
+        entry = get_registry().get("hy3-free")
+        assert entry is not None
+        assert entry.cost_class == "free_cloud"
+        assert entry.model_id.endswith(":free")
+
     def test_profile_falls_through_when_model_unavailable(self):
         """When a profile's preferred model is unavailable, routing falls
         through to automatic selection rather than failing."""
-        from devflow.loop.registry import ModelEntry, ModelRegistry
         # Build a registry where hy3-free is explicitly unavailable
         reg = get_registry()
         hy3_entry = reg.get("hy3-free")
@@ -404,7 +408,6 @@ class TestProfiles:
         )
         test_entries = {name: e for name, e in zip(reg.names(), reg.all())}
         test_entries["hy3-free"] = unavailable_hy3
-        from devflow.loop.registry import ModelRegistry
         test_reg = ModelRegistry(test_entries)
         set_active_profile("mini-free-cloud")
         slot = resolve_role("builder", registry=test_reg)
