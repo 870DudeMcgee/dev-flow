@@ -171,6 +171,7 @@ def record_builder_judge_result(
     # Advance or stay based on status
     if status == "passed":
         state = advance_stage(state, LoopStage.verification)
+        state = state.model_copy(update={"builder_judge_passed": True})
 
     # Add builder_judge_run_id to state if not present
     state = state.model_copy(

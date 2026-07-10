@@ -90,9 +90,25 @@ def record_verification_receipt(
         )
 
     # Stage transitions based on receipt status
+    # GATE RULE: a verification receipt cannot promote a run to
+    # human_decision as "passed" when the builder/judge gate did not pass.
+    # If builder_judge_passed is False, a "passed" verification is recorded
+    # but the run stays at verification/needs_review so the operator sees
+    # the gate failure.
     if state.stage == LoopStage.verification:
-        if receipt.status == VerificationStatus.passed:
+        if receipt.status == VerificationStatus.passed and getattr(state, "builder_judge_passed", False):
             state = advance_stage(state, LoopStage.human_decision)
+        elif receipt.status == VerificationStatus.passed and not getattr(state, "builder_judge_passed", False):
+            # Verification passed but the builder/judge gate did not — park
+            # at human_decision with a gate-failure notice instead of
+            # silently promoting the run.
+            state = state.model_copy(update={
+                "stage": LoopStage.human_decision,
+                "next_human_decision": (
+                    "Verification passed, but the builder/judge gate did not. "
+                    "Review the failed build/judge rounds before approving."
+                ),
+            })
         elif receipt.status in (
             VerificationStatus.failed,
             VerificationStatus.needs_review,

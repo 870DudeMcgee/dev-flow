@@ -16,6 +16,7 @@ Start here:
 - [docs/README.md](docs/README.md) — active docs index.
 - [docs/local-worker-policy.md](docs/local-worker-policy.md) — compact local worker boundary, if kept aligned with the source of truth.
 - [docs/verification-ledger.md](docs/verification-ledger.md) — factual evidence history, if kept non-prescriptive.
+- [docs/v2-first-full-loop-priority-list.md](docs/v2-first-full-loop-priority-list.md) — prioritized follow-up from the first full V2 loop review.
 
 Older architecture, roadmap, cockpit, orchestration, local-worker, model-routing, DevMode, and software-factory documents are non-authoritative unless explicitly re-approved by the source-of-truth document. Historical material lives under [docs/_quarantine_2026-07-07/](docs/_quarantine_2026-07-07/) for recovery only and must not be loaded as active context by default.
 

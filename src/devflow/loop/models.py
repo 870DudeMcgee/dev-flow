@@ -72,6 +72,10 @@ class DevFlowLoopState(BaseModel):
     builder_judge_runs: list[str] = Field(default_factory=list)
     verification_receipts: list[str] = Field(default_factory=list)
     next_human_decision: Optional[str] = None
+    # True only when the builder/judge gate recorded a "passed" decision.
+    # Verification receipts cannot promote a run to human_decision as "passed"
+    # when this is False — they are recorded but the gate failure is surfaced.
+    builder_judge_passed: bool = False
     # Autonomous mode: when auto_verify is True, the verification stage is
     # driven by a GLM verifier agent (Hermes subscription) instead of parking
     # for a human. loop_cap bounds how many autonomous build/judge/verify

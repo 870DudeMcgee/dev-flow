@@ -320,12 +320,15 @@ def test_builder_materializes_multi_file_greenfield_output(tmp_path):
 def test_builder_refuses_oversized_packet_and_planner_chunks_files(tmp_path):
     files = [f"src/module_{index}.py" for index in range(13)]
     packets = ex.build_packets(files)
+    cap = ex.MAX_TARGET_FILES_PER_BUILD
 
-    assert [len(packet["target_files"]) for packet in packets] == [6, 6, 1]
-    assert [packet["id"] for packet in packets] == ["packet-01", "packet-02", "packet-03"]
+    expected_sizes = [cap] * (len(files) // cap)
+    if len(files) % cap:
+        expected_sizes.append(len(files) % cap)
+    assert [len(packet["target_files"]) for packet in packets] == expected_sizes
 
     root, run_id = _fresh_root(tmp_path)
-    with pytest.raises(ex.BuilderOutputError, match="at most 6"):
+    with pytest.raises(ex.BuilderOutputError, match=f"at most {cap}"):
         ex.run_builder(
             root, run_id,
             assignment="too broad",

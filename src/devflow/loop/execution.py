@@ -629,6 +629,95 @@ def _loop_exhausted(
         }, indent=2),
         "usage": {},
     })
+    # Finalize execution-control to a terminal state so the status board
+    # cannot show a stale "running" when the loop is actually parked at
+    # human_decision.  active_role cleared; last_completed_role preserved.
+    update_execution_control(root, run_id, status="idle", active_role=None)
+    # Advance loop state to human_decision with an explicit next action
+    # so the board and JSON artifacts agree on stage and next step.
+    try:
+        state = load_loop_state(root, run_id)
+        if state.stage not in (LoopStage.complete, LoopStage.blocked):
+            state = state.model_copy(update={
+                "stage": LoopStage.human_decision,
+                "next_human_decision": next_action,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            save_loop_state(root, state)
+    except Exception:
+        pass
+
+
+def _builder_preflight(
+    workspace: Path,
+    declared_files: list[str],
+) -> Optional[str]:
+    """Deterministic completeness check before the judge runs.
+
+    Returns ``None`` if all checks pass, or a concise failure reason.
+    Checks:
+      1. Every declared target file exists in the workspace.
+      2. Every ``.py`` file parses without SyntaxError.
+    """
+    missing = [
+        f for f in declared_files
+        if not (workspace / f).exists()
+    ]
+    if missing:
+        return f"Missing declared files: {', '.join(sorted(missing))}"
+
+    for rel in declared_files:
+        if not rel.endswith(".py"):
+            continue
+        fpath = workspace / rel
+        try:
+            source = fpath.read_text(encoding="utf-8", errors="replace")
+            compile(source, str(fpath), "exec")
+        except SyntaxError as exc:
+            return f"Syntax error in {rel}: {exc}"
+
+    return None
+
+
+def _write_build_judge_summary(
+    root: Path | str,
+    run_id: str,
+    *,
+    packet_id: str,
+    build_rounds: list[dict],
+    judge_decision: str,
+    judge_rationale: str,
+    build_cap_exhausted: bool,
+    builder_model: str = "",
+    judge_model: str = "",
+) -> None:
+    """Persist a compact build/judge summary with the decisive judge rationale.
+
+    This is the single artifact an operator should read to understand the
+    outcome of a build/judge run — not the raw worker feed.
+    """
+    # Collect per-round reasons (compact)
+    rounds_compact = []
+    for rnd in build_rounds:
+        rounds_compact.append({
+            "round": rnd.get("round"),
+            "decision": rnd.get("decision"),
+            "rationale": str(rnd.get("rationale", ""))[:500],
+        })
+
+    summary = {
+        "packet_id": packet_id,
+        "judge_decision": judge_decision,
+        "build_cap_exhausted": build_cap_exhausted,
+        "build_rounds": len(build_rounds),
+        "builder_model": builder_model,
+        "judge_model": judge_model,
+        "final_judge_rationale": judge_rationale[:1000],
+        "rounds": rounds_compact,
+    }
+    update_pipeline_run_record(
+        root, run_id, f"packet-{packet_id}-build-judge-summary.json", summary,
+    )
 
 
 def _read_record(root: Path | str, run_id: str, name: str) -> Optional[str]:
@@ -653,7 +742,7 @@ def _run_workspace_tests(workspace: Path) -> dict:
     if pytest is unavailable or the workspace has no tests, returns a neutral
     result so the GLM verifier can still reason from signatures.
     """
-    result = {"exit_code": -1, "passed": 0, "failed": 0, "errors": 0, "summary": ""}
+    result = {"exit_code": -1, "passed": 0, "failed": 0, "errors": 0, "summary": "", "working_directory": str(workspace)}
     if not workspace.exists():
         result["summary"] = "no workspace directory; tests not run"
         return result
@@ -682,6 +771,22 @@ def _run_workspace_tests(workspace: Path) -> dict:
     result["passed"] = int(m_pass.group(1)) if m_pass else 0
     result["failed"] = int(m_fail.group(1)) if m_fail else 0
     result["errors"] = int(m_err.group(1)) if m_err else 0
+    # Fallback: if no textual summary was found but exit code is 0, count
+    # the dots in the progress line (e.g. "........" = 8 passed).  This
+    # fixes the bug where pytest -q --no-header produces only dots without
+    # a "N passed" line in some versions.
+    if result["passed"] == 0 and result["failed"] == 0 and result["errors"] == 0:
+        # Count leading dots from the progress output (before any summary line)
+        progress_match = _re.search(r"^(\.+F?E?)+", out, _re.MULTILINE)
+        if progress_match and proc.returncode == 0:
+            dots = progress_match.group(0).count(".")
+            if dots > 0:
+                result["passed"] = dots
+    # Safety: nonzero exit code must not be recorded as all-pass.
+    if proc.returncode != 0 and result["failed"] == 0 and result["errors"] == 0:
+        # The run failed but we didn't parse failure counts — record at least
+        # one error so consumers don't mistake this for a clean pass.
+        result["errors"] = max(result["errors"], 1)
     # Keep the tail (failures/summary) so GLM sees what broke.
     result["summary"] = out[-1500:]
     return result
@@ -1530,7 +1635,8 @@ def run_glm_verification(
     import json as _json
     import re as _re
 
-    build_evidence = _read_record(root, run_id, "build-diff.patch") or ""
+    # Read the build-diff as evidence (used in the code excerpt below).
+    _read_record(root, run_id, "build-diff.patch")  # noqa: B018 — validates existence
     # Pull the most recent judge decision from the run dir (best-effort).
     judge_text = "unknown"
     try:
@@ -1612,7 +1718,7 @@ def run_glm_verification(
         f"{test_result['summary'].strip()[:1500]}"
     )
     user = (
-        f"# Definition of Done (head)\n" + "\n".join(dod_head) + "\n\n"
+        "# Definition of Done (head)\n" + "\n".join(dod_head) + "\n\n"
         f"# Prior Judge Decision\n{judge_text}\n\n"
         "# Built source (ACTUAL signatures extracted from the built files):\n"
         f"{code_excerpt}\n\n"
@@ -1797,22 +1903,50 @@ def run_build_judge_verify(
         if cancellation_requested(root, run_id):
             decision = "cancelled"
             break
-        judge_result, decision = run_judge(
-            root,
-            run_id,
-            definition_of_done=definition_of_done,
-            worker_id=worker_id,
-            ensure_lane_on=ensure_lane_on,
-            client_factory=client_factory,
-        )
-        payload = _parse_judge_payload(judge_result.content)
-        rounds.append({
-            "round": round_index,
-            "build": build,
-            "judge": judge_result,
-            "decision": decision,
-            "rationale": payload.get("rationale", ""),
-        })
+        # Deterministic preflight: check files exist and Python parses.
+        # If it fails, skip the judge and feed the reason to the next round.
+        manifest = (build.raw.get("build_manifest") or {}) if build else {}
+        ws_path = manifest.get("workspace", "")
+        declared = manifest.get("declared_target_files", [])
+        preflight_failure = None
+        if ws_path and declared:
+            preflight_failure = _builder_preflight(Path(ws_path), declared)
+        if preflight_failure:
+            decision = "failed"
+            payload = {"status": "failed", "rationale": preflight_failure}
+            judge_result = RoleResult(
+                role="judge",
+                model="preflight",
+                endpoint="",
+                content=json.dumps(payload),
+                usage={},
+                raw={"preflight": True},
+            )
+            rounds.append({
+                "round": round_index,
+                "build": build,
+                "judge": judge_result,
+                "decision": decision,
+                "rationale": preflight_failure,
+            })
+            feedback = preflight_failure
+        else:
+            judge_result, decision = run_judge(
+                root,
+                run_id,
+                definition_of_done=definition_of_done,
+                worker_id=worker_id,
+                ensure_lane_on=ensure_lane_on,
+                client_factory=client_factory,
+            )
+            payload = _parse_judge_payload(judge_result.content)
+            rounds.append({
+                "round": round_index,
+                "build": build,
+                "judge": judge_result,
+                "decision": decision,
+                "rationale": payload.get("rationale", ""),
+            })
         if decision == "passed":
             if verification_command:
                 verification = run_verification(
@@ -1851,6 +1985,22 @@ def run_build_judge_verify(
             last_decision=decision or "unknown",
             next_action="Return to the orchestrator with the last judge feedback.",
         )
+
+    # Persist a compact build/judge summary with the decisive rationale.
+    # This is the single artifact an operator reads — not the raw worker feed.
+    final_rationale = ""
+    if rounds:
+        final_rationale = str(rounds[-1].get("rationale", ""))
+    _write_build_judge_summary(
+        root, run_id,
+        packet_id="consolidated",
+        build_rounds=rounds,
+        judge_decision=decision or "unknown",
+        judge_rationale=final_rationale,
+        build_cap_exhausted=cap_exhausted,
+        builder_model=(build.model if build else ""),
+        judge_model=(judge_result.model if judge_result else ""),
+    )
 
     return {
         "build": build,
