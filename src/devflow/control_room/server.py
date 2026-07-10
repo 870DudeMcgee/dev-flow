@@ -43,6 +43,8 @@ from devflow.loop.model_router import (
 from devflow.control_room.git_status import git_status_snapshot
 from devflow.control_room.page import STATUS_PAGE_HTML
 from devflow.control_room.system_memory import memory_pressure_snapshot
+from devflow.control_room import chat as chat_api
+from devflow.control_room import workspace as workspace_api
 
 
 # Static assets served alongside the status board (logo, etc.).
@@ -290,7 +292,13 @@ def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
 class StatusServer(ThreadingHTTPServer):
     def __init__(self, server_address: tuple[str, int], repo_root: Path) -> None:
         super().__init__(server_address, StatusRequestHandler)
-        self.repo_root = repo_root.resolve()
+        # Restore last active workspace if one was set, otherwise use the
+        # directory the server was launched from.
+        active = workspace_api.get_active_workspace()
+        if active and Path(active).exists():
+            self.repo_root = Path(active).resolve()
+        else:
+            self.repo_root = repo_root.resolve()
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 
@@ -448,6 +456,180 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"status": "recorded", "action": record})
 
+    # -----------------------------------------------------------------------
+    # Chat endpoints
+    # -----------------------------------------------------------------------
+    def _handle_chat_models(self) -> None:
+        """Return the list of models available for the chat surface."""
+        self._send_json({"models": chat_api.list_chat_models()})
+
+    def _handle_chat_sessions(self) -> None:
+        """Return all chat sessions."""
+        self._send_json({"sessions": chat_api.list_chat_sessions(self.server.repo_root)})
+
+    def _handle_chat_transcript(self, query: dict) -> None:
+        """Return the conversation history for a chat session."""
+        session_id = (query.get("session") or [""])[0]
+        if not session_id:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing session")
+            return
+        try:
+            transcript = chat_api.get_transcript(self.server.repo_root, session_id)
+        except Exception as exc:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+        self._send_json({
+            "session_id": session_id,
+            "messages": transcript,
+            "model": chat_api._get_session_model(self.server.repo_root, session_id),
+        })
+
+    def _handle_chat_start(self) -> None:
+        """Start a new chat session."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+        if length <= 0 or length > 16384:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid request body")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+            return
+        intent = str(payload.get("intent") or "").strip()
+        model = str(payload.get("model") or "").strip() or None
+        if not intent:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing intent")
+            return
+        try:
+            result = chat_api.start_chat_session(
+                self.server.repo_root, intent=intent, model=model,
+            )
+        except Exception as exc:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+        self._send_json(result)
+
+    def _handle_chat_send(self) -> None:
+        """Send a message and return the assistant's response."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+        if length <= 0 or length > 65536:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid request body")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+            return
+        session_id = str(payload.get("session_id") or "").strip()
+        message = str(payload.get("message") or "").strip()
+        model = str(payload.get("model") or "").strip() or None
+        if not session_id:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing session_id")
+            return
+        if not message:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing message")
+            return
+        try:
+            result = chat_api.send_message(
+                self.server.repo_root,
+                session_id=session_id,
+                message=message,
+                model=model,
+            )
+        except ValueError as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except Exception as exc:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+        self._send_json(result)
+
+    # -----------------------------------------------------------------------
+    # Workspace endpoints
+    # -----------------------------------------------------------------------
+    def _handle_workspace_state(self) -> None:
+        """Return the active workspace + recent list."""
+        self._send_json(workspace_api.get_workspace_state())
+
+    def _handle_workspace_pick(self) -> None:
+        """Open the native Finder dialog and set the chosen folder as active.
+
+        This blocks until the user picks or cancels. Returns the new workspace
+        state, or a cancellation indicator.
+        """
+        chosen = workspace_api.pick_folder_dialog()
+        if not chosen:
+            self._send_json({"cancelled": True, **workspace_api.get_workspace_state()})
+            return
+        try:
+            result = workspace_api.set_active_workspace(chosen)
+        except (FileNotFoundError, ValueError) as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        # Switch the server's repo_root so all other endpoints read from here
+        self.server.repo_root = Path(chosen).resolve()
+        self._send_json(result)
+
+    def _handle_workspace_set(self) -> None:
+        """Set the active workspace from a path string in the POST body."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+        if length <= 0 or length > 4096:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid request body")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+            return
+        path = str(payload.get("path") or "").strip()
+        if not path:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing path")
+            return
+        try:
+            result = workspace_api.set_active_workspace(path)
+        except FileNotFoundError as exc:
+            self.send_error(HTTPStatus.NOT_FOUND, str(exc))
+            return
+        except ValueError as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self.server.repo_root = Path(path).expanduser().resolve()
+        self._send_json(result)
+
+    def _handle_workspace_remove(self) -> None:
+        """Remove a workspace from the recent list."""
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+        if length <= 0 or length > 4096:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid request body")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+            return
+        path = str(payload.get("path") or "").strip()
+        if not path:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Missing path")
+            return
+        result = workspace_api.remove_recent_workspace(path)
+        self._send_json(result)
+
     def do_GET(self) -> None:
         parsed = urlsplit(self.path)
         path = parsed.path
@@ -466,6 +648,14 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
             self._handle_artifact(query)
         elif path.startswith("/static/"):
             self._handle_static(path[len("/static/"):])
+        elif path == "/api/chat/models":
+            self._handle_chat_models()
+        elif path == "/api/chat/sessions":
+            self._handle_chat_sessions()
+        elif path == "/api/chat/transcript":
+            self._handle_chat_transcript(query)
+        elif path == "/api/workspace":
+            self._handle_workspace_state()
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -473,6 +663,16 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         if parsed.path == "/api/operator-action":
             self._handle_operator_action()
+        elif parsed.path == "/api/chat/start":
+            self._handle_chat_start()
+        elif parsed.path == "/api/chat/send":
+            self._handle_chat_send()
+        elif parsed.path == "/api/workspace/pick":
+            self._handle_workspace_pick()
+        elif parsed.path == "/api/workspace/set":
+            self._handle_workspace_set()
+        elif parsed.path == "/api/workspace/remove":
+            self._handle_workspace_remove()
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 

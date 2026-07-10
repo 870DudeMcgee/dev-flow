@@ -510,12 +510,174 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* ── Workspace picker ── */
+  .workspace-widget {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; border-radius: 999px;
+    border: 1px solid rgba(22,201,255,0.28);
+    background: linear-gradient(135deg, rgba(22,201,255,0.10), rgba(7,12,31,0.9));
+    cursor: pointer; transition: all 0.15s;
+    position: relative; min-width: 0;
+  }
+  .workspace-widget:hover { border-color: var(--accent); box-shadow: 0 0 18px rgba(22,201,255,0.12); }
+  .workspace-widget.no-workspace { border-color: rgba(245,158,11,0.4); background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(7,12,31,0.9)); }
+  .workspace-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
+  .workspace-copy { min-width: 0; }
+  .workspace-label { font: 800 9px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+  .workspace-name { font: 700 13px/1.2 var(--font-body); color: var(--text); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .workspace-widget.no-workspace .workspace-name { color: var(--warning); }
+  .workspace-chevron { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+  .workspace-dropdown {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    width: min(420px, calc(100vw - 48px));
+    max-height: min(440px, calc(100vh - 100px));
+    display: none; flex-direction: column;
+    background: rgba(5,10,28,0.98); border: 1px solid rgba(22,201,255,0.34);
+    border-radius: 14px; overflow: hidden; z-index: 25;
+    box-shadow: 0 20px 70px rgba(0,0,0,0.5), 0 0 30px rgba(22,201,255,0.12);
+    backdrop-filter: blur(12px);
+  }
+  .workspace-dropdown.open { display: flex; }
+  .workspace-dd-header { padding: 12px 14px 10px; border-bottom: 1px solid var(--border); }
+  .workspace-dd-title { font: 800 11px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+  .workspace-dd-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .workspace-dd-btn {
+    flex: 1; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text); border-radius: 8px; padding: 7px 10px;
+    font: 700 12px var(--font-body); cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .workspace-dd-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .workspace-dd-btn.primary { border-color: var(--accent); background: rgba(22,201,255,0.12); color: var(--accent); }
+  .workspace-dd-list { overflow-y: auto; flex: 1; padding: 4px; }
+  .workspace-dd-section { font: 800 9px/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); padding: 8px 10px 4px; }
+  .workspace-dd-item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 8px 10px; border: 0; border-radius: 8px;
+    background: transparent; color: var(--text); text-align: left;
+    cursor: pointer; font: 13px var(--font-body); transition: background 0.12s;
+  }
+  .workspace-dd-item:hover { background: rgba(22,201,255,0.08); }
+  .workspace-dd-item.active { background: rgba(22,201,255,0.12); }
+  .workspace-dd-item .item-folder { font-size: 14px; flex-shrink: 0; opacity: 0.7; }
+  .workspace-dd-item .item-copy { flex: 1; min-width: 0; }
+  .workspace-dd-item .item-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .workspace-dd-item .item-path { font: 10px var(--font-mono); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .workspace-dd-item .item-remove { font-size: 14px; color: var(--text-faint); padding: 2px 6px; border-radius: 4px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s, color 0.15s; }
+  .workspace-dd-item:hover .item-remove { opacity: 0.6; }
+  .workspace-dd-item .item-remove:hover { opacity: 1; color: var(--error); }
+  .workspace-dd-item.missing { opacity: 0.5; }
+  .workspace-dd-item.missing .item-name { color: var(--text-faint); }
+  .workspace-dd-empty { padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+  /* ── Chat sidebar ── */
+  .app-shell { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+  .chat-sidebar {
+    width: 380px; flex-shrink: 0;
+    display: flex; flex-direction: column;
+    border-left: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(5,10,28,0.96), rgba(4,8,22,0.98));
+    overflow: hidden;
+  }
+  .chat-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .chat-title-row { display: flex; align-items: center; justify-content: space-between; }
+  .chat-title {
+    font: 800 13px/1 var(--font-display);
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent);
+  }
+  .chat-session-select {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font: 11px var(--font-body); padding: 3px 6px;
+    max-width: 140px; cursor: pointer;
+  }
+  .chat-session-select:hover { border-color: var(--accent); }
+  .chat-model-select {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font: 11px var(--font-body); padding: 4px 8px;
+    width: 100%; cursor: pointer;
+  }
+  .chat-model-select:hover { border-color: var(--accent); }
+
+  .chat-messages {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+  }
+  .chat-msg {
+    max-width: 92%; padding: 9px 12px; border-radius: 12px;
+    font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    color: #fff; border-bottom-right-radius: 4px;
+  }
+  .chat-msg.assistant {
+    align-self: flex-start;
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border); border-bottom-left-radius: 4px;
+  }
+  .chat-msg.assistant .msg-model {
+    font-size: 9px; color: var(--text-faint); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .chat-msg.error {
+    align-self: center; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3);
+    color: var(--error); font-size: 12px; text-align: center;
+  }
+  .chat-empty {
+    text-align: center; color: var(--text-dim); font-size: 13px;
+    padding: 40px 16px; line-height: 1.6;
+  }
+  .chat-empty .chat-empty-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.4; }
+  .chat-typing {
+    align-self: flex-start; padding: 9px 14px; border-radius: 12px; border-bottom-left-radius: 4px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    font-size: 13px;
+  }
+  .chat-typing .dot { animation: typingDot 1.4s infinite; display: inline-block; }
+  .chat-typing .dot:nth-child(2) { animation-delay: 0.2s; }
+  .chat-typing .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typingDot { 0%,60%,100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+  .chat-input-area {
+    padding: 10px 14px 12px; border-top: 1px solid var(--border);
+    flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
+  }
+  .chat-input {
+    width: 100%; min-height: 44px; max-height: 140px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font: 13px/1.45 var(--font-body); padding: 10px 12px;
+    resize: none; outline: none; transition: border-color 0.15s;
+  }
+  .chat-input:focus { border-color: var(--accent); }
+  .chat-input::placeholder { color: var(--text-faint); }
+  .chat-send-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .chat-send-btn {
+    border: 1px solid var(--accent); background: rgba(22,201,255,0.12);
+    color: var(--accent); border-radius: 8px; padding: 6px 18px;
+    font: 800 12px var(--font-body); cursor: pointer; transition: all 0.15s;
+  }
+  .chat-send-btn:hover { background: rgba(22,201,255,0.22); }
+  .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .chat-new-btn {
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); border-radius: 8px; padding: 6px 14px;
+    font: 800 11px var(--font-body); cursor: pointer; transition: all 0.15s;
+  }
+  .chat-new-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .chat-hint { font-size: 10px; color: var(--text-faint); }
   @media (max-width: 900px) {
     .repo-path { display: none; }
     .git-widget { min-width: 210px; grid-template-columns: 24px minmax(92px, 1fr) auto; }
     .git-popover { right: 0; }
     .memory-widget { grid-template-columns: 72px 58px; min-width: 150px; }
     .memory-graph { width: 58px; }
+    .chat-sidebar { width: 300px; }
   }
 </style>
 </head>
@@ -527,6 +689,15 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     DevFlow Pipeline
   </h1>
   <div class="header-right">
+    <div class="workspace-widget no-workspace" id="workspace-widget" title="Select workspace" role="button" tabindex="0" aria-expanded="false" onclick="toggleWorkspaceDropdown(event)" onkeydown="handleWorkspaceKey(event)">
+      <span class="workspace-icon">📁</span>
+      <span class="workspace-copy">
+        <span class="workspace-label">Workspace</span>
+        <span class="workspace-name" id="workspace-name">Not set</span>
+      </span>
+      <span class="workspace-chevron">▾</span>
+      <div class="workspace-dropdown" id="workspace-dropdown" role="dialog" aria-label="Workspace picker"></div>
+    </div>
     <div class="git-widget" id="git-widget" title="Git status unavailable" role="button" tabindex="0" aria-expanded="false" onclick="toggleGitDetails(event)" onkeydown="handleGitWidgetKey(event)">
       <span class="git-icon">⑂</span>
       <span class="git-copy">
@@ -553,11 +724,45 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   </div>
 </div>
 
+<div class="app-shell">
 <div class="content" id="content">
   <div class="empty-state">
     <h3>Waiting for activity</h3>
-    <p>No pipeline runs yet. Start a brainstorm in Hermes to kick off the DevFlow loop.</p>
+    <p>No pipeline runs yet. Start a brainstorm in the chat panel to kick off the DevFlow loop.</p>
   </div>
+</div>
+
+<aside class="chat-sidebar" id="chat-sidebar">
+  <div class="chat-header">
+    <div class="chat-title-row">
+      <span class="chat-title">Brainstorm</span>
+      <select class="chat-session-select" id="chat-session-select" onchange="switchChatSession()" title="Switch session">
+        <option value="">New session</option>
+      </select>
+    </div>
+    <select class="chat-model-select" id="chat-model-select" title="Brainstorm model">
+      <option value="">Loading models…</option>
+    </select>
+  </div>
+  <div class="chat-messages" id="chat-messages">
+    <div class="chat-empty" id="chat-empty">
+      <div class="chat-empty-icon">💬</div>
+      <div>Start a brainstorm session.</div>
+      <div style="font-size:11px;margin-top:4px;">Your conversation feeds directly into the DevFlow pipeline.</div>
+    </div>
+  </div>
+  <div class="chat-input-area">
+    <textarea class="chat-input" id="chat-input" placeholder="Type your idea or question…" rows="2"
+      onkeydown="handleChatKey(event)" oninput="autoResizeChatInput(this)"></textarea>
+    <div class="chat-send-row">
+      <span class="chat-hint" id="chat-hint">Enter to send · Shift+Enter for newline</span>
+      <div style="display:flex;gap:6px;">
+        <button class="chat-new-btn" onclick="newChatSession()" title="Start fresh">New</button>
+        <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
+      </div>
+    </div>
+  </div>
+</aside>
 </div>
 
 <script>
@@ -1417,6 +1622,395 @@ function adaptiveRefresh() {
 setTimeout(adaptiveRefresh, 3000);
 setInterval(refreshGit, 3000);
 setInterval(refreshMemory, 2000);
+
+// ── Workspace picker logic ──
+let WORKSPACE_STATE = { active: null, recent: [], platform: 'unknown' };
+
+async function loadWorkspaceState() {
+  try {
+    const resp = await fetch('/api/workspace');
+    WORKSPACE_STATE = await resp.json();
+    updateWorkspaceWidget();
+    renderWorkspaceDropdown();
+  } catch (e) {
+    console.error('Failed to load workspace state', e);
+  }
+}
+
+function updateWorkspaceWidget() {
+  const widget = document.getElementById('workspace-widget');
+  const nameEl = document.getElementById('workspace-name');
+  if (WORKSPACE_STATE.active && WORKSPACE_STATE.active.exists) {
+    widget.classList.remove('no-workspace');
+    nameEl.textContent = WORKSPACE_STATE.active.name;
+    widget.title = WORKSPACE_STATE.active.path;
+  } else if (WORKSPACE_STATE.active && !WORKSPACE_STATE.active.exists) {
+    widget.classList.add('no-workspace');
+    nameEl.textContent = 'Missing: ' + WORKSPACE_STATE.active.name;
+    widget.title = 'Workspace folder not found: ' + WORKSPACE_STATE.active.path;
+  } else {
+    widget.classList.add('no-workspace');
+    nameEl.textContent = 'Not set';
+    widget.title = 'Click to select a workspace';
+  }
+}
+
+function renderWorkspaceDropdown() {
+  const dd = document.getElementById('workspace-dropdown');
+  const isMac = WORKSPACE_STATE.platform === 'macos';
+  const pickBtnLabel = isMac ? '📁 Open Finder…' : '📁 Choose folder…';
+  let html = `
+    <div class="workspace-dd-header">
+      <div class="workspace-dd-title">Workspace</div>
+      <div class="workspace-dd-actions">
+        <button class="workspace-dd-btn primary" onclick="pickWorkspaceFolder(event)" type="button">${pickBtnLabel}</button>
+      </div>
+    </div>
+    <div class="workspace-dd-list">`;
+  const recent = WORKSPACE_STATE.recent || [];
+  if (!recent.length) {
+    html += `<div class="workspace-dd-empty">No recent workspaces.<br>Pick a folder to get started.</div>`;
+  } else {
+    html += `<div class="workspace-dd-section">Recent</div>`;
+    const activePath = WORKSPACE_STATE.active ? WORKSPACE_STATE.active.path : null;
+    recent.forEach(w => {
+      const activeClass = w.path === activePath ? ' active' : '';
+      const missingClass = w.exists ? '' : ' missing';
+      html += `
+        <div class="workspace-dd-item${activeClass}${missingClass}" onclick="setWorkspace('${escapeHtml(w.path)}')" title="${escapeHtml(w.path)}">
+          <span class="item-folder">📂</span>
+          <span class="item-copy">
+            <div class="item-name">${escapeHtml(w.name)}</div>
+            <div class="item-path">${escapeHtml(w.path)}</div>
+          </span>
+          <span class="item-remove" onclick="removeWorkspace(event, '${escapeHtml(w.path)}')" title="Remove from recent">✕</span>
+        </div>`;
+    });
+  }
+  html += `</div>`;
+  dd.innerHTML = html;
+}
+
+function toggleWorkspaceDropdown(event) {
+  if (event) event.stopPropagation();
+  const dd = document.getElementById('workspace-dropdown');
+  const widget = document.getElementById('workspace-widget');
+  dd.classList.toggle('open');
+  widget.setAttribute('aria-expanded', String(dd.classList.contains('open')));
+}
+
+function closeWorkspaceDropdown() {
+  const dd = document.getElementById('workspace-dropdown');
+  const widget = document.getElementById('workspace-widget');
+  dd.classList.remove('open');
+  widget.setAttribute('aria-expanded', 'false');
+}
+
+function handleWorkspaceKey(event) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    toggleWorkspaceDropdown(event);
+  }
+}
+
+async function pickWorkspaceFolder(event) {
+  if (event) event.stopPropagation();
+  closeWorkspaceDropdown();
+  // Show a loading state on the widget
+  const nameEl = document.getElementById('workspace-name');
+  const origText = nameEl.textContent;
+  nameEl.textContent = 'Opening Finder…';
+  try {
+    const resp = await fetch('/api/workspace/pick', { method: 'POST' });
+    const data = await resp.json();
+    if (data.cancelled) {
+      nameEl.textContent = origText;
+      return;
+    }
+    WORKSPACE_STATE = { active: data.active ? { path: data.active, name: data.name, exists: true } : null, recent: data.recent || [], platform: WORKSPACE_STATE.platform };
+    updateWorkspaceWidget();
+    renderWorkspaceDropdown();
+    // Full page refresh — the workspace changed, so all data needs reloading
+    refresh();
+    refreshGit();
+    loadChatSessions();
+  } catch (e) {
+    nameEl.textContent = origText;
+    console.error('Failed to pick workspace', e);
+  }
+}
+
+async function setWorkspace(path) {
+  closeWorkspaceDropdown();
+  try {
+    const resp = await fetch('/api/workspace/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { console.error('setWorkspace failed', data); return; }
+    WORKSPACE_STATE = { active: data.active ? { path: data.active, name: data.name, exists: true } : null, recent: data.recent || [], platform: WORKSPACE_STATE.platform };
+    updateWorkspaceWidget();
+    renderWorkspaceDropdown();
+    refresh();
+    refreshGit();
+    loadChatSessions();
+  } catch (e) {
+    console.error('Failed to set workspace', e);
+  }
+}
+
+async function removeWorkspace(event, path) {
+  if (event) event.stopPropagation();
+  try {
+    const resp = await fetch('/api/workspace/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+    const data = await resp.json();
+    if (data.active === null || data.active === undefined) {
+      WORKSPACE_STATE.active = null;
+    }
+    WORKSPACE_STATE.recent = data.recent || [];
+    updateWorkspaceWidget();
+    renderWorkspaceDropdown();
+  } catch (e) {
+    console.error('Failed to remove workspace', e);
+  }
+}
+
+// Close workspace dropdown when clicking outside
+document.addEventListener('click', event => {
+  const wsWidget = document.getElementById('workspace-widget');
+  if (wsWidget && !wsWidget.contains(event.target)) closeWorkspaceDropdown();
+});
+
+// Initialize workspace on load
+loadWorkspaceState();
+
+// ── Chat sidebar logic ──
+let CHAT_MODELS = [];
+let CHAT_SESSION_ID = null;
+let CHAT_RUN_ID = null;
+let CHAT_IS_SENDING = false;
+
+async function loadChatModels() {
+  try {
+    const resp = await fetch('/api/chat/models');
+    const data = await resp.json();
+    CHAT_MODELS = data.models || [];
+    const sel = document.getElementById('chat-model-select');
+    if (!CHAT_MODELS.length) {
+      sel.innerHTML = '<option value="">No models available</option>';
+      return;
+    }
+    sel.innerHTML = CHAT_MODELS.map(m =>
+      `<option value="${escapeHtml(m.name)}">${escapeHtml(m.display_name)} (${escapeHtml(m.cost_class)})</option>`
+    ).join('');
+    // Default to the active profile's brainstorm model if present
+    const defaultModel = CHAT_MODELS.find(m =>
+      m.cost_class === 'included_subscription' && m.transport === 'hermes-chat'
+    );
+    if (defaultModel) sel.value = defaultModel.name;
+  } catch (e) {
+    console.error('Failed to load chat models', e);
+  }
+}
+
+async function loadChatSessions() {
+  try {
+    const resp = await fetch('/api/chat/sessions');
+    const data = await resp.json();
+    const sessions = data.sessions || [];
+    const sel = document.getElementById('chat-session-select');
+    sel.innerHTML = '<option value="">+ New session</option>';
+    sessions.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.session_id;
+      opt.textContent = s.preview || s.session_id;
+      sel.appendChild(opt);
+    });
+    if (CHAT_SESSION_ID) sel.value = CHAT_SESSION_ID;
+  } catch (e) {
+    console.error('Failed to load chat sessions', e);
+  }
+}
+
+async function switchChatSession() {
+  const sel = document.getElementById('chat-session-select');
+  const sessionId = sel.value;
+  if (!sessionId) {
+    newChatSession();
+    return;
+  }
+  CHAT_SESSION_ID = sessionId;
+  try {
+    const resp = await fetch('/api/chat/transcript?session=' + encodeURIComponent(sessionId));
+    const data = await resp.json();
+    CHAT_SESSION_ID = sessionId;
+    CHAT_RUN_ID = null;
+    document.getElementById('chat-model-select').value = data.model || '';
+    renderChatMessages(data.messages || []);
+  } catch (e) {
+    renderChatError('Failed to load session: ' + e.message);
+  }
+}
+
+function newChatSession() {
+  CHAT_SESSION_ID = null;
+  CHAT_RUN_ID = null;
+  document.getElementById('chat-session-select').value = '';
+  renderChatMessages([]);
+  document.getElementById('chat-input').focus();
+}
+
+function renderChatMessages(messages) {
+  const container = document.getElementById('chat-messages');
+  if (!messages.length) {
+    container.innerHTML = `
+      <div class="chat-empty" id="chat-empty">
+        <div class="chat-empty-icon">💬</div>
+        <div>Start a brainstorm session.</div>
+        <div style="font-size:11px;margin-top:4px;">Your conversation feeds directly into the DevFlow pipeline.</div>
+      </div>`;
+    return;
+  }
+  container.innerHTML = '';
+  messages.forEach(msg => container.appendChild(createChatBubble(msg)));
+  container.scrollTop = container.scrollHeight;
+}
+
+function createChatBubble(msg) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + (msg.role || 'assistant');
+  div.textContent = msg.content || '';
+  if (msg.role === 'assistant' && msg.model) {
+    const modelLabel = document.createElement('div');
+    modelLabel.className = 'msg-model';
+    modelLabel.textContent = msg.model;
+    div.appendChild(modelLabel);
+  }
+  return div;
+}
+
+function renderChatError(message) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg error';
+  div.textContent = message;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function showChatTyping() {
+  const container = document.getElementById('chat-messages');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'chat-typing';
+  div.id = 'chat-typing-indicator';
+  div.innerHTML = '<span class="dot">●</span><span class="dot">●</span><span class="dot">●</span>';
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeChatTyping() {
+  const indicator = document.getElementById('chat-typing-indicator');
+  if (indicator) indicator.remove();
+}
+
+function appendUserMessage(text) {
+  const container = document.getElementById('chat-messages');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+  container.appendChild(createChatBubble({ role: 'user', content: text }));
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendAssistantMessage(msg) {
+  const container = document.getElementById('chat-messages');
+  container.appendChild(createChatBubble(msg));
+  container.scrollTop = container.scrollHeight;
+}
+
+function handleChatKey(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    sendChatMessage();
+  }
+}
+
+function autoResizeChatInput(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+}
+
+async function sendChatMessage() {
+  if (CHAT_IS_SENDING) return;
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  const model = document.getElementById('chat-model-select').value;
+
+  CHAT_IS_SENDING = true;
+  document.getElementById('chat-send-btn').disabled = true;
+  input.value = '';
+  input.style.height = 'auto';
+
+  appendUserMessage(message);
+  showChatTyping();
+
+  try {
+    let resp;
+    if (!CHAT_SESSION_ID) {
+      // Start a new session with the first message
+      resp = await fetch('/api/chat/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intent: message, model: model || undefined }),
+      });
+    } else {
+      resp = await fetch('/api/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: CHAT_SESSION_ID, message: message, model: model || undefined }),
+      });
+    }
+    const data = await resp.json();
+    if (!resp.ok) {
+      renderChatError(data.error || data.detail || 'Request failed');
+      return;
+    }
+    if (data.session_id) {
+      CHAT_SESSION_ID = data.session_id;
+      CHAT_RUN_ID = data.run_id || null;
+    }
+    removeChatTyping();
+    if (data.response) {
+      appendAssistantMessage(data.response);
+    } else {
+      appendAssistantMessage(data);
+    }
+    // Refresh session list to include the new session
+    loadChatSessions();
+    // Trigger a status board refresh so the new run appears
+    refresh();
+  } catch (e) {
+    removeChatTyping();
+    renderChatError('Connection error: ' + e.message);
+  } finally {
+    CHAT_IS_SENDING = false;
+    document.getElementById('chat-send-btn').disabled = false;
+    document.getElementById('chat-input').focus();
+  }
+}
+
+// Initialize chat sidebar on load
+loadChatModels();
+loadChatSessions();
+document.getElementById('chat-input').focus();
 </script>
 </body>
 </html>

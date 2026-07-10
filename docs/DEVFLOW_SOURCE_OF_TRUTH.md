@@ -56,7 +56,7 @@ DevFlow is not:
 | Obsidian | Broad data layer, personal/project knowledge, durable notes, long-term context. |
 | DevFlow | Active product-building loop, task state, evidence, verification, routing, next safe action. |
 | Git/filesystem | Actual source truth for code, docs, artifacts, diffs, and committed history. |
-| Hermes | Runtime/tool/messaging harness used by agents and workflows, not DevFlow's identity. |
+| Hermes | Runtime/tool/messaging harness used by agents and workflows, not DevFlow's identity. The browser chat panel shares the brainstorm role with Hermes. |
 | Local models | Bounded labor: scout, spec, plan, build, judge, summarize. |
 | Orchestrator | Stage control, context requests, routing, delegation, blocking, escalation, next action. |
 | Builders | Small bounded implementation tasks. |
@@ -78,6 +78,11 @@ The brainstorm stage forces definition:
 - What is out of scope?
 - What existing repo, product, data, or environment does it touch?
 - What must be decided by the human before implementation can start?
+
+Brainstorming happens in the browser's chat panel or in Hermes. Both surfaces
+persist transcripts through the same brainstorm filesystem layer and create
+pipeline runs at the idea stage. The operator picks which eligible model serves
+the brainstorm role through the chat panel's model selector.
 
 Output: an Idea Brief.
 
@@ -212,6 +217,13 @@ collapsed worker loop, or nested scroll position) must survive refresh and must
 not depend on a stable DOM node between refreshes. Defaults apply only until the
 operator makes an explicit choice; refresh must not re-open, reset, or reselect
 after that choice.
+
+The browser is also the brainstorm surface. The chat panel on the right side of
+the status board lets the operator start brainstorm conversations with any
+eligible model in the registry. Chat sessions create pipeline runs at the idea
+stage and persist transcripts through the same brainstorm filesystem layer that
+Hermes uses. The chat panel's model selector determines which model serves the
+brainstorm role; the selection persists per session.
 
 Worker evidence must distinguish execution status from product outcome. A
 finished model call or dispatch is not a successful result when its judge

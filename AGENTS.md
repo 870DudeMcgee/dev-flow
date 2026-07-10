@@ -9,9 +9,10 @@ and the next explicit human decision.
 1. Read [docs/DEVFLOW_SOURCE_OF_TRUTH.md](docs/DEVFLOW_SOURCE_OF_TRUTH.md) before changing product direction, workflow, or the status board.
 2. The only active runtime surfaces are:
    - `src/devflow/loop/` — deterministic V2 loop, persistence, scout, and model-slot contracts.
-   - `src/devflow/control_room/` — read-only status board.
+   - `src/devflow/control_room/` — status board and brainstorm chat surface.
+   - `src/devflow/control_room/chat.py` — brainstorm chat backend (model listing, session management, message dispatch).
    - `src/devflow/cli.py` — V2-only command entrypoint.
-3. Hermes is the brainstorm and orchestration surface. The browser is a read-only live status board; it must not become a second agent chat surface.
+3. The browser is the unified brainstorm and status surface. It hosts a live status board on the left and a brainstorm chat panel on the right. Hermes remains the orchestration harness and bounded worker runtime; it is no longer the only brainstorm surface.
 4. Historical code and documents were removed from this checkout. Recover them only when a human explicitly requests archival recovery; do not recreate compatibility shims or older UI flows.
 
 ## Current Commands
