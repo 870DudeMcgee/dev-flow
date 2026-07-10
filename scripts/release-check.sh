@@ -84,11 +84,11 @@ else
 fi
 echo "✓ Pytest suite completed successfully"
 
-# 6. CLI Help Smoke Checks & Hiding Gating
+# 6. V2 CLI and fixture smoke checks
 echo -e "\n------------------------------------------------------------------------------"
-echo "🖥 Running CLI Help Smoke & Experimental Command Hiding Checks"
+echo "🖥 Running V2 CLI and deterministic fixture smoke checks"
 echo "------------------------------------------------------------------------------"
-# Run CLI smoke checks from a fresh install so this gate proves packaging/import
+# Run these checks from a fresh install so this gate proves packaging/import
 # behavior without PYTHONPATH or the developer's editable environment.
 CLI_SMOKE_VENV=$(mktemp -d -t devflow-cli-smoke-XXXXXX)
 cleanup_cli_smoke() {
@@ -99,68 +99,21 @@ trap cleanup_cli_smoke EXIT
 "${PYTHON_BIN[@]}" -m venv "$CLI_SMOKE_VENV"
 env -u PYTHONPATH "$CLI_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"
 RUN_CLI=(env -u PYTHONPATH "$CLI_SMOKE_VENV/bin/devflow")
+CLI_FIXTURE_JSON=$(mktemp -t devflow-cli-fixture-XXXXXX.json)
 
-# Assert basic help command works
 "${RUN_CLI[@]}" --help >/dev/null
-"${RUN_CLI[@]}" task --help >/dev/null
-echo "✓ Basic CLI help commands succeed"
+"${RUN_CLI[@]}" status --help >/dev/null
+"${RUN_CLI[@]}" loop --help >/dev/null
+"${RUN_CLI[@]}" loop spine-fixture --target-file src/devflow/loop/models.py --json > "$CLI_FIXTURE_JSON"
+"${CLI_SMOKE_VENV}/bin/python" -c '
+import json
+import sys
 
-# Assert experimental commands are hidden from standard help
-STANDARD_HELP=$("${RUN_CLI[@]}" --help)
-STANDARD_TASK_HELP=$("${RUN_CLI[@]}" task --help)
-
-strip_ansi() {
-  sed -E $'s/\x1B\\[[0-9;?]*[ -/]*[@-~]//g'
-}
-
-help_contains_command() {
-  local help_text="$1"
-  local cmd="$2"
-  local clean_help
-  clean_help=$(printf '%s\n' "$help_text" | strip_ansi)
-  grep -Eq "(^|[^[:alnum:]_-])${cmd}([^[:alnum:]_-]|$)" <<<"$clean_help"
-}
-
-for cmd in "supervise" "context"; do
-  if help_contains_command "$STANDARD_HELP" "$cmd"; then
-    echo "❌ Error: Experimental command '$cmd' is exposed in standard '--help'." >&2
-    exit 1
-  fi
-done
-
-for cmd in "fit" "scout" "route" "scorecard"; do
-  if ! help_contains_command "$STANDARD_TASK_HELP" "$cmd"; then
-    echo "❌ Error: Stable task subcommand '$cmd' is NOT shown in standard 'task --help'." >&2
-    exit 1
-  fi
-done
-
-for cmd in "pack"; do
-  if help_contains_command "$STANDARD_TASK_HELP" "$cmd"; then
-    echo "❌ Error: Experimental task subcommand '$cmd' is exposed in standard 'task --help'." >&2
-    exit 1
-  fi
-done
-echo "✓ Stable routing evidence commands are shown and experimental commands are hidden in standard help"
-
-# Assert experimental commands are shown when DEVFLOW_EXPERIMENTAL=1
-EXP_HELP=$(DEVFLOW_EXPERIMENTAL=1 "${RUN_CLI[@]}" --help)
-EXP_TASK_HELP=$(DEVFLOW_EXPERIMENTAL=1 "${RUN_CLI[@]}" task --help)
-
-for cmd in "supervise" "context"; do
-  if ! help_contains_command "$EXP_HELP" "$cmd"; then
-    echo "❌ Error: Experimental command '$cmd' is NOT shown under DEVFLOW_EXPERIMENTAL=1." >&2
-    exit 1
-  fi
-done
-
-for cmd in "pack"; do
-  if ! help_contains_command "$EXP_TASK_HELP" "$cmd"; then
-    echo "❌ Error: Experimental task subcommand '$cmd' is NOT shown under DEVFLOW_EXPERIMENTAL=1." >&2
-    exit 1
-  fi
-done
-echo "✓ Experimental commands are successfully exposed under DEVFLOW_EXPERIMENTAL=1"
+payload = json.load(open(sys.argv[1]))
+assert payload["final_stage"] == "complete", payload
+' "$CLI_FIXTURE_JSON"
+rm -f "$CLI_FIXTURE_JSON"
+echo "✓ V2 CLI help and deterministic fixture commands succeed"
 
 # 7. Packaging & Distribution Smoke Check (if tools available)
 echo -e "\n------------------------------------------------------------------------------"
@@ -194,7 +147,9 @@ else
   "${PYTHON_BIN[@]}" -m venv "$TEMP_SMOKE_VENV"
   env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/python" -m pip install -q "$REPO_ROOT"/dist/*.whl
   env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" --help >/dev/null
-  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" task --help >/dev/null
+  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" status --help >/dev/null
+  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" loop --help >/dev/null
+  env -u PYTHONPATH "$TEMP_SMOKE_VENV/bin/devflow" loop spine-fixture --target-file src/devflow/loop/models.py --json >/dev/null
   rm -rf "$TEMP_SMOKE_VENV"
   echo "✓ Fresh wheel installation and CLI help invocation smoke check succeeded"
 fi

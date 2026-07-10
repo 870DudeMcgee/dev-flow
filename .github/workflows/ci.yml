@@ -55,4 +55,6 @@ jobs:
           python -m venv /tmp/devflow-smoke
           /tmp/devflow-smoke/bin/python -m pip install dist/*.whl
           /tmp/devflow-smoke/bin/devflow --help
-          /tmp/devflow-smoke/bin/devflow task --help
+          /tmp/devflow-smoke/bin/devflow status --help
+          /tmp/devflow-smoke/bin/devflow loop --help
+          /tmp/devflow-smoke/bin/devflow loop spine-fixture --target-file src/devflow/loop/models.py --json
