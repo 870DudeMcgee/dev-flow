@@ -164,11 +164,15 @@ models:
       - correctness_evaluation
     notes: "Frontier orchestrator. Routes through Hermes subscription."
 
-  gpt-5.5:
-    display_name: "GPT-5.5 (OpenAI via Hermes)"
+  # -----------------------------------------------------------------
+  # GPT-5.6 family (via Hermes subscription — no per-token cost)
+  # Strength tiers: Sol (frontier) > Terra (balanced) > Luna (fast)
+  # -----------------------------------------------------------------
+  gpt-5.6-sol:
+    display_name: "GPT-5.6 Sol (OpenAI via Hermes)"
     provider: openai-codex
     transport: hermes-chat
-    endpoint: "hermes://chat/openai-codex/gpt-5.5"
+    endpoint: "hermes://chat/openai-codex/gpt-5.6-sol"
     cost_class: included_subscription
     context_window: 128000
     structured_output: true
@@ -182,53 +186,19 @@ models:
       - code_generation
       - architecture
       - specification_writing
+      - structured_planning
+      - decomposition
       - ambiguity_resolution
       - spec_review
       - gap_detection
       - structured_reasoning
       - evidence_review
-      - deterministic_verification
-    notes: "Subscription fallback for GLM. Frontier reasoning."
-
-  # -----------------------------------------------------------------
-  # Free cloud workers (OpenRouter :free tier)
-  # -----------------------------------------------------------------
-  hy3-free:
-    display_name: "Tencent Hy3 (OpenRouter free)"
-    provider: openrouter
-    transport: openai-http
-    endpoint: "https://openrouter.ai/api/v1"
-    cost_class: free_cloud
-    context_window: 32768
-    structured_output: true
-    tool_support: false
-    auth_method: openrouter-key
-    available: true
-    model_id: "tencent/hy3:free"
-    capabilities:
-      - code_generation
-      - structured_output
-      - edit_planning
-      - architecture
-      - specification_writing
-      - structured_planning
-      - decomposition
-      - spec_review
-      - gap_detection
-      - structured_reasoning
       - implementation_review
       - repository_reasoning
       - correctness_evaluation
-      - evidence_review
-      - high_level_reasoning
-      - evidence_synthesis
-      - decision_making
-      - ambiguity_resolution
-    notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active."
+      - deterministic_verification
+    notes: "GPT-5.6 Sol. Frontier reasoning — use only for complex problem solving. Routes through Hermes subscription."
 
-  # -----------------------------------------------------------------
-  # GPT-5.6 family (via Hermes subscription — no per-token cost)
-  # -----------------------------------------------------------------
   gpt-5.6-terra:
     display_name: "GPT-5.6 Terra (OpenAI via Hermes)"
     provider: openai-codex
@@ -286,3 +256,39 @@ models:
       - repository_reasoning
       - correctness_evaluation
     notes: "GPT-5.6 Luna. Fast and affordable model. Routes through Hermes subscription."
+
+  # -----------------------------------------------------------------
+  # Free cloud workers (OpenRouter :free tier)
+  # -----------------------------------------------------------------
+  hy3-free:
+    display_name: "Tencent Hy3 (OpenRouter free)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 32768
+    structured_output: true
+    tool_support: false
+    auth_method: openrouter-key
+    available: true
+    model_id: "tencent/hy3:free"
+    capabilities:
+      - code_generation
+      - structured_output
+      - edit_planning
+      - architecture
+      - specification_writing
+      - structured_planning
+      - decomposition
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+      - evidence_review
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+      - ambiguity_resolution
+    notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active."

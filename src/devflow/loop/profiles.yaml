@@ -90,7 +90,7 @@ profiles:
       builder: "qwen2.5-coder-7b-mini"
       build_judge: "ornith-9b-mini"
       verifier: "gpt-5.6-luna"
-      final_judge: "glm-5.2"
+      final_judge: "gpt-5.6-sol"
       brainstorm: "glm-5.2"
 
   # -----------------------------------------------------------------

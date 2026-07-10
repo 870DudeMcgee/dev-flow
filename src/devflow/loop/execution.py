@@ -339,12 +339,12 @@ class LocalModelClient:
 
 
 class HermesSubscriptionClient:
-    """GLM verifier client that routes through the user's Hermes subscription.
+    """Subscription model client that routes through the user's Hermes subscription.
 
     Uses the ``hermes chat`` CLI (already configured with the user's Z.AI /
     OpenAI OAuth) so scoring/verification does NOT incur a per-token local API
-    call. Returns the model text. Falls back to the configured GPT model if
-    GLM fails.
+    call. Returns the model text. Falls back to GPT-5.6 Luna if the primary
+    model fails, with a visible warning on stderr.
     """
 
     def __init__(self, endpoint: str, *, timeout: int = 60):
@@ -356,7 +356,7 @@ class HermesSubscriptionClient:
         self.provider = parts[1] if len(parts) > 1 else "zai"
         self.model = parts[2] if len(parts) > 2 else "glm-5.2"
         self.fallback_provider = "openai-codex"
-        self.fallback_model = "gpt-5.5"
+        self.fallback_model = "gpt-5.6-luna"
 
     def _call(self, prompt: str, *, provider: str, model: str) -> str:
         # hermes chat -q expects a single-line prompt; newlines in the arg can
@@ -399,7 +399,12 @@ class HermesSubscriptionClient:
         )
         try:
             content = self._call(full_prompt, provider=self.provider, model=self.model)
-        except Exception:
+        except Exception as exc:
+            print(
+                f"[HermesSubscriptionClient] WARNING: {self.provider}/{self.model} failed "
+                f"({str(exc)[:120]}); falling back to {self.fallback_provider}/{self.fallback_model}",
+                file=sys.stderr,
+            )
             content = self._call(
                 full_prompt, provider=self.fallback_provider, model=self.fallback_model
             )

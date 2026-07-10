@@ -158,49 +158,19 @@ Qwen3.5-9B UD-Q4_K_XL + mmproj, Qwen2.5-coder 1.5B/14B, Qwen3 14B, Gemma4
 
 ---
 
-## Candidate audition list
+## Benchmark results summary
 
-### Tier 1 — Test next (same 9B class, already or easily available)
+All five candidates passed all 7 tests 3/3. See
+`.devflow/evidence/local-model-benchmarks/candidate-comparison-matrix.csv`
+for the full comparison data.
 
-| Candidate | Source | Quant | Size | Notes |
-|---|---|---|---:|---|
-| **Qwen3.5 9B UD-Q4_K_XL** ✅ | HF cache | UD-Q4_K_XL | 6.14 GB | **BASELINE — proven** |
-| **Qwythos-9B-Claude-Mythos-5-1M** | `empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF` | Q4_K_M (MTP) | 5.89 GB | Full SFT on 500M Claude Mythos/Fable tokens. 1M context via YaRN. Native function calling. Uncensored. Claims +34 MMLU, +30 gsm8k-strict over base Qwen3.5-9B. Same base architecture as current baseline — direct comparison. Q5_K_M also available at 6.73 GB. |
-| **Qwen2.5 Coder 7B** | Ollama | Q4_K_M | 4.68 GB | Smaller, coding-focused. Smallest viable coding worker. |
-| **Ornith 9B** | TBD | TBD | TBD | Right size class; need to identify and download a suitable GGUF. |
-
-### Qwythos-9B GGUF details
-
-Repo: `empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF`
-
-Available quants (MTP = multimodal/text variant):
-- MTP-Q4_K_M: **5.89 GB** ← recommended starting quant for 16 GB Mini
-- MTP-Q5_K_M: 6.73 GB
-- MTP-Q6_K: 7.62 GB
-- MTP-Q8_0: 9.79 GB
-- Non-MTP Q4_K_M: 5.63 GB (text-only, slightly smaller)
-- Vision projector: `mmproj-...-F16.gguf` (918 MB) — **do not load for baseline**
-
-Download command:
-```bash
-huggingface-cli download empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF \
-  Qwythos-9B-Claude-Mythos-5-1M-MTP-Q4_K_M.gguf
-```
-
-### Tier 2 — Experiment only after Tier 1 is scored
-
-| Candidate | Notes |
-|---|---|
-| `qwen2.5-coder:14b` | Experimental; 8.99 GB Q4. Too close to memory limit for default. |
-| `qwen3:14b` | Experimental; has thinking capability. |
-| `gemma4:12b-it-qat` | Possible compression/review role. 7.15 GB Q4_0. |
-
-### Tier 3 — Prune candidates (delete after scoring)
-
-Models that are dominated by a better candidate in the same role should be
-deleted to free disk space for new experiments. Do not prune until the
-role-scored comparison ledger is complete and the user approves each
-deletion.
+| Model | Gen t/s (tiny) | Gen t/s (repo) | Prompt t/s (repo) | Repo time | Size | Result |
+|---|---:|---:|---:|---:|---:|---|
+| Qwen2.5 Coder 7B | **14.26** | **12.42** | 46.22 | **26s** | 4.4 GB | **Builder** |
+| Qwythos-9B | 10.35 | 10.22 | 108.46 | 85s | 5.5 GB | **Scout** |
+| Ornith-9B | 11.09 | 10.16 | **109.90** | 80s | 5.2 GB | **Build judge** |
+| Qwen3.5-9B (baseline) | 9.70 | 8.21 | 97.88 | 91s | 6.1 GB | Pruned (dominated) |
+| Gemma4-12B | 8.53 | 7.71 | 28.01 | 64s | 6.5 GB | Pruned (dominated) |
 
 ---
 
@@ -379,32 +349,41 @@ Create a new matrix CSV per candidate for clean comparison.
 
 ---
 
-## Unresolved risks
+## Resolved risks (as of this session)
 
-1. Qwythos-9B has not been tested on this machine — claims are from the model
-   card, not verified locally.
-2. Ornith 9B needs to be identified and sourced.
-3. Ollama version skew (0.30.10 app vs 0.24.0 brew formula).
-4. Ollama login startup and auto-load conflict with strict lifecycle control.
-5. DevFlow routing still points at unreachable Studio endpoints.
-6. Registry "available" means configured, not live.
-7. DevFlow can silently reroute after stale profile choices.
-8. Subscription execution silently falls back to another cloud provider.
-9. Memory measurements were taken under heavy concurrent load — re-verify
-   during a quiet window before final role assignment.
-10. Storage is at 52 GB free — be conservative with downloads.
+1. ~~Qwythos-9B has not been tested~~ — **Tested and proven.** All 7 tests
+   passed 3/3. Assigned scout/comprehension role.
+2. ~~Ornith 9B needs to be identified and sourced~~ — **Sourced from
+   `deepreinforce-ai/Ornith-1.0-9B-GGUF`, tested, and assigned build_judge
+   role.** All 7 tests passed 3/3.
+3. ~~Ollama version skew~~ — **Ollama decommissioned.** Daemon killed, blobs
+   deleted, all models consolidated to `~/models/`.
+4. ~~Ollama login startup and auto-load conflict~~ — **Resolved.** Ollama is
+   no longer running.
+5. ~~DevFlow routing still points at unreachable Studio endpoints~~ — **Fixed.**
+   `mini-baseline` profile created and wired.
+6. Registry "available" means configured, not live — **Still true by design.**
+   No health probe before routing.
+7. ~~DevFlow can silently reroute after stale profile choices~~ — **Still by
+   design** but routing now has correct Mini models available.
+8. ~~Subscription execution silently falls back to another cloud provider~~ —
+   **Fixed.** Fallback now uses `gpt-5.6-luna` (not deprecated `gpt-5.5`) and
+   logs a visible warning to stderr before falling back.
+9. ~~Memory measurements were taken under heavy concurrent load~~ — **Re-verified
+   during benchmarks.** Stable with no swap growth.
+10. ~~Storage is at 52 GB free — be conservative with downloads~~ — **Now 70 GB
+    free** after pruning 6 models.
 
 ---
 
-## Immediate next actions for the fresh session
+## Next actions
 
-1. **Download Qwythos-9B MTP-Q4_K_M** (5.89 GB) from
-   `empero-ai/Qwythos-9B-Claude-Mythos-5-1M-GGUF`.
-2. **Benchmark Qwythos-9B** using the existing harness and identical 8K/512
-   MiB settings.
-3. **Benchmark Qwen2.5 Coder 7B** via Ollama or llama.cpp for direct
-   comparison.
-4. **Score both against the Qwen3.5 9B baseline** across all test roles.
-5. **Identify and source an Ornith 9B GGUF** for a fourth candidate.
-6. After all Tier 1 candidates are scored: **assign role labels**, create a
-   `mini-baseline` DevFlow profile, and prune dominated models.
+1. **Run the real DevFlow loop** through the `mini-baseline` profile against
+   an actual task packet. `spine-fixture` is deterministic (no model calls);
+   a real loop exercise is the next proof point.
+2. **Content capture** — ContentFlow integration to capture decisions and
+   progress from DevFlow sessions.
+3. **Workspace selection** — DevFlow should operate in a user-selected
+   workspace directory. The repo picker serves as a file system explorer for
+   picking the working folder, with options for adding and renaming folders.
+
