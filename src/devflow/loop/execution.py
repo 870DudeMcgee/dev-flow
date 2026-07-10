@@ -56,6 +56,7 @@ from devflow.loop.pipeline_run import (
     write_worker_live_output,
 )
 from devflow.loop.models import LoopStage, advance_stage
+from devflow.loop.roles import get_role
 
 
 DEFAULT_MAX_PLANNING_ROUNDS = 3
@@ -442,11 +443,17 @@ def run_role(
     task_id: Optional[str] = None,
     worker_id: Optional[str] = None,
     max_tokens: Optional[int] = None,
-    reasoning: bool = False,
+    reasoning: Optional[bool] = None,
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> RoleResult:
     slot = resolve_role_slot(role)
+    role_definition = get_role(slot.role)
+    resolved_reasoning = (
+        reasoning
+        if reasoning is not None
+        else bool(role_definition and role_definition.reasoning)
+    )
     requested_max_tokens = int(max_tokens or ROLE_TOKEN_BUDGETS.get(role, 2048))
     if ensure_lane_on:
         ensure_lane(role)
@@ -560,7 +567,7 @@ def run_role(
                 result = client.chat_stream(
                     messages=messages,
                     max_tokens=requested_max_tokens,
-                    reasoning=reasoning,
+                    reasoning=resolved_reasoning,
                     on_delta=on_delta,
                     on_reasoning_delta=on_reasoning_delta,
                 )
@@ -574,7 +581,7 @@ def run_role(
                 content, usage = client.chat(
                     messages=messages,
                     max_tokens=requested_max_tokens,
-                    reasoning=reasoning,
+                    reasoning=resolved_reasoning,
                 )
         except Exception as exc:
             partial = "".join(streamed)
@@ -2027,6 +2034,7 @@ def run_glm_verification(
                 {"role": "user", "content": user},
             ],
             max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
+            reasoning=True,
         )
         decision = _parse_judge_decision(content)  # reuse judge payload parser
         append_worker_feed_entry(root, run_id, {

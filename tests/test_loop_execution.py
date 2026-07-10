@@ -162,6 +162,18 @@ class FailingStreamingClient:
         raise RuntimeError("model disconnected")
 
 
+class ReasoningCaptureClient:
+    reasoning_values = []
+
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat(self, *, messages, max_tokens=2048, temperature=0.0,
+             reasoning=False, stop=None):
+        type(self).reasoning_values.append(reasoning)
+        return json.dumps({"status": "passed", "rationale": "ok"}), {}
+
+
 def _fresh_root(tmp_path: Path) -> tuple[str, str]:
     root = tmp_path / "proj"
     root.mkdir()
@@ -174,6 +186,71 @@ def _fresh_root(tmp_path: Path) -> tuple[str, str]:
     st = st.model_copy(update={"stage": LoopStage.assignment})
     save_loop_state(root, st)
     return str(root), run_id
+
+
+def test_run_role_derives_reasoning_from_canonical_role(tmp_path):
+    ReasoningCaptureClient.reasoning_values = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+
+    ex.run_role(
+        root,
+        role="planning_judge",
+        system_prompt="judge",
+        user_prompt="review",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+    ex.run_role(
+        root,
+        role="builder",
+        system_prompt="build",
+        user_prompt="implement",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+
+    assert ReasoningCaptureClient.reasoning_values == [True, False]
+
+
+def test_glm_verifier_requests_reasoning(tmp_path, monkeypatch):
+    ReasoningCaptureClient.reasoning_values = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(update={"stage": LoopStage.verification})
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "build-manifest.json",
+        json.dumps({"changed_files": [], "workspace": str(root)}),
+    )
+    monkeypatch.setattr(
+        ex,
+        "_run_workspace_tests",
+        lambda *args, **kwargs: {
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "summary": "1 passed",
+            "working_directory": str(root),
+        },
+    )
+
+    ex.run_glm_verification(
+        root,
+        run_id,
+        definition_of_done="Tests pass.",
+        client_factory=ReasoningCaptureClient,
+    )
+
+    assert ReasoningCaptureClient.reasoning_values == [True]
 
 
 def test_remote_non_reasoning_call_disables_provider_reasoning(monkeypatch):
