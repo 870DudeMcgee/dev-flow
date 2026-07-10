@@ -338,6 +338,10 @@ ROLE_SLOTS: dict[str, dict[str, str]] = {
     "planning_judge": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
     "judge": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
     "verifier": {"provider": "local", "model": "qwen-27b-q5km", "endpoint": "http://localhost:8083"},
+    # GLM verifier: routes through the user's Hermes Z.AI subscription
+    # (no per-token local API). Distinct (provider,model) so it does NOT
+    # serialize against the local Qwen judge lane.
+    "glm_verifier": {"provider": "zai", "model": "glm-5.2", "endpoint": "hermes://chat/zai/glm-5.2"},
 }
 
 KNOWN_ROLES = tuple(ROLE_SLOTS.keys())

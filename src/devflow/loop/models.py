@@ -72,6 +72,13 @@ class DevFlowLoopState(BaseModel):
     builder_judge_runs: list[str] = Field(default_factory=list)
     verification_receipts: list[str] = Field(default_factory=list)
     next_human_decision: Optional[str] = None
+    # Autonomous mode: when auto_verify is True, the verification stage is
+    # driven by a GLM verifier agent (Hermes subscription) instead of parking
+    # for a human. loop_cap bounds how many autonomous build/judge/verify
+    # cycles may run before the loop must stop and await a human.
+    auto_verify: bool = False
+    loop_cap: int = 3
+    loop_iteration: int = 0
     created_at: str
     updated_at: str
 

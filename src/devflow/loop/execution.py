@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import glob
 import shutil
 import subprocess
 import sys
@@ -58,7 +59,7 @@ from devflow.loop.models import LoopStage, advance_stage
 
 DEFAULT_MAX_PLANNING_ROUNDS = 3
 DEFAULT_MAX_BUILD_ROUNDS = 3
-MAX_TARGET_FILES_PER_BUILD = 6
+MAX_TARGET_FILES_PER_BUILD = 12  # raised from 6: this project builds the whole brief_intelligence package as one coherent packet so the judge sees all inter-file imports
 ROLE_TOKEN_BUDGETS = {
     "builder": 16384,
     "planner": 4096,
@@ -273,6 +274,74 @@ class LocalModelClient:
             finish_reason or "stop",
             "".join(reasoning_chunks),
         )
+
+
+class HermesSubscriptionClient:
+    """GLM verifier client that routes through the user's Hermes subscription.
+
+    Uses the ``hermes chat`` CLI (already configured with the user's Z.AI /
+    OpenAI OAuth) so scoring/verification does NOT incur a per-token local API
+    call. Returns the model text. Falls back to the configured GPT model if
+    GLM fails.
+    """
+
+    def __init__(self, endpoint: str, *, timeout: int = 60):
+        # endpoint encodes the routing, e.g. "hermes://chat/zai/glm-5.2"
+        self.endpoint = endpoint
+        self.timeout = timeout
+        parts = endpoint.replace("hermes://", "").strip("/").split("/")
+        # expect: chat/<provider>/<model>
+        self.provider = parts[1] if len(parts) > 1 else "zai"
+        self.model = parts[2] if len(parts) > 2 else "glm-5.2"
+        self.fallback_provider = "openai-codex"
+        self.fallback_model = "gpt-5.5"
+
+    def _call(self, prompt: str, *, provider: str, model: str) -> str:
+        # hermes chat -q expects a single-line prompt; newlines in the arg can
+        # hang or misbehave, so flatten to spaces for the CLI invocation.
+        flat = " ".join(str(prompt).split())
+        cmd = [
+            "hermes", "chat",
+            "-q", flat,
+            "-Q",
+            "-m", model,
+            "--provider", provider,
+        ]
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=self.timeout
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"hermes chat failed ({provider}/{model}): "
+                f"{proc.stderr.strip()[:200]}"
+            )
+        return proc.stdout
+
+    def chat(
+        self,
+        *,
+        messages: list[dict],
+        max_tokens: int = 2048,
+        temperature: float = 0.0,
+        reasoning: bool = False,
+        stop: Optional[list[str]] = None,
+    ) -> tuple[str, dict]:
+        user_prompt = "\n".join(
+            m.get("content", "") for m in messages if m.get("role") == "user"
+        )
+        system_prompt = "\n".join(
+            m.get("content", "") for m in messages if m.get("role") == "system"
+        )
+        full_prompt = (
+            f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
+        )
+        try:
+            content = self._call(full_prompt, provider=self.provider, model=self.model)
+        except Exception:
+            content = self._call(
+                full_prompt, provider=self.fallback_provider, model=self.fallback_model
+            )
+        return content, {}
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +639,52 @@ def _read_record(root: Path | str, run_id: str, name: str) -> Optional[str]:
     if isinstance(val, dict):
         return json.dumps(val)
     return None
+
+
+def _write_record(root: Path | str, run_id: str, name: str, content: str) -> None:
+    """Persist a named text record for the run (JSON string stored as-is)."""
+    update_pipeline_run_record(root, run_id, name, content)
+
+
+def _run_workspace_tests(workspace: Path) -> dict:
+    """Run the workspace test suite and return a bounded result dict.
+
+    Offline by default (pytest must not trigger live model calls). Fails soft:
+    if pytest is unavailable or the workspace has no tests, returns a neutral
+    result so the GLM verifier can still reason from signatures.
+    """
+    result = {"exit_code": -1, "passed": 0, "failed": 0, "errors": 0, "summary": ""}
+    if not workspace.exists():
+        result["summary"] = "no workspace directory; tests not run"
+        return result
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests", "-q", "--no-header", "-p", "no:cacheprovider"],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            env={**os.environ, "PYTHONPATH": str(workspace / "src"), "HERMES_ISOLATE_CHILD": "1"},
+        )
+    except FileNotFoundError:
+        result["summary"] = "pytest not installed; tests not run"
+        return result
+    except Exception as exc:  # subprocess timeout / other
+        result["summary"] = f"test run error: {exc}"
+        return result
+    result["exit_code"] = proc.returncode
+    out = (proc.stdout or "") + (proc.stderr or "")
+    # Parse the classic pytest summary line: "8 passed" / "2 failed, 1 passed"
+    import re as _re
+    m_pass = _re.search(r"(\d+) passed", out)
+    m_fail = _re.search(r"(\d+) failed", out)
+    m_err = _re.search(r"(\d+) error", out)
+    result["passed"] = int(m_pass.group(1)) if m_pass else 0
+    result["failed"] = int(m_fail.group(1)) if m_fail else 0
+    result["errors"] = int(m_err.group(1)) if m_err else 0
+    # Keep the tail (failures/summary) so GLM sees what broke.
+    result["summary"] = out[-1500:]
+    return result
 
 
 def _planner_context_block(root: Path | str, run_id: str) -> str:
@@ -1380,6 +1495,257 @@ def run_verification(
     return receipt
 
 
+GLM_VERIFIER_SYSTEM = (
+    "You are the autonomous DevFlow verifier. You review build plus judge "
+    "evidence and decide whether the implementation satisfies the Definition "
+    "of Done. Respond with a single JSON object and nothing else: a status "
+    "field set to passed, failed, or needs_review, and a rationale field with "
+    "a short explanation. Pass only if the code is coherent, importable, and "
+    "meets the DoD. Use needs_review for borderline cases a human should "
+    "confirm."
+)
+
+
+def run_glm_verification(
+    root: Path | str,
+    run_id: str,
+    *,
+    definition_of_done: str,
+    worker_id: str = "glm-verifier",
+    client_factory: Optional[ClientFactory] = None,
+) -> ver.VerificationReceipt:
+    """Autonomous verification via a GLM agent (Hermes Z.AI subscription).
+
+    Reads the current build-diff + judge result, asks GLM to verify against the
+    DoD, parses the decision, and records a VerificationReceipt (advancing the
+    loop on pass). Does NOT use a per-token API — routes through Hermes.
+
+    Falls back to the local verifier role only if the Hermes call is
+    unrecoverable.
+    """
+    state = load_loop_state(root, run_id)
+    if state.stage != LoopStage.verification:
+        raise ValueError(f"Expected verification, got {state.stage.value}.")
+
+    import json as _json
+    import re as _re
+
+    build_evidence = _read_record(root, run_id, "build-diff.patch") or ""
+    # Pull the most recent judge decision from the run dir (best-effort).
+    judge_text = "unknown"
+    try:
+        summaries = sorted(
+            glob.glob(str(Path(root) / run_id / "packet-*-build-judge-summary.json"))
+        )
+        if summaries:
+            with open(summaries[-1]) as _f:
+                judge_text = _json.load(_f).get("judge_decision", "unknown")
+    except Exception:
+        judge_text = "unknown"
+
+    # Build a BOUNDED code excerpt from the actual on-disk files listed in the
+    # build manifest: for each source file, surface its top-level def/class
+    # signatures (truncated per file). This lets GLM judge real coherence
+    # without dumping the entire 17KB build-diff (which blows GLM's context).
+    manifest = _read_record(root, run_id, "build-manifest.json") or "{}"
+    try:
+        changed = _json.loads(manifest).get("changed_files", []) or []
+    except Exception:
+        changed = []
+    workspace = ""
+    try:
+        workspace = _json.loads(manifest).get("workspace", "")
+    except Exception:
+        workspace = ""
+
+    excerpt_parts: list[str] = []
+    per_file_cap = 900  # chars per file (signatures + imports + Item fields)
+    _sig_re = _re.compile(r"^\s*(def |class |async def )")
+    _import_re = _re.compile(r"^\s*(from |import )")
+    for rel in changed:
+        if "test" in rel or rel.endswith("__init__.py"):
+            continue  # skip tests/init for the coherence excerpt
+        fpath = Path(workspace) / rel if workspace else Path(root) / run_id / "workspace" / rel
+        if not fpath.exists():
+            continue
+        try:
+            lines = fpath.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        kept: list[str] = []
+        capture_item = False
+        for ln in lines:
+            if _sig_re.match(ln) or _import_re.match(ln):
+                kept.append(ln.strip())
+            # also capture the Item dataclass field definitions
+            if ln.strip().startswith("class Item"):
+                capture_item = True
+                kept.append(ln.strip())
+            elif capture_item:
+                stripped = ln.strip()
+                if stripped and not stripped.startswith("#"):
+                    kept.append(stripped)
+                # stop capturing once we leave the class body (indent drops)
+                if stripped and not ln.startswith(" ") and not ln.startswith("\t") and "class Item" not in stripped:
+                    capture_item = False
+        if not kept:
+            continue
+        joined = "\n".join(kept)[:per_file_cap]
+        excerpt_parts.append(f"## {rel}\n{joined}")
+    code_excerpt = "\n\n".join(excerpt_parts)
+
+    # Run the real test suite in the workspace and capture pass/fail so GLM
+    # verifies actual test outcomes, not just signatures. Offline by default
+    # (no live model calls during pytest); fails soft if pytest isn't present.
+    test_result = _run_workspace_tests(Path(workspace) if workspace else Path(root) / run_id / "workspace")
+    try:
+        _write_record(root, run_id, "test-result.json", _json.dumps(test_result))
+    except Exception:
+        pass
+
+    dod_head = definition_of_done.strip().splitlines()[:10]
+    test_block = (
+        f"# Test results (actual pytest run)\n"
+        f"exit_code: {test_result['exit_code']}\n"
+        f"passed: {test_result['passed']}  failed: {test_result['failed']}  "
+        f"errors: {test_result['errors']}\n"
+        f"{test_result['summary'].strip()[:1500]}"
+    )
+    user = (
+        f"# Definition of Done (head)\n" + "\n".join(dod_head) + "\n\n"
+        f"# Prior Judge Decision\n{judge_text}\n\n"
+        "# Built source (ACTUAL signatures extracted from the built files):\n"
+        f"{code_excerpt}\n\n"
+        f"{test_block}\n\n"
+        "You are verifying coherence from the signatures above and the real test "
+        "results (this IS the built code, not a proposal). Confirm: (1) every "
+        "imported symbol is defined in another listed module or stdlib, (2) the "
+        "Item dataclass fields used by formatter/queue_appender/scorer match "
+        "models.py, (3) the public API names match the DoD, (4) the test suite "
+        "passes. A failing test run must be 'failed'. Pass only if coherent AND "
+        "tests pass. Output only the JSON decision."
+    )
+
+    # Route through GLM via Hermes subscription client. The GLM verifier is a
+    # Hermes subscription call (no local resident server), so it does NOT take
+    # the local-model single-flight lock — that lock is only for resident
+    # llama-server lanes. We call the client directly.
+    factory = client_factory or HermesSubscriptionClient
+    slot = resolve_role_slot("glm_verifier")
+    try:
+        append_worker_feed_entry(root, run_id, {
+            "event": "started",
+            "role": "glm_verifier",
+            "model": slot.model,
+            "provider": slot.provider,
+            "worker_id": worker_id,
+            "task_id": run_id,
+        })
+        client = factory(slot.endpoint)
+        content, _ = client.chat(
+            messages=[
+                {"role": "system", "content": GLM_VERIFIER_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
+        )
+        decision = _parse_judge_decision(content)  # reuse judge payload parser
+        append_worker_feed_entry(root, run_id, {
+            "event": "completed",
+            "role": "glm_verifier",
+            "model": slot.model,
+            "content": content[:2000],
+            "decision": decision,
+        })
+    except Exception as exc:  # never let the verifier hang the loop
+        decision = "needs_review"
+        content = f"GLM verifier error: {exc!r}"
+
+    status = (
+        ver.VerificationStatus.passed if decision == "passed"
+        else ver.VerificationStatus.needs_review if decision == "needs_review"
+        else ver.VerificationStatus.failed
+    )
+    receipt = ver.VerificationReceipt(
+        run_id=run_id,
+        receipt_id=f"vr-glm-{int(time.time() * 1000)}",
+        status=status,
+        command="glm_verifier (hermes chat zai/glm-5.2)",
+        summary=f"GLM verifier decision: {decision}\n{content[:1500]}",
+        evidence_path=None,
+        exit_code=0 if decision == "passed" else 1,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    ver.record_verification_receipt(root, receipt)
+    return receipt
+
+
+def _auto_verify_enabled(root: Path | str, run_id: str) -> bool:
+    """True when the run's loop state has auto_verify turned on."""
+    try:
+        return bool(load_loop_state(root, run_id).auto_verify)
+    except Exception:
+        return False
+
+
+def trigger_autonomous_run(
+    root: Path | str,
+    run_id: str,
+    *,
+    assignment: str,
+    definition_of_done: str,
+    target_files: Optional[list[str]] = None,
+    loop_cap: int = 3,
+    worker_id: str = "autonomous-operator",
+    ensure_lane_on: bool = True,
+    client_factory: Optional[ClientFactory] = None,
+) -> dict:
+    """Run the full autonomous loop with GLM auto-verify, bounded by loop_cap.
+
+    No UI. Cycles build -> judge -> (GLM verify) until the verification stage
+    reaches human_decision with a passing receipt, the loop_cap is exhausted,
+    or the run is blocked/cancelled. Each cycle increments loop_iteration.
+    """
+    state = load_loop_state(root, run_id)
+    state = state.model_copy(update={"auto_verify": True, "loop_cap": loop_cap})
+    save_loop_state(root, state)
+
+    result: dict = {}
+    for iteration in range(1, loop_cap + 1):
+        state = load_loop_state(root, run_id)
+        if state.stage in (LoopStage.complete, LoopStage.blocked):
+            break
+        state = state.model_copy(update={"loop_iteration": iteration})
+        save_loop_state(root, state)
+
+        result = run_build_judge_verify(
+            root, run_id,
+            assignment=assignment,
+            definition_of_done=definition_of_done,
+            target_files=target_files,
+            verification_command=None,  # GLM verifier handles verification
+            max_rounds=3,
+            worker_id=worker_id,
+            ensure_lane_on=ensure_lane_on,
+            client_factory=client_factory,
+        )
+        # After a passing judge + GLM verify, stage is human_decision (parked).
+        # In autonomous mode we treat a verified pass as a completed cycle.
+        state = load_loop_state(root, run_id)
+        if state.stage == LoopStage.human_decision and state.verification_receipts:
+            result["autonomous_complete"] = True
+            break
+        if state.stage == LoopStage.blocked:
+            break
+
+    final_state = load_loop_state(root, run_id)
+    result["loop_iteration"] = final_state.loop_iteration
+    result["loop_cap"] = final_state.loop_cap
+    result["auto_verify"] = final_state.auto_verify
+    result["final_stage"] = final_state.stage.value
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Pipeline orchestrator (serialized build -> judge -> verify)
 # ---------------------------------------------------------------------------
@@ -1454,6 +1820,14 @@ def run_build_judge_verify(
                     verification_command=verification_command,
                     working_directory=(build.raw.get("build_manifest") or {}).get("workspace"),
                 )
+            elif _auto_verify_enabled(root, run_id):
+                # Autonomous path: GLM agent verifies through Hermes subscription.
+                verification = run_glm_verification(
+                    root, run_id,
+                    definition_of_done=definition_of_done,
+                    worker_id=worker_id,
+                    client_factory=client_factory,
+                )
             break
         feedback = json.dumps(payload, indent=2)
 
@@ -1500,6 +1874,8 @@ __all__ = [
     "run_builder",
     "run_judge",
     "run_verification",
+    "run_glm_verification",
+    "trigger_autonomous_run",
     "run_build_judge_verify",
     "BUILDER_SYSTEM",
     "PLANNER_SYSTEM",
