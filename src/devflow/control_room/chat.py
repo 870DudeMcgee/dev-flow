@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from devflow.control_room import brainstorm as br
 from devflow.loop.registry import get_registry, ModelEntry
@@ -323,14 +323,9 @@ def _call_hermes_chat(entry: ModelEntry, messages: list[dict]) -> tuple[str, dic
 def _call_openai_http(entry: ModelEntry, messages: list[dict]) -> tuple[str, dict]:
     """Call a local or remote OpenAI-compatible model.
 
-    For local endpoints, ensure_lane brings the correct model up first.
+    For local endpoints, the model router brings the configured model up first.
     """
-    from devflow.loop.execution import LocalModelClient, ensure_lane
-
-    # Resolve the model name to a role for ensure_lane. Local models are
-    # resolved by matching the endpoint in the registry. We use the model
-    # name directly as the role lookup key via a temporary override.
-    model_name = entry.name
+    from devflow.loop.execution import LocalModelClient
 
     # Check if this is a local endpoint that needs lane management
     is_local = LocalModelClient._is_local_endpoint(entry.endpoint)
