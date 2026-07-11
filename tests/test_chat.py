@@ -7,15 +7,15 @@ dispatch — all without making real model calls (the model client is mocked).
 
 from __future__ import annotations
 
-import json
+import re
+import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
 from devflow.control_room import chat as chat_api
-from devflow.control_room import brainstorm as br
-from devflow.loop.registry import get_registry, _reload_registry
+from devflow.loop.registry import _reload_registry
 
 
 @pytest.fixture
@@ -266,3 +266,35 @@ def test_page_html_contains_chat_sidebar() -> None:
     assert "/api/chat/models" in STATUS_PAGE_HTML
     assert "/api/chat/start" in STATUS_PAGE_HTML
     assert "/api/chat/send" in STATUS_PAGE_HTML
+
+
+def test_new_chat_session_hides_existing_status_runs_until_first_message() -> None:
+    """A fresh brainstorm must not keep another session's status card visible."""
+    from devflow.control_room.page import STATUS_PAGE_HTML
+
+    def javascript_function(name: str) -> str:
+        match = re.search(
+            rf"function {name}\([^)]*\) \{{.*?^\}}",
+            STATUS_PAGE_HTML,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        assert match, f"Missing {name} from the status page script"
+        return match.group(0)
+
+    script = "\n".join([
+        "let CHAT_AWAITS_FIRST_MESSAGE = false;",
+        "let CHAT_SESSION_ID = 'previous-session';",
+        "let CHAT_RUN_ID = 'previous-run';",
+        "function setFocusedRun() {}",
+        "function render() {}",
+        "function renderChatMessages() {}",
+        "const document = { getElementById: () => ({ value: '', focus() {} }) };",
+        javascript_function("statusRunsForChatSession"),
+        javascript_function("newChatSession"),
+        "newChatSession();",
+        "const visibleRuns = statusRunsForChatSession([{ run_id: 'previous-run' }]);",
+        "if (visibleRuns.length !== 0) throw new Error('previous run remains visible');",
+    ])
+    result = subprocess.run(["node", "--input-type=commonjs", "-e", script], capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr

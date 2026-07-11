@@ -784,6 +784,7 @@ let FOCUSED_RUN_ID = null;
 let RUN_SELECTOR_OPEN = false;
 let WORKER_FEED_DATA = {};  // { runId: [entry, ...] } — JS-accessible feed data for the viewer
 let IS_STREAMING = false;  // true when any focused run has a live-streaming worker
+let CHAT_AWAITS_FIRST_MESSAGE = false;
 try {
   OPEN_WORKER_GROUPS = new Set(JSON.parse(localStorage.getItem('devflow.openWorkerGroups') || '[]'));
 } catch (_) {
@@ -812,9 +813,17 @@ function hasWorkerGroupPreference(groupId) {
   return OPEN_WORKER_GROUPS.has(groupId) || CLOSED_WORKER_GROUPS.has(groupId);
 }
 
-function focusRun(runId) {
+function setFocusedRun(runId) {
   FOCUSED_RUN_ID = runId;
-  try { localStorage.setItem('devflow.focusedRunId', runId); } catch (_) {}
+  try {
+    if (runId) localStorage.setItem('devflow.focusedRunId', runId);
+    else localStorage.removeItem('devflow.focusedRunId');
+  } catch (_) {}
+}
+
+function focusRun(runId) {
+  CHAT_AWAITS_FIRST_MESSAGE = false;
+  setFocusedRun(runId);
   refresh();
 }
 
@@ -1060,15 +1069,22 @@ function restoreScrollState(state) {
   });
 }
 
+function statusRunsForChatSession(runs) {
+  return CHAT_AWAITS_FIRST_MESSAGE ? [] : runs;
+}
+
 function render(data) {
   IS_RENDERING = true;
   const repoPath = document.getElementById('repo-path');
   if (repoPath) repoPath.textContent = data.repo || '';
   const el = document.getElementById('content');
-  const runs = data.runs || [];
+  const runs = statusRunsForChatSession(data.runs || []);
   if (runs.length === 0) {
     IS_STREAMING = false;
-    el.innerHTML = `<div class="empty-state"><h3>Waiting for activity</h3><p>No pipeline runs yet. Start a brainstorm in Hermes to kick off the DevFlow loop.</p></div>`;
+    const message = CHAT_AWAITS_FIRST_MESSAGE
+      ? '<h3>New brainstorm</h3><p>Your new project will appear here after your first message.</p>'
+      : '<h3>Waiting for activity</h3><p>No pipeline runs yet. Start a brainstorm in the chat panel to kick off the DevFlow loop.</p>';
+    el.innerHTML = `<div class="empty-state">${message}</div>`;
     return;
   }
 
@@ -1792,6 +1808,7 @@ loadWorkspaceState();
 
 // ── Chat sidebar logic ──
 let CHAT_MODELS = [];
+let CHAT_SESSIONS = [];
 let CHAT_SESSION_ID = null;
 let CHAT_RUN_ID = null;
 let CHAT_IS_SENDING = false;
@@ -1824,6 +1841,7 @@ async function loadChatSessions() {
     const resp = await fetch('/api/chat/sessions');
     const data = await resp.json();
     const sessions = data.sessions || [];
+    CHAT_SESSIONS = sessions;
     const sel = document.getElementById('chat-session-select');
     sel.innerHTML = '<option value="">+ New session</option>';
     sessions.forEach(s => {
@@ -1846,13 +1864,17 @@ async function switchChatSession() {
     return;
   }
   CHAT_SESSION_ID = sessionId;
+  const session = CHAT_SESSIONS.find(s => s.session_id === sessionId);
+  CHAT_RUN_ID = session?.run_id || null;
+  CHAT_AWAITS_FIRST_MESSAGE = false;
+  if (CHAT_RUN_ID) setFocusedRun(CHAT_RUN_ID);
   try {
     const resp = await fetch('/api/chat/transcript?session=' + encodeURIComponent(sessionId));
     const data = await resp.json();
     CHAT_SESSION_ID = sessionId;
-    CHAT_RUN_ID = null;
     document.getElementById('chat-model-select').value = data.model || '';
     renderChatMessages(data.messages || []);
+    refresh();
   } catch (e) {
     renderChatError('Failed to load session: ' + e.message);
   }
@@ -1861,8 +1883,15 @@ async function switchChatSession() {
 function newChatSession() {
   CHAT_SESSION_ID = null;
   CHAT_RUN_ID = null;
+  CHAT_AWAITS_FIRST_MESSAGE = true;
+  setFocusedRun(null);
+  OPEN_ARTIFACT = null;
+  SELECTED_OUTPUT = null;
+  USER_SELECTED_OUTPUT = false;
+  WORKER_FEED_DATA = {};
   document.getElementById('chat-session-select').value = '';
   renderChatMessages([]);
+  render({ runs: [] });
   document.getElementById('chat-input').focus();
 }
 
@@ -1986,6 +2015,8 @@ async function sendChatMessage() {
     if (data.session_id) {
       CHAT_SESSION_ID = data.session_id;
       CHAT_RUN_ID = data.run_id || null;
+      CHAT_AWAITS_FIRST_MESSAGE = false;
+      if (CHAT_RUN_ID) setFocusedRun(CHAT_RUN_ID);
     }
     removeChatTyping();
     if (data.response) {
