@@ -292,3 +292,31 @@ models:
       - decision_making
       - ambiguity_resolution
     notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active."
+
+  laguna-m1-free:
+    display_name: "Poolside Laguna M.1 (OpenRouter free)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 262144
+    # OpenRouter does not advertise API-enforced response_format support, but
+    # the worker audition proved DevFlow's prompt-structured file and JSON
+    # contracts across synthetic and real repository packets.
+    structured_output: true
+    tool_support: true
+    auth_method: openrouter-key
+    available: true
+    model_id: "poolside/laguna-m.1:free"
+    capabilities:
+      - code_generation
+      - structured_output
+      - edit_planning
+      - repository_awareness
+      - architecture
+      - structured_planning
+      - decomposition
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+    notes: "Auditioned worker: primary builder candidate; build-judge remains provisional after one null-content completion. Not eligible for brainstorm. OpenRouter does not provide API-enforced response_format."

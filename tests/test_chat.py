@@ -55,6 +55,21 @@ def test_list_chat_models_excludes_unavailable() -> None:
     assert "qwen-27b-q5km" not in names
 
 
+def test_list_chat_models_excludes_worker_only_laguna() -> None:
+    """Worker-only models should not appear in brainstorm chat."""
+    names = {model["name"] for model in chat_api.list_chat_models()}
+
+    assert "laguna-m1-free" not in names
+
+
+def test_list_chat_models_includes_available_local_reasoning_models() -> None:
+    """The UI lists registry-eligible locals without an ad-hoc capability gate."""
+    names = {model["name"] for model in chat_api.list_chat_models()}
+
+    assert "qwythos-9b-mini" in names
+    assert "ornith-9b-mini" in names
+
+
 # ---------------------------------------------------------------------------
 # Session management
 # ---------------------------------------------------------------------------
@@ -228,17 +243,20 @@ def test_default_model_resolves_from_profile() -> None:
 # ---------------------------------------------------------------------------
 
 def test_build_messages_preserves_order() -> None:
-    """_build_messages converts transcript records to OpenAI messages format."""
+    """_build_messages adds the role contract before transcript history."""
     transcript = [
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": "hi there"},
         {"role": "user", "content": "bye"},
     ]
     messages = chat_api._build_messages(transcript)
-    assert len(messages) == 3
-    assert messages[0] == {"role": "user", "content": "hello"}
-    assert messages[1] == {"role": "assistant", "content": "hi there"}
-    assert messages[2] == {"role": "user", "content": "bye"}
+    assert len(messages) == 4
+    assert messages[0]["role"] == "system"
+    assert "clarify" in messages[0]["content"].lower()
+    assert "smallest" in messages[0]["content"].lower()
+    assert messages[1] == {"role": "user", "content": "hello"}
+    assert messages[2] == {"role": "assistant", "content": "hi there"}
+    assert messages[3] == {"role": "user", "content": "bye"}
 
 
 def test_build_messages_skips_empty_content() -> None:
@@ -248,8 +266,9 @@ def test_build_messages_skips_empty_content() -> None:
         {"role": "assistant", "content": "real"},
     ]
     messages = chat_api._build_messages(transcript)
-    assert len(messages) == 1
-    assert messages[0]["content"] == "real"
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["content"] == "real"
 
 
 # ---------------------------------------------------------------------------

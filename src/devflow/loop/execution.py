@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import glob
 import shutil
 import subprocess
 import sys
@@ -339,24 +338,23 @@ class LocalModelClient:
 
 
 class HermesSubscriptionClient:
-    """Subscription model client that routes through the user's Hermes subscription.
+    """Subscription model client for an explicit Hermes provider/model endpoint.
 
-    Uses the ``hermes chat`` CLI (already configured with the user's Z.AI /
-    OpenAI OAuth) so scoring/verification does NOT incur a per-token local API
-    call. Returns the model text. Falls back to GPT-5.6 Luna if the primary
-    model fails, with a visible warning on stderr.
+    The transport executes exactly the model selected by the routing layer. It
+    does not choose a default model or hide a failed call behind a second model;
+    fallback policy belongs in profiles/routing where it remains visible.
     """
 
     def __init__(self, endpoint: str, *, timeout: int = 60):
-        # endpoint encodes the routing, e.g. "hermes://chat/zai/glm-5.2"
         self.endpoint = endpoint
         self.timeout = timeout
         parts = endpoint.replace("hermes://", "").strip("/").split("/")
-        # expect: chat/<provider>/<model>
-        self.provider = parts[1] if len(parts) > 1 else "zai"
-        self.model = parts[2] if len(parts) > 2 else "glm-5.2"
-        self.fallback_provider = "openai-codex"
-        self.fallback_model = "gpt-5.6-luna"
+        if len(parts) != 3 or parts[0] != "chat" or not parts[1] or not parts[2]:
+            raise ValueError(
+                "Hermes endpoint must be hermes://chat/<provider>/<model>."
+            )
+        self.provider = parts[1]
+        self.model = parts[2]
 
     def _call(self, prompt: str, *, provider: str, model: str) -> str:
         # hermes chat -q expects a single-line prompt; newlines in the arg can
@@ -388,26 +386,16 @@ class HermesSubscriptionClient:
         reasoning: bool = False,
         stop: Optional[list[str]] = None,
     ) -> tuple[str, dict]:
-        user_prompt = "\n".join(
-            m.get("content", "") for m in messages if m.get("role") == "user"
+        transcript = "\n\n".join(
+            f"[{str(message.get('role', 'user')).upper()}]\n{message.get('content', '')}"
+            for message in messages
+            if message.get("content")
         )
-        system_prompt = "\n".join(
-            m.get("content", "") for m in messages if m.get("role") == "system"
+        content = self._call(
+            transcript,
+            provider=self.provider,
+            model=self.model,
         )
-        full_prompt = (
-            f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
-        )
-        try:
-            content = self._call(full_prompt, provider=self.provider, model=self.model)
-        except Exception as exc:
-            print(
-                f"[HermesSubscriptionClient] WARNING: {self.provider}/{self.model} failed "
-                f"({str(exc)[:120]}); falling back to {self.fallback_provider}/{self.fallback_model}",
-                file=sys.stderr,
-            )
-            content = self._call(
-                full_prompt, provider=self.fallback_provider, model=self.fallback_model
-            )
         return content, {}
 
 
@@ -728,8 +716,10 @@ PLANNER_SYSTEM = (
     "plan that satisfies the task and its Definition of Done — not to design "
     "a comprehensive system or anticipate future needs.\n\n"
     "## Planning workflow (follow this order)\n"
-    "1. UNDERSTAND the task and Definition of Done. If both are clear, proceed. "
-    "If the task is ambiguous, note exactly what is unclear in the spec.\n"
+    "1. UNDERSTAND the task and Definition of Done from the supplied task, "
+    "readiness, and repository evidence. If they are clear, proceed. If a fact "
+    "required to plan safely is absent, name that exact gap instead of inventing "
+    "repository context or widening the task.\n"
     "2. CHECK the existing target files provided. Are they files to modify or "
     "create? For existing files, your plan must extend them — not rewrite or "
     "restructure them. For greenfield files, clearly mark them as new.\n"
@@ -1265,6 +1255,13 @@ def materialize_builder_output(
     for declared_file in declared:
         declared_path = Path(declared_file)
         parent = declared_path.parent
+        if declared_path.suffix == ".py":
+            for package_dir in (parent, *parent.parents):
+                if package_dir == Path("."):
+                    continue
+                package_init = package_dir / "__init__.py"
+                if (root_path / package_init).is_file():
+                    context_files.add(package_init.as_posix())
         # If this file is in a package (has __init__.py or other .py siblings),
         # include ALL siblings as read-only context.
         repo_parent = root_path / parent
@@ -1971,59 +1968,56 @@ def run_verification(
     return receipt
 
 
-GLM_VERIFIER_SYSTEM = (
-    "You are the DevFlow verifier. Your job is to confirm whether the built "
-    "code, test results, and judge evidence together satisfy the Definition "
-    "of Done. You are the final gate before a build ships.\n\n"
+VERIFIER_SYSTEM = (
+    "You are the DevFlow verifier. Independently determine whether the built "
+    "outcome satisfies the Definition of Done using the supplied deterministic "
+    "receipts, changed-artifact evidence, and prior judge decision. You verify "
+    "the outcome; you do not redesign it or repeat a broad repository review.\n\n"
     "## Verification workflow (follow this order)\n"
-    "1. CHECK the Definition of Done against built source signatures. Every "
-    "API or function named in the DoD must appear in the built file "
-    "signatures. If a required function is missing, fail.\n"
-    "2. CHECK the test results. If exit_code is not 0, or failed > 0, or "
-    "errors > 0, the status must be 'failed' — no exceptions. Do not pass "
-    "a build with failing tests.\n"
-    "3. CHECK import coherence. Imports in the changed files must resolve to "
-    "stdlib, declared dependencies, or project symbols visible in the "
-    "supplied evidence. Flag unresolved imports as a failure.\n"
-    "4. CHECK judge consistency. If the prior judge decision was 'failed' and "
-    "no new build has occurred since, the evidence contradicts passing. If "
-    "the judge passed and the above checks pass, confirm.\n"
-    "5. DECIDE: 'passed' only if all checks pass. 'failed' if any check fails "
-    "with a specific reason. 'needs_review' only when the evidence is "
-    "genuinely insufficient to decide (missing signatures, empty test output).\n\n"
+    "1. START with deterministic evidence. A nonzero test exit code, failed test, "
+    "collection error, missing declared file, or parse/import failure is an "
+    "authoritative failure unless the receipt itself is invalid.\n"
+    "2. TRACE each Definition-of-Done claim to supplied changed-artifact evidence. "
+    "Required APIs or behavior must be visible in built signatures, changed tests, "
+    "or another explicit receipt. Do not infer absent evidence.\n"
+    "3. CHECK coherence only where the changed evidence raises a concrete question: "
+    "imports, public contracts, staged assertions, and cross-file dependencies. "
+    "Use the smallest supplied evidence that answers the question.\n"
+    "4. RECONCILE contradictions. A prior failed judge without a newer build, a "
+    "passing prose claim with failing deterministic output, or a missing required "
+    "artifact prevents a pass. Name the conflicting evidence.\n"
+    "5. DECIDE and stop. Return 'passed' only when every DoD claim is supported and "
+    "all deterministic gates pass; 'failed' for a demonstrated defect; "
+    "'needs_review' only when a specific required fact is absent.\n\n"
     "## Anti-patterns (do NOT do these)\n"
-    "- Do NOT pass a build with failing tests, even if the code looks correct.\n"
-    "- Do NOT fail for missing coverage of modules whose tests appear in the "
-    "pre-existing test list — those are intentionally out of scope.\n"
-    "- Do NOT fail because you would have designed the code differently. "
-    "Verify against the DoD, not your preference.\n"
-    "- Do NOT pass when required DoD APIs are absent from the built signatures.\n"
-    "- Do NOT use 'needs_review' as a safe default when evidence is sufficient "
-    "to decide. Make the call.\n\n"
+    "- Do not browse or speculate beyond the supplied verification packet.\n"
+    "- Do not pass a build with failing deterministic evidence because the code "
+    "looks plausible.\n"
+    "- Do not fail for missing coverage in unchanged, pre-existing modules.\n"
+    "- Do not judge implementation style or propose a different architecture.\n"
+    "- Do not use 'needs_review' as a safe default when the evidence decides the case.\n\n"
     "## Output format\n"
     "Respond with a single JSON object and nothing else: "
     '{"status": "passed"|"failed"|"needs_review", '
-    '"rationale": "<1-3 sentences citing the specific evidence>", '
-    '"evidence_checked": "<which of the 4 checks you performed>"}'
+    '"rationale": "<1-3 sentences citing exact supplied evidence>", '
+    '"evidence_checked": ["<receipt, artifact, or contradiction checked>"], '
+    '"missing_evidence": ["<specific fact required only for needs_review>"]}'
 )
 
 
-def run_glm_verification(
+def run_verifier(
     root: Path | str,
     run_id: str,
     *,
     definition_of_done: str,
-    worker_id: str = "glm-verifier",
+    worker_id: str = "verifier",
     client_factory: Optional[ClientFactory] = None,
 ) -> ver.VerificationReceipt:
-    """Autonomous verification via a GLM agent (Hermes Z.AI subscription).
+    """Run the model selected for the canonical verifier role.
 
-    Reads the current build-diff + judge result, asks GLM to verify against the
-    DoD, parses the decision, and records a VerificationReceipt (advancing the
-    loop on pass). Does NOT use a per-token API — routes through Hermes.
-
-    Falls back to the local verifier role only if the Hermes call is
-    unrecoverable.
+    Reads bounded build, test, and judge evidence; asks the routed verifier to
+    decide against the Definition of Done; then records a verification receipt.
+    The role and evidence schema stay stable when deployment profiles swap models.
     """
     state = load_loop_state(root, run_id)
     if state.stage != LoopStage.verification:
@@ -2034,25 +2028,24 @@ def run_glm_verification(
 
     # Read the build-diff as evidence (used in the code excerpt below).
     _read_record(root, run_id, "build-diff.patch")  # noqa: B018 — validates existence
-    # Pull the most recent judge decision from the run dir (best-effort).
+    # Pull the canonical judge decision from the run records (best-effort).
     judge_text = "unknown"
     try:
-        summaries = sorted(
-            glob.glob(str(Path(root) / run_id / "packet-*-build-judge-summary.json"))
-        )
-        if summaries:
-            with open(summaries[-1]) as _f:
-                judge_text = _json.load(_f).get("judge_decision", "unknown")
+        judge_record = _read_record(root, run_id, "judge-decision.json") or "{}"
+        judge_payload = _json.loads(judge_record)
+        judge_text = judge_payload.get("status", judge_payload.get("decision", "unknown"))
     except Exception:
         judge_text = "unknown"
 
-    # Build a BOUNDED code excerpt from the actual on-disk files listed in the
-    # build manifest: for each source file, surface its top-level def/class
-    # signatures (truncated per file). This lets GLM judge real coherence
-    # without dumping the entire 17KB build-diff (which blows GLM's context).
+    # Build a bounded code excerpt from the actual on-disk files listed in the
+    # build manifest. This exposes imports and top-level signatures without
+    # dumping the entire build diff into the verifier context.
     manifest = _read_record(root, run_id, "build-manifest.json") or "{}"
+    declared_targets: list[str] = []
     try:
-        changed = _json.loads(manifest).get("changed_files", []) or []
+        manifest_payload = _json.loads(manifest)
+        changed = manifest_payload.get("changed_files", []) or []
+        declared_targets = manifest_payload.get("declared_target_files", []) or []
     except Exception:
         changed = []
     workspace = ""
@@ -2148,9 +2141,15 @@ def run_glm_verification(
         excerpt = text if len(text) <= 2400 else f"{text[:600]}\n...\n{text[-1800:]}"
         changed_test_parts.append(f"## {rel}\n{excerpt}")
     changed_test_evidence = "\n\n".join(changed_test_parts) or "(no changed test file available)"
+    scope_evidence = (
+        f"changed_files: {changed!r}\n"
+        f"declared_target_files: {declared_targets!r}\n"
+        f"scope_match: {str(sorted(changed) == sorted(declared_targets)).lower()}"
+    )
     user = (
         "# Definition of Done (head)\n" + "\n".join(dod_head) + "\n\n"
         f"# Prior Judge Decision\n{judge_text}\n\n"
+        f"# Materialized Change Scope (authoritative manifest)\n{scope_evidence}\n\n"
         "# Built source (ACTUAL signatures extracted from the built files):\n"
         f"{code_excerpt}\n\n"
         f"# Changed test-file evidence (ACTUAL staged test content)\n{changed_test_evidence}\n\n"
@@ -2168,49 +2167,24 @@ def run_glm_verification(
         "provided evidence is genuinely insufficient. Output only the JSON decision."
     )
 
-    # Route through the verifier role's assigned transport. The verifier may
-    # be GLM (hermes-chat), GPT Luna (hermes-chat), or HY3 (openai-http).
-    factory = client_factory
-    slot = resolve_role_slot("glm_verifier")
-    if factory is None:
-        if slot.transport == "hermes-chat":
-            factory = HermesSubscriptionClient
-        else:
-            # For openai-http (e.g. HY3), use LocalModelClient with model_id
-            factory = LocalModelClient
+    slot = resolve_role_slot("verifier")
     try:
-        append_worker_feed_entry(root, run_id, {
-            "event": "started",
-            "role": "glm_verifier",
-            "model": slot.model,
-            "provider": slot.provider,
-            "worker_id": worker_id,
-            "task_id": run_id,
-        })
-        # Construct client with model_id for remote HTTP endpoints
-        if factory is LocalModelClient and slot.model_id:
-            client = factory(slot.endpoint, model_name=slot.model_id)
-        else:
-            client = factory(slot.endpoint)
-        content, _ = client.chat(
-            messages=[
-                {"role": "system", "content": GLM_VERIFIER_SYSTEM},
-                {"role": "user", "content": user},
-            ],
+        role_result = run_role(
+            root,
+            role="verifier",
+            system_prompt=VERIFIER_SYSTEM,
+            user_prompt=user,
+            task_id=run_id,
+            worker_id=worker_id,
             max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
             reasoning=True,
+            client_factory=client_factory,
         )
+        content = role_result.content
         decision = _parse_judge_decision(content)  # reuse judge payload parser
-        append_worker_feed_entry(root, run_id, {
-            "event": "completed",
-            "role": "glm_verifier",
-            "model": slot.model,
-            "content": content[:2000],
-            "decision": decision,
-        })
     except Exception as exc:  # never let the verifier hang the loop
         decision = "needs_review"
-        content = f"GLM verifier error: {exc!r}"
+        content = f"Verifier error: {exc!r}"
 
     status = (
         ver.VerificationStatus.passed if decision == "passed"
@@ -2219,10 +2193,10 @@ def run_glm_verification(
     )
     receipt = ver.VerificationReceipt(
         run_id=run_id,
-        receipt_id=f"vr-glm-{int(time.time() * 1000)}",
+        receipt_id=f"vr-verifier-{int(time.time() * 1000)}",
         status=status,
-        command="glm_verifier (hermes chat zai/glm-5.2)",
-        summary=f"GLM verifier decision: {decision}\n{content[:1500]}",
+        command=f"verifier ({slot.provider}/{slot.model})",
+        summary=f"Verifier decision: {decision}\n{content[:1500]}",
         evidence_path=None,
         exit_code=0 if decision == "passed" else 1,
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -2251,9 +2225,9 @@ def trigger_autonomous_run(
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> dict:
-    """Run the full autonomous loop with GLM auto-verify, bounded by loop_cap.
+    """Run the full autonomous loop with routed verification, bounded by loop_cap.
 
-    No UI. Cycles build -> judge -> (GLM verify) until the verification stage
+    No UI. Cycles build -> judge -> verify until the verification stage
     reaches human_decision with a passing receipt, the loop_cap is exhausted,
     or the run is blocked/cancelled. Each cycle increments loop_iteration.
     """
@@ -2274,13 +2248,13 @@ def trigger_autonomous_run(
             assignment=assignment,
             definition_of_done=definition_of_done,
             target_files=target_files,
-            verification_command=None,  # GLM verifier handles verification
+            verification_command=None,  # routed verifier handles verification
             max_rounds=3,
             worker_id=worker_id,
             ensure_lane_on=ensure_lane_on,
             client_factory=client_factory,
         )
-        # After a passing judge + GLM verify, stage is human_decision (parked).
+        # After a passing judge + verifier pass, stage is human_decision (parked).
         # In autonomous mode we treat a verified pass as a completed cycle.
         state = load_loop_state(root, run_id)
         if state.stage == LoopStage.human_decision and state.verification_receipts:
@@ -2400,8 +2374,8 @@ def run_build_judge_verify(
                     working_directory=(build.raw.get("build_manifest") or {}).get("workspace"),
                 )
             elif _auto_verify_enabled(root, run_id):
-                # Autonomous path: GLM agent verifies through Hermes subscription.
-                verification = run_glm_verification(
+                # Autonomous path: use the canonical routed verifier role.
+                verification = run_verifier(
                     root, run_id,
                     definition_of_done=definition_of_done,
                     worker_id=worker_id,
@@ -2469,12 +2443,13 @@ __all__ = [
     "run_builder",
     "run_judge",
     "run_verification",
-    "run_glm_verification",
+    "run_verifier",
     "trigger_autonomous_run",
     "run_build_judge_verify",
     "BUILDER_SYSTEM",
     "PLANNER_SYSTEM",
     "JUDGE_SYSTEM",
     "PLANNING_JUDGE_SYSTEM",
+    "VERIFIER_SYSTEM",
     "MODEL_ROUTER_SCRIPT",
 ]

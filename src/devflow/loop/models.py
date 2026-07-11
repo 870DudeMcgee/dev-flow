@@ -77,8 +77,8 @@ class DevFlowLoopState(BaseModel):
     # when this is False — they are recorded but the gate failure is surfaced.
     builder_judge_passed: bool = False
     # Autonomous mode: when auto_verify is True, the verification stage is
-    # driven by a GLM verifier agent (Hermes subscription) instead of parking
-    # for a human. loop_cap bounds how many autonomous build/judge/verify
+    # driven by the model assigned to the canonical verifier role instead of
+    # parking for a human. loop_cap bounds autonomous build/judge/verify
     # cycles may run before the loop must stop and await a human.
     auto_verify: bool = False
     loop_cap: int = 3

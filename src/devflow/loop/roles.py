@@ -67,7 +67,10 @@ _REASONING_PREFS = (
 # ---------------------------------------------------------------------------
 BRAINSTORM = RoleDefinition(
     name="brainstorm",
-    description="Initial idea refinement and ambiguity resolution.",
+    description=(
+        "Clarify user value, success, scope, constraints, and unresolved decisions "
+        "into a definition-ready Idea Brief."
+    ),
     required_capabilities=(
         "high_level_reasoning",
         "ambiguity_resolution",
@@ -80,7 +83,10 @@ BRAINSTORM = RoleDefinition(
 
 PLANNER = RoleDefinition(
     name="planner",
-    description="Architecture, specification writing, and task decomposition.",
+    description=(
+        "Turn approved intent and repo evidence into the smallest executable "
+        "strategy, contracts, task packets, dependencies, and verification plan."
+    ),
     required_capabilities=(
         "architecture",
         "specification_writing",
@@ -96,7 +102,10 @@ PLANNER = RoleDefinition(
 
 PLANNING_JUDGE = RoleDefinition(
     name="planning_judge",
-    description="Specification review, gap detection, and structured reasoning.",
+    description=(
+        "Gate a plan against intent, repo reality, task boundaries, dependency "
+        "risk, verification reality, and the simplest safe path."
+    ),
     required_capabilities=(
         "spec_review",
         "gap_detection",
@@ -110,7 +119,10 @@ PLANNING_JUDGE = RoleDefinition(
 
 BUILDER = RoleDefinition(
     name="builder",
-    description="Code generation, repository-aware implementation, edit planning.",
+    description=(
+        "Materialize one bounded implementation packet against existing contracts; "
+        "produce changed artifacts without self-approving the result."
+    ),
     required_capabilities=(
         "code_generation",
         "structured_output",
@@ -124,7 +136,10 @@ BUILDER = RoleDefinition(
 
 BUILD_JUDGE = RoleDefinition(
     name="build_judge",
-    description="Implementation review, repository reasoning, correctness evaluation.",
+    description=(
+        "Review the materialized diff for introduced defects, scope compliance, "
+        "contract correctness, and Definition-of-Done evidence."
+    ),
     required_capabilities=(
         "implementation_review",
         "repository_reasoning",
@@ -138,7 +153,10 @@ BUILD_JUDGE = RoleDefinition(
 
 VERIFIER = RoleDefinition(
     name="verifier",
-    description="Evidence review, deterministic verification, structured output.",
+    description=(
+        "Independently reconcile deterministic receipts, changed artifacts, judge "
+        "findings, and Definition-of-Done claims into an outcome verdict."
+    ),
     required_capabilities=(
         "evidence_review",
         "structured_output",
@@ -151,7 +169,10 @@ VERIFIER = RoleDefinition(
 
 FINAL_JUDGE = RoleDefinition(
     name="final_judge",
-    description="High-level reasoning, evidence synthesis, and decision making.",
+    description=(
+        "Synthesize verified outcomes, residual risk, blockers, and rollback evidence "
+        "into the next explicit human release or continuation decision."
+    ),
     required_capabilities=(
         "high_level_reasoning",
         "evidence_synthesis",

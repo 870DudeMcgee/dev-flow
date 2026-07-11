@@ -200,6 +200,8 @@ def test_worker_feed_projection_returns_stable_loop_and_entry_ids() -> None:
     assert first["loops"][0]["loop_id"] == second["loops"][0]["loop_id"]
     assert first["current"]["outcome"] == "passed"
     assert first["current"]["next_safe_action"] == "Proceed to assignment."
+    assert first["entries"][0]["stages"] == ["spec", "planning"]
+    assert first["entries"][-1]["stages"] == ["planning_judge"]
 
 
 def test_artifact_endpoint_serves_and_guards(repo_root: Path) -> None:
@@ -322,6 +324,19 @@ def test_status_page_keeps_blocked_and_history_runs_inspectable() -> None:
     assert "function focusRun(runId)" in STATUS_PAGE_HTML
     assert "localStorage.setItem('devflow.focusedRunId', runId)" in STATUS_PAGE_HTML
     assert "onclick=\"focusRun('" in STATUS_PAGE_HTML
+    assert "function toggleHistory()" in STATUS_PAGE_HTML
+    assert "localStorage.getItem('devflow.historyOpen')" in STATUS_PAGE_HTML
+    assert 'class="history-section ${HISTORY_OPEN ? \'open\' : \'\'}"' in STATUS_PAGE_HTML
+
+
+def test_status_page_stage_controls_drive_persisted_evidence_filter() -> None:
+    assert "function selectActivityStage(runId, stage)" in STATUS_PAGE_HTML
+    assert "localStorage.getItem('devflow.selectedStages')" in STATUS_PAGE_HTML
+    assert 'class="stage-control ${cls} ${selected ? \'selected\' : \'\'}"' in STATUS_PAGE_HTML
+    assert 'aria-pressed="${selected}"' in STATUS_PAGE_HTML
+    assert "(entry.stages || []).includes(selectedStage)" in STATUS_PAGE_HTML
+    assert "No model call was recorded for" in STATUS_PAGE_HTML
+    assert "stageArtifactCandidates" in STATUS_PAGE_HTML
 
 
 def test_assignment_stage_surfaces_operator_control_buttons() -> None:
@@ -432,6 +447,15 @@ def test_status_page_prioritizes_now_activity_and_files_drawer() -> None:
     assert "toggleFilesDrawer" in STATUS_PAGE_HTML
     assert "closeFilesDrawer" in STATUS_PAGE_HTML
     assert "focusedCompleted\n    ? [...liveOrNeedsAttention, focusedCompleted]" in STATUS_PAGE_HTML
+    assert 'id="header-run-selector"' in STATUS_PAGE_HTML
+    assert "text.slice(0, 8000)" not in STATUS_PAGE_HTML
+
+
+def test_files_drawer_close_survives_live_refresh() -> None:
+    """Rehydrating a selected artifact must not undo an explicit Close."""
+    assert "async function showArtifact(runId, fileName, silent=false, openDrawer=true)" in STATUS_PAGE_HTML
+    assert "if (openDrawer) setFilesDrawerOpen(true);" in STATUS_PAGE_HTML
+    assert "/*openDrawer*/ false" in STATUS_PAGE_HTML
 
 
 def test_status_page_keeps_diagnostics_in_system_popover() -> None:
