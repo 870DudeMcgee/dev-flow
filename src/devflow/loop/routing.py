@@ -223,8 +223,7 @@ def _make_slot(role_name: str, entry: ModelEntry, resolved_via: str) -> Resolved
 # The old model_router.py exposed these role names. Map them to canonical
 # roles so existing code keeps working during the transition.
 _ROLE_ALIASES: dict[str, str] = {
-    "judge": "build_judge",          # old: "judge" → canonical: "build_judge"
-    "glm_verifier": "verifier",      # old: special GLM verifier → canonical: "verifier"
+    "judge": "build_judge",  # old generic name retained for active judge callers
 }
 
 

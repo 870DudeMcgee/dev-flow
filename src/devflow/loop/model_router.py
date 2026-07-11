@@ -330,8 +330,7 @@ def _optional_str(value: Any) -> str | None:
 #
 # This module now ONLY owns the single-flight filesystem lock. Role
 # resolution is delegated to routing.resolve_role_compatible(), which
-# accepts both canonical role names (builder, verifier) and legacy names
-# (judge, glm_verifier) for backward compatibility.
+# accepts canonical role names plus the active generic ``judge`` alias.
 
 from devflow.loop.routing import (
     ResolvedSlot,
@@ -356,8 +355,8 @@ def resolve_role_slot(role: str) -> ModelSlot:
     Delegates to the routing layer, which evaluates capabilities,
     deployment profiles, and cost-class preferences.
 
-    Accepts both canonical role names (builder, verifier, planner, etc.)
-    and legacy names (judge, glm_verifier) for backward compatibility.
+    Accepts canonical role names (builder, verifier, planner, etc.) and the
+    active generic ``judge`` alias for ``build_judge``.
 
     Raises ValueError for unknown roles so callers fail loud, not silent.
     """

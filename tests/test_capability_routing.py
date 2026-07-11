@@ -346,9 +346,9 @@ class TestBackwardCompat:
         slot = resolve_role_slot("judge")
         assert slot.role == "build_judge"
 
-    def test_glm_verifier_alias_maps_to_verifier(self):
-        slot = resolve_role_slot("glm_verifier")
-        assert slot.role == "verifier"
+    def test_model_specific_verifier_alias_is_not_a_role(self):
+        with pytest.raises(ValueError, match="Unknown DevFlow role"):
+            resolve_role_slot("glm_verifier")
 
     def test_known_roles_matches_canonical(self):
         assert set(KNOWN_ROLES) == set(known_roles())
@@ -433,6 +433,16 @@ class TestProfiles:
         assert entry is not None
         assert entry.cost_class == "free_cloud"
         assert entry.model_id.endswith(":free")
+
+    def test_laguna_free_entry_uses_canonical_openrouter_slug(self):
+        entry = get_registry().get("laguna-m1-free")
+
+        assert entry is not None
+        assert entry.provider == "openrouter"
+        assert entry.cost_class == "free_cloud"
+        assert entry.context_window == 262144
+        assert entry.tool_support is True
+        assert entry.model_id == "poolside/laguna-m.1:free"
 
     def test_profile_falls_through_when_model_unavailable(self):
         """When a profile's preferred model is unavailable, routing falls

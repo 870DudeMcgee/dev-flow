@@ -68,15 +68,21 @@ export OPENROUTER_API_KEY="..."
 ```
 
 `mini-free-cloud` routes every V2 text role to the zero-cost OpenRouter HY3
-worker, so it does not load a local model. Hermes may manage an OpenRouter
-credential separately, but DevFlow's V2 remote executor requires that key to be
-exported in its own process environment. `devflow status serve` is read-only: it
-observes pipeline evidence and does not call the selected profile.
+worker, so it does not load a local model. Poolside Laguna M.1 is also registered
+under the exact free slug `poolside/laguna-m.1:free` and is selectable in the
+brainstorm model picker. It is not silently assigned to every pipeline role:
+OpenRouter currently advertises tool calling and reasoning but not structured
+response-format support, so broader role promotion requires a DevFlow audition.
+Hermes may manage an OpenRouter credential separately, but DevFlow's V2 remote
+executor requires that key in its own process environment. `devflow status
+serve` observes pipeline evidence and does not call the selected profile.
 
 When local implementation work is desired instead, set
-`DEVFLOW_PROFILE=mini-ollama`. It routes the builder role to local
-`qwen2.5-coder:14b` at Ollama's default endpoint and keeps the smaller,
-high-value reasoning and review roles on Hermes-routed included subscriptions.
+`DEVFLOW_PROFILE=mini-baseline`. It uses the Mac mini's single-flight llama.cpp
+fleet for bounded builder/review work and capability-checked Hermes subscription
+models for planning, verification, and final judgment. The legacy profile name
+`mini-ollama` remains an alias for this assignment; it does not start or use
+Ollama.
 
 These profiles contain no credentials. For a different fleet, provide an
 external registry/profile with `DEVFLOW_MODELS_YAML` and

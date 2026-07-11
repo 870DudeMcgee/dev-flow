@@ -292,3 +292,29 @@ models:
       - decision_making
       - ambiguity_resolution
     notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active."
+
+  laguna-m1-free:
+    display_name: "Poolside Laguna M.1 (OpenRouter free)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 262144
+    structured_output: false
+    tool_support: true
+    auth_method: openrouter-key
+    available: true
+    model_id: "poolside/laguna-m.1:free"
+    capabilities:
+      - code_generation
+      - edit_planning
+      - repository_awareness
+      - architecture
+      - structured_planning
+      - decomposition
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+      - high_level_reasoning
+      - ambiguity_resolution
+    notes: "Free Poolside coding-agent model with reasoning and tool calling. OpenRouter does not advertise response_format/structured_outputs; keep it selectable for chat and explicit compatible roles until DevFlow role auditions justify broader assignments."

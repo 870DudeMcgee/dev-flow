@@ -216,7 +216,7 @@ def test_run_role_derives_reasoning_from_canonical_role(tmp_path):
     assert ReasoningCaptureClient.reasoning_values == [True, False]
 
 
-def test_glm_verifier_requests_reasoning(tmp_path, monkeypatch):
+def test_verifier_requests_reasoning_and_emits_model_agnostic_evidence(tmp_path, monkeypatch):
     ReasoningCaptureClient.reasoning_values = []
     root = tmp_path / "proj"
     root.mkdir()
@@ -243,7 +243,7 @@ def test_glm_verifier_requests_reasoning(tmp_path, monkeypatch):
         },
     )
 
-    ex.run_glm_verification(
+    receipt = ex.run_verifier(
         root,
         run_id,
         definition_of_done="Tests pass.",
@@ -251,6 +251,52 @@ def test_glm_verifier_requests_reasoning(tmp_path, monkeypatch):
     )
 
     assert ReasoningCaptureClient.reasoning_values == [True]
+    assert receipt.receipt_id.startswith("vr-verifier-")
+    assert receipt.command.startswith("verifier (")
+    assert "GLM" not in receipt.command
+    assert receipt.summary.startswith("Verifier decision:")
+
+
+def test_role_prompts_are_model_agnostic_and_job_shaped():
+    prompts = {
+        "builder": ex.BUILDER_SYSTEM,
+        "planner": ex.PLANNER_SYSTEM,
+        "build_judge": ex.JUDGE_SYSTEM,
+        "planning_judge": ex.PLANNING_JUDGE_SYSTEM,
+        "verifier": ex.VERIFIER_SYSTEM,
+    }
+
+    for prompt in prompts.values():
+        lowered = prompt.lower()
+        for model_name in ("glm", "qwen", "gpt", "hy3", "laguna"):
+            assert model_name not in lowered
+
+    assert "start from the diff" in prompts["build_judge"].lower()
+    assert "specific review questions" in prompts["build_judge"].lower()
+    assert "narrowest" in prompts["build_judge"].lower()
+    assert "supplied" in prompts["planner"].lower()
+    assert "deterministic" in prompts["verifier"].lower()
+    assert "contradict" in prompts["verifier"].lower()
+
+
+def test_subscription_client_requires_explicit_model_endpoint():
+    with pytest.raises(ValueError, match="hermes://chat/<provider>/<model>"):
+        ex.HermesSubscriptionClient("hermes://chat")
+
+
+def test_subscription_client_does_not_hide_failure_with_model_fallback(monkeypatch):
+    client = ex.HermesSubscriptionClient("hermes://chat/zai/example-model")
+    calls = []
+
+    def fail(prompt, *, provider, model):
+        calls.append((provider, model))
+        raise RuntimeError("primary unavailable")
+
+    monkeypatch.setattr(client, "_call", fail)
+
+    with pytest.raises(RuntimeError, match="primary unavailable"):
+        client.chat(messages=[{"role": "user", "content": "test"}])
+    assert calls == [("zai", "example-model")]
 
 
 def test_remote_non_reasoning_call_disables_provider_reasoning(monkeypatch):

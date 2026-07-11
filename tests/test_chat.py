@@ -55,6 +55,14 @@ def test_list_chat_models_excludes_unavailable() -> None:
     assert "qwen-27b-q5km" not in names
 
 
+def test_list_chat_models_includes_laguna_free() -> None:
+    """The Poolside free coding model is selectable in brainstorm chat."""
+    models = {model["name"]: model for model in chat_api.list_chat_models()}
+
+    assert models["laguna-m1-free"]["provider"] == "openrouter"
+    assert models["laguna-m1-free"]["cost_class"] == "free_cloud"
+
+
 # ---------------------------------------------------------------------------
 # Session management
 # ---------------------------------------------------------------------------
@@ -228,17 +236,20 @@ def test_default_model_resolves_from_profile() -> None:
 # ---------------------------------------------------------------------------
 
 def test_build_messages_preserves_order() -> None:
-    """_build_messages converts transcript records to OpenAI messages format."""
+    """_build_messages adds the role contract before transcript history."""
     transcript = [
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": "hi there"},
         {"role": "user", "content": "bye"},
     ]
     messages = chat_api._build_messages(transcript)
-    assert len(messages) == 3
-    assert messages[0] == {"role": "user", "content": "hello"}
-    assert messages[1] == {"role": "assistant", "content": "hi there"}
-    assert messages[2] == {"role": "user", "content": "bye"}
+    assert len(messages) == 4
+    assert messages[0]["role"] == "system"
+    assert "clarify" in messages[0]["content"].lower()
+    assert "smallest" in messages[0]["content"].lower()
+    assert messages[1] == {"role": "user", "content": "hello"}
+    assert messages[2] == {"role": "assistant", "content": "hi there"}
+    assert messages[3] == {"role": "user", "content": "bye"}
 
 
 def test_build_messages_skips_empty_content() -> None:
@@ -248,8 +259,9 @@ def test_build_messages_skips_empty_content() -> None:
         {"role": "assistant", "content": "real"},
     ]
     messages = chat_api._build_messages(transcript)
-    assert len(messages) == 1
-    assert messages[0]["content"] == "real"
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["content"] == "real"
 
 
 # ---------------------------------------------------------------------------
