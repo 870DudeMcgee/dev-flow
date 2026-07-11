@@ -36,7 +36,7 @@ python -m venv .venv
 ```bash
 source .venv/bin/activate
 
-# Read-only, auto-refreshing pipeline status board.
+# Unified brainstorm and auto-refreshing pipeline status surface.
 devflow status serve                       # http://127.0.0.1:8770/
 
 # Deterministic V2 stage-chain regression fixture (no model calls).
@@ -50,9 +50,9 @@ PYTHONPATH=src .venv/bin/python -m devflow.cli status serve
 PYTHONPATH=src .venv/bin/python -m devflow.cli loop spine-fixture --json
 ```
 
-The status board is a supporting live-evidence view, not a second chat surface.
-It reads pipeline-run state from disk while Hermes performs brainstorming and
-orchestration.
+The browser is the unified brainstorm and live-evidence surface. It creates and
+continues model-backed brainstorm sessions while reading pipeline-run state from
+disk; Hermes remains the bounded worker/orchestration harness.
 
 ## Deployment Profiles
 
@@ -68,13 +68,17 @@ export OPENROUTER_API_KEY="..."
 ```
 
 `mini-free-cloud` routes every V2 text role to the zero-cost OpenRouter HY3
-worker, so it does not load a local model. Poolside Laguna M.1 is also registered
-under the exact free slug `poolside/laguna-m.1:free`. The
-`mini-laguna-builder` audition profile changes only the bounded builder from
-`mini-baseline` to Laguna; brainstorm and every judgment role retain their
-baseline assignments. OpenRouter advertises tool calling and reasoning but not
-API-enforced response-format support, so Laguna's structured-output capability
-here refers only to its verified DevFlow worker prompt contracts.
+worker, so it does not load a local model. The `cloud-free-fast` profile uses
+three ordered OpenRouter `:free` fleets: HY3-led brainstorm/planning, a
+Qwen-Coder-led builder lane, and a disjoint Gemma/Nemotron review lane. All
+fallbacks remain cloud-only and zero-token-cost, actual routed models are
+recorded in usage evidence, and the builder fleet never judges its own work.
+Poolside Laguna M.1 is
+registered under the exact free slug `poolside/laguna-m.1:free`. The
+`mini-laguna-builder` audition profile remains the mixed local/cloud comparison
+profile. OpenRouter advertises tool calling and reasoning but not API-enforced
+response-format support, so Laguna's structured-output capability here refers
+only to its verified DevFlow worker prompt contracts.
 Hermes may manage an OpenRouter credential separately, but DevFlow's V2 remote
 executor requires that key in its own process environment. `devflow status
 serve` observes pipeline evidence and does not call the selected profile.
@@ -94,7 +98,7 @@ external registry/profile with `DEVFLOW_MODELS_YAML` and
 
 ```text
 src/devflow/loop/          # V2 loop contracts, persistence, scout, and model slots
-src/devflow/control_room/  # V2 read-only status board
+src/devflow/control_room/  # V2 unified brainstorm/status surface
 src/devflow/cli.py         # V2 command entrypoint
 tests/                     # V2 regression coverage
 docs/                      # sparse active authority

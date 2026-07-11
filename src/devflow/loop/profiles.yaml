@@ -63,6 +63,22 @@ profiles:
       brainstorm: "hy3-free"
 
   # -----------------------------------------------------------------
+  # Cloud-free-fast: cloud-only, zero-incremental-cost dogfood fleet.
+  # Ordered OpenRouter :free fleets keep planning, building, and review
+  # cloud-only while preserving independent builder/judge model sets.
+  # -----------------------------------------------------------------
+  cloud-free-fast:
+    description: "Cloud-only zero-cost path with fast reasoning, code, and independent review fleets."
+    roles:
+      planner: "free-fast-reasoning-fleet"
+      planning_judge: "free-review-fleet"
+      builder: "free-code-fleet"
+      build_judge: "free-review-fleet"
+      verifier: "free-review-fleet"
+      final_judge: "free-review-fleet"
+      brainstorm: "free-fast-reasoning-fleet"
+
+  # -----------------------------------------------------------------
   # Mini-Ollama: legacy profile, now routes to the Mini llama.cpp fleet.
   # Kept for backward compatibility — prefer mini-baseline for new work.
   # -----------------------------------------------------------------

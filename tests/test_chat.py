@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from devflow.control_room import chat as chat_api
+from devflow.loop.pipeline_run import load_pipeline_run
 from devflow.loop.registry import _reload_registry
 
 
@@ -105,6 +106,11 @@ def test_start_chat_session_persists_transcript(repo_root: Path) -> None:
     assert transcript[1]["content"] == "Hello!"
     assert transcript[1]["model"] == "glm-5.2"
 
+    feed = load_pipeline_run(repo_root, result["run_id"])["worker-feed.jsonl"]
+    assert [entry["event"] for entry in feed] == ["started", "completed"]
+    assert all(entry["role"] == "brainstorm" for entry in feed)
+    assert feed[-1]["content"] == "Hello!"
+
 
 def test_session_model_persists(repo_root: Path) -> None:
     """The selected model is persisted and retrievable."""
@@ -141,6 +147,17 @@ def test_get_transcript_empty_for_nonexistent_session(repo_root: Path) -> None:
     """get_transcript returns [] for a session that doesn't exist."""
     transcript = chat_api.get_transcript(repo_root, "nonexistent-session")
     assert transcript == []
+
+
+@pytest.mark.parametrize("session_id", ["../escape", "nested/../../escape"])
+def test_session_paths_reject_traversal(repo_root: Path, session_id: str) -> None:
+    """Transcript, link, and chat-model paths stay inside brainstorms."""
+    with pytest.raises(ValueError, match="Invalid brainstorm session_id"):
+        chat_api.get_transcript(repo_root, session_id)
+    with pytest.raises(ValueError, match="Invalid brainstorm session_id"):
+        chat_api._get_session_model(repo_root, session_id)
+    with pytest.raises(ValueError, match="Invalid brainstorm session_id"):
+        chat_api._set_session_model(repo_root, session_id, "glm-5.2")
 
 
 def test_get_transcript_returns_all_messages(repo_root: Path) -> None:
@@ -198,9 +215,20 @@ def test_send_message_rejects_empty(repo_root: Path) -> None:
 
 def test_send_message_rejects_unknown_model(repo_root: Path) -> None:
     """send_message raises ValueError for an unknown model."""
+    with patch.object(chat_api, "_call_model", return_value=("initial", {})):
+        result = chat_api.start_chat_session(
+            repo_root, intent="start", model="glm-5.2",
+        )
     with pytest.raises(ValueError, match="Unknown model"):
         chat_api.send_message(
-            repo_root, session_id="any", message="hi", model="nonexistent-model-xyz",
+            repo_root, session_id=result["session_id"], message="hi", model="nonexistent-model-xyz",
+        )
+
+
+def test_send_message_rejects_unlinked_session(repo_root: Path) -> None:
+    with pytest.raises(ValueError, match="Unknown brainstorm session"):
+        chat_api.send_message(
+            repo_root, session_id="unlinked-session", message="hi", model="glm-5.2",
         )
 
 
@@ -269,6 +297,16 @@ def test_build_messages_skips_empty_content() -> None:
     assert len(messages) == 2
     assert messages[0]["role"] == "system"
     assert messages[1]["content"] == "real"
+
+
+def test_hermes_output_strips_reasoning_and_session_metadata() -> None:
+    raw = (
+        "<think>private reasoning</think>\n"
+        "Final Answer: useful answer\n"
+        "session_id: hermes-123\n"
+    )
+
+    assert chat_api._strip_hermes_output(raw) == "useful answer"
 
 
 # ---------------------------------------------------------------------------

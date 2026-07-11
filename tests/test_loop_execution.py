@@ -410,6 +410,52 @@ def test_subscription_client_does_not_hide_failure_with_model_fallback(monkeypat
     assert calls == [("zai", "example-model")]
 
 
+def test_subscription_client_uses_final_only_hermes_mode(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return type("Proc", (), {
+            "returncode": 0,
+            "stdout": (
+                "Warning: Unknown toolsets: none\n\n"
+                "┌─ Reasoning ─────────────────────┐\n"
+                "**Inspecting the bounded packet**\n\n"
+                "<!-- -->**Producing the exact answer**\n\n"
+                "final answer\n"
+                "session_id: hidden-session\n"
+            ),
+            "stderr": "",
+        })()
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    client = ex.HermesSubscriptionClient(
+        "hermes://chat/openai-codex/gpt-5.6-luna"
+    )
+
+    content = client._call(
+        "system\nuser prompt",
+        provider="openai-codex",
+        model="gpt-5.6-luna",
+    )
+
+    assert captured["cmd"] == [
+        "hermes", "chat",
+        "-q", "system user prompt",
+        "-Q",
+        "-m", "gpt-5.6-luna",
+        "--provider", "openai-codex",
+        "-t", "none",
+        "--max-turns", "1",
+        "--ignore-rules",
+        "--source", "tool",
+    ]
+    assert captured["kwargs"]["capture_output"] is True
+    assert captured["kwargs"]["timeout"] == 120
+    assert content == "final answer"
+
+
 def test_remote_non_reasoning_call_disables_provider_reasoning(monkeypatch):
     captured = {}
 
@@ -449,6 +495,55 @@ def test_remote_reasoning_call_uses_bounded_reasoning_effort(monkeypatch):
 
     assert captured["reasoning_effort"] == "low"
     assert captured["include_reasoning"] is False
+
+
+def test_remote_call_sends_ordered_model_fallbacks_and_records_actual_model(monkeypatch):
+    captured = {}
+
+    def fake_post(endpoint, payload, timeout, api_key=None):
+        captured.update(payload)
+        return {
+            "model": "fallback/two:free",
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"cost": 0},
+        }
+
+    monkeypatch.setattr(ex.LocalModelClient, "_do_post", staticmethod(fake_post))
+    client = ex.LocalModelClient(
+        "https://openrouter.ai/api/v1",
+        model_name="primary/model:free",
+        fallback_model_ids=("fallback/one:free", "fallback/two:free"),
+        api_key="test-key",
+    )
+
+    content, usage = client.chat(messages=[{"role": "user", "content": "ping"}])
+
+    assert content == "ok"
+    assert "model" not in captured
+    assert captured["models"] == [
+        "primary/model:free", "fallback/one:free", "fallback/two:free",
+    ]
+    assert usage == {"cost": 0, "actual_model": "fallback/two:free"}
+
+
+def test_remote_call_retries_blank_success_once(monkeypatch):
+    calls = 0
+
+    def fake_post(endpoint, payload, timeout, api_key=None):
+        nonlocal calls
+        calls += 1
+        content = "" if calls == 1 else "usable"
+        return {"model": "model:free", "choices": [{"message": {"content": content}}]}
+
+    monkeypatch.setattr(ex.LocalModelClient, "_do_post", staticmethod(fake_post))
+    client = ex.LocalModelClient(
+        "https://openrouter.ai/api/v1", model_name="model:free", api_key="test-key"
+    )
+
+    content, _ = client.chat(messages=[{"role": "user", "content": "ping"}])
+
+    assert calls == 2
+    assert content == "usable"
 
 
 def test_remote_non_reasoning_stream_disables_provider_reasoning(monkeypatch):
@@ -662,6 +757,40 @@ def test_builder_workspace_preserves_parent_packages_for_new_modules(tmp_path):
         test_files=["tests/test_run_labels.py"],
     )
     assert result["exit_code"] == 0, result["summary"]
+
+
+def test_greenfield_builder_prompt_omits_unrelated_sibling_context(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+    root = Path(root)
+    (root / "tests").mkdir(exist_ok=True)
+    (root / "tests" / "test_unrelated.py").write_text("SECRET_UNRELATED_CONTEXT = True\n")
+    captured = {}
+
+    class GreenfieldClient:
+        def __init__(self, endpoint: str, *, timeout: int = 1):
+            pass
+
+        def chat(self, *, messages, **kwargs):
+            captured["user_prompt"] = messages[1]["content"]
+            return (
+                "# src/new_helper.py\nVALUE = 1\n"
+                "# tests/test_new_helper.py\n"
+                "from src.new_helper import VALUE\n\n"
+                "def test_value():\n    assert VALUE == 1\n",
+                {},
+            )
+
+    ex.run_builder(
+        root,
+        run_id,
+        assignment="Create a greenfield helper and test.",
+        definition_of_done="Both declared files exist.",
+        target_files=["src/new_helper.py", "tests/test_new_helper.py"],
+        ensure_lane_on=False,
+        client_factory=GreenfieldClient,
+    )
+
+    assert "SECRET_UNRELATED_CONTEXT" not in captured["user_prompt"]
 
 
 def test_builder_refuses_oversized_packet_and_planner_chunks_files(tmp_path):

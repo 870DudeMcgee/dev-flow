@@ -24,3 +24,15 @@ def test_active_worker_workspace_keeps_visible_height_ahead_of_history() -> None
     assert "min-height: 480px" in active_card
     assert "max-height: 60px" in history_list
     assert "overflow-y: auto" in history_list
+
+
+def test_complete_run_now_card_reports_human_acceptance() -> None:
+    assert "Human decision accepted; the loop is complete." in STATUS_PAGE_HTML
+    assert "No action required. Start the next bounded iteration when ready." in STATUS_PAGE_HTML
+
+
+def test_chat_session_and_model_selection_survive_page_refresh() -> None:
+    assert "localStorage.getItem('devflow.chat.session')" in STATUS_PAGE_HTML
+    assert "localStorage.setItem('devflow.chat.session', sessionId)" in STATUS_PAGE_HTML
+    assert "localStorage.getItem('devflow.chat.model')" in STATUS_PAGE_HTML
+    assert "data.default_model" in STATUS_PAGE_HTML

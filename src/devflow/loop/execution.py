@@ -60,7 +60,7 @@ from devflow.loop.roles import get_role
 
 DEFAULT_MAX_PLANNING_ROUNDS = 3
 DEFAULT_MAX_BUILD_ROUNDS = 3
-MAX_TARGET_FILES_PER_BUILD = 12  # raised from 6: this project builds the whole brief_intelligence package as one coherent packet so the judge sees all inter-file imports
+MAX_TARGET_FILES_PER_BUILD = 6
 ROLE_TOKEN_BUDGETS = {
     "builder": 16384,
     "planner": 4096,
@@ -133,11 +133,13 @@ class LocalModelClient:
         *,
         timeout: int = 240,
         model_name: Optional[str] = None,
+        fallback_model_ids: tuple[str, ...] = (),
         api_key: Optional[str] = None,
     ):
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
         self._model_id: Optional[str] = model_name
+        self._fallback_model_ids = tuple(fallback_model_ids)
         self._api_key: Optional[str] = api_key
         self._is_remote = not self._is_local_endpoint(self.endpoint)
 
@@ -214,11 +216,14 @@ class LocalModelClient:
         model_id = self._fetch_model_id()
         api_key = self._resolve_api_key()
         payload: dict = {
-            "model": model_id,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if self._is_remote and self._fallback_model_ids:
+            payload["models"] = [model_id, *self._fallback_model_ids]
+        else:
+            payload["model"] = model_id
         if stop:
             payload["stop"] = stop
         if self._is_remote:
@@ -238,7 +243,14 @@ class LocalModelClient:
             else:
                 raise
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        usage = data.get("usage", {}) or {}
+        if self._is_remote and not str(content or "").strip():
+            data = self._do_post(self.endpoint, payload, self.timeout, api_key)
+            content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+        if self._is_remote and not str(content or "").strip():
+            raise RuntimeError("Remote model returned an empty completion twice.")
+        usage = dict(data.get("usage", {}) or {})
+        if data.get("model"):
+            usage["actual_model"] = str(data["model"])
         return content, usage
 
     def chat_stream(
@@ -254,19 +266,22 @@ class LocalModelClient:
     ) -> tuple[str, dict, str, str]:
         """Stream an OpenAI-compatible response and expose each text delta.
 
-        Returns ``(content, usage, finish_reason, reasoning_content)``.
-        The 4th element captures the model's chain-of-thought (``reasoning_content``
-        in llama-server / OpenAI-compatible streaming) so the operator can watch
-        what the worker is *thinking*, not just its final output.
+        Returns ``(content, usage, finish_reason, reasoning_content)``. Callers
+        may discard the fourth element; DevFlow's persisted operator evidence
+        intentionally records outputs and decisions, not private reasoning traces.
         """
+        model_id = self._fetch_model_id()
         payload: dict = {
-            "model": self._fetch_model_id(),
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if self._is_remote and self._fallback_model_ids:
+            payload["models"] = [model_id, *self._fallback_model_ids]
+        else:
+            payload["model"] = model_id
         if stop:
             payload["stop"] = stop
         if self._is_remote:
@@ -289,52 +304,96 @@ class LocalModelClient:
             )
             return urllib.request.urlopen(req, timeout=self.timeout)
 
-        try:
-            response = request(payload)
-        except urllib.error.HTTPError:
-            if "chat_template_kwargs" not in payload:
-                raise
-            payload.pop("chat_template_kwargs")
-            response = request(payload)
-
         chunks: list[str] = []
         reasoning_chunks: list[str] = []
         usage: dict = {}
         finish_reason = ""
-        with response:
-            for raw_line in response:
-                line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line.startswith("data:"):
-                    continue
-                data_text = line[5:].strip()
-                if not data_text or data_text == "[DONE]":
-                    continue
-                try:
-                    data = json.loads(data_text)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(data.get("usage"), dict):
-                    usage = data["usage"]
-                choice = (data.get("choices") or [{}])[0]
-                delta = choice.get("delta") or {}
-                text = delta.get("content") or ""
-                if text:
-                    chunks.append(text)
-                    if on_delta:
-                        on_delta(text)
-                reasoning_text = delta.get("reasoning_content") or ""
-                if reasoning_text:
-                    reasoning_chunks.append(reasoning_text)
-                    if on_reasoning_delta:
-                        on_reasoning_delta(reasoning_text)
-                if choice.get("finish_reason"):
-                    finish_reason = str(choice["finish_reason"])
+        actual_model = ""
+        attempts = 2 if self._is_remote else 1
+        for attempt in range(attempts):
+            try:
+                response = request(payload)
+            except urllib.error.HTTPError:
+                if "chat_template_kwargs" not in payload:
+                    raise
+                payload.pop("chat_template_kwargs")
+                response = request(payload)
+            with response:
+                for raw_line in response:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data_text = line[5:].strip()
+                    if not data_text or data_text == "[DONE]":
+                        continue
+                    try:
+                        data = json.loads(data_text)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(data.get("usage"), dict):
+                        usage = data["usage"]
+                    if data.get("model"):
+                        actual_model = str(data["model"])
+                    choice = (data.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
+                    text = delta.get("content") or ""
+                    if text:
+                        chunks.append(text)
+                        if on_delta:
+                            on_delta(text)
+                    # Providers use both names. Keep traces separate from the
+                    # answer so they are never mistaken for judge output.
+                    reasoning_text = (
+                        delta.get("reasoning_content") or delta.get("reasoning") or ""
+                    )
+                    if reasoning_text:
+                        reasoning_chunks.append(reasoning_text)
+                        if on_reasoning_delta:
+                            on_reasoning_delta(reasoning_text)
+                    if choice.get("finish_reason"):
+                        finish_reason = str(choice["finish_reason"])
+            if chunks:
+                break
+            if attempt + 1 < attempts:
+                usage = {}
+                finish_reason = ""
+                actual_model = ""
+        if self._is_remote and not "".join(chunks).strip():
+            raise RuntimeError("Remote model returned an empty completion twice.")
+        if actual_model:
+            usage = dict(usage)
+            usage["actual_model"] = actual_model
         return (
             "".join(chunks),
             usage,
             finish_reason or "stop",
             "".join(reasoning_chunks),
         )
+
+
+def _clean_hermes_cli_output(content: str) -> str:
+    """Return only the model answer from Hermes CLI presentation output."""
+    text = str(content or "")
+    text = re.sub(r"(?m)^Warning: Unknown toolsets:.*\n?", "", text)
+    text = re.sub(
+        r"(?m)^\s*(?:session(?:[ _-]?id)?|resume(?:[ _-]?hint)?)\s*[:=].*$\n?",
+        "",
+        text,
+    )
+    if "┌─ Reasoning" in text:
+        if "<!-- -->" in text:
+            text = text.rsplit("<!-- -->", 1)[-1]
+        else:
+            text = text.split("┌─ Reasoning", 1)[-1]
+        lines = text.splitlines()
+        while lines and (
+            not lines[0].strip()
+            or re.fullmatch(r"\*\*.+\*\*", lines[0].strip())
+            or set(lines[0].strip()) <= {"─", "┐"}
+        ):
+            lines.pop(0)
+        text = "\n".join(lines)
+    return text.strip()
 
 
 class HermesSubscriptionClient:
@@ -345,7 +404,7 @@ class HermesSubscriptionClient:
     fallback policy belongs in profiles/routing where it remains visible.
     """
 
-    def __init__(self, endpoint: str, *, timeout: int = 60):
+    def __init__(self, endpoint: str, *, timeout: int = 120):
         self.endpoint = endpoint
         self.timeout = timeout
         parts = endpoint.replace("hermes://", "").strip("/").split("/")
@@ -357,8 +416,8 @@ class HermesSubscriptionClient:
         self.model = parts[2]
 
     def _call(self, prompt: str, *, provider: str, model: str) -> str:
-        # hermes chat -q expects a single-line prompt; newlines in the arg can
-        # hang or misbehave, so flatten to spaces for the CLI invocation.
+        # Quiet, one-turn chat mode returns the bounded model answer without
+        # letting a role worker inspect or mutate the checkout through tools.
         flat = " ".join(str(prompt).split())
         cmd = [
             "hermes", "chat",
@@ -366,16 +425,23 @@ class HermesSubscriptionClient:
             "-Q",
             "-m", model,
             "--provider", provider,
+            "-t", "none",
+            "--max-turns", "1",
+            "--ignore-rules",
+            "--source", "tool",
         ]
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=self.timeout
         )
         if proc.returncode != 0:
-            raise RuntimeError(
-                f"hermes chat failed ({provider}/{model}): "
-                f"{proc.stderr.strip()[:200]}"
+            detail = _clean_hermes_cli_output(
+                "\n".join(part for part in (proc.stdout, proc.stderr) if part)
             )
-        return proc.stdout
+            raise RuntimeError(
+                f"hermes bounded chat failed ({provider}/{model}): "
+                f"{detail[:300] or 'unknown transport error'}"
+            )
+        return _clean_hermes_cli_output(proc.stdout)
 
     def chat(
         self,
@@ -504,11 +570,16 @@ def run_role(
             root, task_id or slot.role,
             status=heartbeat_status, active_role=role, model=slot.model,
             requested_max_tokens=requested_max_tokens,
+            error=None,
             heartbeat_at=datetime.now(timezone.utc).isoformat(),
         )
         # Pass model_id to LocalModelClient for remote endpoints (OpenRouter etc.)
         if factory is LocalModelClient and slot.model_id:
-            client = factory(slot.endpoint, model_name=slot.model_id)
+            client = factory(
+                slot.endpoint,
+                model_name=slot.model_id,
+                fallback_model_ids=slot.fallback_model_ids,
+            )
         else:
             client = factory(slot.endpoint)
         messages = [
@@ -516,7 +587,6 @@ def run_role(
             {"role": "user", "content": user_prompt},
         ]
         streamed: list[str] = []
-        streamed_reasoning: list[str] = []
         streamed_size = 0
         last_publish_at = 0.0
         last_publish_size = 0
@@ -537,9 +607,6 @@ def run_role(
                 "content": "".join(streamed),
                 "requested_max_tokens": requested_max_tokens,
             }
-            reasoning_text = "".join(streamed_reasoning)
-            if reasoning_text:
-                live_payload["reasoning_content"] = reasoning_text
             write_worker_live_output(root, task_id or slot.role, live_payload)
             update_execution_control(
                 root, task_id or slot.role,
@@ -559,11 +626,7 @@ def run_role(
             last_publish_at = now
             last_publish_size = current_size
 
-        def on_reasoning_delta(delta: str) -> None:
-            streamed_reasoning.append(delta)
-
         finish_reason = "stop"
-        reasoning_content = ""
         try:
             if hasattr(client, "chat_stream"):
                 result = client.chat_stream(
@@ -571,14 +634,13 @@ def run_role(
                     max_tokens=requested_max_tokens,
                     reasoning=resolved_reasoning,
                     on_delta=on_delta,
-                    on_reasoning_delta=on_reasoning_delta,
+                    on_reasoning_delta=None,
                 )
                 # Support both 3-tuple (legacy) and 4-tuple (reasoning) returns.
                 if len(result) >= 4:
-                    content, usage, finish_reason, reasoning_content = result[:4]
+                    content, usage, finish_reason, _reasoning_content = result[:4]
                 else:
                     content, usage, finish_reason = result[:3]
-                    reasoning_content = ""
             else:
                 content, usage = client.chat(
                     messages=messages,
@@ -587,23 +649,18 @@ def run_role(
                 )
         except Exception as exc:
             partial = "".join(streamed)
-            partial_reasoning = "".join(streamed_reasoning)
             error_payload: dict = {
                 "event": "failed", "status": "stalled", "role": role,
                 "model": slot.model, "content": partial,
                 "requested_max_tokens": requested_max_tokens,
                 "error": str(exc),
             }
-            if partial_reasoning:
-                error_payload["reasoning_content"] = partial_reasoning
             write_worker_live_output(root, task_id or slot.role, error_payload)
             failed_entry: dict = {
                 "event": "failed", "role": role, "model": slot.model,
                 "content": partial, "error": str(exc),
                 "requested_max_tokens": requested_max_tokens,
             }
-            if partial_reasoning:
-                failed_entry["reasoning_content"] = partial_reasoning
             append_worker_feed_entry(root, task_id or slot.role, failed_entry)
             update_execution_control(
                 root, task_id or slot.role,
@@ -637,8 +694,6 @@ def run_role(
             "finish_reason": finish_reason,
             "token_cap_reached": token_cap_reached,
         }
-        if reasoning_content:
-            completed_entry["reasoning_content"] = reasoning_content
         append_worker_feed_entry(root, task_id or slot.role, completed_entry)
         clear_worker_live_output(root, task_id or slot.role)
         control = read_execution_control(root, task_id or slot.role)
@@ -663,7 +718,6 @@ def run_role(
                 "requested_max_tokens": requested_max_tokens,
                 "finish_reason": finish_reason,
                 "token_cap_reached": token_cap_reached,
-                "reasoning_content": reasoning_content,
             },
         )
 
@@ -1021,6 +1075,7 @@ def _run_workspace_tests(
         sys.executable, "-m", "pytest",
         *pytest_targets,
         "-q", "--no-header",
+        "-c", os.devnull,
         "-p", "no:cacheprovider",
         f"--rootdir={ws_abs}",
         f"--override-ini=pythonpath={ws_abs} {ws_src}",
@@ -1037,6 +1092,7 @@ def _run_workspace_tests(
                 **os.environ,
                 "PYTHONPATH": os.pathsep.join((str(ws_abs), str(ws_src))),
                 "HERMES_ISOLATE_CHILD": "1",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
             },
         )
     except FileNotFoundError:
@@ -1397,18 +1453,22 @@ def run_builder(
         tf_path = root_path / tf
         if tf_path.exists() and tf.endswith(".py"):
             context_parts.append(f"# Existing {tf}\n{tf_path.read_text()}")
-        # Include sibling .py files in the same package
-        parent = tf_path.parent
-        if parent.is_dir():
-            for sibling in sorted(parent.iterdir()):
-                if (sibling.suffix == ".py" and sibling != tf_path
-                        and sibling.name != "__init__.py"
-                        and sibling.stat().st_size < 4000):
-                    rel = sibling.relative_to(root_path).as_posix()
-                    context_parts.append(
-                        f"# Existing {rel} (read-only context)\n{sibling.read_text()}"
-                    )
-    context_block = "\n\n".join(context_parts[-6000:]) if context_parts else ""
+            # Sibling context is useful only when extending an existing file.
+            # Greenfield targets must not pull an entire package/test directory
+            # into the prompt merely because their parent already exists.
+            parent = tf_path.parent
+            if parent.is_dir():
+                for sibling in sorted(parent.iterdir()):
+                    if (sibling.suffix == ".py" and sibling != tf_path
+                            and sibling.name != "__init__.py"
+                            and sibling.stat().st_size < 4000):
+                        rel = sibling.relative_to(root_path).as_posix()
+                        context_parts.append(
+                            f"# Existing {rel} (read-only context)\n{sibling.read_text()}"
+                        )
+    context_block = "\n\n".join(context_parts)
+    if len(context_block) > 6000:
+        context_block = context_block[:6000].rstrip() + "\n[context truncated]"
 
     user = (
         f"# Builder/Judge Round\n{round_index}\n\n"

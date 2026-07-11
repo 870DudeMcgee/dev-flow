@@ -61,6 +61,7 @@ class ModelEntry:
     auth_method: str = ""              # how it authenticates (informational)
     notes: str = ""                    # operator notes
     model_id: str = ""                 # API model ID (e.g. "tencent/hy3:free" for OpenRouter)
+    fallback_model_ids: tuple[str, ...] = ()  # ordered remote model fallbacks
     model_path: str = ""               # local GGUF path (for llama.cpp models)
 
     def __post_init__(self):
@@ -164,6 +165,7 @@ def _entry_from_dict(name: str, raw: dict) -> ModelEntry:
         auth_method=str(raw.get("auth_method", "")),
         notes=str(raw.get("notes", "")),
         model_id=str(raw.get("model_id", "")),
+        fallback_model_ids=tuple(str(value) for value in raw.get("fallback_model_ids", [])),
         model_path=str(raw.get("model_path", "")),
     )
 

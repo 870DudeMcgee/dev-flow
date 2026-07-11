@@ -395,12 +395,23 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
         if not run_id or not file_name:
             self.send_error(HTTPStatus.BAD_REQUEST, "Missing run or file")
             return
+        if run_id in {".", ".."} or "/" in run_id or "\\" in run_id:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid run id")
+            return
+        runs_root = pipeline_runs_dir(self.server.repo_root).resolve()
+        try:
+            run_dir = (runs_root / run_id).resolve()
+            _ensure_relative_to(run_dir, runs_root)
+            if run_dir == runs_root:
+                raise ValueError("Run id must name a pipeline run directory")
+        except (ValueError, OSError) as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         # Path-traversal guard
         if "/" in file_name or "\\" in file_name or ".." in file_name:
             self.send_error(HTTPStatus.BAD_REQUEST, "Invalid file name")
             return
         try:
-            run_dir = pipeline_runs_dir(self.server.repo_root) / run_id
             target = (run_dir / file_name).resolve()
             _ensure_relative_to(target, run_dir.resolve())
         except (ValueError, OSError) as exc:
@@ -484,7 +495,10 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
     # -----------------------------------------------------------------------
     def _handle_chat_models(self) -> None:
         """Return the list of models available for the chat surface."""
-        self._send_json({"models": chat_api.list_chat_models()})
+        self._send_json({
+            "models": chat_api.list_chat_models(),
+            "default_model": chat_api._default_model(),
+        })
 
     def _handle_chat_sessions(self) -> None:
         """Return all chat sessions."""
@@ -498,6 +512,9 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             transcript = chat_api.get_transcript(self.server.repo_root, session_id)
+        except ValueError as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
         except Exception as exc:
             self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
             return
@@ -820,11 +837,21 @@ def stop_owned_dispatch(root: Path, run_id: str) -> dict:
     process_group = int(control.get("process_group") or pid or 0)
     script = str(control.get("script") or "")
     if pid > 0 and _pid_is_alive(pid):
+        run_dir = (pipeline_runs_dir(root) / run_id).resolve()
+        script_path = (root / script).resolve() if script else None
+        if script_path is None or not script_path.is_file():
+            raise ValueError("Refusing to stop a process without a valid run-owned script")
+        try:
+            script_path.relative_to(run_dir)
+        except ValueError as exc:
+            raise ValueError("Refusing to stop a process outside this pipeline run") from exc
+        if process_group <= 0 or os.getpgid(pid) != process_group:
+            raise ValueError("Refusing to stop a process group that no longer belongs to this run")
         command = subprocess.run(
             ["ps", "-p", str(pid), "-o", "command="],
             capture_output=True, text=True,
         ).stdout.strip()
-        if not script or script not in command:
+        if script not in command:
             raise ValueError("Refusing to stop a process whose command no longer matches this run")
         os.killpg(process_group, signal.SIGTERM)
         return update_execution_control(
@@ -965,10 +992,15 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
 
     # Worker feed — preserve raw evidence while projecting truthful operator state.
     feed_entries: list[dict] = []
+    worker_feed_total = 0
+    worker_feed_truncated = False
     worker_projection: dict = {"entries": [], "loops": [], "current": None}
     feed = data.get("worker-feed.jsonl") or []
     if isinstance(feed, list):
-        source_feed = [rec for rec in feed[-200:] if isinstance(rec, dict)]
+        valid_feed = [rec for rec in feed if isinstance(rec, dict)]
+        worker_feed_total = len(valid_feed)
+        worker_feed_truncated = worker_feed_total > 1000
+        source_feed = valid_feed[-1000:]
         live_output = data.get("worker-live.json")
         if isinstance(live_output, dict) and (
             live_output.get("content") or live_output.get("reasoning_content")
@@ -979,7 +1011,7 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
                 "timestamp": live_output.get("updated_at", ""),
             })
         worker_projection = _project_worker_feed(run_id, stage, source_feed)
-        feed_entries = worker_projection["entries"][-200:]
+        feed_entries = worker_projection["entries"][-1000:]
 
         if execution_status in {"", "idle", "running"} and source_feed:
             latest_started_index = next(
@@ -1036,6 +1068,9 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
         "workers": workers,
         "receipts": receipts,
         "worker_feed": feed_entries,
+        "worker_feed_total": worker_feed_total,
+        "worker_feed_visible": len(feed_entries),
+        "worker_feed_truncated": worker_feed_truncated,
         "worker_projection": worker_projection,
         "execution_status": execution_status,
         "execution_control": control,

@@ -16,6 +16,7 @@ from devflow.loop.verification import (
     record_verification_receipt,
     verification_ready_for_human,
 )
+from devflow.loop.adapter import load_loop_state, save_loop_state
 
 
 @pytest.fixture
@@ -142,13 +143,27 @@ class TestRecordVerificationReceipt:
         self, setup_verification_state
     ) -> None:
         """Test that passing receipt advances to human_decision."""
-        root, run_id, _ = setup_verification_state
+        root, run_id, state = setup_verification_state
+        save_loop_state(root, state.model_copy(update={"builder_judge_passed": True}))
         receipt = make_receipt(run_id, status=VerificationStatus.passed)
 
         new_state, recorded = record_verification_receipt(root, receipt)
 
         assert new_state.stage == LoopStage.human_decision
         assert recorded.status == VerificationStatus.passed
+
+    def test_passed_does_not_advance_without_builder_judge_gate(
+        self, setup_verification_state
+    ) -> None:
+        """A passing verification cannot bypass a failed builder/judge gate."""
+        root, run_id, _ = setup_verification_state
+        receipt = make_receipt(run_id, status=VerificationStatus.passed)
+
+        new_state, recorded = record_verification_receipt(root, receipt)
+
+        assert new_state.stage == LoopStage.verification
+        assert recorded.status == VerificationStatus.passed
+        assert "builder/judge gate" in (new_state.next_human_decision or "")
 
     def test_stays_on_failed(
         self, setup_verification_state
@@ -226,7 +241,6 @@ class TestRecordVerificationReceipt:
         record_verification_receipt(root, receipt)
 
         # Reload state
-        from devflow.loop.adapter import load_loop_state
         state = load_loop_state(root, run_id)
 
         # Should only appear once

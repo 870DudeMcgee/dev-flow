@@ -215,6 +215,7 @@ models:
       - decision_making
       - structured_output
       - code_generation
+      - edit_planning
       - architecture
       - specification_writing
       - structured_planning
@@ -227,7 +228,7 @@ models:
       - implementation_review
       - repository_reasoning
       - correctness_evaluation
-    notes: "GPT-5.6 Terra. Balanced everyday model. Routes through Hermes subscription."
+    notes: "GPT-5.6 Terra. Balanced everyday model and cloud-fast bounded builder. Routes through Hermes subscription."
 
   gpt-5.6-luna:
     display_name: "GPT-5.6 Luna (OpenAI via Hermes)"
@@ -320,3 +321,81 @@ models:
       - repository_reasoning
       - correctness_evaluation
     notes: "Auditioned worker: primary builder candidate; build-judge remains provisional after one null-content completion. Not eligible for brainstorm. OpenRouter does not provide API-enforced response_format."
+
+  free-fast-reasoning-fleet:
+    display_name: "Fast Free Reasoning Fleet (OpenRouter)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 131072
+    structured_output: true
+    tool_support: false
+    auth_method: openrouter-key
+    available: true
+    model_id: "tencent/hy3:free"
+    fallback_model_ids:
+      - "google/gemma-4-31b-it:free"
+      - "nvidia/nemotron-3-nano-30b-a3b:free"
+    capabilities:
+      - architecture
+      - specification_writing
+      - structured_planning
+      - decomposition
+      - high_level_reasoning
+      - ambiguity_resolution
+      - evidence_synthesis
+      - decision_making
+      - structured_output
+    notes: "Pinned zero-cost planning/brainstorm fleet. Ordered fallbacks handle free-provider capacity failures."
+
+  free-code-fleet:
+    display_name: "Free Code Fleet (OpenRouter)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 262144
+    structured_output: true
+    tool_support: false
+    auth_method: openrouter-key
+    available: true
+    model_id: "qwen/qwen3-coder:free"
+    fallback_model_ids:
+      - "google/gemma-4-26b-a4b-it:free"
+      - "tencent/hy3:free"
+    capabilities:
+      - code_generation
+      - structured_output
+      - edit_planning
+      - repository_awareness
+    notes: "Pinned zero-cost builder fleet. Qwen Coder is primary; Gemma 4 and HY3 absorb rate-limit or availability failures."
+
+  free-review-fleet:
+    display_name: "Independent Free Review Fleet (OpenRouter)"
+    provider: openrouter
+    transport: openai-http
+    endpoint: "https://openrouter.ai/api/v1"
+    cost_class: free_cloud
+    context_window: 131072
+    structured_output: true
+    tool_support: false
+    auth_method: openrouter-key
+    available: true
+    model_id: "google/gemma-4-31b-it:free"
+    fallback_model_ids:
+      - "nvidia/nemotron-3-nano-30b-a3b:free"
+      - "nvidia/nemotron-3-super-120b-a12b:free"
+    capabilities:
+      - spec_review
+      - gap_detection
+      - structured_reasoning
+      - implementation_review
+      - repository_reasoning
+      - correctness_evaluation
+      - evidence_review
+      - structured_output
+      - high_level_reasoning
+      - evidence_synthesis
+      - decision_making
+    notes: "Pinned zero-cost judge/verifier fleet, disjoint from the code fleet. Nano is the fast capacity fallback; Super is the final quality fallback."

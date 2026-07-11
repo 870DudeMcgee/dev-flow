@@ -72,6 +72,9 @@ models:
       - code_generation
       - structured_output
     available: false
+    fallback_model_ids:
+      - fallback/one:free
+      - fallback/two:free
 """
 
 
@@ -217,6 +220,9 @@ class TestRegistryYAML:
         assert a.cost_class == "local"
         assert a.transport == "openai-http"
         assert "code_generation" in a.capabilities
+        b = reg.get("model-b")
+        assert b is not None
+        assert b.fallback_model_ids == ("fallback/one:free", "fallback/two:free")
 
     def test_load_missing_file(self, tmp_path: Path):
         reg = load_registry_from_yaml(tmp_path / "nonexistent.yaml")
@@ -374,6 +380,7 @@ class TestProfiles:
         assert "legacy-current" in profiles
         assert "studio-local-heavy" in profiles
         assert "mini-free-cloud" in profiles
+        assert "cloud-free-fast" in profiles
         assert "custom" in profiles
 
     def test_profile_switch_changes_routing(self):
@@ -403,6 +410,30 @@ class TestProfiles:
             assert slot.cost_class == "free_cloud"
             assert slot.resolved_via == "profile"
         set_active_profile("legacy-current")
+
+    def test_cloud_free_fast_profile_is_cloud_only_and_capability_valid(self):
+        expected_models = {
+            "brainstorm": "free-fast-reasoning-fleet",
+            "planner": "free-fast-reasoning-fleet",
+            "planning_judge": "free-review-fleet",
+            "builder": "free-code-fleet",
+            "build_judge": "free-review-fleet",
+            "verifier": "free-review-fleet",
+            "final_judge": "free-review-fleet",
+        }
+
+        for role_name, expected_model in expected_models.items():
+            slot = resolve_role(role_name, profile_name="cloud-free-fast")
+            assert slot.model_name == expected_model
+            assert slot.provider != "local"
+            assert slot.cost_class == "free_cloud"
+            assert slot.resolved_via == "profile"
+
+        builder = resolve_role("builder", profile_name="cloud-free-fast")
+        judge = resolve_role("build_judge", profile_name="cloud-free-fast")
+        assert set((builder.model_id, *builder.fallback_model_ids)).isdisjoint(
+            (judge.model_id, *judge.fallback_model_ids)
+        )
 
     def test_mini_ollama_profile_routes_all_roles_and_pins_qwen_model_id(self):
         """Mac-mini local profile uses Qwen for building and subscriptions for reasoning."""

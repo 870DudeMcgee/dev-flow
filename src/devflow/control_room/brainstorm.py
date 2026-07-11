@@ -43,7 +43,21 @@ def _brainstorm_dir(root: Path) -> Path:
 
 
 def _session_dir(root: Path, session_id: str) -> Path:
-    return _brainstorm_dir(root) / session_id
+    brainstorm_dir = _brainstorm_dir(root)
+    if (
+        not session_id
+        or session_id in {".", ".."}
+        or "/" in session_id
+        or "\\" in session_id
+        or Path(session_id).is_absolute()
+    ):
+        raise ValueError(f"Invalid brainstorm session_id: {session_id!r}")
+    session_dir = (brainstorm_dir / session_id).resolve()
+    try:
+        session_dir.relative_to(brainstorm_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(f"Invalid brainstorm session_id: {session_id!r}") from exc
+    return session_dir
 
 
 def _transcript_path(root: Path, session_id: str) -> Path:
@@ -396,6 +410,16 @@ def dispatch_to_build(
         f"({len(packet_files)} of {len(target_files or [])} files). "
         f"Build ONLY the files listed below."
     )
+    if state.stage == LoopStage.build_judge:
+        summary = data.get("packet-consolidated-build-judge-summary.json")
+        if isinstance(summary, dict):
+            prior_feedback = str(summary.get("final_judge_rationale") or "").strip()
+            if prior_feedback:
+                assignment += (
+                    "\n\n# Previous capped judge feedback\n"
+                    f"{prior_feedback}\n"
+                    "Correct this exact defect before making any other change."
+                )
 
     result = run_build_judge_verify(
         root, run_id,

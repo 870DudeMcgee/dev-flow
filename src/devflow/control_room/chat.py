@@ -14,11 +14,13 @@ transcripts that can be escalated to definition, planning, and build.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from devflow.control_room import brainstorm as br
+from devflow.loop.pipeline_run import append_worker_feed_entry
 from devflow.loop.registry import get_registry, ModelEntry
 
 
@@ -31,7 +33,10 @@ BRAINSTORM_SYSTEM = (
     "2. BOUND what is in scope, what is explicitly out of scope, and which "
     "existing repository, product, data, or environment the idea must respect.\n"
     "3. SURFACE only decisions that materially change the product or safe next "
-    "stage. Ask focused questions instead of opening broad speculative branches.\n"
+    "stage. Ask at most three focused questions instead of opening broad "
+    "speculative branches. If the user already supplied a bounded contract and "
+    "acceptance criteria, synthesize immediately and label reasonable assumptions; "
+    "do not block on interface details that planning can resolve.\n"
     "4. SYNTHESIZE the smallest coherent Idea Brief supported by the conversation. "
     "Clearly label assumptions and unresolved human decisions.\n"
     "5. STOP when the idea is defined enough for specification; do not drift into "
@@ -40,6 +45,8 @@ BRAINSTORM_SYSTEM = (
     "- Do not invent requirements, users, constraints, or integrations.\n"
     "- Do not turn one idea into a feature backlog or comprehensive architecture.\n"
     "- Do not ask questions already answered in the conversation.\n"
+    "- Do not withhold an Idea Brief merely because repository details are not in "
+    "the chat; identify those as planning-time evidence needs.\n"
     "- Do not hide uncertainty behind confident prose.\n"
     "- Do not select or mention a model as part of the role; the runtime owns routing."
 )
@@ -53,7 +60,11 @@ def _now() -> str:
 # Model listing
 # ---------------------------------------------------------------------------
 
-_WORKER_ONLY_MODELS = {"laguna-m1-free"}
+_WORKER_ONLY_MODELS = {
+    "laguna-m1-free",
+    "free-code-fleet",
+    "free-review-fleet",
+}
 
 def list_chat_models() -> list[dict]:
     """Return all eligible models that can serve as the brainstorm/chat model.
@@ -116,7 +127,21 @@ def start_chat_session(
 
     transcript = get_transcript(root, session_id)
     messages = _build_messages(transcript)
-    content, usage = _call_model(entry, messages)
+    _record_brainstorm_worker_entry(
+        root, run_id, event="started", model=resolved_model, messages=messages,
+    )
+    try:
+        content, usage = _call_model(entry, messages)
+    except Exception as exc:
+        _record_brainstorm_worker_entry(
+            root, run_id, event="failed", model=resolved_model, messages=messages,
+            content=json.dumps({"status": "failed", "error_type": type(exc).__name__}),
+        )
+        raise
+    _record_brainstorm_worker_entry(
+        root, run_id, event="completed", model=resolved_model, messages=messages,
+        content=content, usage=usage,
+    )
 
     br._append_transcript_line(br._transcript_path(root, session_id), {
         "created_at": _now(),
@@ -151,7 +176,7 @@ def _default_model() -> str:
 
 
 def _session_dir(root: Path, session_id: str) -> Path:
-    return root.resolve() / ".devflow" / "brainstorms" / session_id
+    return br._session_dir(root, session_id)
 
 
 def _model_path(root: Path, session_id: str) -> Path:
@@ -269,6 +294,10 @@ def send_message(
     if not message.strip():
         raise ValueError("Message cannot be empty.")
 
+    run_id = br._read_link(root, session_id)
+    if not run_id:
+        raise ValueError(f"Unknown brainstorm session: {session_id!r}")
+
     resolved_model = model or _get_session_model(root, session_id)
     if not resolved_model:
         raise ValueError("No model selected and no default available.")
@@ -288,7 +317,21 @@ def send_message(
     if entry is None:
         raise ValueError(f"Unknown model: {resolved_model}")
 
-    content, usage = _call_model(entry, messages)
+    _record_brainstorm_worker_entry(
+        root, run_id, event="started", model=resolved_model, messages=messages,
+    )
+    try:
+        content, usage = _call_model(entry, messages)
+    except Exception as exc:
+        _record_brainstorm_worker_entry(
+            root, run_id, event="failed", model=resolved_model, messages=messages,
+            content=json.dumps({"status": "failed", "error_type": type(exc).__name__}),
+        )
+        raise
+    _record_brainstorm_worker_entry(
+        root, run_id, event="completed", model=resolved_model, messages=messages,
+        content=content, usage=usage,
+    )
 
     # Persist the assistant response
     br._append_transcript_line(br._transcript_path(root, session_id), {
@@ -298,9 +341,7 @@ def send_message(
         "content": content,
         "model": resolved_model,
     })
-    run_id = br._read_link(root, session_id)
-    if run_id:
-        br._sync_brainstorm_md(root, session_id, run_id)
+    br._sync_brainstorm_md(root, session_id, run_id)
 
     # Persist the model selection
     _set_session_model(root, session_id, resolved_model)
@@ -326,6 +367,36 @@ def _build_messages(transcript: list[dict]) -> list[dict]:
     return messages
 
 
+def _record_brainstorm_worker_entry(
+    root: Path,
+    run_id: str,
+    *,
+    event: str,
+    model: str,
+    messages: list[dict],
+    content: str = "",
+    usage: Optional[dict] = None,
+) -> None:
+    """Persist one truthful brainstorm model-call event for the status board."""
+    user_prompt = next(
+        (
+            str(message.get("content") or "")
+            for message in reversed(messages)
+            if message.get("role") == "user"
+        ),
+        "",
+    )
+    append_worker_feed_entry(root, run_id, {
+        "event": event,
+        "role": "brainstorm",
+        "model": model,
+        "content": content,
+        "system_prompt": BRAINSTORM_SYSTEM,
+        "user_prompt": user_prompt,
+        "usage": usage or {},
+    })
+
+
 def _call_model(entry: ModelEntry, messages: list[dict]) -> tuple[str, dict]:
     """Call the model based on its transport and return (content, usage)."""
     if entry.transport == "hermes-chat":
@@ -342,7 +413,54 @@ def _call_hermes_chat(entry: ModelEntry, messages: list[dict]) -> tuple[str, dic
 
     client = HermesSubscriptionClient(entry.endpoint)
     content, usage = client.chat(messages=messages)
-    return content, usage
+    return _strip_hermes_output(content), usage
+
+
+_HERMES_REASONING_TAGS = ("REASONING_SCRATCHPAD", "think", "thinking", "reasoning", "thought")
+
+
+def _strip_hermes_output(content: str) -> str:
+    """Keep only assistant answer text from Hermes CLI output."""
+    from devflow.loop.execution import _clean_hermes_cli_output
+
+    cleaned = _clean_hermes_cli_output(content)
+    for tag in _HERMES_REASONING_TAGS:
+        cleaned = re.sub(
+            rf"<{tag}>.*?</{tag}>\s*", "", cleaned,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            rf"<{tag}>.*$", "", cleaned,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        cleaned = re.sub(rf"</{tag}>\s*", "", cleaned, flags=re.IGNORECASE)
+
+    final_match = re.search(
+        r"<(?:final_answer|final)>(.*?)</(?:final_answer|final)>\s*$",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if final_match:
+        cleaned = final_match.group(1)
+    else:
+        cleaned = re.sub(
+            r"^\s*(?:final answer|final)\s*:\s*", "", cleaned,
+            count=1, flags=re.IGNORECASE,
+        )
+
+    cleaned = re.sub(
+        r"^\s*(?:reasoning|analysis)\s*:.*?(?:^|\n)\s*(?:final answer|answer)\s*:\s*",
+        "", cleaned, count=1, flags=re.DOTALL | re.IGNORECASE | re.MULTILINE,
+    )
+    lines = [
+        line for line in cleaned.splitlines()
+        if not re.match(
+            r"^\s*(?:session(?:[ _-]?id)?|resume(?:[ _-]?hint)?)\s*[:=]",
+            line,
+            flags=re.IGNORECASE,
+        )
+    ]
+    return "\n".join(lines).strip()
 
 
 def _call_openai_http(entry: ModelEntry, messages: list[dict]) -> tuple[str, dict]:
@@ -358,7 +476,11 @@ def _call_openai_http(entry: ModelEntry, messages: list[dict]) -> tuple[str, dic
         _ensure_local_lane(entry)
 
     if entry.model_id:
-        client = LocalModelClient(entry.endpoint, model_name=entry.model_id)
+        client = LocalModelClient(
+            entry.endpoint,
+            model_name=entry.model_id,
+            fallback_model_ids=entry.fallback_model_ids,
+        )
     else:
         client = LocalModelClient(entry.endpoint)
 

@@ -901,7 +901,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
         <option value="">New session</option>
       </select>
     </div>
-    <select class="chat-model-select" id="chat-model-select" title="Brainstorm model">
+    <select class="chat-model-select" id="chat-model-select" title="Brainstorm model" onchange="persistChatModelSelection()">
       <option value="">Loading models…</option>
     </select>
   </div>
@@ -1663,17 +1663,18 @@ function renderActive(r) {
 
   const artifactTreeHtml = renderArtifactTree(r.run_id, r.artifacts || []);
   const operatorControls = renderOperatorControls(r);
-  const nowOutcome = currentLoop?.outcome || r.execution_status || 'neutral';
-  const nowHeadline = currentLoop?.summary || (
+  const loopComplete = r.stage === 'complete';
+  const nowOutcome = loopComplete ? 'passed' : (currentLoop?.outcome || r.execution_status || 'neutral');
+  const nowHeadline = loopComplete ? 'Human decision accepted; the loop is complete.' : (currentLoop?.summary || (
     r.stage === 'idea'
       ? 'The brainstorm is waiting for the next conversation step.'
       : `DevFlow is ready to continue the ${r.stage_label || r.stage} stage.`
-  );
-  const nextSafeAction = currentLoop?.next_safe_action || (
+  ));
+  const nextSafeAction = loopComplete ? 'No action required. Start the next bounded iteration when ready.' : (currentLoop?.next_safe_action || (
     r.stage === 'idea'
       ? 'Continue the brainstorm until the idea is defined enough to produce a spec.'
       : 'Await the next orchestrator decision.'
-  );
+  ));
 
   return `
     <div class="active-card ${r.stage === 'blocked' ? 'blocked' : ''}">
@@ -2145,9 +2146,16 @@ loadWorkspaceState();
 // ── Chat sidebar logic ──
 let CHAT_MODELS = [];
 let CHAT_SESSIONS = [];
-let CHAT_SESSION_ID = null;
+let CHAT_SESSION_ID = typeof localStorage === 'undefined'
+  ? null
+  : (localStorage.getItem('devflow.chat.session') || null);
 let CHAT_RUN_ID = null;
 let CHAT_IS_SENDING = false;
+
+function persistChatModelSelection() {
+  const value = document.getElementById('chat-model-select').value;
+  if (value && typeof localStorage !== 'undefined') localStorage.setItem('devflow.chat.model', value);
+}
 
 async function loadChatModels() {
   try {
@@ -2162,11 +2170,16 @@ async function loadChatModels() {
     sel.innerHTML = CHAT_MODELS.map(m =>
       `<option value="${escapeHtml(m.name)}">${escapeHtml(m.display_name)} (${escapeHtml(m.cost_class)})</option>`
     ).join('');
-    // Default to the active profile's brainstorm model if present
-    const defaultModel = CHAT_MODELS.find(m =>
-      m.cost_class === 'included_subscription' && m.transport === 'hermes-chat'
-    );
-    if (defaultModel) sel.value = defaultModel.name;
+    const storedModel = typeof localStorage === 'undefined'
+      ? null
+      : localStorage.getItem('devflow.chat.model');
+    const selectedModel = CHAT_MODELS.some(m => m.name === storedModel)
+      ? storedModel
+      : data.default_model;
+    if (selectedModel && CHAT_MODELS.some(m => m.name === selectedModel)) {
+      sel.value = selectedModel;
+      if (typeof localStorage !== 'undefined') localStorage.setItem('devflow.chat.model', selectedModel);
+    }
   } catch (e) {
     console.error('Failed to load chat models', e);
   }
@@ -2186,7 +2199,13 @@ async function loadChatSessions() {
       opt.textContent = s.preview || s.session_id;
       sel.appendChild(opt);
     });
-    if (CHAT_SESSION_ID) sel.value = CHAT_SESSION_ID;
+    if (CHAT_SESSION_ID && sessions.some(s => s.session_id === CHAT_SESSION_ID)) {
+      sel.value = CHAT_SESSION_ID;
+      await switchChatSession();
+    } else if (CHAT_SESSION_ID) {
+      CHAT_SESSION_ID = null;
+      try { if (typeof localStorage !== 'undefined') localStorage.removeItem('devflow.chat.session'); } catch (_) {}
+    }
   } catch (e) {
     console.error('Failed to load chat sessions', e);
   }
@@ -2200,6 +2219,7 @@ async function switchChatSession() {
     return;
   }
   CHAT_SESSION_ID = sessionId;
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('devflow.chat.session', sessionId); } catch (_) {}
   const session = CHAT_SESSIONS.find(s => s.session_id === sessionId);
   CHAT_RUN_ID = session?.run_id || null;
   CHAT_AWAITS_FIRST_MESSAGE = false;
@@ -2209,6 +2229,7 @@ async function switchChatSession() {
     const data = await resp.json();
     CHAT_SESSION_ID = sessionId;
     document.getElementById('chat-model-select').value = data.model || '';
+    persistChatModelSelection();
     renderChatMessages(data.messages || []);
     refresh();
   } catch (e) {
@@ -2218,6 +2239,7 @@ async function switchChatSession() {
 
 function newChatSession() {
   CHAT_SESSION_ID = null;
+  try { if (typeof localStorage !== 'undefined') localStorage.removeItem('devflow.chat.session'); } catch (_) {}
   CHAT_RUN_ID = null;
   CHAT_AWAITS_FIRST_MESSAGE = true;
   setFocusedRun(null);
@@ -2350,6 +2372,7 @@ async function sendChatMessage() {
     }
     if (data.session_id) {
       CHAT_SESSION_ID = data.session_id;
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('devflow.chat.session', data.session_id); } catch (_) {}
       CHAT_RUN_ID = data.run_id || null;
       CHAT_AWAITS_FIRST_MESSAGE = false;
       if (CHAT_RUN_ID) setFocusedRun(CHAT_RUN_ID);

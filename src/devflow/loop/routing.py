@@ -58,6 +58,7 @@ class ResolvedSlot:
     cost_class: str
     resolved_via: str  # "override" | "profile" | "policy" | "auto" | "fallback"
     model_id: str = ""  # API model ID (e.g. "tencent/hy3:free")
+    fallback_model_ids: tuple[str, ...] = ()
     model_path: str = ""  # local GGUF path (for llama.cpp models)
 
     @property
@@ -213,6 +214,7 @@ def _make_slot(role_name: str, entry: ModelEntry, resolved_via: str) -> Resolved
         cost_class=entry.cost_class,
         resolved_via=resolved_via,
         model_id=entry.model_id,
+        fallback_model_ids=entry.fallback_model_ids,
         model_path=entry.model_path,
     )
 

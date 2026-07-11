@@ -75,6 +75,56 @@ def test_escalate_to_definition_advances_loop(repo_root: Path) -> None:
     assert state.stage == LoopStage.definition
 
 
+def test_resumed_build_includes_last_capped_judge_feedback(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A human continue-work decision must not lose the decisive judge defect."""
+    from types import SimpleNamespace
+    from devflow.loop.adapter import save_loop_state
+    from devflow.loop.pipeline_run import update_pipeline_run_record
+    from devflow.loop import execution
+
+    sid, run_id = brainstorm.start_session(repo_root, intent="Resume a capped build")
+    state = load_loop_state(repo_root, run_id).model_copy(
+        update={"stage": LoopStage.build_judge}
+    )
+    save_loop_state(repo_root, state)
+    update_pipeline_run_record(repo_root, run_id, "spec.md", "bounded spec")
+    update_pipeline_run_record(repo_root, run_id, "plan.md", "bounded plan")
+    update_pipeline_run_record(
+        repo_root, run_id, "build-packets.json",
+        [{"id": "packet-01", "target_files": ["src/new.py"]}],
+    )
+    update_pipeline_run_record(
+        repo_root, run_id, "packet-consolidated-build-judge-summary.json",
+        {"final_judge_rationale": "Verification appeared before the builder gate."},
+    )
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured["assignment"] = kwargs["assignment"]
+        return {
+            "build": SimpleNamespace(model="laguna", content="code"),
+            "judge": SimpleNamespace(model="luna"),
+            "decision": "passed",
+            "verification": None,
+            "build_rounds": [{}],
+            "build_cap_exhausted": False,
+        }
+
+    monkeypatch.setattr(execution, "run_build_judge_verify", fake_run)
+
+    brainstorm.dispatch_to_build(
+        repo_root,
+        session_id=sid,
+        definition_of_done="Stay bounded.",
+        target_files=["src/new.py"],
+    )
+
+    assert "# Previous capped judge feedback" in captured["assignment"]
+    assert "Verification appeared before the builder gate." in captured["assignment"]
+
+
 def test_status_extraction_reads_real_run(repo_root: Path) -> None:
     """The status board API correctly extracts run info from disk."""
     sid, run_id = brainstorm.start_session(repo_root, intent="Status test idea")
@@ -265,6 +315,39 @@ def test_artifact_endpoint_serves_and_guards(repo_root: Path) -> None:
     assert captured["code"] == HTTPStatus.BAD_REQUEST
 
 
+@pytest.mark.parametrize("run_id", ["../outside", "nested/../../outside", "..\\outside"])
+def test_artifact_endpoint_rejects_run_id_traversal(repo_root: Path, run_id: str) -> None:
+    """The artifact endpoint cannot resolve a run outside pipeline-runs."""
+    import io
+    from http import HTTPStatus
+    from urllib.parse import parse_qs, urlsplit
+    from devflow.control_room.server import StatusRequestHandler
+
+    captured: dict = {}
+    _root = repo_root
+
+    class _FakeHandler(StatusRequestHandler):  # type: ignore[misc]
+        def send_error(self, code, message=None):  # type: ignore[override]
+            captured["code"] = code
+
+        @property
+        def server(self):
+            class _S:
+                repo_root = _root
+            return _S()
+
+        @property
+        def wfile(self):
+            return io.BytesIO()
+
+    handler = _FakeHandler.__new__(_FakeHandler)
+    handler._handle_artifact(parse_qs(urlsplit(
+        f"/api/artifact?run={run_id}&file=brainstorm.md"
+    ).query))  # type: ignore[attr-defined]
+
+    assert captured["code"] == HTTPStatus.BAD_REQUEST
+
+
 def test_status_page_uses_full_height_scroll_regions() -> None:
     """Active pipeline panels fill available card height and scroll text bodies."""
     assert "html { height: 100%; overflow: hidden; }" in STATUS_PAGE_HTML
@@ -384,6 +467,8 @@ def test_stop_now_signals_only_the_recorded_dispatch_process_group(
     from devflow.loop.pipeline_run import update_execution_control
 
     _, run_id = brainstorm.start_session(repo_root, intent="Immediate stop")
+    runner = repo_root / ".devflow" / "pipeline-runs" / run_id / "runner.py"
+    runner.write_text("# owned test runner\n", encoding="utf-8")
     update_execution_control(
         repo_root, run_id,
         status="running", pid=4321, process_group=4321,
@@ -391,6 +476,7 @@ def test_stop_now_signals_only_the_recorded_dispatch_process_group(
     )
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(server, "_pid_is_alive", lambda pid: pid == 4321)
+    monkeypatch.setattr(server.os, "getpgid", lambda pid: 4321)
     monkeypatch.setattr(
         server.subprocess, "run",
         lambda *args, **kwargs: SimpleNamespace(
@@ -421,6 +507,29 @@ def test_status_projection_marks_old_unfinished_role_as_stalled(repo_root: Path)
 
     assert info["execution_status"] == "stalled"
     assert info["worker_projection"]["current"]["outcome"] == "stalled"
+
+
+def test_status_projection_keeps_more_than_two_hundred_events_and_reports_visibility() -> None:
+    feed = [
+        {
+            "timestamp": f"2026-01-01T00:00:{index % 60:02d}+00:00",
+            "event": "completed",
+            "role": "builder",
+            "model": "free-code-fleet",
+            "content": str(index),
+        }
+        for index in range(250)
+    ]
+
+    info = _extract_run_info(
+        "run-many-events",
+        {"loop-state.json": {"stage": "build_judge"}, "worker-feed.jsonl": feed},
+    )
+
+    assert len(info["worker_feed"]) == 250
+    assert info["worker_feed_total"] == 250
+    assert info["worker_feed_visible"] == 250
+    assert info["worker_feed_truncated"] is False
 
 
 def test_status_page_uses_one_focused_workspace_with_live_output_and_stop_controls() -> None:
