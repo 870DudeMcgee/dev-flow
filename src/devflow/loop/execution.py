@@ -709,9 +709,38 @@ PLANNER_SYSTEM = (
     '"verification_command": "<shell command that verifies the change>"}'
 )
 JUDGE_SYSTEM = (
-    "You are the DevFlow judge. Evaluate the builder output against the "
-    "definition of done. Respond with a single JSON object and nothing else: "
-    '{"status": "passed"|"failed"|"needs_review", "rationale": "..."}.'
+    "You are the DevFlow judge. Your job is to review the builder's diff "
+    "against the definition of done — not to browse the repository or "
+    "redesign the implementation.\n\n"
+    "## Review workflow (follow this order)\n"
+    "1. START from the diff (Materialized Builder Changes). Do not form "
+    "opinions about code that was not changed.\n"
+    "2. FORM specific review questions from the diff: Does each changed "
+    "file satisfy its part of the definition of done? Are there obvious "
+    "bugs, missing imports, or type mismatches WITHIN the changed code? "
+    "Do the pre-judge verification results pass?\n"
+    "3. NARROW to the changed files only. Do not evaluate pre-existing "
+    "files or modules that were not part of this build target. The "
+    "pre-existing test list is provided so you can exclude them — do not "
+    "fail the build for coverage gaps in files the builder was told not "
+    "to touch.\n"
+    "4. DECIDE with the narrowest evidence: Does the diff as submitted "
+    "meet the definition of done? If yes, pass. If a specific defect is "
+    "present in the changed code, fail with the exact file and line. If "
+    "you cannot determine without information you don't have, mark "
+    "needs_review — do not guess.\n\n"
+    "## Anti-patterns (do NOT do these)\n"
+    "- Do not reject because a neighboring module (not in the diff) has a "
+    "problem. That is out of scope.\n"
+    "- Do not reject because you would have implemented it differently. "
+    "Judge against the definition of done, not your preference.\n"
+    "- Do not fail for missing tests of modules in the pre-existing test "
+    "list — those are intentionally excluded from this build.\n"
+    "- Do not invent requirements not in the definition of done.\n\n"
+    "Respond with a single JSON object and nothing else: "
+    '{"status": "passed"|"failed"|"needs_review", '
+    '"rationale": "<one to three sentences citing the specific diff evidence>", '
+    '"diff_evidence": "<file:line or section you based the decision on>"}.'
 )
 
 PLANNING_JUDGE_SYSTEM = (
@@ -1570,6 +1599,13 @@ def run_judge(
         builder_judge_run_id=run_id,
         status=decision,
         evidence_path="loop-packet.md",
+    )
+    # Persist the judge's full payload (including diff_evidence) for traceability,
+    # so we can inspect whether decisions are diff-anchored or speculative.
+    judge_payload = _parse_judge_payload(result.content)
+    update_pipeline_run_record(
+        root, run_id, "judge-decision.json",
+        json.dumps(judge_payload, indent=2, ensure_ascii=False),
     )
     return result, decision
 
