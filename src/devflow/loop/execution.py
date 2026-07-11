@@ -571,6 +571,7 @@ def run_role(
             status=heartbeat_status, active_role=role, model=slot.model,
             requested_max_tokens=requested_max_tokens,
             error=None,
+            owner_pid=os.getpid(),
             heartbeat_at=datetime.now(timezone.utc).isoformat(),
         )
         # Pass model_id to LocalModelClient for remote endpoints (OpenRouter etc.)
@@ -1524,32 +1525,75 @@ def run_builder(
 
 
 def _parse_judge_decision(text: str) -> str:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        try:
-            obj = json.loads(m.group(0))
-            s = str(obj.get("status", "")).lower()
-            if s in ("passed", "failed", "needs_review"):
-                return s
-        except Exception:
-            pass
-    low = text.lower()
-    for s in ("passed", "failed", "needs_review"):
-        if s in low:
-            return s
+    payload, valid = _structured_judge_payload(text)
+    if valid:
+        status = str(payload.get("status", "")).lower()
+        if status in ("passed", "failed", "needs_review"):
+            return status
     return "needs_review"
 
 
+def _structured_judge_payload(text: str) -> tuple[dict, bool]:
+    try:
+        payload = json.loads(text.strip())
+    except (TypeError, json.JSONDecodeError):
+        payload = None
+    if isinstance(payload, dict):
+        return payload, True
+    return {
+        "status": "needs_review",
+        "rationale": "Judge returned invalid or incomplete structured output.",
+        "partial_output": text.strip(),
+    }, False
+
+
 def _parse_judge_payload(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        try:
-            obj = json.loads(m.group(0))
-            if isinstance(obj, dict):
-                return obj
-        except Exception:
-            pass
-    return {"status": _parse_judge_decision(text), "rationale": text.strip()}
+    payload, _valid = _structured_judge_payload(text)
+    return payload
+
+
+def _result_token_capped(result: RoleResult) -> bool:
+    return bool(
+        result.raw.get("token_cap_reached")
+        or result.raw.get("finish_reason") == "length"
+    )
+
+
+def _build_judge_payload_from_result(result: RoleResult) -> dict:
+    payload, valid = _structured_judge_payload(result.content)
+    if valid and not _result_token_capped(result):
+        return payload
+    if _result_token_capped(result):
+        return {
+            **payload,
+            "status": "needs_review",
+            "rationale": "Judge output reached the token limit and may be incomplete.",
+            "partial_output": result.content.strip(),
+        }
+    return payload
+
+
+def _planning_judge_payload_from_result(result: RoleResult) -> dict:
+    payload, valid = _structured_judge_payload(result.content)
+    token_capped = _result_token_capped(result)
+    if valid and not token_capped:
+        return payload
+    reason = (
+        "Planning judge output reached the token limit and may be incomplete."
+        if token_capped
+        else "Planning judge returned invalid or incomplete structured output."
+    )
+    required_changes = payload.get("required_changes") or []
+    if isinstance(required_changes, str):
+        required_changes = [required_changes]
+    return {
+        **payload,
+        "decision": "revise",
+        "status": "needs_review",
+        "required_changes": [*required_changes, reason],
+        "next_safe_action": "Retry the planning judge with a complete structured response.",
+        "partial_output": result.content.strip(),
+    }
 
 
 def _planning_decision_from_payload(payload: dict) -> pj.JudgeDecision:
@@ -1584,11 +1628,11 @@ def _planning_report_from_payload(
     return pj.PlanningJudgeReport(
         run_id=run_id,
         decision=decision,
-        repo_grounding=str(payload.get("repo_grounding") or "Qwen planning judge reviewed repo grounding."),
-        task_boundaries=str(payload.get("task_boundaries") or "Qwen planning judge reviewed task boundaries."),
-        verification_reality=str(payload.get("verification_reality") or "Qwen planning judge reviewed verification reality."),
-        overbuild_risk=str(payload.get("overbuild_risk") or "Qwen planning judge reviewed overbuild risk."),
-        simpler_path=str(payload.get("simpler_path") or "Qwen planning judge reviewed simpler paths."),
+        repo_grounding=str(payload.get("repo_grounding") or "Planning judge reviewed repo grounding."),
+        task_boundaries=str(payload.get("task_boundaries") or "Planning judge reviewed task boundaries."),
+        verification_reality=str(payload.get("verification_reality") or "Planning judge reviewed verification reality."),
+        overbuild_risk=str(payload.get("overbuild_risk") or "Planning judge reviewed overbuild risk."),
+        simpler_path=str(payload.get("simpler_path") or "Planning judge reviewed simpler paths."),
         required_changes=[str(item) for item in required_changes],
         next_safe_action=str(payload.get("next_safe_action") or "Return to the orchestrator for the next safe action."),
         created_at=datetime.now(timezone.utc).isoformat(),
@@ -1599,6 +1643,8 @@ def _record_planning_judge_report(
     root: Path | str,
     run_id: str,
     report: pj.PlanningJudgeReport,
+    *,
+    model: str,
 ) -> None:
     update_pipeline_run_record(
         root,
@@ -1609,7 +1655,7 @@ def _record_planning_judge_report(
     append_worker_feed_entry(root, run_id, {
         "event": "completed",
         "role": "planning_judge_report",
-        "model": "qwen-27b-q5km",
+        "model": model,
         "content": json.dumps({
             "decision": report.decision.value,
             "required_changes": report.required_changes,
@@ -1646,7 +1692,7 @@ def run_planning_judge_model(
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> tuple[RoleResult, pj.PlanningJudgeReport]:
-    """Run Qwen as the planning judge, using deterministic checks as context only."""
+    """Run the routed planning judge, using deterministic checks as context only."""
     deterministic_report = pj.judge_plan(evidence)
     spec = _read_record(root, run_id, "spec.md") or ""
     plan = _read_record(root, run_id, "plan.md") or ""
@@ -1675,9 +1721,9 @@ def run_planning_judge_model(
         ensure_lane_on=ensure_lane_on,
         client_factory=client_factory,
     )
-    payload = _parse_judge_payload(result.content)
+    payload = _planning_judge_payload_from_result(result)
     report = _planning_report_from_payload(run_id, payload)
-    _record_planning_judge_report(root, run_id, report)
+    _record_planning_judge_report(root, run_id, report, model=result.model)
     return result, report
 
 
@@ -1737,7 +1783,10 @@ def run_judge(
         client_factory=client_factory,
     )
 
-    decision = _parse_judge_decision(result.content)
+    judge_payload = _build_judge_payload_from_result(result)
+    decision = str(judge_payload.get("status") or "needs_review").lower()
+    if decision not in {"passed", "failed", "needs_review"}:
+        decision = "needs_review"
     bj.record_builder_judge_result(
         root,
         run_id,
@@ -1747,7 +1796,6 @@ def run_judge(
     )
     # Persist the judge's full payload (including diff_evidence) for traceability,
     # so we can inspect whether decisions are diff-anchored or speculative.
-    judge_payload = _parse_judge_payload(result.content)
     update_pipeline_run_record(
         root, run_id, "judge-decision.json",
         json.dumps(judge_payload, indent=2, ensure_ascii=False),
@@ -2241,7 +2289,10 @@ def run_verifier(
             client_factory=client_factory,
         )
         content = role_result.content
-        decision = _parse_judge_decision(content)  # reuse judge payload parser
+        verifier_payload = _build_judge_payload_from_result(role_result)
+        decision = str(verifier_payload.get("status") or "needs_review").lower()
+        if decision not in {"passed", "failed", "needs_review"}:
+            decision = "needs_review"
     except Exception as exc:  # never let the verifier hang the loop
         decision = "needs_review"
         content = f"Verifier error: {exc!r}"
@@ -2418,7 +2469,7 @@ def run_build_judge_verify(
                 ensure_lane_on=ensure_lane_on,
                 client_factory=client_factory,
             )
-            payload = _parse_judge_payload(judge_result.content)
+            payload = _build_judge_payload_from_result(judge_result)
             rounds.append({
                 "round": round_index,
                 "build": build,

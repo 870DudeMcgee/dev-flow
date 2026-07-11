@@ -35,6 +35,9 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     --font-display: 'Avenir Next Condensed', 'DIN Condensed', 'Avenir Next', sans-serif;
     --font-mono: 'SFMono-Regular', 'SF Mono', Menlo, Consolas, monospace;
     --radius: 14px;
+    --panel-radius: 10px;
+    --header-control-height: 34px;
+    --header-control-radius: 9px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { height: 100%; overflow: hidden; }
@@ -89,7 +92,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     object-fit: contain;
     filter: drop-shadow(0 0 12px rgba(22, 201, 255, 0.28)) drop-shadow(0 0 20px rgba(143, 91, 255, 0.14));
   }
-  .header-right { display: flex; align-items: center; gap: 16px; position: relative; }
+  .header-right { display: flex; align-items: center; gap: 16px; position: relative; min-width: 0; flex: 1; justify-content: flex-end; }
   .git-widget {
     display: grid;
     grid-template-columns: 28px minmax(120px, 1fr) auto;
@@ -366,7 +369,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .outcome-badge.passed { border-color: rgba(16,185,129,0.5); color: var(--success); background: rgba(16,185,129,0.10); }
   .worker-card-list { grid-area: attempts; overflow-y: auto; overflow-anchor: none; padding-right: 4px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .worker-list-heading { padding: 0 2px 2px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 800; color: var(--text-dim); }
-  .worker-loop-group { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 10px; background: rgba(5,10,28,0.58); overflow: hidden; }
+  .worker-loop-group { flex: 0 0 auto; border: 1px solid var(--border); border-radius: var(--panel-radius); background: rgba(5,10,28,0.58); overflow: hidden; }
   .worker-loop-group:not([open]) { min-height: 50px; }
   .worker-loop-group.current-loop { border-color: rgba(22,201,255,0.42); box-shadow: 0 0 16px rgba(22,201,255,0.06); }
   .worker-loop-group summary {
@@ -416,19 +419,23 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   @keyframes liveBlink { 0% { opacity: 0.3; } 100% { opacity: 1; } }
   .viewer-panel.output-viewer-reasoning { padding: 12px 14px; font-size: 12px; line-height: 1.55; color: var(--text-dim); white-space: pre-wrap; word-break: break-word; border-left: 2px solid rgba(143,91,255,0.5); }
 
-  .output-viewer { grid-area: viewer; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: rgba(4,9,25,0.92); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .output-viewer { grid-area: viewer; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: rgba(4,9,25,0.92); border: 1px solid var(--border); border-radius: var(--panel-radius); overflow: hidden; }
   .output-viewer-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(90deg, rgba(22,201,255,0.06), rgba(143,91,255,0.04)); flex-shrink: 0; }
   .output-viewer-title { flex: 1; min-width: 0; }
   .output-viewer-role { font-size: 14px; font-weight: 700; color: var(--text); }
   .output-viewer-model { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
   .output-status { font-size: 9px; padding: 2px 7px; border-radius: 3px; font-weight: 700; text-transform: uppercase; flex-shrink: 0; }
-  .viewer-tabs { display: flex; align-items: center; gap: 3px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.18); }
-  .viewer-tab { border: 0; border-radius: 5px; padding: 5px 8px; background: transparent; color: var(--text-dim); font: 800 10px var(--font-display); letter-spacing: 0.04em; cursor: pointer; }
+  .viewer-tabs { display: flex; align-items: center; gap: 3px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.18); overflow-x: auto; overflow-y: hidden; flex: 0 0 auto; }
+  .viewer-tab { flex: 0 0 auto; white-space: nowrap; border: 0; border-radius: 5px; padding: 5px 8px; background: transparent; color: var(--text-dim); font: 800 10px var(--font-display); letter-spacing: 0.04em; cursor: pointer; }
   .viewer-tab.active { background: var(--surface-2); color: var(--text); }
   .viewer-panel { display: none; flex: 1; min-height: 0; overflow-y: auto; }
   .viewer-panel.active { display: block; }
   .output-summary-panel { padding: 14px; }
   .output-summary-line { margin-bottom: 12px; font-size: 14px; line-height: 1.45; font-weight: 750; }
+  .operator-detail { padding: 10px 0; border-top: 1px solid rgba(24,52,93,0.62); }
+  .operator-detail:first-of-type { border-top: 0; padding-top: 0; }
+  .operator-detail-label { margin-bottom: 3px; color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; }
+  .operator-detail-value { font-size: 13px; line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
   .output-fact { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; padding: 7px 0; border-top: 1px solid rgba(24,52,93,0.62); font-size: 12px; line-height: 1.4; }
   .output-fact-label { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 800; }
   .output-viewer-time { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); flex-shrink: 0; }
@@ -523,7 +530,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     border: 1px solid rgba(22,201,255,0.28);
     background: linear-gradient(135deg, rgba(22,201,255,0.10), rgba(7,12,31,0.9));
     cursor: pointer; transition: all 0.15s;
-    position: relative; min-width: 0;
+    position: relative; min-width: 0; max-width: 180px;
   }
   .workspace-widget:hover { border-color: var(--accent); box-shadow: 0 0 18px rgba(22,201,255,0.12); }
   .workspace-widget.no-workspace { border-color: rgba(245,158,11,0.4); background: linear-gradient(135deg, rgba(245,158,11,0.10), rgba(7,12,31,0.9)); }
@@ -654,14 +661,26 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     padding: 10px 14px 12px; border-top: 1px solid var(--border);
     flex-shrink: 0; display: flex; flex-direction: column; gap: 8px;
   }
+  .chat-composer-row { display: flex; align-items: stretch; gap: 7px; }
   .chat-input {
-    width: 100%; min-height: 44px; max-height: 140px;
+    flex: 1; width: 100%; min-width: 0; min-height: 44px; max-height: 140px;
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
     color: var(--text); font: 13px/1.45 var(--font-body); padding: 10px 12px;
     resize: none; outline: none; transition: border-color 0.15s;
   }
   .chat-input:focus { border-color: var(--accent); }
   .chat-input::placeholder { color: var(--text-faint); }
+  .chat-mic-btn {
+    flex: 0 0 48px; min-height: 44px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-2); color: var(--text-dim); cursor: pointer;
+    display: grid; place-items: center; transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .chat-mic-btn svg { width: 19px; height: 19px; stroke: currentColor; }
+  .chat-mic-btn:hover:not(:disabled), .chat-mic-btn:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+  .chat-mic-btn.listening { border-color: var(--error); color: #fff; background: rgba(255,79,127,0.18); }
+  .chat-mic-btn:disabled { opacity: 0.48; cursor: not-allowed; }
+  .chat-dictation-state { min-height: 14px; font-size: 10px; line-height: 1.35; color: var(--text-faint); }
+  .chat-dictation-state.listening { color: var(--error); font-weight: 700; }
   .chat-send-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .chat-send-btn {
     border: 1px solid var(--accent); background: rgba(22,201,255,0.12);
@@ -688,7 +707,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
 
   /* ── Focused workspace V4: now → activity → evidence on demand ── */
   .header { padding: 6px 12px; gap: 10px; }
-  .header h1 { font-size: 19px; flex: 0 0 auto; }
+  .header h1 { font-size: 19px; flex: 0 0 auto; min-width: 0; }
   .header h1 .icon { width: 34px; height: 34px; }
   .header-right { gap: 7px; min-width: 0; flex: 1; justify-content: flex-end; }
   .git-widget { min-width: 0; width: auto; max-width: 120px; grid-template-columns: 24px auto; padding: 5px 7px; gap: 6px; }
@@ -696,10 +715,10 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .git-repo { display: none; }
   .git-branch { margin-top: 0; font-size: 11px; }
   .git-state { font-size: 9px; padding: 3px 6px; }
-  .header-run-selector { min-width: 0; width: min(360px, 31vw); position: relative; }
+  .header-run-selector { min-width: 160px; width: min(360px, 31vw); flex: 1 1 240px; position: relative; }
   .header-run-selector .run-selector { margin: 0; }
   .header-run-selector .run-selector-trigger {
-    height: 32px; padding: 4px 8px; border-radius: 8px;
+    height: var(--header-control-height); padding: 4px 8px; border-radius: var(--header-control-radius);
     grid-template-columns: 7px minmax(0,1fr) auto 14px;
     grid-template-areas: "signal intent stage chevron";
   }
@@ -709,7 +728,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .header-run-selector .run-selector-stage { font-size: 10px; }
   .header-run-selector .run-selector-dropdown { min-width: 420px; left: auto; }
   .system-widget {
-    border: 1px solid var(--border); border-radius: 999px; padding: 9px 14px;
+    height: var(--header-control-height); border: 1px solid var(--border); border-radius: var(--header-control-radius); padding: 0 12px;
     color: var(--text-dim); background: rgba(8,14,34,0.8); cursor: pointer;
     font: 800 11px var(--font-body); transition: border-color 0.15s, color 0.15s;
   }
@@ -721,8 +740,11 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     box-shadow: 0 20px 70px rgba(0,0,0,0.5); backdrop-filter: blur(12px);
   }
   .system-popover.open { display: flex; flex-direction: column; gap: 10px; }
-  .system-popover .memory-widget { min-width: 0; width: 100%; border-radius: 10px; }
   .system-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .header > .header-right > .memory-widget { flex: 0 0 auto; }
+  .header .workspace-widget,
+  .header .git-widget,
+  .header .memory-widget { height: var(--header-control-height); border-radius: var(--header-control-radius); padding-top: 0; padding-bottom: 0; }
 
   .active-card { position: relative; min-height: 0; box-shadow: 0 14px 44px rgba(0,0,0,0.28); }
   .active-top-bar { min-height: 34px; padding: 5px 12px; }
@@ -742,18 +764,18 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .stage-control.done { color: #9bc6d9; }
   .stage-control.selected { outline: 1px solid rgba(22,201,255,0.55); }
   .run-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .files-button, .files-close {
+  .files-button, .files-close, .view-code-button {
     border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
     border-radius: 8px; padding: 7px 11px; cursor: pointer; font: 800 11px var(--font-body);
   }
-  .files-button:hover, .files-button[aria-expanded="true"], .files-close:hover { border-color: var(--accent); color: var(--accent); }
+  .files-button:hover, .files-button[aria-expanded="true"], .files-close:hover, .view-code-button:hover { border-color: var(--accent); color: var(--accent); }
   .files-count { color: var(--text-dim); margin-left: 4px; }
 
   .focused-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 7px 10px 9px; gap: 7px; overflow: hidden; }
   .now-card {
     flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0,1fr) auto;
     gap: 3px 9px; padding: 7px 10px; border: 1px solid var(--border);
-    border-left: 3px solid var(--accent); border-radius: 11px;
+    border-left: 3px solid var(--accent); border-radius: var(--panel-radius);
     background: linear-gradient(100deg, rgba(22,201,255,0.09), rgba(143,91,255,0.04), rgba(5,10,27,0.38));
   }
   .now-card.failed, .now-card.stalled { border-left-color: var(--error); }
@@ -761,13 +783,35 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .now-card.passed { border-left-color: var(--success); }
   .now-kicker { font: 800 10px var(--font-display); color: var(--text-dim); letter-spacing: .08em; text-transform: uppercase; }
   .now-card > .outcome-badge { grid-column: 3; grid-row: 1; }
-  .now-headline { grid-column: 2; grid-row: 1; font-size: 13px; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .now-latest { grid-column: 1 / -1; font-size: 11px; color: var(--text-dim); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-headline { grid-column: 2; grid-row: 1; min-width: 0; font-size: 13px; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+  .now-latest { grid-column: 1 / -1; min-width: 0; font-size: 11px; color: var(--text-dim); line-height: 1.4; overflow-wrap: anywhere; }
   .now-latest strong { color: var(--text); }
+
+  .run-overview {
+    flex: 0 0 auto; border: 1px solid rgba(69,239,176,0.34); border-radius: var(--panel-radius);
+    background: linear-gradient(110deg, rgba(69,239,176,0.08), rgba(22,201,255,0.05), rgba(5,10,27,0.42));
+    overflow: hidden;
+  }
+  .run-overview-head { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--border); }
+  .run-overview-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
+  .run-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0 16px; padding: 2px 11px 7px; }
+  .run-overview-item { min-width: 0; padding: 7px 0; border-bottom: 1px solid rgba(24,52,93,0.48); }
+  .run-overview-item.full { grid-column: 1 / -1; }
+  .run-overview-item:last-child { border-bottom: 0; }
+  .run-overview-label { margin-bottom: 3px; color: var(--text-dim); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .run-overview-value { font-size: 12px; line-height: 1.45; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .run-overview-files { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .run-overview-file { border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; background: rgba(3,8,24,0.66); color: var(--text-dim); font: 10px/1.3 var(--font-mono); }
+  .run-overview-link { border: 1px solid var(--accent); border-radius: 7px; padding: 5px 8px; background: rgba(22,201,255,0.09); color: var(--accent); cursor: pointer; font: 800 10px var(--font-body); }
+  .run-overview-link:hover { background: rgba(22,201,255,0.16); }
+  .reliability-summary { margin-top: 8px; padding: 8px 9px; border: 1px solid rgba(255,184,77,0.34); border-left: 3px solid var(--warning); border-radius: 7px; background: rgba(255,184,77,0.06); }
+  .reliability-summary.safe { border-color: rgba(69,239,176,0.28); border-left-color: var(--success); background: rgba(69,239,176,0.05); }
+  .reliability-status { font-size: 11px; font-weight: 800; }
+  .reliability-detail { margin-top: 4px; font-size: 11px; line-height: 1.45; color: var(--text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .activity-card {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
-    border: 1px solid var(--border); border-radius: 11px; background: rgba(8,14,34,0.58); overflow: hidden;
+    border: 1px solid var(--border); border-radius: var(--panel-radius); background: rgba(8,14,34,0.58); overflow: hidden;
   }
   .activity-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
   .activity-title { font-size: 14px; font-weight: 800; }
@@ -779,6 +823,8 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .worker-current-summary { display: none; }
   .worker-list-heading { display: none; }
   .worker-card-list { gap: 8px; }
+  .worker-loop-group summary .loop-title,
+  .worker-loop-group summary .loop-subtitle { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
   .output-viewer { background: rgba(3,8,24,0.78); }
   .activity-empty { flex: 1; display: grid; place-items: center; padding: 20px; color: var(--text-dim); text-align: center; font-size: 14px; line-height: 1.5; }
   .stage-artifact-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
@@ -827,12 +873,26 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     .header h1 { font-size: 19px; }
     .header h1 .icon { width: 40px; height: 40px; }
     .workspace-label, .git-repo { display: none; }
-    .workspace-widget { min-width: 150px; }
+    .workspace-widget { min-width: 0; max-width: 150px; }
     .git-widget { width: auto; }
     .header-run-selector { width: min(280px, 29vw); }
   }
-  @media (max-width: 900px) {
+  @media (max-width: 1280px) {
+    .brand-name { display: none; }
+    .memory-widget { grid-template-columns: minmax(96px, auto); min-width: 112px; }
+    .memory-graph { display: none; }
+  }
+  @media (max-width: 1180px) {
     .worker-feed-container { grid-template-columns: 1fr; grid-template-rows: minmax(150px,34%) minmax(0,1fr); grid-template-areas: "attempts" "viewer"; }
+  }
+  @media (max-width: 1180px) and (max-height: 820px) {
+    .run-overview { max-height: 46%; overflow-y: auto; overscroll-behavior: contain; }
+    .activity-card { min-height: 220px; }
+  }
+  @media (max-width: 900px) {
+    .header-run-selector { min-width: 130px; }
+    .workspace-copy { display: none; }
+    .workspace-widget { padding: 7px 9px; }
   }
 </style>
 </head>
@@ -841,7 +901,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
 <div class="header">
   <h1>
     <img class="icon" src="/static/devflow-logo.png" alt="DevFlow logo">
-    DevFlow Pipeline
+    <span class="brand-name">DevFlow Pipeline</span>
   </h1>
   <div class="header-right">
     <div class="header-run-selector" id="header-run-selector" aria-label="Active / Needs Attention"></div>
@@ -864,19 +924,19 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     </div>
     <div class="git-popover" id="git-popover" role="dialog" aria-label="Git status details"></div>
     <span class="repo-path" id="repo-path"></span>
+    <div class="memory-widget" id="memory-widget" title="Approximate macOS RAM pressure" aria-label="RAM status">
+      <div class="memory-copy">
+        <div class="memory-label"><span class="memory-dot"></span>RAM</div>
+        <div class="memory-value" id="memory-value">-- GiB free</div>
+      </div>
+      <svg class="memory-graph" id="memory-graph" viewBox="0 0 78 22" preserveAspectRatio="none" aria-hidden="true">
+        <path class="grid" d="M0 11 H78"></path>
+        <path class="area" id="memory-area" d="M0 22 L78 22 Z"></path>
+        <path class="line" id="memory-line" d=""></path>
+      </svg>
+    </div>
     <button class="system-widget" id="system-widget" type="button" aria-expanded="false" onclick="toggleSystemDetails()">System</button>
     <div class="system-popover" id="system-popover" role="dialog" aria-label="System status">
-      <div class="memory-widget" id="memory-widget" title="Approximate macOS memory pressure">
-        <div class="memory-copy">
-          <div class="memory-label"><span class="memory-dot"></span>Memory</div>
-          <div class="memory-value" id="memory-value">-- GiB free</div>
-        </div>
-        <svg class="memory-graph" id="memory-graph" viewBox="0 0 78 22" preserveAspectRatio="none" aria-hidden="true">
-          <path class="grid" d="M0 11 H78"></path>
-          <path class="area" id="memory-area" d="M0 22 L78 22 Z"></path>
-          <path class="line" id="memory-line" d=""></path>
-        </svg>
-      </div>
       <div class="system-meta">
         <span class="ui-version" title="Status board UI build">UI v4</span>
         <span class="live-indicator"><span class="live-dot"></span>LIVE</span>
@@ -913,8 +973,19 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     </div>
   </div>
   <div class="chat-input-area">
-    <textarea class="chat-input" id="chat-input" placeholder="Type your idea or question…" rows="2"
-      onkeydown="handleChatKey(event)" oninput="autoResizeChatInput(this)"></textarea>
+    <div class="chat-composer-row">
+      <textarea class="chat-input" id="chat-input" placeholder="Type or dictate your idea…" rows="2"
+        onkeydown="handleChatKey(event)" oninput="autoResizeChatInput(this)"></textarea>
+      <button class="chat-mic-btn" id="chat-mic-btn" type="button" aria-label="Start dictation" aria-pressed="false" onclick="toggleChatDictation()">
+        <!-- Lucide Mic icon (ISC): https://lucide.dev/icons/mic -->
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" x2="12" y1="19" y2="22"></line>
+        </svg>
+      </button>
+    </div>
+    <div class="chat-dictation-state" id="chat-dictation-state" role="status" aria-live="polite">Checking dictation support…</div>
     <div class="chat-send-row">
       <span class="chat-hint" id="chat-hint">Enter to send · Shift+Enter for newline</span>
       <div style="display:flex;gap:6px;">
@@ -1250,6 +1321,7 @@ function drawMemoryGraph(points) {
 function captureScrollState() {
   const workerListScroll = {};
   const viewerPanelScroll = {};
+  const runOverviewScroll = {};
   document.querySelectorAll('.worker-feed-container').forEach(container => {
     if (!container.id) return;
     const list = container.querySelector('.worker-card-list');
@@ -1268,6 +1340,9 @@ function captureScrollState() {
       CLOSED_WORKER_GROUPS.add(groupId);
     }
   });
+  document.querySelectorAll('.run-overview[id]').forEach(overview => {
+    runOverviewScroll[overview.id] = overview.scrollTop;
+  });
   saveOpenWorkerGroups();
   saveClosedWorkerGroups();
   return {
@@ -1279,6 +1354,7 @@ function captureScrollState() {
     } : null,
     workerListScroll,
     viewerPanelScroll,
+    runOverviewScroll,
   };
 }
 
@@ -1297,6 +1373,10 @@ function restoreScrollState(state) {
     Object.entries(state.viewerPanelScroll || {}).forEach(([containerId, scrollTop]) => {
       const panel = document.getElementById(containerId)?.querySelector('.viewer-panel.active');
       if (panel) panel.scrollTop = scrollTop;
+    });
+    Object.entries(state.runOverviewScroll || {}).forEach(([overviewId, scrollTop]) => {
+      const overview = document.getElementById(overviewId);
+      if (overview) overview.scrollTop = scrollTop;
     });
     window.scrollTo(state.pageX || 0, state.pageY || 0);
   };
@@ -1444,6 +1524,11 @@ function outcomeText(outcome) {
   }[outcome] || 'Recorded';
 }
 
+function humanRole(role) {
+  const text = String(role || 'worker').replaceAll('_', ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function stageWorkerKind(stage) {
   if (stage === 'build_judge' || stage === 'verification') return 'build';
   if (stage === 'planning' || stage === 'planning_judge') return 'planning';
@@ -1571,9 +1656,11 @@ function renderActive(r) {
     ...group,
     entries: (group.entries || []).filter(entry => selectedStage === 'complete' || (entry.stages || []).includes(selectedStage)),
   })).filter(group => group.entries.length);
-  const selectedCurrentId = matchingGroups.length ? matchingGroups[matchingGroups.length - 1].loop_id : '';
+  const latestGroupId = matchingGroups.length ? matchingGroups[matchingGroups.length - 1].loop_id : '';
+  const activeGroupId = projection.current?.loop_id || '';
   matchingGroups.forEach(group => {
-    group.is_current = group.loop_id === selectedCurrentId;
+    group.is_latest = group.loop_id === latestGroupId;
+    group.is_current = group.loop_id === activeGroupId;
     group.event_count = group.entries.length;
   });
   const displayGroups = matchingGroups.slice().reverse();
@@ -1587,32 +1674,34 @@ function renderActive(r) {
     const isStreaming = f.event === 'streaming';
     const cardClass = isStreaming ? 'output-card streaming' : 'output-card';
     const summaryText = isStreaming ? (f.content ? f.content.slice(-80) + (f.content.length > 80 ? '…' : '') : 'Generating…') : (f.summary || f.event || 'Worker evidence');
+    const stateText = isStreaming ? 'LIVE' : (f.event === 'started' && outcome === 'neutral' ? 'Started' : outcomeText(outcome));
     return `<button type="button" class="${cardClass}" data-entry-id="${escapeHtml(f.entry_id)}" data-run-id="${escapeHtml(r.run_id)}" aria-selected="false" aria-controls="${escapeHtml(viewerId)}">
       <span class="output-avatar ${avatarClass}">${avatarText}</span>
       <span class="output-card-role">${escapeHtml(role)}${isStreaming ? '<span class="card-live-dot"></span>' : ''}</span>
       <span class="output-card-summary">${escapeHtml(summaryText)}</span>
       <span class="output-card-time">${formatTime(f.timestamp)}</span>
-      <span class="outcome-badge output-card-outcome ${escapeHtml(outcome)}">${isStreaming ? 'LIVE' : escapeHtml(outcomeText(outcome))}</span>
+      <span class="outcome-badge output-card-outcome ${escapeHtml(outcome)}">${escapeHtml(stateText)}</span>
     </button>`;
   };
-  const currentGroups = displayGroups.filter(g => Boolean(g.is_current));
-  const previousGroups = displayGroups.filter(g => !g.is_current);
+  const latestGroups = displayGroups.filter(g => Boolean(g.is_latest));
+  const previousGroups = displayGroups.filter(g => !g.is_latest);
   const renderLoopGroup = (group) => {
     const groupId = group.loop_id;
     const isCurrentLoop = Boolean(group.is_current);
-    const isOpen = OPEN_WORKER_GROUPS.has(groupId) || (!hasWorkerGroupPreference(groupId) && isCurrentLoop);
-    const title = `${isCurrentLoop ? 'Current ' : ''}${group.label} · Attempt ${group.attempt}`;
-    const models = (group.models || []).join(' + ');
-    const subtitle = `${formatTime(group.started_at)} → ${formatTime(group.ended_at)} · ${group.event_count} events${models ? ` · ${models}` : ''}`;
+    const isLatestLoop = Boolean(group.is_latest);
+    const isOpen = OPEN_WORKER_GROUPS.has(groupId) || (!hasWorkerGroupPreference(groupId) && isLatestLoop);
+    const titlePrefix = isCurrentLoop ? 'Current ' : (isLatestLoop ? 'Latest ' : '');
+    const title = `${titlePrefix}${group.label} · Attempt ${group.attempt}`;
+    const subtitle = `${formatTime(group.started_at)} → ${formatTime(group.ended_at)} · ${group.event_count} step${group.event_count === 1 ? '' : 's'}`;
     const outcome = group.outcome || 'neutral';
-    return `<details class="worker-loop-group ${isCurrentLoop ? 'current-loop' : ''} ${escapeHtml(group.category)}" data-group-id="${escapeHtml(groupId)}" ${isOpen ? 'open' : ''} ontoggle="onWorkerGroupToggle(this)">
+    return `<details class="worker-loop-group ${isCurrentLoop ? 'current-loop' : (isLatestLoop ? 'latest-loop' : '')} ${escapeHtml(group.category)}" data-group-id="${escapeHtml(groupId)}" ${isOpen ? 'open' : ''} ontoggle="onWorkerGroupToggle(this)">
       <summary><span class="loop-title">${escapeHtml(title)}</span><span class="loop-subtitle">${escapeHtml(subtitle)}</span><span class="outcome-badge loop-outcome ${escapeHtml(outcome)}">${escapeHtml(outcomeText(outcome))}</span></summary>
       <div class="worker-loop-items">
         ${(group.entries || []).slice().reverse().map(renderOutputCard).join('')}
       </div>
     </details>`;
   };
-  const currentHtml = currentGroups.map(renderLoopGroup).join('');
+  const currentHtml = latestGroups.map(renderLoopGroup).join('');
   const previousCount = previousGroups.length;
   const previousFailed = previousGroups.filter(g => (g.outcome || '') === 'failed').length;
   const previousHtml = previousCount ? `<details class="worker-loop-group previous-loops" id="previous-loops-${escapeHtml(r.run_id)}" data-group-id="previous-loops-${escapeHtml(r.run_id)}" ${OPEN_WORKER_GROUPS.has('previous-loops-' + r.run_id) ? 'open' : ''} ontoggle="onWorkerGroupToggle(this)">
@@ -1633,7 +1722,7 @@ function renderActive(r) {
   const defaultEntryId = streamingEntry?.entry_id
     || (currentEntries.length ? currentEntries[currentEntries.length - 1].entry_id : '')
     || (stageEntries.at(-1)?.entry_id || '');
-  const viewerHtml = `<div class="output-viewer" id="${escapeHtml(viewerId)}" data-run-id="${escapeHtml(r.run_id)}" data-default-entry-id="${escapeHtml(defaultEntryId)}" aria-label="Raw evidence">
+  const viewerHtml = `<div class="output-viewer" id="${escapeHtml(viewerId)}" data-run-id="${escapeHtml(r.run_id)}" data-default-entry-id="${escapeHtml(defaultEntryId)}" aria-label="Worker evidence">
     <div class="output-viewer-content" style="color:var(--text-dim)">Select an output from the list to view its content.</div>
   </div>`;
   WORKER_FEED_DATA[r.run_id] = chronologicalEntries;
@@ -1662,6 +1751,13 @@ function renderActive(r) {
   const receiptsHtml = receipts || '';
 
   const artifactTreeHtml = renderArtifactTree(r.run_id, r.artifacts || []);
+  const preferredCodeArtifact = (r.artifacts || []).find(name => name === 'build-diff.patch')
+    || (r.artifacts || []).find(name => /build.*diff|\.patch$/i.test(name))
+    || (r.artifacts || []).find(name => /build-manifest/i.test(name))
+    || '';
+  const viewCodeButton = preferredCodeArtifact
+    ? `<button type="button" class="view-code-button" onclick="showArtifact('${escapeHtml(r.run_id)}','${escapeHtml(preferredCodeArtifact)}')">View code</button>`
+    : '';
   const operatorControls = renderOperatorControls(r);
   const loopComplete = r.stage === 'complete';
   const nowOutcome = loopComplete ? 'passed' : (currentLoop?.outcome || r.execution_status || 'neutral');
@@ -1675,6 +1771,35 @@ function renderActive(r) {
       ? 'Continue the brainstorm until the idea is defined enough to produce a spec.'
       : 'Await the next orchestrator decision.'
   ));
+  const overview = r.run_overview || {};
+  const overviewFiles = (overview.files || []).map(path => `<span class="run-overview-file">${escapeHtml(path)}</span>`).join('');
+  const overviewCodeArtifact = overview.code_artifact || preferredCodeArtifact;
+  const overviewEvidenceArtifact = (r.artifacts || []).includes(overview.evidence_artifact) ? overview.evidence_artifact : '';
+  const reliability = overview.reliability || null;
+  const reliabilityArtifact = reliability && (r.artifacts || []).includes(reliability.artifact) ? reliability.artifact : '';
+  const reliabilityHtml = reliability ? `<div class="reliability-summary ${reliability.safe ? 'safe' : ''}">
+    <div class="reliability-status">Reliability: ${reliability.safe ? 'safe' : 'action required'} · ${escapeHtml(reliability.action || 'unknown action')}</div>
+    ${(reliability.breached_metrics || []).length ? `<div class="reliability-detail"><strong>Breached metrics / thresholds</strong>\n${escapeHtml(reliability.breached_metrics.join('\n'))}</div>` : ''}
+    ${(reliability.breaches || []).length ? `<div class="reliability-detail"><strong>Breaches</strong>\n${escapeHtml(reliability.breaches.join('\n'))}</div>` : ''}
+    ${(reliability.recovery_actions || []).length ? `<div class="reliability-detail"><strong>Recovery / rollback</strong>\n${escapeHtml(reliability.recovery_actions.join('\n'))}</div>` : ''}
+    ${reliabilityArtifact ? `<button type="button" class="run-overview-link" onclick="showArtifact('${escapeHtml(r.run_id)}','${escapeHtml(reliabilityArtifact)}')">Open reliability report</button>` : ''}
+  </div>` : '';
+  const completedOverviewHtml = `<section class="run-overview" id="run-overview-${escapeHtml(r.run_id)}" aria-label="Completed change overview">
+    <div class="run-overview-head"><div class="run-overview-title">${escapeHtml(overview.product || r.intent || 'Completed change')}</div><span class="outcome-badge passed">Complete</span></div>
+    <div class="run-overview-grid">
+      <div class="run-overview-item full"><div class="run-overview-label">Product / change</div><div class="run-overview-value">${escapeHtml(overview.product || r.intent || 'No product intent was recorded.')}</div></div>
+      <div class="run-overview-item full"><div class="run-overview-label">Why it was built</div><div class="run-overview-value">${escapeHtml(overview.why || 'No separate product rationale was recorded.')}</div></div>
+      <div class="run-overview-item full"><div class="run-overview-label">Scope</div><div class="run-overview-value">${escapeHtml(overview.scope || 'No specification was recorded.')}</div></div>
+      <div class="run-overview-item full"><div class="run-overview-label">Files &amp; code</div><div class="run-overview-files">${overviewFiles || '<span class="run-overview-value">No changed files were recorded.</span>'}${overviewCodeArtifact ? `<button type="button" class="run-overview-link" onclick="showArtifact('${escapeHtml(r.run_id)}','${escapeHtml(overviewCodeArtifact)}')">Open code diff</button>` : ''}</div></div>
+      <div class="run-overview-item"><div class="run-overview-label">Result</div><div class="run-overview-value">${escapeHtml(overview.result || 'No final result was recorded.')}</div></div>
+      <div class="run-overview-item"><div class="run-overview-label">Evidence</div><div class="run-overview-value">${escapeHtml(overview.evidence || 'No verification evidence was recorded.')}</div>${overviewEvidenceArtifact ? `<button type="button" class="run-overview-link" onclick="showArtifact('${escapeHtml(r.run_id)}','${escapeHtml(overviewEvidenceArtifact)}')">Open verification</button>` : ''}${reliabilityHtml}</div>
+      <div class="run-overview-item full"><div class="run-overview-label">Next</div><div class="run-overview-value">${escapeHtml(overview.next || nextSafeAction)}</div></div>
+    </div>
+  </section>`;
+  const activityTitle = loopComplete ? 'Detailed work history' : `${STAGE_SHORT[Math.max(0, STAGE_NAMES.indexOf(selectedStage))] || selectedStage} activity`;
+  const activitySubtitle = loopComplete
+    ? 'Open a stage or worker step when you need the underlying technical evidence.'
+    : `${stageEntries.length} matching evidence item${stageEntries.length === 1 ? '' : 's'} · select another stage to inspect it`;
 
   return `
     <div class="active-card ${r.stage === 'blocked' ? 'blocked' : ''}">
@@ -1685,6 +1810,7 @@ function renderActive(r) {
           ${r.repo ? `<span class="active-repo">📁 ${escapeHtml(r.repo)}</span>` : ''}
         </div>
         <div class="run-header-actions">
+          ${viewCodeButton}
           <button type="button" class="files-button" aria-expanded="${FILES_DRAWER_OPEN}" onclick="toggleFilesDrawer()">Files <span class="files-count">${(r.artifacts || []).length}</span></button>
           <span class="stage-badge ${escapeHtml(r.stage)}">${escapeHtml(r.stage_label || r.stage)}</span>
           <span class="execution-status">${escapeHtml(r.execution_status || 'idle')}</span>
@@ -1695,15 +1821,15 @@ function renderActive(r) {
       </div>
       <div class="focused-workspace">
         ${operatorControls}
-        <section class="now-card ${escapeHtml(nowOutcome)}" aria-label="What is happening now">
+        ${loopComplete ? completedOverviewHtml : `<section class="now-card ${escapeHtml(nowOutcome)}" aria-label="What is happening now">
           <div class="now-kicker">Now</div>
           <span class="outcome-badge ${escapeHtml(nowOutcome)}">${escapeHtml(outcomeText(nowOutcome))}</span>
           <div class="now-headline">${escapeHtml(nowHeadline)}</div>
           <div class="now-latest"><strong>Next safe action:</strong> ${escapeHtml(nextSafeAction)}</div>
-        </section>
+        </section>`}
         <section class="activity-card" aria-label="Activity">
           <div class="activity-header">
-            <div><div class="activity-title">${escapeHtml(STAGE_SHORT[Math.max(0, STAGE_NAMES.indexOf(selectedStage))] || selectedStage)} activity</div><div class="activity-subtitle">${stageEntries.length} matching evidence item${stageEntries.length === 1 ? '' : 's'} · click another stage to inspect it</div></div>
+            <div><div class="activity-title">${escapeHtml(activityTitle)}</div><div class="activity-subtitle">${escapeHtml(activitySubtitle)}</div></div>
           </div>
           ${feedHtml ? `<div class="worker-feed-container" id="feed-container-${escapeHtml(r.run_id)}">${feedHtml}</div>` : stageEmptyHtml}
         </section>
@@ -1711,7 +1837,7 @@ function renderActive(r) {
       </div>
       <aside class="files-drawer ${FILES_DRAWER_OPEN ? 'open' : ''}" id="files-drawer-${escapeHtml(r.run_id)}" aria-label="Pipeline files">
         <div class="files-drawer-head">
-          <div><div class="files-drawer-title">Files</div><div class="files-drawer-copy">Stage artifacts and evidence</div></div>
+          <div><div class="files-drawer-title">Code &amp; files</div><div class="files-drawer-copy">Built code, stage artifacts, and evidence</div></div>
           <button type="button" class="files-close" aria-label="Close files drawer" onclick="closeFilesDrawer()">Close</button>
         </div>
         <div class="artifact-tree">${artifactTreeHtml || '<div class="files-empty">No artifacts recorded yet.</div>'}</div>
@@ -1801,8 +1927,19 @@ function selectWorkerOutput(cardEl, runId, options = {}) {
   const userPrompt = entry.user_prompt || '';
   const systemPrompt = entry.system_prompt || '';
   const usage = entry.usage || {};
-  const modelStr = entry.model ? escapeHtml(entry.model) : '';
+  const resolvedModel = entry.resolved_model || entry.model || '';
+  const resolvedModelRecorded = Boolean(entry.resolved_model_recorded);
+  const modelLabel = resolvedModelRecorded
+    ? `${resolvedModel}${entry.model && resolvedModel !== entry.model ? ` · routed by ${entry.model}` : ''}`
+    : (entry.model ? `Exact served model not recorded · route ${entry.model}` : 'Model not recorded');
+  const modelStr = escapeHtml(modelLabel);
   const isStreaming = entry.event === 'streaming';
+  const detail = entry.operator_detail || {};
+  const eventState = isStreaming ? 'Generating now' : (entry.event === 'started' && outcome === 'neutral' ? 'Started' : outcomeText(outcome));
+  const who = resolvedModelRecorded
+    ? `${humanRole(role)} using ${resolvedModel}`
+    : `${humanRole(role)}; exact served model not recorded${entry.model ? ` (route: ${entry.model})` : ''}`;
+  const how = detail.how || `${humanRole(role)} recorded this step${resolvedModel ? ` using ${resolvedModel}` : ''}.`;
   const metadata = JSON.stringify({
     entry_id: entry.entry_id,
     execution_status: entry.execution_status,
@@ -1811,6 +1948,8 @@ function selectWorkerOutput(cardEl, runId, options = {}) {
     category: entry.category,
     role: entry.role,
     model: entry.model,
+    resolved_model: resolvedModel,
+    resolved_model_recorded: resolvedModelRecorded,
     timestamp: entry.timestamp,
     usage,
     requested_max_tokens: entry.requested_max_tokens || null,
@@ -1818,7 +1957,7 @@ function selectWorkerOutput(cardEl, runId, options = {}) {
     token_cap_reached: Boolean(entry.token_cap_reached),
     has_reasoning: Boolean(reasoningContent),
   }, null, 2);
-  const nextAction = entry.next_safe_action || 'No next action recorded for this event.';
+  const nextAction = entry.next_safe_action || 'No separate follow-up was recorded for this step.';
   // Build tabs — add Thinking tab when reasoning content exists.
   const thinkingTab = reasoningContent
     ? `<button type="button" class="viewer-tab" data-output-tab="reasoning" role="tab" aria-selected="false" onclick="setOutputTab(this,'reasoning')">Thinking${isStreaming ? '<span class="card-live-dot"></span>' : ''}</button>`
@@ -1831,40 +1970,39 @@ function selectWorkerOutput(cardEl, runId, options = {}) {
       <div class="output-viewer-role">${escapeHtml(entry.summary || role)}${isStreaming ? '<span class="card-live-dot"></span>' : ''}</div>
       <div class="output-viewer-model">${modelStr}</div>
     </div>
-    <span class="outcome-badge ${escapeHtml(outcome)}">${isStreaming ? 'LIVE' : escapeHtml(outcomeText(outcome))}</span>
+    <span class="outcome-badge ${escapeHtml(outcome)}">${escapeHtml(eventState)}</span>
     <span class="output-viewer-time">${formatTime(entry.timestamp)}</span>
   </div>
   <div class="viewer-tabs" role="tablist" aria-label="Worker evidence views">
-    <button type="button" class="viewer-tab" data-output-tab="summary" role="tab" aria-selected="false" onclick="setOutputTab(this,'summary')">Summary</button>
+    <button type="button" class="viewer-tab" data-output-tab="summary" role="tab" aria-selected="false" onclick="setOutputTab(this,'summary')">Overview</button>
     ${thinkingTab}
-    <button type="button" class="viewer-tab" data-output-tab="raw" role="tab" aria-selected="false" onclick="setOutputTab(this,'raw')">${isStreaming ? 'Live output' : 'Raw evidence'}</button>
-    <button type="button" class="viewer-tab" data-output-tab="prompt" role="tab" aria-selected="false" onclick="setOutputTab(this,'prompt')">Prompt/context</button>
+    <button type="button" class="viewer-tab" data-output-tab="raw" role="tab" aria-selected="false" onclick="setOutputTab(this,'raw')">${isStreaming ? 'Live output' : 'Technical details'}</button>
+    <button type="button" class="viewer-tab" data-output-tab="prompt" role="tab" aria-selected="false" onclick="setOutputTab(this,'prompt')">Prompt &amp; context</button>
     <button type="button" class="viewer-tab" data-output-tab="metadata" role="tab" aria-selected="false" onclick="setOutputTab(this,'metadata')">Metadata</button>
   </div>
   <div class="viewer-panel output-summary-panel active" data-viewer-panel="summary" role="tabpanel">
-    <div class="output-summary-line">${escapeHtml(entry.summary || 'Worker evidence recorded.')}</div>
-    <div class="output-fact"><span class="output-fact-label">Outcome</span><span>${isStreaming ? 'Generating…' : escapeHtml(outcomeText(outcome))}</span></div>
-    <div class="output-fact"><span class="output-fact-label">Execution</span><span>${escapeHtml(entry.execution_status || entry.event || 'unknown')}</span></div>
-    <div class="output-fact"><span class="output-fact-label">Token budget</span><span>${escapeHtml(String(entry.requested_max_tokens || 'not recorded'))}</span></div>
-    <div class="output-fact"><span class="output-fact-label">Finish reason</span><span>${escapeHtml(entry.finish_reason || 'not recorded')}${entry.token_cap_reached ? ' · token cap reached' : ''}</span></div>
-    <div class="output-fact"><span class="output-fact-label">Decision</span><span>${escapeHtml(entry.decision || 'No explicit decision')}</span></div>
-    <div class="output-fact"><span class="output-fact-label">Next action</span><span>${escapeHtml(nextAction)}</span></div>
+    <div class="operator-detail"><div class="operator-detail-label">What happened</div><div class="operator-detail-value">${escapeHtml(detail.what || entry.summary || 'Worker evidence was recorded.')}</div></div>
+    <div class="operator-detail"><div class="operator-detail-label">Why</div><div class="operator-detail-value">${escapeHtml(detail.why || 'No separate reason was recorded for this step.')}</div></div>
+    <div class="operator-detail"><div class="operator-detail-label">How</div><div class="operator-detail-value">${escapeHtml(how)}</div></div>
+    <div class="operator-detail"><div class="operator-detail-label">Who</div><div class="operator-detail-value">${escapeHtml(who)}</div></div>
+    <div class="operator-detail"><div class="operator-detail-label">When</div><div class="operator-detail-value">${formatTime(entry.timestamp)}</div></div>
+    <div class="operator-detail"><div class="operator-detail-label">Evidence</div><div class="operator-detail-value">${escapeHtml(detail.evidence || 'No separate evidence reference was recorded for this step.')}</div></div>
+    <div class="operator-detail"><div class="operator-detail-label">Next</div><div class="operator-detail-value">${escapeHtml(nextAction)}</div></div>
   </div>
   ${reasoningPanel}
   <div class="viewer-panel output-viewer-content" data-viewer-panel="raw" role="tabpanel">${escapeHtml(content || (isStreaming ? 'Waiting for model output…' : 'No raw content for this event.'))}</div>
   <div class="viewer-panel output-viewer-prompt" data-viewer-panel="prompt" role="tabpanel"><strong>System context</strong>\\n${escapeHtml(systemPrompt || 'Not recorded')}\\n\\n<strong>User context</strong>\\n${escapeHtml(userPrompt || 'Not recorded')}</div>
   <div class="viewer-panel output-viewer-content" data-viewer-panel="metadata" role="tabpanel">${escapeHtml(metadata)}</div>`;
   viewer.dataset.entryId = entryId;
-  // For streaming entries, default to the raw "Live output" tab so the operator
-  // immediately sees content flowing. Don't override if the user already picked
-  // a different tab for this entry.
+  // Live work leads with the stream. Finished work leads with plain language.
+  // Never override a tab that the operator explicitly selected for this entry.
   const savedTab = OUTPUT_TABS[entryId];
   if (savedTab) {
     activateOutputTab(viewer, savedTab);
   } else if (isStreaming) {
     activateOutputTab(viewer, 'raw');
   } else {
-    activateOutputTab(viewer, 'raw');
+    activateOutputTab(viewer, 'summary');
   }
   // Auto-scroll the active panel to the bottom during streaming so the latest
   // content is always visible without manual scrolling.
@@ -2151,6 +2289,9 @@ let CHAT_SESSION_ID = typeof localStorage === 'undefined'
   : (localStorage.getItem('devflow.chat.session') || null);
 let CHAT_RUN_ID = null;
 let CHAT_IS_SENDING = false;
+let CHAT_RECOGNITION = null;
+let CHAT_DICTATION_BASE = '';
+let CHAT_DICTATION_LISTENING = false;
 
 function persistChatModelSelection() {
   const value = document.getElementById('chat-model-select').value;
@@ -2329,6 +2470,74 @@ function handleChatKey(event) {
   }
 }
 
+function setChatDictationState(message, listening=false) {
+  const button = document.getElementById('chat-mic-btn');
+  const state = document.getElementById('chat-dictation-state');
+  if (!button || !state) return;
+  CHAT_DICTATION_LISTENING = listening;
+  button.classList.toggle('listening', listening);
+  button.setAttribute('aria-pressed', String(listening));
+  button.setAttribute('aria-label', listening ? 'Stop dictation' : 'Start dictation');
+  button.title = listening ? 'Stop dictation' : 'Dictate into the brainstorm composer';
+  state.classList.toggle('listening', listening);
+  state.textContent = message;
+}
+
+function initializeChatDictation() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const button = document.getElementById('chat-mic-btn');
+  if (!button) return;
+  if (!Recognition) {
+    button.disabled = true;
+    setChatDictationState('Dictation unavailable in this browser. You can still type your message.');
+    button.title = 'Speech dictation is not available in this browser';
+    return;
+  }
+  CHAT_RECOGNITION = new Recognition();
+  CHAT_RECOGNITION.continuous = false;
+  CHAT_RECOGNITION.interimResults = true;
+  CHAT_RECOGNITION.lang = document.documentElement.lang || 'en-US';
+  CHAT_RECOGNITION.onstart = () => setChatDictationState('Listening… Speak now; select Stop when finished.', true);
+  CHAT_RECOGNITION.onresult = event => {
+    const transcript = Array.from(event.results)
+      .map(result => result[0]?.transcript || '')
+      .join(' ')
+      .trim();
+    const input = document.getElementById('chat-input');
+    input.value = [CHAT_DICTATION_BASE, transcript].filter(Boolean).join(' ');
+    autoResizeChatInput(input);
+  };
+  CHAT_RECOGNITION.onerror = event => {
+    const messages = {
+      'not-allowed': 'Microphone permission was denied. Enable it in the browser or type your message.',
+      'audio-capture': 'No working microphone was found. You can still type your message.',
+      'no-speech': 'No speech was detected. Select Mic to try again.',
+    };
+    setChatDictationState(messages[event.error] || `Dictation stopped: ${event.error || 'unknown error'}.`);
+  };
+  CHAT_RECOGNITION.onend = () => {
+    if (CHAT_DICTATION_LISTENING) setChatDictationState('Dictation ready. Review the text, then send.');
+  };
+  button.disabled = false;
+  button.title = 'Dictate into the brainstorm composer';
+  setChatDictationState('Dictation ready. Select Mic and speak.');
+}
+
+function toggleChatDictation() {
+  if (!CHAT_RECOGNITION) return;
+  if (CHAT_DICTATION_LISTENING) {
+    CHAT_RECOGNITION.stop();
+    setChatDictationState('Dictation ready. Review the text, then send.');
+    return;
+  }
+  CHAT_DICTATION_BASE = document.getElementById('chat-input').value.trim();
+  try {
+    CHAT_RECOGNITION.start();
+  } catch (error) {
+    setChatDictationState(`Dictation could not start: ${error.message || error}.`);
+  }
+}
+
 function autoResizeChatInput(el) {
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 140) + 'px';
@@ -2339,6 +2548,7 @@ async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
   if (!message) return;
+  if (CHAT_DICTATION_LISTENING && CHAT_RECOGNITION) CHAT_RECOGNITION.stop();
   const model = document.getElementById('chat-model-select').value;
 
   CHAT_IS_SENDING = true;
@@ -2400,6 +2610,7 @@ async function sendChatMessage() {
 // Initialize chat sidebar on load
 loadChatModels();
 loadChatSessions();
+initializeChatDictation();
 document.getElementById('chat-input').focus();
 </script>
 </body>

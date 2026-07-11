@@ -317,6 +317,52 @@ def test_verifier_uses_role_lifecycle_while_model_is_running(tmp_path, monkeypat
     assert VerifierLifecycleCaptureClient.observed_control["active_role"] == "verifier"
 
 
+def test_verifier_token_capped_pass_becomes_needs_review(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.verification, "builder_judge_passed": True}
+    )
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "build-manifest.json",
+        {"changed_files": [], "workspace": str(root)},
+    )
+    monkeypatch.setattr(
+        ex,
+        "_run_workspace_tests",
+        lambda *args, **kwargs: {
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "summary": "1 passed",
+            "working_directory": str(root),
+        },
+    )
+    monkeypatch.setattr(
+        ex,
+        "run_role",
+        lambda *args, **kwargs: ex.RoleResult(
+            role="verifier",
+            model="free-review-fleet",
+            endpoint="https://example.invalid/v1",
+            content=json.dumps({"status": "passed", "rationale": "looks good"}),
+            usage={},
+            raw={"finish_reason": "length", "token_cap_reached": True},
+        ),
+    )
+
+    receipt = ex.run_verifier(root, run_id, definition_of_done="Tests pass.")
+
+    assert receipt.status == ex.ver.VerificationStatus.needs_review
+    assert load_loop_state(root, run_id).stage == LoopStage.verification
+
+
 def test_verifier_prompt_includes_scope_and_prior_judge_evidence(tmp_path, monkeypatch):
     ReasoningCaptureClient.user_prompts = []
     root = tmp_path / "proj"
@@ -388,6 +434,155 @@ def test_role_prompts_are_model_agnostic_and_job_shaped():
     assert "supplied" in prompts["planner"].lower()
     assert "deterministic" in prompts["verifier"].lower()
     assert "contradict" in prompts["verifier"].lower()
+
+
+def test_planning_judge_report_records_result_model_and_generic_fallbacks(
+    tmp_path,
+    monkeypatch,
+):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.planning_judge}
+    )
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "spec.md", "bounded spec")
+    pr.update_pipeline_run_record(root, run_id, "plan.md", "bounded plan")
+    result = ex.RoleResult(
+        role="planning_judge",
+        model="free-review-fleet",
+        endpoint="https://example.invalid/v1",
+        content=json.dumps({"decision": "approve"}),
+        usage={},
+        raw={},
+    )
+    monkeypatch.setattr(ex, "run_role", lambda *args, **kwargs: result)
+    evidence = ex.pj.PlanningEvidence(
+        run_id=run_id,
+        plan_path="plan.md",
+        spec_path="spec.md",
+        target_files=["src/example.py"],
+        verification_command="python -m pytest tests/test_example.py -q",
+        files_exist=True,
+        has_verification=True,
+    )
+
+    returned_result, report = ex.run_planning_judge_model(
+        root,
+        run_id,
+        evidence=evidence,
+        planner_content="{}",
+        ensure_lane_on=False,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    report_entry = next(
+        entry for entry in feed if entry.get("role") == "planning_judge_report"
+    )
+    assert returned_result is result
+    assert report_entry["model"] == result.model
+    assert "Qwen" not in report.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    ("content", "raw"),
+    [
+        ('{"decision":"approve","repo_grounding":"partial"', {}),
+        (
+            json.dumps({"decision": "approve", "repo_grounding": "looks good"}),
+            {"finish_reason": "length", "token_cap_reached": True},
+        ),
+    ],
+)
+def test_planning_judge_incomplete_output_requires_revision(
+    tmp_path,
+    monkeypatch,
+    content,
+    raw,
+):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.planning_judge}
+    )
+    save_loop_state(root, state)
+    result = ex.RoleResult(
+        role="planning_judge",
+        model="free-review-fleet",
+        endpoint="https://example.invalid/v1",
+        content=content,
+        usage={},
+        raw=raw,
+    )
+    monkeypatch.setattr(ex, "run_role", lambda *args, **kwargs: result)
+    evidence = ex.pj.PlanningEvidence(
+        run_id=run_id,
+        plan_path="plan.md",
+        spec_path="spec.md",
+        target_files=["src/example.py"],
+        verification_command="python -m pytest tests/test_example.py -q",
+        files_exist=True,
+        has_verification=True,
+    )
+
+    _, report = ex.run_planning_judge_model(
+        root,
+        run_id,
+        evidence=evidence,
+        planner_content="{}",
+        ensure_lane_on=False,
+    )
+
+    assert report.decision == ex.pj.JudgeDecision.revise
+    assert "complete structured response" in report.next_safe_action
+    assert load_loop_state(root, run_id).stage == LoopStage.planning_judge
+
+
+@pytest.mark.parametrize(
+    ("content", "raw"),
+    [
+        ('{"status":"passed","rationale":"partial"', {}),
+        (
+            json.dumps({"status": "passed", "rationale": "looks good"}),
+            {"finish_reason": "length", "token_cap_reached": True},
+        ),
+    ],
+)
+def test_build_judge_incomplete_output_never_passes(
+    tmp_path,
+    monkeypatch,
+    content,
+    raw,
+):
+    root, run_id = _fresh_root(tmp_path)
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.build_judge}
+    )
+    save_loop_state(root, state)
+    result = ex.RoleResult(
+        role="judge",
+        model="free-review-fleet",
+        endpoint="https://example.invalid/v1",
+        content=content,
+        usage={},
+        raw=raw,
+    )
+    monkeypatch.setattr(ex, "run_role", lambda *args, **kwargs: result)
+
+    _, decision = ex.run_judge(
+        root,
+        run_id,
+        definition_of_done="The bounded change passes review.",
+        ensure_lane_on=False,
+    )
+
+    persisted = pr.load_pipeline_run(root, run_id)["judge-decision.json"]
+    assert decision == "needs_review"
+    assert persisted["status"] == "needs_review"
+    assert persisted["partial_output"] == content
+    assert load_loop_state(root, run_id).builder_judge_passed is False
 
 
 def test_subscription_client_requires_explicit_model_endpoint():

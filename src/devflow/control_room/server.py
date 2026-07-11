@@ -135,6 +135,169 @@ def _content_payload(content: object) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _detail_text(value: object, *, limit: int = 4000) -> str:
+    """Turn a structured worker field into bounded operator-readable text."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        text = value.strip()
+    elif isinstance(value, list):
+        text = ", ".join(str(item).strip() for item in value if str(item).strip())
+    elif isinstance(value, dict):
+        text = "; ".join(
+            f"{str(key).replace('_', ' ')}: {_detail_text(item, limit=1000)}"
+            for key, item in value.items()
+            if _detail_text(item, limit=1000)
+        )
+    else:
+        text = str(value).strip()
+    return text[:limit]
+
+
+def _first_detail(payload: dict, *keys: str) -> str:
+    for key in keys:
+        text = _detail_text(payload.get(key))
+        if text:
+            return text
+    return ""
+
+
+def _operator_detail(payload: dict, *, summary: str) -> dict[str, str]:
+    """Project common worker payload fields into a plain-language evidence view."""
+    return {
+        "what": _first_detail(payload, "summary", "spec", "message") or summary,
+        "why": _first_detail(
+            payload,
+            "rationale",
+            "reason",
+            "required_changes",
+            "task_boundaries",
+        ),
+        "how": _first_detail(
+            payload,
+            "plan",
+            "simpler_path",
+            "repo_grounding",
+            "verification_reality",
+        ),
+        "evidence": _first_detail(
+            payload,
+            "diff_evidence",
+            "target_files",
+            "verification_command",
+            "evidence_refs",
+        ),
+    }
+
+
+def _run_overview(data: dict, *, intent: str, stage: str) -> dict[str, object]:
+    """Summarize persisted product artifacts without replacing their source evidence."""
+    brainstorm = data.get("brainstorm.md")
+    why = ""
+    if isinstance(brainstorm, str) and "## User" in brainstorm:
+        why = brainstorm.partition("## User")[2].partition("## Assistant")[0].strip()
+
+    spec = _detail_text(data.get("spec.md"), limit=1800)
+    manifest = data.get("build-manifest.json")
+    changed_files = manifest.get("changed_files") if isinstance(manifest, dict) else []
+    if not isinstance(changed_files, list):
+        changed_files = []
+
+    human_record = next((
+        value for name, value in data.items()
+        if name.startswith("human-decision") and isinstance(value, dict)
+    ), {})
+    judge = data.get("judge-decision.json")
+    if not isinstance(judge, dict):
+        judge = {}
+    result = _first_detail(human_record, "summary") or _first_detail(
+        judge, "rationale", "status", "decision"
+    )
+
+    verification_name, verification = next((
+        (name, value) for name, value in data.items()
+        if isinstance(value, dict)
+        and ("verification" in name or name.startswith("verification-receipt"))
+        and (value.get("status") or value.get("summary") or value.get("command"))
+    ), ("", {}))
+    verification_summary = _detail_text(verification.get("summary"), limit=1600)
+    concise_verification = next((
+        line.strip() for line in verification_summary.splitlines()
+        if " passed" in line and (" in " in line or " failed" in line)
+    ), "")
+    evidence_parts = [
+        _first_detail(judge, "diff_evidence"),
+        " · ".join(part for part in [
+            _detail_text(verification.get("status")),
+            concise_verification,
+            _detail_text(verification.get("command")),
+        ] if part),
+    ]
+    evidence = "\n".join(part for part in evidence_parts if part)
+
+    loop_state = data.get("loop-state.json")
+    if not isinstance(loop_state, dict):
+        loop_state = {}
+    next_action = (
+        "No further action is required. Start the next bounded iteration when ready."
+        if stage == "complete"
+        else _detail_text(loop_state.get("next_human_decision"))
+    )
+    code_artifact = next((name for name in (
+        "build-diff.patch",
+        "build-manifest.json",
+    ) if data.get(name)), "")
+
+    overview: dict[str, object] = {
+        "product": intent or "No product intent was recorded.",
+        "why": why[:1200] or "No separate product rationale was recorded.",
+        "scope": spec or "No specification was recorded.",
+        "files": [str(path) for path in changed_files[:12]],
+        "code_artifact": code_artifact,
+        "result": result or "No final result was recorded.",
+        "evidence": evidence[:2600] or "No verification evidence was recorded.",
+        "evidence_artifact": verification_name,
+        "next": next_action or "Await the next orchestrator decision.",
+    }
+    reliability = data.get("reliability-report.json")
+    if isinstance(reliability, dict):
+        metrics = reliability.get("metrics")
+        thresholds = reliability.get("thresholds")
+        if not isinstance(metrics, dict):
+            metrics = {}
+        if not isinstance(thresholds, dict):
+            thresholds = {}
+        breached_metrics: list[str] = []
+        for metric, value in metrics.items():
+            threshold_name = f"max_{metric}"
+            limit = thresholds.get(threshold_name)
+            if (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and isinstance(limit, (int, float))
+                and not isinstance(limit, bool)
+                and value > limit
+            ):
+                breached_metrics.append(
+                    f"{str(metric).replace('_', ' ')}: {value} > threshold {limit}"
+                )
+        overview["reliability"] = {
+            "safe": bool(reliability.get("safe")),
+            "action": _detail_text(reliability.get("action")) or "unknown",
+            "breaches": [
+                str(item) for item in (reliability.get("breaches") or [])
+                if str(item).strip()
+            ][:12],
+            "breached_metrics": breached_metrics[:12],
+            "recovery_actions": [
+                str(item) for item in (reliability.get("recovery_actions") or [])
+                if str(item).strip()
+            ][:12],
+            "artifact": "reliability-report.json",
+        }
+    return overview
+
+
 def _semantic_outcome(event: str, payload: dict) -> tuple[str, str]:
     decision = str(
         payload.get("judge_decision")
@@ -186,7 +349,13 @@ def _entry_summary(role: str, event: str, payload: dict, outcome: str, decision:
     return f"{_human_role(role)} · {event.replace('_', ' ')}"
 
 
-def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
+def _project_worker_feed(
+    run_id: str,
+    stage: str,
+    feed: list[dict],
+    *,
+    execution_status: str = "running",
+) -> dict:
     """Project append-only worker evidence into stable operator-facing loops."""
     entries: list[dict] = []
     duplicate_counts: dict[str, int] = {}
@@ -197,6 +366,15 @@ def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
         event = str(rec.get("event") or "unknown")
         content = str(rec.get("content") or "")
         reasoning_content = str(rec.get("reasoning_content") or "")
+        usage = rec.get("usage") or {}
+        if not isinstance(usage, dict):
+            usage = {}
+        recorded_resolved_model = (
+            rec.get("resolved_model")
+            or rec.get("actual_model")
+            or usage.get("actual_model")
+        )
+        resolved_model = str(recorded_resolved_model or rec.get("model") or "")
         payload = _content_payload(content)
         outcome, decision = _semantic_outcome(event, payload)
         # Streaming entries get a STABLE fingerprint: exclude the volatile
@@ -227,6 +405,7 @@ def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
             or payload.get("planning_next_action")
             or ""
         )
+        summary = _entry_summary(role, event, payload, outcome, decision)
         entries.append({
             "entry_id": entry_id,
             "source_index": raw_index,
@@ -239,17 +418,45 @@ def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
             "stages": _entry_stages(role),
             "role": role,
             "model": str(rec.get("model") or ""),
-            "summary": _entry_summary(role, event, payload, outcome, decision),
+            "resolved_model": resolved_model,
+            "resolved_model_recorded": bool(recorded_resolved_model),
+            "summary": summary,
+            "operator_detail": _operator_detail(payload, summary=summary),
             "next_safe_action": next_action,
             "content": content[:64000],
             "system_prompt": str(rec.get("system_prompt") or "")[:1000],
             "user_prompt": str(rec.get("user_prompt") or "")[:4000],
-            "usage": rec.get("usage") or {},
+            "usage": usage,
             "requested_max_tokens": rec.get("requested_max_tokens"),
             "finish_reason": str(rec.get("finish_reason") or ""),
             "token_cap_reached": bool(rec.get("token_cap_reached")),
             "reasoning_content": reasoning_content[:64000] if reasoning_content else "",
         })
+
+    active_execution = execution_status in {"running", "cancelling", "stalled"}
+    terminal_events = {"completed", "failed", "cancelled", "loop_exhausted"}
+    for index, entry in enumerate(entries):
+        if entry["event"] != "started":
+            continue
+        matching_terminal = None
+        for later in entries[index + 1:]:
+            if later["role"] != entry["role"]:
+                continue
+            if later["event"] == "started":
+                break
+            if later["event"] in terminal_events:
+                matching_terminal = later
+                break
+        has_terminal = matching_terminal is not None
+        if matching_terminal and matching_terminal["resolved_model_recorded"]:
+            entry["resolved_model"] = matching_terminal["resolved_model"]
+            entry["resolved_model_recorded"] = True
+        if execution_status == "stalled" and not has_terminal:
+            entry["outcome"] = "stalled"
+            entry["decision"] = ""
+        elif has_terminal or not active_execution:
+            entry["outcome"] = "neutral"
+            entry["decision"] = ""
 
     loops: list[dict] = []
     current_by_category: dict[str, dict] = {}
@@ -303,13 +510,23 @@ def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
         })
 
     desired_category = _stage_worker_category(stage)
-    current = next((loop for loop in reversed(loops) if loop["category"] == desired_category), None)
-    if current is None and loops:
-        current = loops[-1]
+    latest = None if stage in {"complete", "human_decision"} else next(
+        (loop for loop in reversed(loops) if loop["category"] == desired_category),
+        None,
+    )
+    if latest is None and loops:
+        latest = loops[-1]
+    current = latest if active_execution else None
     current_id = current["loop_id"] if current else ""
     for loop in loops:
         loop["is_current"] = loop["loop_id"] == current_id
-    return {"entries": entries, "loops": loops, "current": current}
+    if execution_status == "stalled" and current:
+        current.update({
+            "outcome": "stalled",
+            "summary": "Worker stopped reporting progress",
+            "next_safe_action": "Inspect partial output and process ownership before retrying.",
+        })
+    return {"entries": entries, "loops": loops, "current": current, "latest": latest}
 
 
 class StatusServer(ThreadingHTTPServer):
@@ -994,7 +1211,9 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
     feed_entries: list[dict] = []
     worker_feed_total = 0
     worker_feed_truncated = False
-    worker_projection: dict = {"entries": [], "loops": [], "current": None}
+    worker_projection: dict = {"entries": [], "loops": [], "current": None, "latest": None}
+    source_feed: list[dict] = []
+    live_output: object = None
     feed = data.get("worker-feed.jsonl") or []
     if isinstance(feed, list):
         valid_feed = [rec for rec in feed if isinstance(rec, dict)]
@@ -1002,7 +1221,10 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
         worker_feed_truncated = worker_feed_total > 1000
         source_feed = valid_feed[-1000:]
         live_output = data.get("worker-live.json")
-        if isinstance(live_output, dict) and (
+        live_output_is_relevant = execution_status in {"running", "cancelling", "stalled"} or (
+            isinstance(live_output, dict) and live_output.get("status") == "stalled"
+        )
+        if isinstance(live_output, dict) and live_output_is_relevant and (
             live_output.get("content") or live_output.get("reasoning_content")
         ):
             source_feed.append({
@@ -1010,9 +1232,6 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
                 "event": live_output.get("event") or "streaming",
                 "timestamp": live_output.get("updated_at", ""),
             })
-        worker_projection = _project_worker_feed(run_id, stage, source_feed)
-        feed_entries = worker_projection["entries"][-1000:]
-
         if execution_status in {"", "idle", "running"} and source_feed:
             latest_started_index = next(
                 (i for i in range(len(source_feed) - 1, -1, -1)
@@ -1048,12 +1267,14 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
         pid = int(control.get("pid") or 0)
         if pid and not _pid_is_alive(pid):
             execution_status = "cancelled"
-    if execution_status == "stalled" and worker_projection.get("current"):
-        worker_projection["current"].update({
-            "outcome": "stalled",
-            "summary": "Worker stopped reporting progress",
-            "next_safe_action": "Inspect partial output and process ownership before retrying.",
-        })
+    if source_feed:
+        worker_projection = _project_worker_feed(
+            run_id,
+            stage,
+            source_feed,
+            execution_status=execution_status,
+        )
+        feed_entries = worker_projection["entries"][-1000:]
 
     return {
         "run_id": run_id,
@@ -1072,6 +1293,7 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
         "worker_feed_visible": len(feed_entries),
         "worker_feed_truncated": worker_feed_truncated,
         "worker_projection": worker_projection,
+        "run_overview": _run_overview(data, intent=intent[:200], stage=stage),
         "execution_status": execution_status,
         "execution_control": control,
         "can_reclaim_lock": False,

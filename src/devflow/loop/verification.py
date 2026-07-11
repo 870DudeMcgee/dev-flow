@@ -14,9 +14,13 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from devflow.loop.pipeline_run import update_pipeline_run_record
+from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
 from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.models import DevFlowLoopState, LoopStage, advance_stage
+from devflow.loop.reliability import (
+    attest_verification_receipt,
+    verification_attestation_name,
+)
 
 
 class VerificationStatus(str, Enum):
@@ -76,9 +80,24 @@ def record_verification_receipt(
     # Write receipt JSON into the pipeline run directory
     receipt_file_name = f"verification-receipt-{receipt.receipt_id}.json"
     receipt_json = receipt.model_dump_json(indent=2, ensure_ascii=False)
+    run_data = load_pipeline_run(root, receipt.run_id)
+    existing_receipt = run_data.get(receipt_file_name)
+    expected_receipt = receipt.model_dump(mode="json")
+    if existing_receipt is not None and existing_receipt != expected_receipt:
+        raise ValueError(
+            f"Conflicting verification receipt replay: {receipt.receipt_id}"
+        )
+    if (
+        existing_receipt is not None
+        and run_data.get(verification_attestation_name(receipt_file_name)) is None
+    ):
+        raise ValueError(
+            "Legacy verification receipt requires explicit reliability migration."
+        )
     update_pipeline_run_record(
         root, receipt.run_id, receipt_file_name, receipt_json
     )
+    attest_verification_receipt(root, receipt.run_id, receipt_file_name)
 
     # Append receipt path to state if not already present (idempotent)
     receipt_path = receipt_file_name

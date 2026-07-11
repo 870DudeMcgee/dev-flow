@@ -15,9 +15,10 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from devflow.loop.pipeline_run import update_pipeline_run_record
+from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
 from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.models import DevFlowLoopState, LoopStage
+from devflow.loop.reliability import record_reliability_report
 
 
 ALLOWED_CONTINUE_WORK_TARGETS = frozenset(
@@ -96,6 +97,28 @@ def record_human_decision(
             raise ValueError(
                 f"Expected stage human_decision, got "
                 f"{state.stage.value}. Cannot record decision at current stage."
+            )
+
+    if decision_completes_loop(record):
+        if not state.builder_judge_passed:
+            raise ValueError(
+                "Cannot complete loop without a passing builder/judge gate."
+            )
+        run_data = load_pipeline_run(root, record.run_id)
+        has_passing_receipt = any(
+            isinstance(run_data.get(receipt_path), dict)
+            and run_data[receipt_path].get("status") == "passed"
+            for receipt_path in state.verification_receipts
+        )
+        if not has_passing_receipt:
+            raise ValueError(
+                "Cannot complete loop without a passing verification receipt."
+            )
+        reliability = record_reliability_report(root, record.run_id)
+        if not reliability.safe:
+            raise ValueError(
+                "Cannot complete loop because the reliability gate failed: "
+                + "; ".join(reliability.breaches)
             )
 
     # Write record JSON into the pipeline run directory

@@ -45,6 +45,11 @@ architecture back into the active surface.
 4. Do not start local model servers blindly. Check live fleet state through the approved model-router workflow first.
 5. Do not push, publish, open a PR, or promote work without explicit human approval.
 6. Keep active documentation sparse. Update the source of truth, this guide, or README only when the current behavior changes.
+7. When the human asks for delegated work, give sub-agents bounded reading,
+   evidence, or implementation slices and keep the primary agent responsible
+   for integration and proof. Prefer the cheapest capable worker when the
+   orchestration surface exposes model or cost selection; do not imply that a
+   model was selected when the surface does not expose that control.
 
 ## Verification
 

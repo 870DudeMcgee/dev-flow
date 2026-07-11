@@ -69,12 +69,18 @@ export OPENROUTER_API_KEY="..."
 
 `mini-free-cloud` routes every V2 text role to the zero-cost OpenRouter HY3
 worker, so it does not load a local model. The `cloud-free-fast` profile uses
-three ordered OpenRouter `:free` fleets: HY3-led brainstorm/planning, a
-Qwen-Coder-led builder lane, and a disjoint Gemma/Nemotron review lane. All
+three ordered OpenRouter `:free` fleets: HY3-first brainstorm/planning, an
+HY3-first builder lane backed by Gemma 4 26B and Laguna M.1, and a disjoint
+Nemotron-Nano-first review lane backed by Gemma 4 31B, with Nemotron Super only
+as a last-resort availability fallback. Nano is the fastest reviewer proven by
+DevFlow runs; Gemma 4 31B remains quality-unproven because its bounded live
+audition was rate-limited, and Super repeatedly returned unusable judge output. All
 fallbacks remain cloud-only and zero-token-cost, actual routed models are
 recorded in usage evidence, and the builder fleet never judges its own work.
-Poolside Laguna M.1 is
-registered under the exact free slug `poolside/laguna-m.1:free`. The
+Poolside Laguna M.1 is registered under the exact free slug
+`poolside/laguna-m.1:free`. OpenRouter's HY3 free alias is currently scheduled
+to expire on July 21, 2026, and free endpoints have no availability SLA, so the
+fleet must be re-auditioned before each production-readiness batch. The
 `mini-laguna-builder` audition profile remains the mixed local/cloud comparison
 profile. OpenRouter advertises tool calling and reasoning but not API-enforced
 response-format support, so Laguna's structured-output capability here refers

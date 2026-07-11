@@ -64,11 +64,11 @@ profiles:
 
   # -----------------------------------------------------------------
   # Cloud-free-fast: cloud-only, zero-incremental-cost dogfood fleet.
-  # Ordered OpenRouter :free fleets keep planning, building, and review
-  # cloud-only while preserving independent builder/judge model sets.
+  # Ordered OpenRouter :free fleets keep HY3-first planning and building plus
+  # independent review cloud-only while preserving disjoint builder/judge sets.
   # -----------------------------------------------------------------
   cloud-free-fast:
-    description: "Cloud-only zero-cost path with fast reasoning, code, and independent review fleets."
+    description: "Cloud-only zero-cost path with HY3-first reasoning and code plus an independent review fleet."
     roles:
       planner: "free-fast-reasoning-fleet"
       planning_judge: "free-review-fleet"

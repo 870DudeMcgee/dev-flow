@@ -267,9 +267,9 @@ models:
     transport: openai-http
     endpoint: "https://openrouter.ai/api/v1"
     cost_class: free_cloud
-    context_window: 32768
+    context_window: 262144
     structured_output: true
-    tool_support: false
+    tool_support: true
     auth_method: openrouter-key
     available: true
     model_id: "tencent/hy3:free"
@@ -292,7 +292,7 @@ models:
       - evidence_synthesis
       - decision_making
       - ambiguity_resolution
-    notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active."
+    notes: "OpenRouter free-tier cloud worker. All-role-capable MoE 295B/21B active. The free alias expires 2026-07-21 and has no availability SLA; re-audition before each readiness batch."
 
   laguna-m1-free:
     display_name: "Poolside Laguna M.1 (OpenRouter free)"
@@ -360,16 +360,16 @@ models:
     tool_support: false
     auth_method: openrouter-key
     available: true
-    model_id: "qwen/qwen3-coder:free"
+    model_id: "tencent/hy3:free"
     fallback_model_ids:
       - "google/gemma-4-26b-a4b-it:free"
-      - "tencent/hy3:free"
+      - "poolside/laguna-m.1:free"
     capabilities:
       - code_generation
       - structured_output
       - edit_planning
       - repository_awareness
-    notes: "Pinned zero-cost builder fleet. Qwen Coder is primary; Gemma 4 and HY3 absorb rate-limit or availability failures."
+    notes: "Pinned zero-cost builder fleet. HY3 is the evidence-backed fast primary; Gemma 4 26B and Laguna M.1 provide ordered capacity fallbacks. Free endpoints have no availability SLA."
 
   free-review-fleet:
     display_name: "Independent Free Review Fleet (OpenRouter)"
@@ -382,9 +382,9 @@ models:
     tool_support: false
     auth_method: openrouter-key
     available: true
-    model_id: "google/gemma-4-31b-it:free"
+    model_id: "nvidia/nemotron-3-nano-30b-a3b:free"
     fallback_model_ids:
-      - "nvidia/nemotron-3-nano-30b-a3b:free"
+      - "google/gemma-4-31b-it:free"
       - "nvidia/nemotron-3-super-120b-a12b:free"
     capabilities:
       - spec_review
@@ -398,4 +398,4 @@ models:
       - high_level_reasoning
       - evidence_synthesis
       - decision_making
-    notes: "Pinned zero-cost judge/verifier fleet, disjoint from the code fleet. Nano is the fast capacity fallback; Super is the final quality fallback."
+    notes: "Pinned zero-cost judge/verifier fleet. Nemotron Nano is the evidence-backed speed primary; Gemma 4 31B is an availability fallback pending a successful quality audition; Nemotron Super is last-resort only after repeated empty or token-capped judge output. Runtime reliability checks enforce actual served-family independence. Free endpoints have no availability SLA."

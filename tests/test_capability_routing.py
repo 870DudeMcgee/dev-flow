@@ -431,6 +431,18 @@ class TestProfiles:
 
         builder = resolve_role("builder", profile_name="cloud-free-fast")
         judge = resolve_role("build_judge", profile_name="cloud-free-fast")
+        planner = resolve_role("planner", profile_name="cloud-free-fast")
+        assert planner.model_id == "tencent/hy3:free"
+        assert builder.model_id == "tencent/hy3:free"
+        assert builder.fallback_model_ids == (
+            "google/gemma-4-26b-a4b-it:free",
+            "poolside/laguna-m.1:free",
+        )
+        assert judge.model_id == "nvidia/nemotron-3-nano-30b-a3b:free"
+        assert judge.fallback_model_ids == (
+            "google/gemma-4-31b-it:free",
+            "nvidia/nemotron-3-super-120b-a12b:free",
+        )
         assert set((builder.model_id, *builder.fallback_model_ids)).isdisjoint(
             (judge.model_id, *judge.fallback_model_ids)
         )
@@ -464,6 +476,9 @@ class TestProfiles:
         assert entry is not None
         assert entry.cost_class == "free_cloud"
         assert entry.model_id.endswith(":free")
+        assert entry.context_window == 262144
+        assert entry.tool_support is True
+        assert "2026-07-21" in entry.notes
 
     def test_laguna_free_entry_uses_canonical_openrouter_slug(self):
         entry = get_registry().get("laguna-m1-free")

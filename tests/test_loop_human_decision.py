@@ -15,6 +15,7 @@ from devflow.loop.human_decision import (
     record_human_decision,
     decision_completes_loop,
 )
+from devflow.loop.reliability import attest_verification_receipt
 
 
 @pytest.fixture
@@ -48,10 +49,30 @@ def setup_state(
     root,
     run_id,
     stage: LoopStage,
+    *,
+    builder_judge_passed: bool = False,
+    verification_statuses: tuple[str, ...] = (),
 ) -> tuple:
     """Setup a pipeline run with a given loop stage."""
     state = new_loop_state(run_id)
-    state = state.model_copy(update={"stage": stage})
+    receipt_paths = []
+    for index, status in enumerate(verification_statuses, start=1):
+        receipt_path = f"verification-receipt-vr-{index}.json"
+        update_pipeline_run_record(
+            root,
+            run_id,
+            receipt_path,
+            {"run_id": run_id, "receipt_id": f"vr-{index}", "status": status},
+        )
+        attest_verification_receipt(root, run_id, receipt_path)
+        receipt_paths.append(receipt_path)
+    state = state.model_copy(
+        update={
+            "stage": stage,
+            "builder_judge_passed": builder_judge_passed,
+            "verification_receipts": receipt_paths,
+        }
+    )
     state_json = state.model_dump_json(indent=2, ensure_ascii=False)
     update_pipeline_run_record(
         root, run_id, "loop-state.json", state_json
@@ -117,7 +138,13 @@ class TestHumanDecisionRecord:
 # ---------------------------------------------------------------------------
 class TestRecordHumanDecision:
     def test_accept_transitions_to_complete(self, tmp_run) -> None:
-        root, run_id, _ = setup_state(tmp_run[0], tmp_run[1], LoopStage.human_decision)
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+            verification_statuses=("passed",),
+        )
         record = make_record(run_id, decision=HumanDecision.accept)
         new_state, recorded = record_human_decision(root, record)
 
@@ -125,7 +152,13 @@ class TestRecordHumanDecision:
         assert recorded.decision == HumanDecision.accept
 
     def test_complete_transitions_to_complete(self, tmp_run) -> None:
-        root, run_id, _ = setup_state(tmp_run[0], tmp_run[1], LoopStage.human_decision)
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+            verification_statuses=("passed",),
+        )
         record = make_record(run_id, decision=HumanDecision.complete)
         new_state, recorded = record_human_decision(root, record)
 
@@ -195,8 +228,85 @@ class TestRecordHumanDecision:
         with pytest.raises(ValueError, match="Expected stage human_decision"):
             record_human_decision(root, record)
 
+        run_dir = root / ".devflow" / "pipeline-runs" / run_id
+        assert not (run_dir / "human-decision-hd-001.json").exists()
+
+    @pytest.mark.parametrize(
+        "decision",
+        [HumanDecision.accept, HumanDecision.complete],
+    )
+    def test_completion_rejects_missing_builder_judge_gate(
+        self,
+        tmp_run,
+        decision: HumanDecision,
+    ) -> None:
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            verification_statuses=("passed",),
+        )
+        record = make_record(run_id, decision=decision)
+
+        with pytest.raises(ValueError, match="passing builder/judge gate"):
+            record_human_decision(root, record)
+
+        run_dir = root / ".devflow" / "pipeline-runs" / run_id
+        assert not (run_dir / "human-decision-hd-001.json").exists()
+
+    def test_accept_rejects_missing_verification_receipt(self, tmp_run) -> None:
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+        )
+        record = make_record(run_id)
+
+        with pytest.raises(ValueError, match="passing verification receipt"):
+            record_human_decision(root, record)
+
+        run_dir = root / ".devflow" / "pipeline-runs" / run_id
+        assert not (run_dir / "human-decision-hd-001.json").exists()
+
+    def test_accept_rejects_only_nonpassing_verification_receipts(self, tmp_run) -> None:
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+            verification_statuses=("failed", "needs_review"),
+        )
+        record = make_record(run_id)
+
+        with pytest.raises(ValueError, match="passing verification receipt"):
+            record_human_decision(root, record)
+
+        run_dir = root / ".devflow" / "pipeline-runs" / run_id
+        assert not (run_dir / "human-decision-hd-001.json").exists()
+
+    def test_accept_allows_a_passing_receipt_after_a_failed_receipt(self, tmp_run) -> None:
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+            verification_statuses=("failed", "passed"),
+        )
+        record = make_record(run_id)
+
+        new_state, _ = record_human_decision(root, record)
+
+        assert new_state.stage == LoopStage.complete
+
     def test_writes_human_decision_file(self, tmp_run) -> None:
-        root, run_id, _ = setup_state(tmp_run[0], tmp_run[1], LoopStage.human_decision)
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+            verification_statuses=("passed",),
+        )
         record = make_record(run_id, decision_id="hd-001")
 
         record_human_decision(root, record)
@@ -210,7 +320,13 @@ class TestRecordHumanDecision:
         assert data["decision"] == "accept"
 
     def test_next_human_decision_set_to_summary(self, tmp_run) -> None:
-        root, run_id, _ = setup_state(tmp_run[0], tmp_run[1], LoopStage.human_decision)
+        root, run_id, _ = setup_state(
+            tmp_run[0],
+            tmp_run[1],
+            LoopStage.human_decision,
+            builder_judge_passed=True,
+            verification_statuses=("passed",),
+        )
         record = make_record(run_id, summary="Great work!")
         new_state, _ = record_human_decision(root, record)
 

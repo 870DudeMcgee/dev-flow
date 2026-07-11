@@ -223,16 +223,20 @@ the status board lets the operator start brainstorm conversations with any
 eligible model in the registry. Chat sessions create pipeline runs at the idea
 stage and persist transcripts through the same brainstorm filesystem layer that
 Hermes uses. The chat panel's model selector determines which model serves the
-brainstorm role; the selection persists per session.
+brainstorm role; the selection persists per session. The composer offers browser
+speech dictation when the current browser supports it and clearly reports when
+dictation is unavailable.
 
 Worker evidence must distinguish execution status from product outcome. A
 finished model call or dispatch is not a successful result when its judge
 failed, the loop exhausted its retry cap, or verification did not pass. The
 status board presents active runs as a compact queue with exactly one focused
-workspace. It leads with live model output while a role is running and raw
-evidence after completion, then keeps summary, prompt/context, metadata, token
-budget, token usage, and finish reason available without hiding the source
-evidence.
+workspace. It leads with live model output while a role is running and a
+plain-language product overview after completion: intent, rationale, scope,
+changed files, result, verification evidence, and next action. Worker evidence
+names the resolved model that actually served the call as well as its configured
+route. Raw output, prompt/context, metadata, token budget, token usage, finish
+reason, and built code remain available as secondary source evidence.
 
 The focused workspace leads with a plain-language `Now` outcome and the next
 safe action, followed by chronological `Activity`. Stage artifacts live in a
@@ -248,6 +252,20 @@ group immediately; neither action stops a shared model server. Incomplete role
 events with no live owner become `stalled`, and stale local-model locks may be
 reclaimed only after owner validation. Partial model output remains inspectable
 after failure or cancellation.
+
+Final acceptance is also gated by a persisted reliability report. Verification
+receipts are immutable by receipt ID and carry local SHA-256 integrity
+attestations. These detect accidental or single-file modification inside the
+local trust boundary; they are not cryptographic proof against an attacker who
+can rewrite both a receipt and its attestation. Within that stated boundary,
+receipt tampering, unexpected routing changes, concurrent or replayed role
+events, missing or out-of-fleet provider-served model identity, builder/reviewer
+correlated model-family overlap, unresolved ownership, and provider faults beyond the recorded
+threshold fail closed. Critical integrity or routing breaches recommend
+rollback, while a validated dead-owner recovery records interrupted roles as
+failed evidence before releasing ownership for an explicit retry. Receipts
+created before this gate require an explicit operator-confirmed local-attestation
+migration with an audit note; they are never silently trusted or discarded.
 
 Builder work is file-producing, bounded, and isolated. A builder packet may
 touch at most six declared files. Multi-file output must be a complete unified

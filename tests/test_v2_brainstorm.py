@@ -254,6 +254,184 @@ def test_worker_feed_projection_returns_stable_loop_and_entry_ids() -> None:
     assert first["entries"][-1]["stages"] == ["planning_judge"]
 
 
+def test_completed_idle_projection_has_no_running_history_and_explains_judge() -> None:
+    feed = [
+        {
+            "timestamp": "2026-07-11T16:22:07+00:00",
+            "event": "started",
+            "role": "builder",
+            "model": "free-code-fleet",
+        },
+        {
+            "timestamp": "2026-07-11T16:22:40+00:00",
+            "event": "completed",
+            "role": "builder",
+            "model": "free-code-fleet",
+            "content": "builder finished",
+        },
+        {
+            "timestamp": "2026-07-11T16:22:41+00:00",
+            "event": "started",
+            "role": "judge",
+            "model": "free-review-fleet",
+        },
+        {
+            "timestamp": "2026-07-11T16:22:48+00:00",
+            "event": "completed",
+            "role": "judge",
+            "model": "free-review-fleet",
+            "content": (
+                '{"status":"passed","rationale":"The change satisfies the contract.",'
+                '"diff_evidence":"src/example.py and tests/test_example.py"}'
+            ),
+            "usage": {"actual_model": "provider/exact-review-model:free"},
+        },
+    ]
+
+    info = _extract_run_info(
+        "run-complete",
+        {
+            "loop-state.json": {"stage": "complete"},
+            "intent.md": "# Intent\n\nDeterministic completion confidence",
+            "brainstorm.md": "# Brainstorm Transcript\n\n## User\n\nMake completion decisions auditable.\n\n## Assistant\n\nUnderstood.",
+            "spec.md": "Add one deterministic completion function with focused branch tests.",
+            "execution-control.json": {"status": "idle"},
+            "worker-feed.jsonl": feed,
+            "build-manifest.json": {
+                "changed_files": ["src/example.py", "tests/test_example.py"],
+            },
+            "build-diff.patch": "diff --git a/src/example.py b/src/example.py",
+            "judge-decision.json": {
+                "status": "passed",
+                "rationale": "The change satisfies the contract.",
+                "diff_evidence": "src/example.py and tests/test_example.py",
+            },
+            "build-verification.json": {
+                "status": "passed",
+                "summary": "6 passed in 0.08s",
+                "command": "python -m pytest tests/test_example.py",
+            },
+            "human-decision-accept.json": {
+                "decision": "accept",
+                "summary": "Accepted after independent review and tests.",
+            },
+            "worker-live.json": {
+                "status": "running",
+                "event": "streaming",
+                "role": "judge",
+                "content": "stale live output",
+            },
+        },
+    )
+
+    assert info["execution_status"] == "idle"
+    assert info["worker_projection"]["current"] is None
+    assert info["worker_projection"]["latest"]["outcome"] == "passed"
+    assert len(info["worker_feed"]) == len(feed)
+    assert all(entry["outcome"] != "running" for entry in info["worker_feed"])
+    judge = info["worker_feed"][-1]
+    assert judge["resolved_model"] == "provider/exact-review-model:free"
+    assert judge["resolved_model_recorded"] is True
+    assert judge["operator_detail"]["why"] == "The change satisfies the contract."
+    assert judge["operator_detail"]["evidence"] == "src/example.py and tests/test_example.py"
+    assert info["run_overview"] == {
+        "product": "Deterministic completion confidence",
+        "why": "Make completion decisions auditable.",
+        "scope": "Add one deterministic completion function with focused branch tests.",
+        "files": ["src/example.py", "tests/test_example.py"],
+        "code_artifact": "build-diff.patch",
+        "result": "Accepted after independent review and tests.",
+        "evidence": (
+            "src/example.py and tests/test_example.py\n"
+            "passed · 6 passed in 0.08s · python -m pytest tests/test_example.py"
+        ),
+        "evidence_artifact": "build-verification.json",
+        "next": "No further action is required. Start the next bounded iteration when ready.",
+    }
+
+
+def test_active_projection_marks_only_unmatched_current_start_running() -> None:
+    feed = [
+        {"timestamp": "2026-07-11T10:00:00+00:00", "event": "started", "role": "builder"},
+        {"timestamp": "2026-07-11T10:00:10+00:00", "event": "completed", "role": "builder"},
+        {"timestamp": "2026-07-11T10:00:11+00:00", "event": "started", "role": "builder"},
+    ]
+
+    projected = _project_worker_feed(
+        "run-active",
+        "build_judge",
+        feed,
+        execution_status="running",
+    )
+
+    assert [entry["outcome"] for entry in projected["entries"]] == [
+        "neutral",
+        "completed",
+        "running",
+    ]
+    assert projected["current"] is projected["latest"]
+    assert projected["current"]["is_current"] is True
+
+
+def test_historical_start_inherits_exact_model_from_its_matching_terminal_event() -> None:
+    feed = [
+        {
+            "timestamp": "2026-07-11T16:22:07+00:00",
+            "event": "started",
+            "role": "builder",
+            "model": "free-code-fleet",
+        },
+        {
+            "timestamp": "2026-07-11T16:22:40+00:00",
+            "event": "completed",
+            "role": "builder",
+            "model": "free-code-fleet",
+            "usage": {"actual_model": "google/gemma-4-26b-a4b-it:free"},
+        },
+    ]
+
+    projected = _project_worker_feed(
+        "20260711-162136",
+        "complete",
+        feed,
+        execution_status="idle",
+    )
+
+    started, completed = projected["entries"]
+    assert started["resolved_model"] == "google/gemma-4-26b-a4b-it:free"
+    assert started["resolved_model_recorded"] is True
+    assert completed["resolved_model"] == "google/gemma-4-26b-a4b-it:free"
+    assert started["model"] == completed["model"] == "free-code-fleet"
+
+
+def test_completed_overview_projects_persisted_reliability_evidence() -> None:
+    info = _extract_run_info(
+        "run-with-reliability",
+        {
+            "loop-state.json": {"stage": "complete"},
+            "intent.md": "# Intent\n\nReliability-gated release",
+            "reliability-report.json": {
+                "safe": False,
+                "action": "rollback",
+                "breaches": ["provider fault threshold exceeded"],
+                "metrics": {"provider_faults": 3, "routing_drifts": 0},
+                "thresholds": {"max_provider_faults": 2, "max_routing_drifts": 0},
+                "recovery_actions": ["Rollback to the last accepted source state."],
+            },
+        },
+    )
+
+    assert "reliability-report.json" in info["artifacts"]
+    assert info["run_overview"]["reliability"] == {
+        "safe": False,
+        "action": "rollback",
+        "breaches": ["provider fault threshold exceeded"],
+        "breached_metrics": ["provider faults: 3 > threshold 2"],
+        "recovery_actions": ["Rollback to the last accepted source state."],
+        "artifact": "reliability-report.json",
+    }
+
+
 def test_artifact_endpoint_serves_and_guards(repo_root: Path) -> None:
     """The /api/artifact endpoint serves real file content and blocks traversal."""
     import io
@@ -371,11 +549,12 @@ def test_status_page_uses_full_height_scroll_regions() -> None:
 
 
 def test_status_page_groups_worker_outputs_by_loop_and_preserves_expansion() -> None:
-    """Worker output rail leads with the current outcome and keeps raw evidence secondary."""
+    """Worker output rail leads with the latest outcome and keeps technical evidence secondary."""
     assert "Current loop outcome" in STATUS_PAGE_HTML
     assert "worker-current-summary" in STATUS_PAGE_HTML
     assert "Attempts &amp; decisions" in STATUS_PAGE_HTML
-    assert "Raw evidence" in STATUS_PAGE_HTML
+    assert "Technical details" in STATUS_PAGE_HTML
+    assert "Latest " in STATUS_PAGE_HTML
     assert "r.worker_projection" in STATUS_PAGE_HTML
     assert "worker-loop-group" in STATUS_PAGE_HTML
     assert "data-group-id" in STATUS_PAGE_HTML
@@ -542,6 +721,7 @@ def test_status_page_uses_one_focused_workspace_with_live_output_and_stop_contro
     assert "Reclaim stale lock" in STATUS_PAGE_HTML
     assert "OUTPUT_TABS[entryId]" in STATUS_PAGE_HTML
     assert "activateOutputTab(viewer, 'raw')" in STATUS_PAGE_HTML
+    assert "activateOutputTab(viewer, 'summary')" in STATUS_PAGE_HTML
 
 
 def test_status_page_prioritizes_now_activity_and_files_drawer() -> None:
