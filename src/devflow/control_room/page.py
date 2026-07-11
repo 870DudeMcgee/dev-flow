@@ -679,6 +679,114 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     .memory-graph { width: 58px; }
     .chat-sidebar { width: 300px; }
   }
+
+  /* ── Focused workspace V4: now → activity → evidence on demand ── */
+  .header { padding: 10px 18px; }
+  .header h1 { font-size: 24px; }
+  .header h1 .icon { width: 48px; height: 48px; }
+  .header-right { gap: 10px; }
+  .git-widget { min-width: 220px; max-width: 300px; }
+  .system-widget {
+    border: 1px solid var(--border); border-radius: 999px; padding: 9px 14px;
+    color: var(--text-dim); background: rgba(8,14,34,0.8); cursor: pointer;
+    font: 800 11px var(--font-body); transition: border-color 0.15s, color 0.15s;
+  }
+  .system-widget:hover, .system-widget.open { border-color: var(--accent); color: var(--text); }
+  .system-popover {
+    display: none; position: absolute; right: 0; top: 48px; z-index: 24;
+    width: 250px; padding: 12px; border: 1px solid var(--border-bright);
+    border-radius: 14px; background: rgba(5,10,28,0.98);
+    box-shadow: 0 20px 70px rgba(0,0,0,0.5); backdrop-filter: blur(12px);
+  }
+  .system-popover.open { display: flex; flex-direction: column; gap: 10px; }
+  .system-popover .memory-widget { min-width: 0; width: 100%; border-radius: 10px; }
+  .system-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+  .active-card { position: relative; box-shadow: 0 14px 44px rgba(0,0,0,0.28); }
+  .active-top-bar { padding: 13px 18px; }
+  .active-top-bar-left { gap: 2px; }
+  .active-intent { font-size: 17px !important; }
+  .active-run-id { order: 2; font-size: 10px; color: var(--text-dim); }
+  .active-repo { font-size: 10px; }
+  .active-progress-bar-section { padding: 0 18px 10px; }
+  .progress-segment { height: 6px; }
+  .stage-labels { font-size: 9px; margin-top: 5px; }
+  .run-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .files-button, .files-close {
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+    border-radius: 8px; padding: 7px 11px; cursor: pointer; font: 800 11px var(--font-body);
+  }
+  .files-button:hover, .files-button[aria-expanded="true"], .files-close:hover { border-color: var(--accent); color: var(--accent); }
+  .files-count { color: var(--text-dim); margin-left: 4px; }
+
+  .focused-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 16px 16px; gap: 12px; overflow: hidden; }
+  .now-card {
+    flex: 0 0 auto; display: grid; grid-template-columns: minmax(0,1fr) auto;
+    gap: 7px 14px; padding: 14px 16px; border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 11px;
+    background: linear-gradient(100deg, rgba(22,201,255,0.09), rgba(143,91,255,0.04), rgba(5,10,27,0.38));
+  }
+  .now-card.failed, .now-card.stalled { border-left-color: var(--error); }
+  .now-card.needs_attention, .now-card.running { border-left-color: var(--warning); }
+  .now-card.passed { border-left-color: var(--success); }
+  .now-kicker { font: 800 10px var(--font-display); color: var(--text-dim); letter-spacing: .08em; text-transform: uppercase; }
+  .now-headline { grid-column: 1; font-size: 15px; font-weight: 800; line-height: 1.35; }
+  .now-latest { grid-column: 1 / -1; font-size: 12px; color: var(--text-dim); line-height: 1.4; }
+  .now-latest strong { color: var(--text); }
+
+  .activity-card {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    border: 1px solid var(--border); border-radius: 11px; background: rgba(8,14,34,0.58); overflow: hidden;
+  }
+  .activity-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  .activity-title { font-size: 13px; font-weight: 800; }
+  .activity-subtitle { font-size: 10px; color: var(--text-dim); }
+  .worker-feed-container {
+    padding: 10px; grid-template-columns: minmax(240px, 310px) minmax(0,1fr);
+    grid-template-rows: minmax(0,1fr); grid-template-areas: "attempts viewer"; gap: 10px;
+  }
+  .worker-current-summary { display: none; }
+  .worker-list-heading { display: none; }
+  .worker-card-list { gap: 8px; }
+  .output-viewer { background: rgba(3,8,24,0.78); }
+  .activity-empty { flex: 1; display: grid; place-items: center; padding: 28px; color: var(--text-dim); text-align: center; }
+  .verification-inline { flex: 0 0 auto; padding: 0 2px; }
+  .verification-inline .verification-panel { margin: 0; }
+
+  .files-drawer {
+    display: none; position: absolute; inset: 0 auto 0 0; width: min(390px, 92%); z-index: 18;
+    padding: 16px; background: rgba(7,12,31,0.985); border-right: 1px solid var(--border-bright);
+    box-shadow: 18px 0 50px rgba(0,0,0,0.46); backdrop-filter: blur(15px);
+    flex-direction: column; min-height: 0;
+  }
+  .files-drawer.open { display: flex; }
+  .files-drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .files-drawer-title { font-size: 16px; font-weight: 800; }
+  .files-drawer-copy { margin-top: 2px; font-size: 11px; color: var(--text-dim); }
+  .artifact-tree { flex: 0 0 auto; padding: 10px 0; overflow-y: auto; max-height: 46%; }
+  .artifact-stage { margin-bottom: 10px; }
+  .artifact-stage-label { display: flex; justify-content: space-between; gap: 10px; padding: 6px 2px; font-size: 12px; font-weight: 800; }
+  .artifact-stage-label span:last-child { color: var(--text-dim); font-size: 10px; font-weight: 500; }
+  .artifact-stage-files { display: flex; flex-direction: column; gap: 3px; padding-left: 12px; }
+  .artifact-file {
+    border: 0; background: transparent; color: var(--text-dim); text-align: left;
+    padding: 7px 9px; border-radius: 7px; cursor: pointer; font: 12px var(--font-body);
+  }
+  .artifact-file:hover, .artifact-file.selected { color: var(--text); background: rgba(255,255,255,0.06); }
+  .artifact-preview { margin-top: 0; display: none; flex: 1; }
+  .files-drawer .artifact-preview { min-height: 140px; }
+  .files-empty { color: var(--text-dim); font-size: 12px; padding: 12px 2px; }
+
+  @media (max-width: 1050px) {
+    .header h1 { font-size: 19px; }
+    .header h1 .icon { width: 40px; height: 40px; }
+    .workspace-label, .git-repo { display: none; }
+    .workspace-widget { min-width: 150px; }
+    .git-widget { min-width: 160px; grid-template-columns: 24px minmax(70px,1fr) auto; }
+  }
+  @media (max-width: 900px) {
+    .worker-feed-container { grid-template-columns: 1fr; grid-template-rows: minmax(150px,34%) minmax(0,1fr); grid-template-areas: "attempts" "viewer"; }
+  }
 </style>
 </head>
 <body>
@@ -707,20 +815,25 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
       <span class="git-state" id="git-state">--</span>
     </div>
     <div class="git-popover" id="git-popover" role="dialog" aria-label="Git status details"></div>
-    <div class="memory-widget" id="memory-widget" title="Approximate macOS memory pressure">
-      <div class="memory-copy">
-        <div class="memory-label"><span class="memory-dot"></span>Memory</div>
-        <div class="memory-value" id="memory-value">-- GiB free</div>
-      </div>
-      <svg class="memory-graph" id="memory-graph" viewBox="0 0 78 22" preserveAspectRatio="none" aria-hidden="true">
-        <path class="grid" d="M0 11 H78"></path>
-        <path class="area" id="memory-area" d="M0 22 L78 22 Z"></path>
-        <path class="line" id="memory-line" d=""></path>
-      </svg>
-    </div>
     <span class="repo-path" id="repo-path"></span>
-    <span class="ui-version" title="Status board UI build">UI v3</span>
-    <span class="live-indicator"><span class="live-dot"></span>LIVE</span>
+    <button class="system-widget" id="system-widget" type="button" aria-expanded="false" onclick="toggleSystemDetails()">System</button>
+    <div class="system-popover" id="system-popover" role="dialog" aria-label="System status">
+      <div class="memory-widget" id="memory-widget" title="Approximate macOS memory pressure">
+        <div class="memory-copy">
+          <div class="memory-label"><span class="memory-dot"></span>Memory</div>
+          <div class="memory-value" id="memory-value">-- GiB free</div>
+        </div>
+        <svg class="memory-graph" id="memory-graph" viewBox="0 0 78 22" preserveAspectRatio="none" aria-hidden="true">
+          <path class="grid" d="M0 11 H78"></path>
+          <path class="area" id="memory-area" d="M0 22 L78 22 Z"></path>
+          <path class="line" id="memory-line" d=""></path>
+        </svg>
+      </div>
+      <div class="system-meta">
+        <span class="ui-version" title="Status board UI build">UI v4</span>
+        <span class="live-indicator"><span class="live-dot"></span>LIVE</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -782,6 +895,7 @@ let CLOSED_WORKER_GROUPS = new Set();
 let IS_RENDERING = false;
 let FOCUSED_RUN_ID = null;
 let RUN_SELECTOR_OPEN = false;
+let FILES_DRAWER_OPEN = false;
 let WORKER_FEED_DATA = {};  // { runId: [entry, ...] } — JS-accessible feed data for the viewer
 let IS_STREAMING = false;  // true when any focused run has a live-streaming worker
 let CHAT_AWAITS_FIRST_MESSAGE = false;
@@ -799,6 +913,11 @@ try {
   FOCUSED_RUN_ID = localStorage.getItem('devflow.focusedRunId') || null;
 } catch (_) {
   FOCUSED_RUN_ID = null;
+}
+try {
+  FILES_DRAWER_OPEN = localStorage.getItem('devflow.filesDrawerOpen') === 'true';
+} catch (_) {
+  FILES_DRAWER_OPEN = false;
 }
 
 function saveOpenWorkerGroups() {
@@ -842,6 +961,40 @@ function closeRunSelector() {
 function selectRunFromDropdown(runId) {
   closeRunSelector();
   focusRun(runId);
+}
+
+function setFilesDrawerOpen(open) {
+  FILES_DRAWER_OPEN = Boolean(open);
+  try { localStorage.setItem('devflow.filesDrawerOpen', String(FILES_DRAWER_OPEN)); } catch (_) {}
+  document.querySelectorAll('.files-drawer').forEach(drawer => drawer.classList.toggle('open', FILES_DRAWER_OPEN));
+  document.querySelectorAll('.files-button').forEach(button => button.setAttribute('aria-expanded', String(FILES_DRAWER_OPEN)));
+}
+
+function toggleFilesDrawer() {
+  setFilesDrawerOpen(!FILES_DRAWER_OPEN);
+}
+
+function closeFilesDrawer() {
+  setFilesDrawerOpen(false);
+}
+
+function toggleSystemDetails() {
+  const widget = document.getElementById('system-widget');
+  const popover = document.getElementById('system-popover');
+  if (!widget || !popover) return;
+  const open = !popover.classList.contains('open');
+  popover.classList.toggle('open', open);
+  widget.classList.toggle('open', open);
+  widget.setAttribute('aria-expanded', String(open));
+}
+
+function closeSystemDetails() {
+  const widget = document.getElementById('system-widget');
+  const popover = document.getElementById('system-popover');
+  if (!widget || !popover) return;
+  popover.classList.remove('open');
+  widget.classList.remove('open');
+  widget.setAttribute('aria-expanded', 'false');
 }
 
 async function refresh() {
@@ -1097,15 +1250,17 @@ function render(data) {
   const liveOrNeedsAttention = runs.filter(r => r.stage !== 'complete');
   const completed = runs.filter(r => r.stage === 'complete');
   const focusedCompleted = completed.find(r => r.run_id === FOCUSED_RUN_ID);
-  const active = liveOrNeedsAttention.length ? liveOrNeedsAttention : (focusedCompleted ? [focusedCompleted] : []);
+  const active = focusedCompleted
+    ? [...liveOrNeedsAttention, focusedCompleted]
+    : (liveOrNeedsAttention.length ? liveOrNeedsAttention : []);
   const activeIds = new Set(active.map(r => r.run_id));
   const history = runs.filter(r => !activeIds.has(r.run_id));
 
   let html = '';
   if (active.length) {
-    const label = liveOrNeedsAttention.length
-      ? (active.length > 1 ? `Active / Needs Attention (${active.length})` : 'Active / Needs Attention')
-      : 'Selected Pipeline History';
+    const label = focusedCompleted
+      ? 'Selected Pipeline History'
+      : (active.length > 1 ? `Active / Needs Attention (${active.length})` : 'Active / Needs Attention');
     html += `<div class="section-label">${label}</div>`;
     const orderedActive = [...active].sort((a, b) =>
       (b.run_id || '').localeCompare(a.run_id || '')
@@ -1115,13 +1270,14 @@ function render(data) {
     html += renderRunQueue(orderedActive, focusedRun?.run_id || '');
     if (focusedRun) html += renderActive(focusedRun);
   } else {
-    html += `<div class="no-active"><h3>No active pipeline</h3><p>All runs are complete. Click a history row below to inspect its artifacts and worker outputs.</p></div>`;
+    html += `<div class="no-active"><h3>No active pipeline</h3><p>All runs are complete. Click a history row below to inspect its files, activity, and evidence.</p></div>`;
   }
   if (history.length) {
     html += `<div class="section-label">History (${history.length})</div>`;
     html += `<div class="history-list">${history.map(r => renderHistoryRow(r)).join('')}</div>`;
   }
   el.innerHTML = html;
+  setFilesDrawerOpen(FILES_DRAWER_OPEN);
   requestAnimationFrame(() => {
     IS_RENDERING = false;
     // After each render, auto-select the most relevant output card so the
@@ -1260,6 +1416,32 @@ function onWorkerGroupToggle(detailsEl) {
   saveClosedWorkerGroups();
 }
 
+function artifactStage(fileName) {
+  const name = String(fileName || '').toLowerCase();
+  if (name.includes('brainstorm') || name.includes('intent') || name === 'artifacts.json') return 'Idea';
+  if (name.includes('spec')) return 'Specification';
+  if (name.includes('plan') || name.includes('packet') || name.includes('assignment')) return 'Plan';
+  if (name.includes('build') || name.includes('diff') || name.includes('manifest') || name.includes('workspace')) return 'Build';
+  if (name.includes('verif') || name.includes('receipt') || name.includes('test')) return 'Verification';
+  return 'Evidence';
+}
+
+function renderArtifactTree(runId, artifacts) {
+  const order = ['Idea', 'Specification', 'Plan', 'Build', 'Verification', 'Evidence'];
+  const groups = Object.fromEntries(order.map(stage => [stage, []]));
+  (artifacts || []).forEach(fileName => groups[artifactStage(fileName)].push(fileName));
+  return order.filter(stage => groups[stage].length).map(stage => {
+    const files = groups[stage].map(fileName => {
+      const selected = OPEN_ARTIFACT?.runId === runId && OPEN_ARTIFACT?.fileName === fileName;
+      return `<button type="button" class="artifact-file ${selected ? 'selected' : ''}" onclick="showArtifact('${escapeHtml(runId)}','${escapeHtml(fileName)}')">${escapeHtml(fileName)}</button>`;
+    }).join('');
+    return `<div class="artifact-stage">
+      <div class="artifact-stage-label"><span>${stage}</span><span>${groups[stage].length} file${groups[stage].length === 1 ? '' : 's'}</span></div>
+      <div class="artifact-stage-files">${files}</div>
+    </div>`;
+  }).join('');
+}
+
 function renderActive(r) {
   const rawStageIdx = STAGE_NAMES.indexOf(r.stage);
   const stageIdx = rawStageIdx >= 0 ? rawStageIdx : STAGE_NAMES.indexOf('human_decision');
@@ -1346,7 +1528,7 @@ function renderActive(r) {
     <div class="worker-current-headline">${escapeHtml(currentLoop.summary || currentLoop.label)}</div>
     <div class="worker-current-next"><strong>Next safe action:</strong> ${escapeHtml(currentLoop.next_safe_action || 'Awaiting the next orchestrator decision.')}</div>
   </section>` : `<section class="worker-current-summary neutral" aria-label="Current loop outcome"><div class="worker-current-headline">No worker outcome yet</div><div class="worker-current-next">Worker evidence will appear here when the loop starts.</div></section>`;
-  const feedHtml = `${currentSummaryHtml}${cardListHtml}${viewerHtml}`;
+  const feedHtml = displayGroups.length ? `${currentSummaryHtml}${cardListHtml}${viewerHtml}` : '';
 
   const receipts = (r.receipts || []).map(v => {
     const cls = v.passed === true ? 'receipt-pass' : v.passed === false ? 'receipt-fail' : '';
@@ -1355,10 +1537,19 @@ function renderActive(r) {
   }).join('');
   const receiptsHtml = receipts || '';
 
-  const artifacts = (r.artifacts || []).map(a =>
-    `<span class="artifact-chip" onclick="showArtifact('${escapeHtml(r.run_id)}','${escapeHtml(a)}')">${escapeHtml(a)}</span>`
-  ).join('');
+  const artifactTreeHtml = renderArtifactTree(r.run_id, r.artifacts || []);
   const operatorControls = renderOperatorControls(r);
+  const nowOutcome = currentLoop?.outcome || r.execution_status || 'neutral';
+  const nowHeadline = currentLoop?.summary || (
+    r.stage === 'idea'
+      ? 'The brainstorm is waiting for the next conversation step.'
+      : `DevFlow is ready to continue the ${r.stage_label || r.stage} stage.`
+  );
+  const nextSafeAction = currentLoop?.next_safe_action || (
+    r.stage === 'idea'
+      ? 'Continue the brainstorm until the idea is defined enough to produce a spec.'
+      : 'Await the next orchestrator decision.'
+  );
 
   return `
     <div class="active-card ${r.stage === 'blocked' ? 'blocked' : ''}">
@@ -1368,25 +1559,40 @@ function renderActive(r) {
           <span class="active-intent" style="font-size:18px;font-weight:700">${escapeHtml(r.intent || '(no intent recorded)')}</span>
           ${r.repo ? `<span class="active-repo">📁 ${escapeHtml(r.repo)}</span>` : ''}
         </div>
-        <div><span class="stage-badge ${escapeHtml(r.stage)}">${escapeHtml(r.stage_label || r.stage)}</span><span class="execution-status">${escapeHtml(r.execution_status || 'idle')}</span></div>
+        <div class="run-header-actions">
+          <button type="button" class="files-button" aria-expanded="${FILES_DRAWER_OPEN}" onclick="toggleFilesDrawer()">Files <span class="files-count">${(r.artifacts || []).length}</span></button>
+          <span class="stage-badge ${escapeHtml(r.stage)}">${escapeHtml(r.stage_label || r.stage)}</span>
+          <span class="execution-status">${escapeHtml(r.execution_status || 'idle')}</span>
+        </div>
       </div>
       <div class="active-progress-bar-section">
         <div class="progress-bar">${segments}</div>
         <div class="stage-labels">${labels}</div>
       </div>
-      <div class="active-columns">
-        <div class="active-left">
-          ${operatorControls}
-          <div class="panel-title">Artifacts <span class="count">${(r.artifacts||[]).length}</span></div>
-          <div class="artifacts-row">${artifacts || '<span style="color:var(--text-dim)">None</span>'}</div>
-          <div class="artifact-preview" id="preview-${escapeHtml(r.run_id)}"></div>
-          ${receiptsHtml ? `<div class="verification-panel"><div class="panel-title">Verification</div>${receiptsHtml}</div>` : ''}
-        </div>
-        <div class="active-right">
-          <div class="panel-title">Worker Outputs <span class="count">${chronologicalEntries.length}</span></div>
-          <div class="worker-feed-container" id="feed-container-${escapeHtml(r.run_id)}">${feedHtml}</div>
-        </div>
+      <div class="focused-workspace">
+        ${operatorControls}
+        <section class="now-card ${escapeHtml(nowOutcome)}" aria-label="What is happening now">
+          <div class="now-kicker">Now</div>
+          <span class="outcome-badge ${escapeHtml(nowOutcome)}">${escapeHtml(outcomeText(nowOutcome))}</span>
+          <div class="now-headline">${escapeHtml(nowHeadline)}</div>
+          <div class="now-latest"><strong>Next safe action:</strong> ${escapeHtml(nextSafeAction)}</div>
+        </section>
+        <section class="activity-card" aria-label="Activity">
+          <div class="activity-header">
+            <div><div class="activity-title">Activity</div><div class="activity-subtitle">${chronologicalEntries.length} evidence item${chronologicalEntries.length === 1 ? '' : 's'} · current attempt expanded</div></div>
+          </div>
+          ${feedHtml ? `<div class="worker-feed-container" id="feed-container-${escapeHtml(r.run_id)}">${feedHtml}</div>` : '<div class="activity-empty">Worker activity will appear here when the loop starts.</div>'}
+        </section>
+        ${receiptsHtml ? `<div class="verification-inline"><div class="verification-panel"><div class="panel-title">Verification</div>${receiptsHtml}</div></div>` : ''}
       </div>
+      <aside class="files-drawer ${FILES_DRAWER_OPEN ? 'open' : ''}" id="files-drawer-${escapeHtml(r.run_id)}" aria-label="Pipeline files">
+        <div class="files-drawer-head">
+          <div><div class="files-drawer-title">Files</div><div class="files-drawer-copy">Stage artifacts and evidence</div></div>
+          <button type="button" class="files-close" aria-label="Close files drawer" onclick="closeFilesDrawer()">Close</button>
+        </div>
+        <div class="artifact-tree">${artifactTreeHtml || '<div class="files-empty">No artifacts recorded yet.</div>'}</div>
+        <div class="artifact-preview" id="preview-${escapeHtml(r.run_id)}"></div>
+      </aside>
     </div>`;
 }
 
@@ -1567,6 +1773,10 @@ function setOutputTab(buttonEl, panelName) {
 
 async function showArtifact(runId, fileName, silent=false) {
   OPEN_ARTIFACT = { runId, fileName };
+  setFilesDrawerOpen(true);
+  document.querySelectorAll('.artifact-file').forEach(button => {
+    button.classList.toggle('selected', button.textContent === fileName);
+  });
   const el = document.getElementById('preview-' + runId);
   if (!el) return;  // DOM not ready (e.g. run filtered out)
   el.style.display = 'block';
@@ -1615,13 +1825,16 @@ document.addEventListener('click', event => {
   }
   const selector = document.getElementById('run-selector');
   if (selector && !selector.contains(event.target)) closeRunSelector();
+  const systemPopover = document.getElementById('system-popover');
+  const systemWidget = document.getElementById('system-widget');
+  if (systemPopover && systemWidget && !systemPopover.contains(event.target) && !systemWidget.contains(event.target)) closeSystemDetails();
   const popover = document.getElementById('git-popover');
   const widget = document.getElementById('git-widget');
   if (!popover || !widget) return;
   if (!popover.contains(event.target) && !widget.contains(event.target)) closeGitDetails();
 });
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') { closeRunSelector(); closeGitDetails(); }
+  if (event.key === 'Escape') { closeRunSelector(); closeGitDetails(); closeSystemDetails(); closeFilesDrawer(); }
 });
 
 refresh();

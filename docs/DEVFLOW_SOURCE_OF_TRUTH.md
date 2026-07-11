@@ -234,6 +234,14 @@ evidence after completion, then keeps summary, prompt/context, metadata, token
 budget, token usage, and finish reason available without hiding the source
 evidence.
 
+The focused workspace leads with a plain-language `Now` outcome and the next
+safe action, followed by chronological `Activity`. Stage artifacts live in a
+hidden `Files` drawer grouped by Idea, Specification, Plan, Build,
+Verification, and other evidence; selecting a file opens its real contents.
+Git and workspace identity remain in the primary header while secondary runtime
+diagnostics live behind `System`. These presentation choices must not weaken
+the underlying evidence, refresh persistence, or completed-run inspection.
+
 Every launched run must have explicit ownership and control state. Operators
 can request cancellation after the current role or stop the run-owned process
 group immediately; neither action stops a shared model server. Incomplete role

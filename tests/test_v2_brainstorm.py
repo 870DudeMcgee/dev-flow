@@ -318,7 +318,7 @@ def test_status_page_keeps_blocked_and_history_runs_inspectable() -> None:
     """Blocked runs stay front-and-center and history rows can reopen details."""
     assert "const liveOrNeedsAttention = runs.filter(r => r.stage !== 'complete');" in STATUS_PAGE_HTML
     assert "Active / Needs Attention" in STATUS_PAGE_HTML
-    assert "Click a history row below to inspect its artifacts and worker outputs." in STATUS_PAGE_HTML
+    assert "Click a history row below to inspect its files, activity, and evidence." in STATUS_PAGE_HTML
     assert "function focusRun(runId)" in STATUS_PAGE_HTML
     assert "localStorage.setItem('devflow.focusedRunId', runId)" in STATUS_PAGE_HTML
     assert "onclick=\"focusRun('" in STATUS_PAGE_HTML
@@ -418,3 +418,24 @@ def test_status_page_uses_one_focused_workspace_with_live_output_and_stop_contro
     assert "Reclaim stale lock" in STATUS_PAGE_HTML
     assert "OUTPUT_TABS[entryId]" in STATUS_PAGE_HTML
     assert "activateOutputTab(viewer, 'raw')" in STATUS_PAGE_HTML
+
+
+def test_status_page_prioritizes_now_activity_and_files_drawer() -> None:
+    """The focused workspace leads with operator meaning and keeps files on demand."""
+    assert 'class="focused-workspace"' in STATUS_PAGE_HTML
+    assert 'class="now-card ${escapeHtml(nowOutcome)}"' in STATUS_PAGE_HTML
+    assert 'class="activity-card"' in STATUS_PAGE_HTML
+    assert 'class="files-drawer ${FILES_DRAWER_OPEN ? \'open\' : \'\'}"' in STATUS_PAGE_HTML
+    assert "function renderArtifactTree" in STATUS_PAGE_HTML
+    assert "localStorage.getItem('devflow.filesDrawerOpen')" in STATUS_PAGE_HTML
+    assert "localStorage.setItem('devflow.filesDrawerOpen'" in STATUS_PAGE_HTML
+    assert "toggleFilesDrawer" in STATUS_PAGE_HTML
+    assert "closeFilesDrawer" in STATUS_PAGE_HTML
+    assert "focusedCompleted\n    ? [...liveOrNeedsAttention, focusedCompleted]" in STATUS_PAGE_HTML
+
+
+def test_status_page_keeps_diagnostics_in_system_popover() -> None:
+    assert 'id="system-widget"' in STATUS_PAGE_HTML
+    assert 'id="system-popover"' in STATUS_PAGE_HTML
+    assert "toggleSystemDetails" in STATUS_PAGE_HTML
+    assert "closeSystemDetails" in STATUS_PAGE_HTML
