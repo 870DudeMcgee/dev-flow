@@ -55,12 +55,11 @@ def test_list_chat_models_excludes_unavailable() -> None:
     assert "qwen-27b-q5km" not in names
 
 
-def test_list_chat_models_includes_laguna_free() -> None:
-    """The Poolside free coding model is selectable in brainstorm chat."""
-    models = {model["name"]: model for model in chat_api.list_chat_models()}
+def test_list_chat_models_excludes_worker_only_laguna() -> None:
+    """Worker-only models should not appear in brainstorm chat."""
+    names = {model["name"] for model in chat_api.list_chat_models()}
 
-    assert models["laguna-m1-free"]["provider"] == "openrouter"
-    assert models["laguna-m1-free"]["cost_class"] == "free_cloud"
+    assert "laguna-m1-free" not in names
 
 
 # ---------------------------------------------------------------------------

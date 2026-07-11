@@ -69,10 +69,12 @@ export OPENROUTER_API_KEY="..."
 
 `mini-free-cloud` routes every V2 text role to the zero-cost OpenRouter HY3
 worker, so it does not load a local model. Poolside Laguna M.1 is also registered
-under the exact free slug `poolside/laguna-m.1:free` and is selectable in the
-brainstorm model picker. It is not silently assigned to every pipeline role:
-OpenRouter currently advertises tool calling and reasoning but not structured
-response-format support, so broader role promotion requires a DevFlow audition.
+under the exact free slug `poolside/laguna-m.1:free`. The
+`mini-laguna-builder` audition profile changes only the bounded builder from
+`mini-baseline` to Laguna; brainstorm and every judgment role retain their
+baseline assignments. OpenRouter advertises tool calling and reasoning but not
+API-enforced response-format support, so Laguna's structured-output capability
+here refers only to its verified DevFlow worker prompt contracts.
 Hermes may manage an OpenRouter credential separately, but DevFlow's V2 remote
 executor requires that key in its own process environment. `devflow status
 serve` observes pipeline evidence and does not call the selected profile.

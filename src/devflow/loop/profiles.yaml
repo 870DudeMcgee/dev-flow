@@ -94,6 +94,21 @@ profiles:
       brainstorm: "glm-5.2"
 
   # -----------------------------------------------------------------
+  # Mini Laguna builder audition: baseline reasoning fleet with Laguna
+  # replacing only the bounded implementation worker.
+  # -----------------------------------------------------------------
+  mini-laguna-builder:
+    description: "Mac Mini audition profile. Laguna M.1 free builds; baseline models retain every other role."
+    roles:
+      planner: "gpt-5.6-terra"
+      planning_judge: "gpt-5.6-luna"
+      builder: "laguna-m1-free"
+      build_judge: "ornith-9b-mini"
+      verifier: "gpt-5.6-luna"
+      final_judge: "gpt-5.6-sol"
+      brainstorm: "glm-5.2"
+
+  # -----------------------------------------------------------------
   # Custom: operator assigns every role manually via overrides.
   # This profile leaves everything unset — all roles resolve through
   # automatic routing (cheapest eligible model).

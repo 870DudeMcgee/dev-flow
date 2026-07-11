@@ -444,6 +444,24 @@ class TestProfiles:
         assert entry.tool_support is True
         assert entry.model_id == "poolside/laguna-m.1:free"
 
+    def test_laguna_builder_audition_profile_changes_only_builder(self):
+        builder = resolve_role("builder", profile_name="mini-laguna-builder")
+        brainstorm = resolve_role("brainstorm", profile_name="mini-laguna-builder")
+        build_judge = resolve_role("build_judge", profile_name="mini-laguna-builder")
+
+        assert builder.model_name == "laguna-m1-free"
+        assert builder.resolved_via == "profile"
+        assert brainstorm.model_name == "glm-5.2"
+        assert build_judge.model_name == "ornith-9b-mini"
+
+    def test_laguna_is_not_eligible_for_brainstorm(self):
+        entry = get_registry().get("laguna-m1-free")
+
+        assert entry is not None
+        assert "structured_output" in entry.capabilities
+        assert "high_level_reasoning" not in entry.capabilities
+        assert "ambiguity_resolution" not in entry.capabilities
+
     def test_profile_falls_through_when_model_unavailable(self):
         """When a profile's preferred model is unavailable, routing falls
         through to automatic selection rather than failing."""
