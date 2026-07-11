@@ -62,6 +62,14 @@ def test_list_chat_models_excludes_worker_only_laguna() -> None:
     assert "laguna-m1-free" not in names
 
 
+def test_list_chat_models_includes_available_local_reasoning_models() -> None:
+    """The UI lists registry-eligible locals without an ad-hoc capability gate."""
+    names = {model["name"] for model in chat_api.list_chat_models()}
+
+    assert "qwythos-9b-mini" in names
+    assert "ornith-9b-mini" in names
+
+
 # ---------------------------------------------------------------------------
 # Session management
 # ---------------------------------------------------------------------------

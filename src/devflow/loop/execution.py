@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import glob
 import shutil
 import subprocess
 import sys
@@ -1256,6 +1255,13 @@ def materialize_builder_output(
     for declared_file in declared:
         declared_path = Path(declared_file)
         parent = declared_path.parent
+        if declared_path.suffix == ".py":
+            for package_dir in (parent, *parent.parents):
+                if package_dir == Path("."):
+                    continue
+                package_init = package_dir / "__init__.py"
+                if (root_path / package_init).is_file():
+                    context_files.add(package_init.as_posix())
         # If this file is in a package (has __init__.py or other .py siblings),
         # include ALL siblings as read-only context.
         repo_parent = root_path / parent
@@ -2022,15 +2028,12 @@ def run_verifier(
 
     # Read the build-diff as evidence (used in the code excerpt below).
     _read_record(root, run_id, "build-diff.patch")  # noqa: B018 — validates existence
-    # Pull the most recent judge decision from the run dir (best-effort).
+    # Pull the canonical judge decision from the run records (best-effort).
     judge_text = "unknown"
     try:
-        summaries = sorted(
-            glob.glob(str(Path(root) / run_id / "packet-*-build-judge-summary.json"))
-        )
-        if summaries:
-            with open(summaries[-1]) as _f:
-                judge_text = _json.load(_f).get("judge_decision", "unknown")
+        judge_record = _read_record(root, run_id, "judge-decision.json") or "{}"
+        judge_payload = _json.loads(judge_record)
+        judge_text = judge_payload.get("status", judge_payload.get("decision", "unknown"))
     except Exception:
         judge_text = "unknown"
 
@@ -2038,8 +2041,11 @@ def run_verifier(
     # build manifest. This exposes imports and top-level signatures without
     # dumping the entire build diff into the verifier context.
     manifest = _read_record(root, run_id, "build-manifest.json") or "{}"
+    declared_targets: list[str] = []
     try:
-        changed = _json.loads(manifest).get("changed_files", []) or []
+        manifest_payload = _json.loads(manifest)
+        changed = manifest_payload.get("changed_files", []) or []
+        declared_targets = manifest_payload.get("declared_target_files", []) or []
     except Exception:
         changed = []
     workspace = ""
@@ -2135,9 +2141,15 @@ def run_verifier(
         excerpt = text if len(text) <= 2400 else f"{text[:600]}\n...\n{text[-1800:]}"
         changed_test_parts.append(f"## {rel}\n{excerpt}")
     changed_test_evidence = "\n\n".join(changed_test_parts) or "(no changed test file available)"
+    scope_evidence = (
+        f"changed_files: {changed!r}\n"
+        f"declared_target_files: {declared_targets!r}\n"
+        f"scope_match: {str(sorted(changed) == sorted(declared_targets)).lower()}"
+    )
     user = (
         "# Definition of Done (head)\n" + "\n".join(dod_head) + "\n\n"
         f"# Prior Judge Decision\n{judge_text}\n\n"
+        f"# Materialized Change Scope (authoritative manifest)\n{scope_evidence}\n\n"
         "# Built source (ACTUAL signatures extracted from the built files):\n"
         f"{code_excerpt}\n\n"
         f"# Changed test-file evidence (ACTUAL staged test content)\n{changed_test_evidence}\n\n"
@@ -2155,45 +2167,21 @@ def run_verifier(
         "provided evidence is genuinely insufficient. Output only the JSON decision."
     )
 
-    # Route through the verifier role's assigned transport.
-    factory = client_factory
     slot = resolve_role_slot("verifier")
-    if factory is None:
-        if slot.transport == "hermes-chat":
-            factory = HermesSubscriptionClient
-        else:
-            # Remote OpenAI-compatible transports need the registry model_id.
-            factory = LocalModelClient
     try:
-        append_worker_feed_entry(root, run_id, {
-            "event": "started",
-            "role": "verifier",
-            "model": slot.model,
-            "provider": slot.provider,
-            "worker_id": worker_id,
-            "task_id": run_id,
-        })
-        # Construct client with model_id for remote HTTP endpoints
-        if factory is LocalModelClient and slot.model_id:
-            client = factory(slot.endpoint, model_name=slot.model_id)
-        else:
-            client = factory(slot.endpoint)
-        content, _ = client.chat(
-            messages=[
-                {"role": "system", "content": VERIFIER_SYSTEM},
-                {"role": "user", "content": user},
-            ],
+        role_result = run_role(
+            root,
+            role="verifier",
+            system_prompt=VERIFIER_SYSTEM,
+            user_prompt=user,
+            task_id=run_id,
+            worker_id=worker_id,
             max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
             reasoning=True,
+            client_factory=client_factory,
         )
+        content = role_result.content
         decision = _parse_judge_decision(content)  # reuse judge payload parser
-        append_worker_feed_entry(root, run_id, {
-            "event": "completed",
-            "role": "verifier",
-            "model": slot.model,
-            "content": content[:2000],
-            "decision": decision,
-        })
     except Exception as exc:  # never let the verifier hang the loop
         decision = "needs_review"
         content = f"Verifier error: {exc!r}"

@@ -284,7 +284,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     flex-direction: column;
     flex: 1 1 auto;
     height: auto;
-    min-height: 0;
+    min-height: 480px;
   }
   .active-top-bar {
     padding: 16px 24px;
@@ -475,6 +475,12 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .operator-control-status { margin-top: 8px; color: var(--text-dim); font-size: 12px; }
 
   /* ── HISTORY: compact rows ── */
+  .history-list {
+    flex: 0 1 60px;
+    min-height: 0;
+    max-height: 60px;
+    overflow-y: auto;
+  }
   .history-row {
     display: flex; align-items: center; gap: 12px;
     width: 100%;
@@ -681,11 +687,27 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   }
 
   /* ── Focused workspace V4: now → activity → evidence on demand ── */
-  .header { padding: 10px 18px; }
-  .header h1 { font-size: 24px; }
-  .header h1 .icon { width: 48px; height: 48px; }
-  .header-right { gap: 10px; }
-  .git-widget { min-width: 220px; max-width: 300px; }
+  .header { padding: 6px 12px; gap: 10px; }
+  .header h1 { font-size: 19px; flex: 0 0 auto; }
+  .header h1 .icon { width: 34px; height: 34px; }
+  .header-right { gap: 7px; min-width: 0; flex: 1; justify-content: flex-end; }
+  .git-widget { min-width: 0; width: auto; max-width: 120px; grid-template-columns: 24px auto; padding: 5px 7px; gap: 6px; }
+  .git-copy { display: none; }
+  .git-repo { display: none; }
+  .git-branch { margin-top: 0; font-size: 11px; }
+  .git-state { font-size: 9px; padding: 3px 6px; }
+  .header-run-selector { min-width: 0; width: min(360px, 31vw); position: relative; }
+  .header-run-selector .run-selector { margin: 0; }
+  .header-run-selector .run-selector-trigger {
+    height: 32px; padding: 4px 8px; border-radius: 8px;
+    grid-template-columns: 7px minmax(0,1fr) auto 14px;
+    grid-template-areas: "signal intent stage chevron";
+  }
+  .header-run-selector .run-signal { width: 6px; height: 20px; }
+  .header-run-selector .run-selector-intent { font-size: 11px; }
+  .header-run-selector .run-selector-meta, .header-run-selector .run-selector-status { display: none; }
+  .header-run-selector .run-selector-stage { font-size: 10px; }
+  .header-run-selector .run-selector-dropdown { min-width: 420px; left: auto; }
   .system-widget {
     border: 1px solid var(--border); border-radius: 999px; padding: 9px 14px;
     color: var(--text-dim); background: rgba(8,14,34,0.8); cursor: pointer;
@@ -702,15 +724,23 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .system-popover .memory-widget { min-width: 0; width: 100%; border-radius: 10px; }
   .system-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
-  .active-card { position: relative; box-shadow: 0 14px 44px rgba(0,0,0,0.28); }
-  .active-top-bar { padding: 13px 18px; }
+  .active-card { position: relative; min-height: 0; box-shadow: 0 14px 44px rgba(0,0,0,0.28); }
+  .active-top-bar { min-height: 34px; padding: 5px 12px; }
   .active-top-bar-left { gap: 2px; }
-  .active-intent { font-size: 17px !important; }
-  .active-run-id { order: 2; font-size: 10px; color: var(--text-dim); }
-  .active-repo { font-size: 10px; }
-  .active-progress-bar-section { padding: 0 18px 10px; }
+  .active-intent, .active-repo { display: none; }
+  .active-run-id { order: 2; font-size: 11px; color: var(--text-dim); }
+  .active-progress-bar-section { padding: 3px 12px 6px; }
   .progress-segment { height: 6px; }
-  .stage-labels { font-size: 9px; margin-top: 5px; }
+  .stage-control {
+    flex: 1; min-width: 0; border: 0; border-radius: 5px; padding: 2px 1px 3px;
+    background: transparent; color: var(--text-dim); cursor: pointer;
+    font: 800 10px var(--font-body); text-transform: uppercase; display: flex; flex-direction: column; gap: 3px; align-items: stretch;
+  }
+  .stage-control .progress-segment { display: block; width: 100%; flex: 0 0 6px; }
+  .stage-control:hover, .stage-control.selected { color: var(--text); background: rgba(22,201,255,0.12); }
+  .stage-control.current { color: var(--accent); }
+  .stage-control.done { color: #9bc6d9; }
+  .stage-control.selected { outline: 1px solid rgba(22,201,255,0.55); }
   .run-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .files-button, .files-close {
     border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
@@ -719,10 +749,10 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .files-button:hover, .files-button[aria-expanded="true"], .files-close:hover { border-color: var(--accent); color: var(--accent); }
   .files-count { color: var(--text-dim); margin-left: 4px; }
 
-  .focused-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 16px 16px; gap: 12px; overflow: hidden; }
+  .focused-workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 7px 10px 9px; gap: 7px; overflow: hidden; }
   .now-card {
-    flex: 0 0 auto; display: grid; grid-template-columns: minmax(0,1fr) auto;
-    gap: 7px 14px; padding: 14px 16px; border: 1px solid var(--border);
+    flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0,1fr) auto;
+    gap: 3px 9px; padding: 7px 10px; border: 1px solid var(--border);
     border-left: 3px solid var(--accent); border-radius: 11px;
     background: linear-gradient(100deg, rgba(22,201,255,0.09), rgba(143,91,255,0.04), rgba(5,10,27,0.38));
   }
@@ -730,17 +760,18 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .now-card.needs_attention, .now-card.running { border-left-color: var(--warning); }
   .now-card.passed { border-left-color: var(--success); }
   .now-kicker { font: 800 10px var(--font-display); color: var(--text-dim); letter-spacing: .08em; text-transform: uppercase; }
-  .now-headline { grid-column: 1; font-size: 15px; font-weight: 800; line-height: 1.35; }
-  .now-latest { grid-column: 1 / -1; font-size: 12px; color: var(--text-dim); line-height: 1.4; }
+  .now-card > .outcome-badge { grid-column: 3; grid-row: 1; }
+  .now-headline { grid-column: 2; grid-row: 1; font-size: 13px; font-weight: 800; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-latest { grid-column: 1 / -1; font-size: 11px; color: var(--text-dim); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .now-latest strong { color: var(--text); }
 
   .activity-card {
     flex: 1; min-height: 0; display: flex; flex-direction: column;
     border: 1px solid var(--border); border-radius: 11px; background: rgba(8,14,34,0.58); overflow: hidden;
   }
-  .activity-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
-  .activity-title { font-size: 13px; font-weight: 800; }
-  .activity-subtitle { font-size: 10px; color: var(--text-dim); }
+  .activity-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  .activity-title { font-size: 14px; font-weight: 800; }
+  .activity-subtitle { font-size: 11px; color: var(--text-dim); }
   .worker-feed-container {
     padding: 10px; grid-template-columns: minmax(240px, 310px) minmax(0,1fr);
     grid-template-rows: minmax(0,1fr); grid-template-areas: "attempts viewer"; gap: 10px;
@@ -749,40 +780,56 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .worker-list-heading { display: none; }
   .worker-card-list { gap: 8px; }
   .output-viewer { background: rgba(3,8,24,0.78); }
-  .activity-empty { flex: 1; display: grid; place-items: center; padding: 28px; color: var(--text-dim); text-align: center; }
+  .activity-empty { flex: 1; display: grid; place-items: center; padding: 20px; color: var(--text-dim); text-align: center; font-size: 14px; line-height: 1.5; }
+  .stage-artifact-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .stage-artifact-link { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; background: var(--surface-2); color: var(--text); cursor: pointer; font: 12px var(--font-body); }
   .verification-inline { flex: 0 0 auto; padding: 0 2px; }
   .verification-inline .verification-panel { margin: 0; }
 
   .files-drawer {
-    display: none; position: absolute; inset: 0 auto 0 0; width: min(390px, 92%); z-index: 18;
+    display: none; position: absolute; inset: 0 auto 0 0; width: min(920px, 96%); z-index: 18;
     padding: 16px; background: rgba(7,12,31,0.985); border-right: 1px solid var(--border-bright);
     box-shadow: 18px 0 50px rgba(0,0,0,0.46); backdrop-filter: blur(15px);
     flex-direction: column; min-height: 0;
   }
-  .files-drawer.open { display: flex; }
+  .files-drawer.open { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); gap: 12px; }
+  .files-drawer-head { grid-column: 1 / -1; }
   .files-drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
   .files-drawer-title { font-size: 16px; font-weight: 800; }
   .files-drawer-copy { margin-top: 2px; font-size: 11px; color: var(--text-dim); }
-  .artifact-tree { flex: 0 0 auto; padding: 10px 0; overflow-y: auto; max-height: 46%; }
+  .artifact-tree { padding: 4px 8px 4px 0; overflow-y: auto; min-height: 0; border-right: 1px solid var(--border); }
   .artifact-stage { margin-bottom: 10px; }
   .artifact-stage-label { display: flex; justify-content: space-between; gap: 10px; padding: 6px 2px; font-size: 12px; font-weight: 800; }
   .artifact-stage-label span:last-child { color: var(--text-dim); font-size: 10px; font-weight: 500; }
   .artifact-stage-files { display: flex; flex-direction: column; gap: 3px; padding-left: 12px; }
   .artifact-file {
     border: 0; background: transparent; color: var(--text-dim); text-align: left;
-    padding: 7px 9px; border-radius: 7px; cursor: pointer; font: 12px var(--font-body);
+    padding: 7px 9px; border-radius: 7px; cursor: pointer; font: 13px var(--font-body);
   }
   .artifact-file:hover, .artifact-file.selected { color: var(--text); background: rgba(255,255,255,0.06); }
   .artifact-preview { margin-top: 0; display: none; flex: 1; }
-  .files-drawer .artifact-preview { min-height: 140px; }
+  .files-drawer .artifact-preview { min-height: 0; margin: 0; font-size: 14px; line-height: 1.55; }
   .files-empty { color: var(--text-dim); font-size: 12px; padding: 12px 2px; }
+
+  .history-section { flex: 0 0 auto; margin-top: 4px; }
+  .history-toggle { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #78dfff; cursor: pointer; padding: 3px 0; font: 800 11px var(--font-display); text-transform: uppercase; letter-spacing: .12em; }
+  .history-toggle .history-chevron { margin-left: auto; }
+  .history-section:not(.open) .history-list { display: none; }
+  .history-section.open .history-list { max-height: 120px; }
+
+  .output-card-role, .output-card-summary { font-size: 12px; }
+  .viewer-tab { font-size: 12px; }
+  .output-viewer-content, .output-viewer-reasoning { font-size: 14px; line-height: 1.65; }
+  .output-viewer-prompt { font-size: 13px; }
+  .chat-message, .chat-input { font-size: 14px; }
 
   @media (max-width: 1050px) {
     .header h1 { font-size: 19px; }
     .header h1 .icon { width: 40px; height: 40px; }
     .workspace-label, .git-repo { display: none; }
     .workspace-widget { min-width: 150px; }
-    .git-widget { min-width: 160px; grid-template-columns: 24px minmax(70px,1fr) auto; }
+    .git-widget { width: auto; }
+    .header-run-selector { width: min(280px, 29vw); }
   }
   @media (max-width: 900px) {
     .worker-feed-container { grid-template-columns: 1fr; grid-template-rows: minmax(150px,34%) minmax(0,1fr); grid-template-areas: "attempts" "viewer"; }
@@ -797,6 +844,7 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
     DevFlow Pipeline
   </h1>
   <div class="header-right">
+    <div class="header-run-selector" id="header-run-selector" aria-label="Active / Needs Attention"></div>
     <div class="workspace-widget no-workspace" id="workspace-widget" title="Select workspace" role="button" tabindex="0" aria-expanded="false" onclick="toggleWorkspaceDropdown(event)" onkeydown="handleWorkspaceKey(event)">
       <span class="workspace-icon">📁</span>
       <span class="workspace-copy">
@@ -896,6 +944,8 @@ let IS_RENDERING = false;
 let FOCUSED_RUN_ID = null;
 let RUN_SELECTOR_OPEN = false;
 let FILES_DRAWER_OPEN = false;
+let HISTORY_OPEN = false;
+let SELECTED_STAGE_BY_RUN = {};
 let WORKER_FEED_DATA = {};  // { runId: [entry, ...] } — JS-accessible feed data for the viewer
 let IS_STREAMING = false;  // true when any focused run has a live-streaming worker
 let CHAT_AWAITS_FIRST_MESSAGE = false;
@@ -918,6 +968,16 @@ try {
   FILES_DRAWER_OPEN = localStorage.getItem('devflow.filesDrawerOpen') === 'true';
 } catch (_) {
   FILES_DRAWER_OPEN = false;
+}
+try {
+  HISTORY_OPEN = localStorage.getItem('devflow.historyOpen') === 'true';
+} catch (_) {
+  HISTORY_OPEN = false;
+}
+try {
+  SELECTED_STAGE_BY_RUN = JSON.parse(localStorage.getItem('devflow.selectedStages') || '{}');
+} catch (_) {
+  SELECTED_STAGE_BY_RUN = {};
 }
 
 function saveOpenWorkerGroups() {
@@ -963,6 +1023,23 @@ function selectRunFromDropdown(runId) {
   focusRun(runId);
 }
 
+function toggleHistory() {
+  HISTORY_OPEN = !HISTORY_OPEN;
+  try { localStorage.setItem('devflow.historyOpen', String(HISTORY_OPEN)); } catch (_) {}
+  const section = document.querySelector('.history-section');
+  if (section) section.classList.toggle('open', HISTORY_OPEN);
+  const button = section?.querySelector('.history-toggle');
+  if (button) button.setAttribute('aria-expanded', String(HISTORY_OPEN));
+}
+
+function selectActivityStage(runId, stage) {
+  SELECTED_STAGE_BY_RUN[runId] = stage;
+  try { localStorage.setItem('devflow.selectedStages', JSON.stringify(SELECTED_STAGE_BY_RUN)); } catch (_) {}
+  USER_SELECTED_OUTPUT = false;
+  SELECTED_OUTPUT = null;
+  refresh();
+}
+
 function setFilesDrawerOpen(open) {
   FILES_DRAWER_OPEN = Boolean(open);
   try { localStorage.setItem('devflow.filesDrawerOpen', String(FILES_DRAWER_OPEN)); } catch (_) {}
@@ -1004,7 +1081,14 @@ async function refresh() {
     const scrollState = captureScrollState();
     render(data);
     if (OPEN_ARTIFACT) {
-      await showArtifact(OPEN_ARTIFACT.runId, OPEN_ARTIFACT.fileName, /*silent*/ true);
+      // Rehydrate the selected preview without overriding the operator's
+      // explicit drawer choice. A prior Close must remain closed.
+      await showArtifact(
+        OPEN_ARTIFACT.runId,
+        OPEN_ARTIFACT.fileName,
+        /*silent*/ true,
+        /*openDrawer*/ false,
+      );
     }
     restoreScrollState(scrollState);
   } catch (e) { console.error('refresh failed:', e); }
@@ -1233,6 +1317,7 @@ function render(data) {
   const el = document.getElementById('content');
   const runs = statusRunsForChatSession(data.runs || []);
   if (runs.length === 0) {
+    document.getElementById('header-run-selector').innerHTML = '';
     IS_STREAMING = false;
     const message = CHAT_AWAITS_FIRST_MESSAGE
       ? '<h3>New brainstorm</h3><p>Your new project will appear here after your first message.</p>'
@@ -1258,23 +1343,24 @@ function render(data) {
 
   let html = '';
   if (active.length) {
-    const label = focusedCompleted
-      ? 'Selected Pipeline History'
-      : (active.length > 1 ? `Active / Needs Attention (${active.length})` : 'Active / Needs Attention');
-    html += `<div class="section-label">${label}</div>`;
     const orderedActive = [...active].sort((a, b) =>
       (b.run_id || '').localeCompare(a.run_id || '')
     );
     const focusedRun = active.find(r => r.run_id === FOCUSED_RUN_ID) || orderedActive[0];
     if (focusedRun && !FOCUSED_RUN_ID) FOCUSED_RUN_ID = focusedRun.run_id;
-    html += renderRunQueue(orderedActive, focusedRun?.run_id || '');
+    document.getElementById('header-run-selector').innerHTML = renderRunQueue(orderedActive, focusedRun?.run_id || '');
     if (focusedRun) html += renderActive(focusedRun);
   } else {
+    document.getElementById('header-run-selector').innerHTML = '';
     html += `<div class="no-active"><h3>No active pipeline</h3><p>All runs are complete. Click a history row below to inspect its files, activity, and evidence.</p></div>`;
   }
   if (history.length) {
-    html += `<div class="section-label">History (${history.length})</div>`;
-    html += `<div class="history-list">${history.map(r => renderHistoryRow(r)).join('')}</div>`;
+    html += `<section class="history-section ${HISTORY_OPEN ? 'open' : ''}">
+      <button type="button" class="history-toggle" aria-expanded="${HISTORY_OPEN}" onclick="toggleHistory()">
+        <span>History (${history.length})</span><span class="history-chevron">${HISTORY_OPEN ? '▾' : '▸'}</span>
+      </button>
+      <div class="history-list">${history.map(r => renderHistoryRow(r)).join('')}</div>
+    </section>`;
   }
   el.innerHTML = html;
   setFilesDrawerOpen(FILES_DRAWER_OPEN);
@@ -1442,26 +1528,56 @@ function renderArtifactTree(runId, artifacts) {
   }).join('');
 }
 
+function stageArtifactCandidates(stage, artifacts) {
+  const patterns = {
+    idea: /brainstorm|intent/i,
+    definition: /orient|classification|readiness|intent-summary/i,
+    spec: /(^|[-_])spec|spec\.md/i,
+    planning: /plan\.md|build-packets|packet/i,
+    planning_judge: /planning-judge|review/i,
+    assignment: /assignment|packet|execution-control/i,
+    build_judge: /build|diff|manifest|judge-decision|workspace/i,
+    verification: /verif|receipt|test-result/i,
+    human_decision: /human-decision|acceptance|full-pipeline/i,
+    complete: /full-pipeline|human-decision|verification|receipt/i,
+  };
+  const pattern = patterns[stage];
+  return pattern ? (artifacts || []).filter(name => pattern.test(name)).slice(0, 8) : [];
+}
+
 function renderActive(r) {
   const rawStageIdx = STAGE_NAMES.indexOf(r.stage);
   const stageIdx = rawStageIdx >= 0 ? rawStageIdx : STAGE_NAMES.indexOf('human_decision');
+  const selectedStage = SELECTED_STAGE_BY_RUN[r.run_id] || (rawStageIdx >= 0 ? r.stage : 'human_decision');
   const segments = STAGE_NAMES.map((s, i) => {
     let cls = '';
     if (r.stage === 'blocked') cls = i <= stageIdx ? 'blocked' : '';
     else if (i < stageIdx) cls = 'done';
     else if (i === stageIdx) cls = 'current';
-    return `<div class="progress-segment ${cls}"></div>`;
+    const selected = s === selectedStage;
+    return `<button type="button" class="stage-control ${cls} ${selected ? 'selected' : ''}" aria-pressed="${selected}" onclick="selectActivityStage('${escapeHtml(r.run_id)}','${s}')">
+      <span class="progress-segment ${cls}"></span><span>${STAGE_SHORT[i]}</span>
+    </button>`;
   }).join('');
-  const labels = STAGE_SHORT.map((s, i) =>
-    `<span class="${i === stageIdx ? 'current' : ''}">${s}</span>`
-  ).join('');
 
   // The server owns worker semantics. The browser renders the projection and
   // keeps the append-only evidence available behind explicit detail tabs.
   const projection = r.worker_projection || { entries: [], loops: [], current: null };
   const chronologicalEntries = projection.entries || [];
-  const displayGroups = (projection.loops || []).slice().reverse();
-  const currentLoop = projection.current || null;
+  const stageEntries = selectedStage === 'complete'
+    ? chronologicalEntries
+    : chronologicalEntries.filter(entry => (entry.stages || []).includes(selectedStage));
+  const matchingGroups = (projection.loops || []).map(group => ({
+    ...group,
+    entries: (group.entries || []).filter(entry => selectedStage === 'complete' || (entry.stages || []).includes(selectedStage)),
+  })).filter(group => group.entries.length);
+  const selectedCurrentId = matchingGroups.length ? matchingGroups[matchingGroups.length - 1].loop_id : '';
+  matchingGroups.forEach(group => {
+    group.is_current = group.loop_id === selectedCurrentId;
+    group.event_count = group.entries.length;
+  });
+  const displayGroups = matchingGroups.slice().reverse();
+  const currentLoop = matchingGroups.length ? matchingGroups[matchingGroups.length - 1] : null;
   const viewerId = `viewer-${r.run_id}`;
   const renderOutputCard = (f) => {
     const role = f.role || 'worker';
@@ -1516,7 +1632,7 @@ function renderActive(r) {
   const streamingEntry = currentEntries.find(e => e.event === 'streaming');
   const defaultEntryId = streamingEntry?.entry_id
     || (currentEntries.length ? currentEntries[currentEntries.length - 1].entry_id : '')
-    || (chronologicalEntries.at(-1)?.entry_id || '');
+    || (stageEntries.at(-1)?.entry_id || '');
   const viewerHtml = `<div class="output-viewer" id="${escapeHtml(viewerId)}" data-run-id="${escapeHtml(r.run_id)}" data-default-entry-id="${escapeHtml(defaultEntryId)}" aria-label="Raw evidence">
     <div class="output-viewer-content" style="color:var(--text-dim)">Select an output from the list to view its content.</div>
   </div>`;
@@ -1529,6 +1645,14 @@ function renderActive(r) {
     <div class="worker-current-next"><strong>Next safe action:</strong> ${escapeHtml(currentLoop.next_safe_action || 'Awaiting the next orchestrator decision.')}</div>
   </section>` : `<section class="worker-current-summary neutral" aria-label="Current loop outcome"><div class="worker-current-headline">No worker outcome yet</div><div class="worker-current-next">Worker evidence will appear here when the loop starts.</div></section>`;
   const feedHtml = displayGroups.length ? `${currentSummaryHtml}${cardListHtml}${viewerHtml}` : '';
+  const stageArtifacts = stageArtifactCandidates(selectedStage, r.artifacts || []);
+  const stagePosition = STAGE_NAMES.indexOf(selectedStage);
+  const stageStatus = stagePosition < stageIdx ? 'completed' : stagePosition === stageIdx ? (r.execution_status || 'current') : 'upcoming';
+  const stageEmptyHtml = `<div class="activity-empty"><div>
+    <strong>No model call was recorded for ${escapeHtml(STAGE_SHORT[Math.max(0, stagePosition)] || selectedStage)}.</strong><br>
+    This stage is ${escapeHtml(stageStatus)}. Persisted stage files remain available below.
+    ${stageArtifacts.length ? `<div class="stage-artifact-links">${stageArtifacts.map(fileName => `<button type="button" class="stage-artifact-link" onclick="showArtifact('${escapeHtml(r.run_id)}','${escapeHtml(fileName)}')">${escapeHtml(fileName)}</button>`).join('')}</div>` : ''}
+  </div></div>`;
 
   const receipts = (r.receipts || []).map(v => {
     const cls = v.passed === true ? 'receipt-pass' : v.passed === false ? 'receipt-fail' : '';
@@ -1567,7 +1691,6 @@ function renderActive(r) {
       </div>
       <div class="active-progress-bar-section">
         <div class="progress-bar">${segments}</div>
-        <div class="stage-labels">${labels}</div>
       </div>
       <div class="focused-workspace">
         ${operatorControls}
@@ -1579,9 +1702,9 @@ function renderActive(r) {
         </section>
         <section class="activity-card" aria-label="Activity">
           <div class="activity-header">
-            <div><div class="activity-title">Activity</div><div class="activity-subtitle">${chronologicalEntries.length} evidence item${chronologicalEntries.length === 1 ? '' : 's'} · current attempt expanded</div></div>
+            <div><div class="activity-title">${escapeHtml(STAGE_SHORT[Math.max(0, STAGE_NAMES.indexOf(selectedStage))] || selectedStage)} activity</div><div class="activity-subtitle">${stageEntries.length} matching evidence item${stageEntries.length === 1 ? '' : 's'} · click another stage to inspect it</div></div>
           </div>
-          ${feedHtml ? `<div class="worker-feed-container" id="feed-container-${escapeHtml(r.run_id)}">${feedHtml}</div>` : '<div class="activity-empty">Worker activity will appear here when the loop starts.</div>'}
+          ${feedHtml ? `<div class="worker-feed-container" id="feed-container-${escapeHtml(r.run_id)}">${feedHtml}</div>` : stageEmptyHtml}
         </section>
         ${receiptsHtml ? `<div class="verification-inline"><div class="verification-panel"><div class="panel-title">Verification</div>${receiptsHtml}</div></div>` : ''}
       </div>
@@ -1771,9 +1894,9 @@ function setOutputTab(buttonEl, panelName) {
   activateOutputTab(viewer, panelName);
 }
 
-async function showArtifact(runId, fileName, silent=false) {
+async function showArtifact(runId, fileName, silent=false, openDrawer=true) {
   OPEN_ARTIFACT = { runId, fileName };
-  setFilesDrawerOpen(true);
+  if (openDrawer) setFilesDrawerOpen(true);
   document.querySelectorAll('.artifact-file').forEach(button => {
     button.classList.toggle('selected', button.textContent === fileName);
   });
@@ -1784,7 +1907,7 @@ async function showArtifact(runId, fileName, silent=false) {
   try {
     const resp = await fetch('/api/artifact?run=' + encodeURIComponent(runId) + '&file=' + encodeURIComponent(fileName));
     const text = await resp.text();
-    el.textContent = text.slice(0, 8000);
+    el.textContent = text;
   } catch (e) {
     el.textContent = 'Failed to load: ' + e;
   }

@@ -164,6 +164,7 @@ class FailingStreamingClient:
 
 class ReasoningCaptureClient:
     reasoning_values = []
+    user_prompts = []
 
     def __init__(self, endpoint: str, *, timeout: int = 1):
         self.endpoint = endpoint
@@ -171,6 +172,24 @@ class ReasoningCaptureClient:
     def chat(self, *, messages, max_tokens=2048, temperature=0.0,
              reasoning=False, stop=None):
         type(self).reasoning_values.append(reasoning)
+        type(self).user_prompts.append(messages[-1]["content"])
+        return json.dumps({"status": "passed", "rationale": "ok"}), {}
+
+
+class VerifierLifecycleCaptureClient:
+    root: Path
+    run_id: str
+    observed_control = {}
+
+    def __init__(self, endpoint: str, *, timeout: int = 1):
+        self.endpoint = endpoint
+
+    def chat(self, *, messages, max_tokens=2048, temperature=0.0,
+             reasoning=False, stop=None):
+        type(self).observed_control = pr.read_execution_control(
+            type(self).root,
+            type(self).run_id,
+        )
         return json.dumps({"status": "passed", "rationale": "ok"}), {}
 
 
@@ -218,6 +237,7 @@ def test_run_role_derives_reasoning_from_canonical_role(tmp_path):
 
 def test_verifier_requests_reasoning_and_emits_model_agnostic_evidence(tmp_path, monkeypatch):
     ReasoningCaptureClient.reasoning_values = []
+    ReasoningCaptureClient.user_prompts = []
     root = tmp_path / "proj"
     root.mkdir()
     run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
@@ -255,6 +275,97 @@ def test_verifier_requests_reasoning_and_emits_model_agnostic_evidence(tmp_path,
     assert receipt.command.startswith("verifier (")
     assert "GLM" not in receipt.command
     assert receipt.summary.startswith("Verifier decision:")
+
+
+def test_verifier_uses_role_lifecycle_while_model_is_running(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(update={"stage": LoopStage.verification})
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "build-manifest.json",
+        json.dumps({"changed_files": [], "workspace": str(root)}),
+    )
+    monkeypatch.setattr(
+        ex,
+        "_run_workspace_tests",
+        lambda *args, **kwargs: {
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "summary": "1 passed",
+            "working_directory": str(root),
+        },
+    )
+    VerifierLifecycleCaptureClient.root = root
+    VerifierLifecycleCaptureClient.run_id = run_id
+    VerifierLifecycleCaptureClient.observed_control = {}
+
+    ex.run_verifier(
+        root,
+        run_id,
+        definition_of_done="Tests pass.",
+        client_factory=VerifierLifecycleCaptureClient,
+    )
+
+    assert VerifierLifecycleCaptureClient.observed_control["status"] == "running"
+    assert VerifierLifecycleCaptureClient.observed_control["active_role"] == "verifier"
+
+
+def test_verifier_prompt_includes_scope_and_prior_judge_evidence(tmp_path, monkeypatch):
+    ReasoningCaptureClient.user_prompts = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(update={"stage": LoopStage.verification})
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "build-manifest.json",
+        json.dumps({
+            "changed_files": ["src/feature.py", "tests/test_feature.py"],
+            "declared_target_files": ["src/feature.py", "tests/test_feature.py"],
+            "workspace": str(root),
+        }),
+    )
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "judge-decision.json",
+        json.dumps({"status": "passed"}),
+    )
+    monkeypatch.setattr(
+        ex,
+        "_run_workspace_tests",
+        lambda *args, **kwargs: {
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "summary": "1 passed",
+            "working_directory": str(root),
+        },
+    )
+
+    ex.run_verifier(
+        root,
+        run_id,
+        definition_of_done="Tests pass and only declared targets change.",
+        client_factory=ReasoningCaptureClient,
+    )
+
+    prompt = ReasoningCaptureClient.user_prompts[-1]
+    assert "# Prior Judge Decision\npassed" in prompt
+    assert "changed_files: ['src/feature.py', 'tests/test_feature.py']" in prompt
+    assert "declared_target_files: ['src/feature.py', 'tests/test_feature.py']" in prompt
+    assert "scope_match: true" in prompt
 
 
 def test_role_prompts_are_model_agnostic_and_job_shaped():
@@ -513,6 +624,44 @@ def test_builder_materializes_multi_file_greenfield_output(tmp_path):
     assert sorted(manifest["changed_files"]) == ["src/models.py", "src/parser.py"]
     assert "class Item" in (workspace / "src/models.py").read_text()
     assert "def parse" in (workspace / "src/parser.py").read_text()
+
+
+def test_builder_workspace_preserves_parent_packages_for_new_modules(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+    root = Path(root)
+    (root / "src/devflow/loop").mkdir(parents=True)
+    (root / "src/devflow/__init__.py").write_text("\n")
+    (root / "src/devflow/loop/__init__.py").write_text("\n")
+    greenfield = (
+        "# src/devflow/loop/run_labels.py\n"
+        "def format_run_label(run_id, stage):\n"
+        "    return f'{run_id} · {stage.upper()}'\n"
+        "\n"
+        "# tests/test_run_labels.py\n"
+        "from devflow.loop.run_labels import format_run_label\n"
+        "\n"
+        "def test_format_run_label():\n"
+        "    assert format_run_label('run-1', 'build') == 'run-1 · BUILD'\n"
+    )
+
+    manifest = ex.materialize_builder_output(
+        root,
+        run_id,
+        greenfield,
+        target_files=[
+            "src/devflow/loop/run_labels.py",
+            "tests/test_run_labels.py",
+        ],
+    )
+    workspace = Path(manifest["workspace"])
+
+    assert (workspace / "src/devflow/__init__.py").is_file()
+    assert (workspace / "src/devflow/loop/__init__.py").is_file()
+    result = ex._run_workspace_tests(
+        workspace,
+        test_files=["tests/test_run_labels.py"],
+    )
+    assert result["exit_code"] == 0, result["summary"]
 
 
 def test_builder_refuses_oversized_packet_and_planner_chunks_files(tmp_path):

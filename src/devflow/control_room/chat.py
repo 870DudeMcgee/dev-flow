@@ -58,17 +58,15 @@ _WORKER_ONLY_MODELS = {"laguna-m1-free"}
 def list_chat_models() -> list[dict]:
     """Return all eligible models that can serve as the brainstorm/chat model.
 
-    A model is chat-eligible if it is available, not retired, and has at
-    least high_level_reasoning or code_generation capability (i.e. it can
-    hold a conversation about building software).
+    The registry is the source of truth for model availability.  Keep the
+    explicitly audited worker-only denylist, but do not invent a second
+    capability policy here: every other available, non-retired registry model
+    uses a transport supported by this chat surface.
     """
     reg = get_registry()
-    chat_caps = {"high_level_reasoning", "code_generation", "ambiguity_resolution"}
     models: list[dict] = []
     for entry in reg.eligible():
         if entry.name in _WORKER_ONLY_MODELS:
-            continue
-        if not (set(entry.capabilities) & chat_caps):
             continue
         models.append(_model_to_dict(entry))
     return models

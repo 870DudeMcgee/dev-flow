@@ -96,6 +96,28 @@ def _stage_worker_category(stage: str) -> str:
     return "orchestrator"
 
 
+def _entry_stages(role: str) -> list[str]:
+    """Map persisted worker roles to the stage controls they can truthfully explain."""
+    if role == "planner":
+        return ["spec", "planning"]
+    if role in {
+        "planning_judge", "planning_judge_report", "planning_loop",
+        "frontier_bounded_packet_review", "frontier_orchestrator_replan_gate",
+    }:
+        return ["planning_judge"]
+    if role in {"operator_control", "frontier_orchestrator_control", "packet_1_dispatch"}:
+        return ["assignment"]
+    if role in {"builder", "judge", "build_judge_loop"}:
+        return ["build_judge"]
+    if role in {"verification", "verifier", "test-runner"}:
+        return ["verification"]
+    if role in {"human_decision", "acceptance"}:
+        return ["human_decision"]
+    if role in {"brainstorm", "definition", "orient"}:
+        return ["idea", "definition"]
+    return []
+
+
 def _content_payload(content: object) -> dict:
     if not isinstance(content, str) or not content.strip():
         return {}
@@ -214,6 +236,7 @@ def _project_worker_feed(run_id: str, stage: str, feed: list[dict]) -> dict:
             "outcome": outcome,
             "decision": decision,
             "category": _worker_category(role),
+            "stages": _entry_stages(role),
             "role": role,
             "model": str(rec.get("model") or ""),
             "summary": _entry_summary(role, event, payload, outcome, decision),
@@ -945,16 +968,18 @@ def _extract_run_info(run_id: str, data: dict) -> dict:
     worker_projection: dict = {"entries": [], "loops": [], "current": None}
     feed = data.get("worker-feed.jsonl") or []
     if isinstance(feed, list):
-        source_feed = [rec for rec in feed[-60:] if isinstance(rec, dict)]
+        source_feed = [rec for rec in feed[-200:] if isinstance(rec, dict)]
         live_output = data.get("worker-live.json")
-        if isinstance(live_output, dict) and live_output.get("content"):
+        if isinstance(live_output, dict) and (
+            live_output.get("content") or live_output.get("reasoning_content")
+        ):
             source_feed.append({
                 **live_output,
                 "event": live_output.get("event") or "streaming",
                 "timestamp": live_output.get("updated_at", ""),
             })
         worker_projection = _project_worker_feed(run_id, stage, source_feed)
-        feed_entries = worker_projection["entries"][-30:]
+        feed_entries = worker_projection["entries"][-200:]
 
         if execution_status in {"", "idle", "running"} and source_feed:
             latest_started_index = next(
