@@ -9,11 +9,11 @@ The routing layer evaluates:
   5. Automatic routing (cheapest eligible model as fallback)
 
 Configuration precedence (highest to lowest):
-  1. Explicit per-run override passed to resolve_role()
-  2. Active deployment profile (profiles.yaml)
-  3. Role policy preferred cost classes (roles.py)
-  4. Automatic routing (cheapest eligible model)
-  5. Safe fallback (first eligible model in registry)
+  1. Explicit opt-in local audition override
+  2. Capability-checked per-run override passed to resolve_role()
+  3. Active deployment profile (profiles.yaml)
+  4. Role policy preferred cost classes (roles.py)
+  5. Automatic routing (cheapest eligible model)
 
 The pipeline never calls routing directly in the normal flow. It calls
 ``resolve_role_slot`` from model_router.py, which delegates here. This
@@ -56,7 +56,7 @@ class ResolvedSlot:
     endpoint: str
     transport: str
     cost_class: str
-    resolved_via: str  # "override" | "profile" | "policy" | "auto" | "fallback"
+    resolved_via: str  # "audition_override" | "override" | "profile" | "auto"
     model_id: str = ""  # API model ID (e.g. "tencent/hy3:free")
     fallback_model_ids: tuple[str, ...] = ()
     model_path: str = ""  # local GGUF path (for llama.cpp models)
@@ -148,6 +148,7 @@ def resolve_role(
     role_name: str,
     *,
     override_model: Optional[str] = None,
+    audition_override_model: Optional[str] = None,
     registry: Optional[ModelRegistry] = None,
     profile_name: Optional[str] = None,
 ) -> ResolvedSlot:
@@ -157,7 +158,10 @@ def resolve_role(
 
     Args:
         role_name: Canonical role name (brainstorm, planner, etc.)
-        override_model: Explicit model name — highest precedence.
+        override_model: Capability-checked explicit model name.
+        audition_override_model: Explicit opt-in local audition target. This
+            bypasses capability claims while still requiring a known,
+            available, non-retired local model.
         registry: Use a specific registry (for testing). Defaults to global.
         profile_name: Use a specific profile (for testing). Defaults to active.
 
@@ -174,6 +178,24 @@ def resolve_role(
         )
 
     reg = registry if registry is not None else get_registry()
+    if audition_override_model:
+        entry = reg.get(audition_override_model)
+        if entry is None:
+            raise ValueError(
+                f"Unknown audition override model '{audition_override_model}' "
+                f"for role '{role_name}'."
+            )
+        if not entry.is_eligible:
+            raise ValueError(
+                f"Audition override model '{audition_override_model}' is unavailable "
+                "or retired."
+            )
+        if entry.provider != "local" or entry.cost_class != "local":
+            raise ValueError(
+                f"Audition override model '{audition_override_model}' is not local."
+            )
+        return _make_slot(role_name, entry, "audition_override")
+
     candidates = _candidates_for_role(role, reg)
     if not candidates:
         raise ValueError(
@@ -182,7 +204,7 @@ def resolve_role(
             f"Check models.yaml for models with these capabilities."
         )
 
-    # 1. Explicit override — highest precedence. Still must be eligible.
+    # Capability-checked explicit override. Still must be eligible.
     if override_model:
         entry = reg.get(override_model)
         if entry and entry.is_eligible and entry.has_all_capabilities(role.required_capabilities):
@@ -191,7 +213,7 @@ def resolve_role(
         # Don't silently substitute; let the profile/auto path find something valid.
         # (We don't raise because the operator may have set a stale override.)
 
-    # 2. Deployment profile preference
+    # Deployment profile preference
     profile_model_name = _get_profile_role_model(role_name, profile_name)
     if profile_model_name:
         entry = reg.get(profile_model_name)

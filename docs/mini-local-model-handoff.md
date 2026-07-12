@@ -46,7 +46,8 @@ port 8088.
 
 Enforces:
 - Exact model path and alias (configurable via `MINI_QWEN_MODEL_PATH` and
-  `MINI_MODEL_ALIAS` env vars; defaults to `~/models/qwythos-9b-q4_k_m.gguf`)
+  `MINI_MODEL_ALIAS` env vars; defaults to
+  `~/models/qwythos-9b-v2-q4_k_m.gguf` / `qwythos-9b-v2-mini`)
 - `127.0.0.1` only binding
 - One parallel slot
 - Metal GPU offload (99 layers)
@@ -143,7 +144,7 @@ exits.
 
 | Model file | Params | Quant | Size | Role |
 |---|---:|---|---:|---|
-| `qwythos-9b-q4_k_m.gguf` | 9.2B | Q4_K_M | 5.5 GB | Scout/comprehension |
+| `qwythos-9b-v2-q4_k_m.gguf` | 8.95B | Q4_K_M | 5.3 GiB | Unqualified audition candidate |
 | `ornith-9b-q4_k_m.gguf` | 8.95B | Q4_K_M | 5.2 GB | Build judge/review |
 | `qwen2.5-coder-7b-q4_k_m.gguf` | 7.6B | Q4_K_M | 4.4 GB | Builder |
 
@@ -167,7 +168,7 @@ for the full comparison data.
 | Model | Gen t/s (tiny) | Gen t/s (repo) | Prompt t/s (repo) | Repo time | Size | Result |
 |---|---:|---:|---:|---:|---:|---|
 | Qwen2.5 Coder 7B | **14.26** | **12.42** | 46.22 | **26s** | 4.4 GB | **Builder** |
-| Qwythos-9B | 10.35 | 10.22 | 108.46 | 85s | 5.5 GB | **Scout** |
+| Qwythos-9B v1 (historical; retired) | 10.35 | 10.22 | 108.46 | 85s | 5.5 GB | Unsafe judge results; no longer installed |
 | Ornith-9B | 11.09 | 10.16 | **109.90** | 80s | 5.2 GB | **Build judge** |
 | Qwen3.5-9B (baseline) | 9.70 | 8.21 | 97.88 | 91s | 6.1 GB | Pruned (dominated) |
 | Gemma4-12B | 8.53 | 7.71 | 28.01 | 64s | 6.5 GB | Pruned (dominated) |
@@ -298,12 +299,12 @@ Create a new matrix CSV per candidate for clean comparison.
 | `/v1/responses` without template override | **REJECT** |
 | Vision projector loaded | **REJECT for baseline** |
 | Qwen2.5 Coder 7B | **TEST NEXT** |
-| Qwythos-9B Q4_K_M MTP | **TEST NEXT** |
+| Qwythos-9B v2 Q4_K_M trunk-only | **QUALIFY NEXT; audition-only** |
 | Ornith 9B | **HIGH-PRIORITY FUTURE** |
 | Qwen2.5 Coder 14B | **DEFER** — experiment only |
 | Qwen3 14B | **DEFER** |
 | Gemma4 12B | **DEFER** |
-| Deleting any models | **REJECT for now** — prune only after scoring |
+| Qwythos-9B v1 | **REMOVED** — retired after unsafe false-positive judge results |
 
 ---
 
@@ -351,8 +352,10 @@ Create a new matrix CSV per candidate for clean comparison.
 
 ## Resolved risks (as of this session)
 
-1. ~~Qwythos-9B has not been tested~~ — **Tested and proven.** All 7 tests
-   passed 3/3. Assigned scout/comprehension role.
+1. Qwythos-9B v1's earlier 7/7 micro-benchmark result is historical and did not
+   survive role-specific ground-truth evaluation. It was retired after falsely
+   passing all nine known-bad build-judge trials. Qwythos v2 is installed as a
+   distinct audition-only candidate with no inherited role credit.
 2. ~~Ornith 9B needs to be identified and sourced~~ — **Sourced from
    `deepreinforce-ai/Ornith-1.0-9B-GGUF`, tested, and assigned build_judge
    role.** All 7 tests passed 3/3.
@@ -386,4 +389,3 @@ Create a new matrix CSV per candidate for clean comparison.
 3. **Workspace selection** — DevFlow should operate in a user-selected
    workspace directory. The repo picker serves as a file system explorer for
    picking the working folder, with options for adding and renaming folders.
-

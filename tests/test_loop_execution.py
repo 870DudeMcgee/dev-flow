@@ -235,6 +235,212 @@ def test_run_role_derives_reasoning_from_canonical_role(tmp_path):
     assert ReasoningCaptureClient.reasoning_values == [True, False]
 
 
+def test_run_role_persists_audition_route_provenance(tmp_path, monkeypatch):
+    ReasoningCaptureClient.reasoning_values = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_OVERRIDES",
+        '{"verifier": "qwen2.5-coder-7b-mini"}',
+    )
+    monkeypatch.setenv("DEVFLOW_AUDITION_DISABLE_THINKING", "1")
+
+    ex.run_role(
+        root,
+        role="verifier",
+        system_prompt="verify",
+        user_prompt="inspect evidence",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert [entry["event"] for entry in feed] == ["started", "completed"]
+    assert {entry["configured_route"] for entry in feed} == {
+        "qwen2.5-coder-7b-mini"
+    }
+    assert {entry["route_provenance"] for entry in feed} == {
+        "audition_override"
+    }
+    assert {entry["reasoning_enabled"] for entry in feed} == {False}
+    assert ReasoningCaptureClient.reasoning_values == [False]
+
+
+def test_audition_thinking_flag_does_not_change_normal_routes(tmp_path, monkeypatch):
+    ReasoningCaptureClient.reasoning_values = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    monkeypatch.setenv("DEVFLOW_AUDITION_DISABLE_THINKING", "true")
+
+    ex.run_role(
+        root,
+        role="planning_judge",
+        system_prompt="judge",
+        user_prompt="inspect plan",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert ReasoningCaptureClient.reasoning_values == [True]
+    assert {entry["reasoning_enabled"] for entry in feed} == {True}
+
+
+def test_audition_thinking_suppression_is_canonical_role_scoped(
+    tmp_path, monkeypatch,
+):
+    ReasoningCaptureClient.reasoning_values = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_OVERRIDES",
+        json.dumps({
+            "planning_judge": "ornith-9b-mini",
+            "build_judge": "ornith-9b-mini",
+        }),
+    )
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_DISABLE_THINKING_ROLES", "build_judge"
+    )
+
+    ex.run_role(
+        root,
+        role="planning_judge",
+        system_prompt="judge plan",
+        user_prompt="inspect plan",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+    ex.run_role(
+        root,
+        role="judge",
+        system_prompt="judge build",
+        user_prompt="inspect diff",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    started = [entry for entry in feed if entry["event"] == "started"]
+    assert ReasoningCaptureClient.reasoning_values == [True, False]
+    assert [(entry["role"], entry["reasoning_enabled"]) for entry in started] == [
+        ("planning_judge", True),
+        ("judge", False),
+    ]
+    assert {entry["route_provenance"] for entry in feed} == {
+        "audition_override"
+    }
+
+
+def test_audition_role_token_budget_canonicalizes_generic_judge(
+    tmp_path, monkeypatch,
+):
+    ReasoningCaptureClient.reasoning_values = []
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_OVERRIDES",
+        '{"build_judge": "ornith-9b-mini"}',
+    )
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS",
+        '{"build_judge": 6000}',
+    )
+
+    ex.run_role(
+        root,
+        role="judge",
+        system_prompt="judge build",
+        user_prompt="inspect diff",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+    ex.run_role(
+        root,
+        role="judge",
+        system_prompt="judge build",
+        user_prompt="inspect diff",
+        task_id=run_id,
+        max_tokens=1024,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    started = [entry for entry in feed if entry["event"] == "started"]
+    assert [entry["requested_max_tokens"] for entry in started] == [6000, 1024]
+    assert [entry["reasoning_enabled"] for entry in started] == [True, True]
+    assert ReasoningCaptureClient.reasoning_values == [True, True]
+
+
+def test_audition_role_token_budget_does_not_affect_normal_route(
+    tmp_path, monkeypatch,
+):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS",
+        '{"builder": 4096}',
+    )
+
+    ex.run_role(
+        root,
+        role="builder",
+        system_prompt="build",
+        user_prompt="implement",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=ReasoningCaptureClient,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert feed[0]["route_provenance"] != "audition_override"
+    assert feed[0]["requested_max_tokens"] == 16384
+
+
+@pytest.mark.parametrize(
+    ("budgets", "message"),
+    [
+        ("not-json", "must be a JSON object"),
+        ('{"judge": 4096}', "unknown canonical role"),
+        ('{"build_judge": 0}', "positive integers"),
+        ('{"build_judge": 6001}', "no greater than 6000"),
+    ],
+)
+def test_audition_role_token_budget_rejects_invalid_env(
+    tmp_path, monkeypatch, budgets, message,
+):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    monkeypatch.setenv(
+        "DEVFLOW_AUDITION_OVERRIDES",
+        '{"build_judge": "ornith-9b-mini"}',
+    )
+    monkeypatch.setenv("DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS", budgets)
+
+    with pytest.raises(ValueError, match=message):
+        ex.run_role(
+            root,
+            role="judge",
+            system_prompt="judge build",
+            user_prompt="inspect diff",
+            task_id=run_id,
+            ensure_lane_on=False,
+            client_factory=ReasoningCaptureClient,
+        )
+
+
 def test_verifier_requests_reasoning_and_emits_model_agnostic_evidence(tmp_path, monkeypatch):
     ReasoningCaptureClient.reasoning_values = []
     ReasoningCaptureClient.user_prompts = []
@@ -483,6 +689,56 @@ def test_planning_judge_report_records_result_model_and_generic_fallbacks(
     assert returned_result is result
     assert report_entry["model"] == result.model
     assert "Qwen" not in report.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '```json\n{"decision":"approve"}\n```',
+        '  ```  \n  {"status":"passed"}  \n```  ',
+        '``` JSON \r\n{"decision":"revise"}\r\n```',
+    ],
+)
+def test_structured_judge_accepts_one_whole_response_json_fence(content):
+    payload, valid = ex._structured_judge_payload(content)
+
+    assert valid is True
+    assert isinstance(payload, dict)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        'Here is the result:\n```json\n{"decision":"approve"}\n```',
+        '```json\n{"decision":"approve"}\n```\nextra prose',
+        '```json\n{"decision":"approve"}\n```\n```json\n{}\n```',
+        '```json\n{"decision":"approve"\n```',
+        '```json\n{"decision":"approve"}',
+    ],
+)
+def test_structured_judge_rejects_nonexclusive_or_malformed_fences(content):
+    payload, valid = ex._structured_judge_payload(content)
+
+    assert valid is False
+    assert payload["status"] == "needs_review"
+    assert payload["partial_output"] == content.strip()
+
+
+def test_token_capped_fenced_judge_output_still_fails_closed():
+    result = ex.RoleResult(
+        role="judge",
+        model="ornith-9b-mini",
+        endpoint="http://127.0.0.1:8088",
+        content='```json\n{"status":"passed","rationale":"complete"}\n```',
+        usage={},
+        raw={"finish_reason": "length", "token_cap_reached": True},
+    )
+
+    payload = ex._build_judge_payload_from_result(result)
+
+    assert payload["status"] == "needs_review"
+    assert "token limit" in payload["rationale"]
+    assert payload["partial_output"] == result.content
 
 
 @pytest.mark.parametrize(
@@ -830,8 +1086,12 @@ def test_role_budgets_and_streaming_metadata_are_persisted(tmp_path):
     assert result.raw["finish_reason"] == "length"
     feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
     assert feed[0]["requested_max_tokens"] == 16384
+    assert feed[0]["configured_route"] == feed[0]["model"]
+    assert feed[0]["route_provenance"] in {"profile", "auto", "override"}
     assert feed[-1]["finish_reason"] == "length"
     assert feed[-1]["token_cap_reached"] is True
+    assert feed[-1]["configured_route"] == feed[-1]["model"]
+    assert feed[-1]["route_provenance"] == feed[0]["route_provenance"]
     assert "worker-live.json" not in pr.load_pipeline_run(root, run_id)
 
 
@@ -849,6 +1109,12 @@ def test_stream_failure_preserves_partial_output_and_stalled_state(tmp_path):
     assert data["worker-live.json"]["content"] == "partial implementation"
     assert data["worker-live.json"]["status"] == "stalled"
     assert data["execution-control.json"]["status"] == "stalled"
+    assert [entry["event"] for entry in data["worker-feed.jsonl"]] == [
+        "started", "failed"
+    ]
+    assert {entry["reasoning_enabled"] for entry in data["worker-feed.jsonl"]} == {
+        False
+    }
 
 
 def test_builder_materializes_declared_patch_in_isolated_workspace(tmp_path):
@@ -914,6 +1180,40 @@ def test_builder_materializes_multi_file_greenfield_output(tmp_path):
     assert sorted(manifest["changed_files"]) == ["src/models.py", "src/parser.py"]
     assert "class Item" in (workspace / "src/models.py").read_text()
     assert "def parse" in (workspace / "src/parser.py").read_text()
+
+
+def test_builder_strips_two_file_greenfield_fences_ending_in_newline(tmp_path):
+    root, run_id = _fresh_root(tmp_path)
+    greenfield = (
+        "# src/local_case.py\n"
+        "```python\n"
+        "def case_value():\n"
+        "    return 1\n"
+        "\n"
+        "```\n"
+        "# tests/test_local_case.py\n"
+        "```python\n"
+        "from src.local_case import case_value\n"
+        "\n"
+        "def test_case_value():\n"
+        "    assert case_value() == 1\n"
+        "```\n"
+    )
+
+    manifest = ex.materialize_builder_output(
+        root,
+        run_id,
+        greenfield,
+        target_files=["src/local_case.py", "tests/test_local_case.py"],
+    )
+    workspace = Path(manifest["workspace"])
+    source = (workspace / "src/local_case.py").read_text(encoding="utf-8")
+    test = (workspace / "tests/test_local_case.py").read_text(encoding="utf-8")
+
+    assert "```" not in source
+    assert "```" not in test
+    compile(source, "src/local_case.py", "exec")
+    compile(test, "tests/test_local_case.py", "exec")
 
 
 def test_builder_workspace_preserves_parent_packages_for_new_modules(tmp_path):

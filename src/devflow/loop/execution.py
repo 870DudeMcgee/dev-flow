@@ -55,7 +55,7 @@ from devflow.loop.pipeline_run import (
     write_worker_live_output,
 )
 from devflow.loop.models import LoopStage, advance_stage
-from devflow.loop.roles import get_role
+from devflow.loop.roles import get_role, known_roles
 
 
 DEFAULT_MAX_PLANNING_ROUNDS = 3
@@ -68,6 +68,7 @@ ROLE_TOKEN_BUDGETS = {
     "planning_judge": 2048,
     "verifier": 2048,
 }
+MAX_AUDITION_ROLE_TOKEN_BUDGET = 6000
 
 
 # Canonical launcher. Overridable via env for tests / non-default homes.
@@ -517,12 +518,65 @@ def run_role(
 ) -> RoleResult:
     slot = resolve_role_slot(role)
     role_definition = get_role(slot.role)
-    resolved_reasoning = (
-        reasoning
-        if reasoning is not None
+    disabled_thinking_roles = {
+        value.strip().lower()
+        for value in os.environ.get(
+            "DEVFLOW_AUDITION_DISABLE_THINKING_ROLES", ""
+        ).split(",")
+        if value.strip()
+    }
+    legacy_disable_all_thinking = (
+        os.environ.get("DEVFLOW_AUDITION_DISABLE_THINKING", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    audition_thinking_disabled = (
+        slot.resolved_via == "audition_override"
+        and (
+            slot.role.lower() in disabled_thinking_roles
+            or legacy_disable_all_thinking
+        )
+    )
+    resolved_reasoning = False if audition_thinking_disabled else (
+        reasoning if reasoning is not None
         else bool(role_definition and role_definition.reasoning)
     )
-    requested_max_tokens = int(max_tokens or ROLE_TOKEN_BUDGETS.get(role, 2048))
+    audition_token_budget: int | None = None
+    if slot.resolved_via == "audition_override":
+        raw_budgets = os.environ.get("DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS", "").strip()
+        if raw_budgets:
+            try:
+                parsed_budgets = json.loads(raw_budgets)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    "DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS must be a JSON object."
+                ) from exc
+            if not isinstance(parsed_budgets, dict):
+                raise ValueError(
+                    "DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS must be a JSON object."
+                )
+            canonical_roles = set(known_roles())
+            for budget_role, budget in parsed_budgets.items():
+                if budget_role not in canonical_roles:
+                    raise ValueError(
+                        "DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS contains unknown "
+                        f"canonical role '{budget_role}'."
+                    )
+                if (
+                    isinstance(budget, bool)
+                    or not isinstance(budget, int)
+                    or budget <= 0
+                    or budget > MAX_AUDITION_ROLE_TOKEN_BUDGET
+                ):
+                    raise ValueError(
+                        "DEVFLOW_AUDITION_ROLE_TOKEN_BUDGETS values must be positive "
+                        f"integers no greater than {MAX_AUDITION_ROLE_TOKEN_BUDGET}."
+                    )
+            audition_token_budget = parsed_budgets.get(slot.role)
+    requested_max_tokens = int(
+        audition_token_budget
+        if max_tokens is None and audition_token_budget is not None
+        else (max_tokens or ROLE_TOKEN_BUDGETS.get(role, 2048))
+    )
     if ensure_lane_on:
         ensure_lane(role)
 
@@ -553,6 +607,9 @@ def run_role(
             "event": "started",
             "role": role,
             "model": slot.model,
+            "configured_route": slot.model,
+            "route_provenance": slot.resolved_via,
+            "reasoning_enabled": resolved_reasoning,
             "endpoint": slot.endpoint,
             "worker_id": worker_id,
             "task_id": task_id,
@@ -659,6 +716,9 @@ def run_role(
             write_worker_live_output(root, task_id or slot.role, error_payload)
             failed_entry: dict = {
                 "event": "failed", "role": role, "model": slot.model,
+                "configured_route": slot.model,
+                "route_provenance": slot.resolved_via,
+                "reasoning_enabled": resolved_reasoning,
                 "content": partial, "error": str(exc),
                 "requested_max_tokens": requested_max_tokens,
             }
@@ -687,6 +747,9 @@ def run_role(
             "event": "completed",
             "role": role,
             "model": slot.model,
+            "configured_route": slot.model,
+            "route_provenance": slot.resolved_via,
+            "reasoning_enabled": resolved_reasoning,
             "worker_id": worker_id,
             "task_id": task_id,
             "content": content,
@@ -1244,17 +1307,19 @@ def _split_and_write_greenfield(
         # Content starts right after the marker line, ends at next marker or EOF
         start = m.end()
         end = markers[i + 1].start() if i + 1 < len(markers) else len(content)
-        code = content[start:end].rstrip() + "\n"
+        code = content[start:end]
 
-        # Strip trailing code fence if present (for fence format)
-        # Also strip leading code fence if present
-        lines = code.split("\n")
-        # Remove leading ```language line if present
-        if lines and re.match(r"^```[a-zA-Z]*$", lines[0].strip()):
-            lines = lines[1:]
-        # Remove trailing ``` if present
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
+        # splitlines() retains internal blank lines but does not make a final
+        # newline look like source content. Normalize only blank lines after
+        # the segment, then remove one complete fence pair when present.
+        lines = code.splitlines()
+        while lines and not lines[-1].strip():
+            lines.pop()
+        has_closing_fence = bool(lines and lines[-1].strip() == "```")
+        if has_closing_fence:
+            lines.pop()
+            if lines and re.fullmatch(r"```[a-zA-Z]*", lines[0].strip()):
+                lines.pop(0)
         code = "\n".join(lines).strip() + "\n"
 
         segments.append((actual, code))
@@ -1534,8 +1599,15 @@ def _parse_judge_decision(text: str) -> str:
 
 
 def _structured_judge_payload(text: str) -> tuple[dict, bool]:
+    stripped = text.strip()
+    fenced = re.fullmatch(
+        r"```[ \t]*(?:json)?[ \t]*\r?\n(.*?)\r?\n```[ \t]*",
+        stripped,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    candidate = fenced.group(1).strip() if fenced else stripped
     try:
-        payload = json.loads(text.strip())
+        payload = json.loads(candidate)
     except (TypeError, json.JSONDecodeError):
         payload = None
     if isinstance(payload, dict):
@@ -1778,7 +1850,6 @@ def run_judge(
         user_prompt=user,
         task_id=run_id,
         worker_id=worker_id,
-        max_tokens=ROLE_TOKEN_BUDGETS["judge"],
         ensure_lane_on=ensure_lane_on,
         client_factory=client_factory,
     )

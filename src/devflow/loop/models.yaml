@@ -92,7 +92,7 @@ models:
     notes: "Mini builder. Fastest gen (12-16 t/s). 4.4 GB Q4_K_M. Path: ~/models/qwen2.5-coder-7b-q4_k_m.gguf"
 
   qwythos-9b-mini:
-    display_name: "Qwythos-9B Claude Mythos (llama.cpp Mini)"
+    display_name: "Qwythos-9B v1 Claude Mythos (retired)"
     provider: local
     transport: openai-http
     endpoint: "http://127.0.0.1:8088"
@@ -102,6 +102,8 @@ models:
     context_window: 8192
     structured_output: true
     tool_support: false
+    available: false
+    retired: true
     capabilities:
       - repository_reasoning
       - structured_reasoning
@@ -109,7 +111,22 @@ models:
       - spec_review
       - gap_detection
       - research_scouting
-    notes: "Mini scout/comprehension. Richest summaries, 10+ t/s gen. 5.5 GB Q4_K_M. Path: ~/models/qwythos-9b-q4_k_m.gguf"
+    notes: "Retired July 12, 2026 after unsafe false-positive judge results. Historical path: ~/models/qwythos-9b-q4_k_m.gguf"
+
+  qwythos-9b-v2-mini:
+    display_name: "Qwythos-9B v2 Q4_K_M (llama.cpp Mini)"
+    provider: local
+    transport: openai-http
+    endpoint: "http://127.0.0.1:8088"
+    model_id: "qwythos-9b-v2-mini"
+    model_path: "~/models/qwythos-9b-v2-q4_k_m.gguf"
+    cost_class: local
+    context_window: 8192
+    structured_output: true
+    tool_support: false
+    capabilities:
+      - structured_output
+    notes: "Audition-only replacement for v1. Official empero-ai trunk-only Q4_K_M; no production role capabilities are claimed until qualification."
 
   ornith-9b-mini:
     display_name: "Ornith 1.0 9B (llama.cpp Mini)"

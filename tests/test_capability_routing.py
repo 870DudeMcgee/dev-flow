@@ -180,6 +180,30 @@ class TestModelEntry:
         assert not e.has_all_capabilities(("a", "z"))
 
 
+def test_real_registry_retires_qwythos_v1_and_exposes_v2_for_audition() -> None:
+    registry = get_registry()
+    v1 = registry.get("qwythos-9b-mini")
+    v2 = registry.get("qwythos-9b-v2-mini")
+
+    assert v1 is not None
+    assert v1.retired
+    assert not v1.is_eligible
+    assert v2 is not None
+    assert v2.is_eligible
+    assert v2.model_id == "qwythos-9b-v2-mini"
+    assert v2.model_path == "~/models/qwythos-9b-v2-q4_k_m.gguf"
+    assert v2.capabilities == ("structured_output",)
+
+    slot = resolve_role(
+        "build_judge",
+        audition_override_model="qwythos-9b-v2-mini",
+        registry=registry,
+        profile_name="custom",
+    )
+    assert slot.model_name == "qwythos-9b-v2-mini"
+    assert slot.resolved_via == "audition_override"
+
+
 class TestModelRegistry:
     def test_query_eligible(self, small_registry: ModelRegistry):
         eligible = small_registry.eligible()
@@ -305,6 +329,38 @@ class TestRouting:
         assert slot.model_name == "cheap-builder"
         assert slot.resolved_via != "override"
 
+    def test_audition_override_bypasses_capabilities_for_eligible_local_model(
+        self, small_registry: ModelRegistry,
+    ):
+        slot = resolve_role(
+            "final_judge",
+            audition_override_model="cheap-builder",
+            registry=small_registry,
+            profile_name="custom",
+        )
+
+        assert slot.model_name == "cheap-builder"
+        assert slot.resolved_via == "audition_override"
+
+    @pytest.mark.parametrize(
+        ("model_name", "message"),
+        [
+            ("missing-model", "Unknown audition override model"),
+            ("unavailable-model", "unavailable or retired"),
+            ("smart-judge", "is not local"),
+        ],
+    )
+    def test_audition_override_rejects_invalid_target(
+        self, small_registry: ModelRegistry, model_name: str, message: str,
+    ):
+        with pytest.raises(ValueError, match=message):
+            resolve_role(
+                "builder",
+                audition_override_model=model_name,
+                registry=small_registry,
+                profile_name="custom",
+            )
+
     def test_unknown_role_raises(self, small_registry: ModelRegistry):
         with pytest.raises(ValueError, match="Unknown DevFlow role"):
             resolve_role("nonexistent", registry=small_registry)
@@ -340,6 +396,28 @@ class TestRouting:
 # Backward compatibility tests
 # ---------------------------------------------------------------------------
 class TestBackwardCompat:
+    def test_env_audition_mapping_is_explicit_and_role_scoped(self, monkeypatch):
+        monkeypatch.setenv(
+            "DEVFLOW_AUDITION_OVERRIDES",
+            '{"verifier": "qwen2.5-coder-7b-mini"}',
+        )
+
+        verifier = resolve_role_slot("verifier")
+        builder = resolve_role_slot("builder")
+
+        assert verifier.model == "qwen2.5-coder-7b-mini"
+        assert verifier.resolved_via == "audition_override"
+        assert builder.resolved_via != "audition_override"
+
+    def test_env_audition_mapping_rejects_non_local_target(self, monkeypatch):
+        monkeypatch.setenv(
+            "DEVFLOW_AUDITION_OVERRIDES",
+            '{"builder": "hy3-free"}',
+        )
+
+        with pytest.raises(ValueError, match="is not local"):
+            resolve_role_slot("builder")
+
     def test_old_role_names_resolve(self):
         """Legacy role names from the old ROLE_SLOTS table still work."""
         for old_name in ("builder", "judge", "planner", "planning_judge"):

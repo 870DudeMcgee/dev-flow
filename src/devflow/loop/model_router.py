@@ -349,6 +349,29 @@ KNOWN_ROLES = _routing_known_roles()
 ModelSlot = ResolvedSlot
 
 
+def _audition_override_for_role(role: str) -> str | None:
+    """Read one explicit role->local-model audition override from the env."""
+    raw = os.environ.get("DEVFLOW_AUDITION_OVERRIDES", "").strip()
+    if not raw:
+        return None
+    try:
+        mapping = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("DEVFLOW_AUDITION_OVERRIDES must be a JSON object.") from exc
+    if not isinstance(mapping, dict):
+        raise ValueError("DEVFLOW_AUDITION_OVERRIDES must be a JSON object.")
+    target = mapping.get(role)
+    if target is None and role == "judge":
+        target = mapping.get("build_judge")
+    if target is None:
+        return None
+    if not isinstance(target, str) or not target.strip():
+        raise ValueError(
+            f"DEVFLOW_AUDITION_OVERRIDES target for role '{role}' must be a model name."
+        )
+    return target.strip()
+
+
 def resolve_role_slot(role: str) -> ModelSlot:
     """Return the (provider, model, endpoint) a role is routed to.
 
@@ -360,7 +383,10 @@ def resolve_role_slot(role: str) -> ModelSlot:
 
     Raises ValueError for unknown roles so callers fail loud, not silent.
     """
-    return resolve_role_compatible(role)
+    return resolve_role_compatible(
+        role,
+        audition_override_model=_audition_override_for_role(role),
+    )
 
 
 @contextmanager

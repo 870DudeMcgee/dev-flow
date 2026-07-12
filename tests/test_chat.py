@@ -67,7 +67,8 @@ def test_list_chat_models_includes_available_local_reasoning_models() -> None:
     """The UI lists registry-eligible locals without an ad-hoc capability gate."""
     names = {model["name"] for model in chat_api.list_chat_models()}
 
-    assert "qwythos-9b-mini" in names
+    assert "qwythos-9b-v2-mini" in names
+    assert "qwythos-9b-mini" not in names
     assert "ornith-9b-mini" in names
 
 
