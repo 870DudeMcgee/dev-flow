@@ -37,6 +37,7 @@ class PlanningEvidence(BaseModel):
     spec_path: Optional[str] = None
     target_files: List[str] = Field(default_factory=list)
     verification_command: Optional[str] = None
+    validators: List[dict] = Field(default_factory=list)
     constraints: List[str] = Field(default_factory=list)
     files_exist: bool = False
     has_verification: bool = False
@@ -77,9 +78,11 @@ def _build_report(
             else f"Too many target files ({len(evidence.target_files)}), likely overbuilt scope."
         ),
         verification_reality=(
-            "Verification command is real and executable."
+            "Typed validator declarations are present."
+            if evidence.validators
+            else "Legacy verification command is present."
             if evidence.has_verification
-            else "No real verification command provided."
+            else "No real verification evidence provided."
         ),
         overbuild_risk=(
             "Low overbuild risk."
@@ -160,8 +163,8 @@ def judge_plan(evidence: PlanningEvidence) -> PlanningJudgeReport:
         return _build_report(
             evidence,
             JudgeDecision.revise,
-            ["Provide a real verification command in verification_command."],
-            "Add a verification command to test the planned changes.",
+            ["Provide typed validator declarations for the planned changes."],
+            "Add typed validators before assignment.",
         )
 
     if len(evidence.target_files) > 8:

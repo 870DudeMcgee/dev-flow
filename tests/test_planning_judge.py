@@ -207,6 +207,23 @@ class TestJudgePlan:
         assert report.decision == JudgeDecision.approve
         assert len(report.required_changes) == 0
 
+    def test_typed_validators_are_explicit_planning_evidence(self, valid_evidence):
+        valid_evidence.verification_command = None
+        valid_evidence.validators = [
+            {
+                "id": "focused-tests",
+                "kind": "command",
+                "argv": ["python", "-m", "pytest", "tests/", "-q"],
+            }
+        ]
+        valid_evidence.has_verification = True
+
+        report = judge_plan(valid_evidence)
+
+        assert valid_evidence.validators[0]["id"] == "focused-tests"
+        assert report.decision == JudgeDecision.approve
+        assert "typed validator" in report.verification_reality.lower()
+
     def test_approve_report_has_empty_required_changes(self, valid_evidence):
         """APPROVE report has empty required_changes."""
         report = judge_plan(valid_evidence)

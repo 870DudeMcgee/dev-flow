@@ -75,6 +75,57 @@ def test_escalate_to_definition_advances_loop(repo_root: Path) -> None:
     assert state.stage == LoopStage.definition
 
 
+def test_dispatch_to_planning_requires_ready_orientation_before_advancing(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devflow.loop import execution
+
+    sid, run_id = brainstorm.start_session(repo_root, intent="Ground this plan")
+    brainstorm.escalate_to_definition(repo_root, session_id=sid)
+    called = False
+
+    def fake_planning_loop(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("planner must not run without orientation")
+
+    monkeypatch.setattr(execution, "run_planning_loop", fake_planning_loop)
+
+    with pytest.raises(ValueError, match="orientation receipt"):
+        brainstorm.dispatch_to_planning(
+            repo_root,
+            session_id=sid,
+            ensure_lane_on=False,
+        )
+
+    assert called is False
+    assert load_loop_state(repo_root, run_id).stage == LoopStage.definition
+
+
+def test_ready_orientation_receipt_is_valid_after_definition(
+    repo_root: Path,
+) -> None:
+    from devflow.loop.orient import OrientResult, require_orientation_receipt
+
+    sid, run_id = brainstorm.start_session(repo_root, intent="Ground this plan")
+    brainstorm.escalate_to_definition(repo_root, session_id=sid)
+    receipt = OrientResult(
+        run_id=run_id,
+        stage="definition",
+        lane="builder",
+        files_to_touch=["src/app.py"],
+        ready=True,
+    )
+    from devflow.loop.orient import save_orient_evidence
+
+    save_orient_evidence(repo_root, run_id, receipt.model_dump_json())
+
+    restored = require_orientation_receipt(repo_root, run_id)
+    assert restored.ready is True
+    assert restored.files_to_touch == ["src/app.py"]
+    assert load_loop_state(repo_root, run_id).stage == LoopStage.definition
+
+
 def test_resumed_build_includes_last_capped_judge_feedback(
     repo_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,6 +134,12 @@ def test_resumed_build_includes_last_capped_judge_feedback(
     from devflow.loop.adapter import save_loop_state
     from devflow.loop.pipeline_run import update_pipeline_run_record
     from devflow.loop import execution
+    from devflow.loop.execution_plan import (
+        ExecutionPacket,
+        ExecutionPlan,
+        ExecutionValidator,
+        save_execution_plan,
+    )
 
     sid, run_id = brainstorm.start_session(repo_root, intent="Resume a capped build")
     state = load_loop_state(repo_root, run_id).model_copy(
@@ -94,6 +151,21 @@ def test_resumed_build_includes_last_capped_judge_feedback(
     update_pipeline_run_record(
         repo_root, run_id, "build-packets.json",
         [{"id": "packet-01", "target_files": ["src/new.py"]}],
+    )
+    save_execution_plan(
+        repo_root,
+        run_id,
+        ExecutionPlan(
+            target_files=["src/new.py"],
+            packets=[ExecutionPacket(id="packet-01", target_files=["src/new.py"])],
+            validators=[
+                ExecutionValidator(
+                    id="syntax",
+                    argv=["python", "-m", "py_compile", "src/new.py"],
+                    evidence=["exit-code"],
+                )
+            ],
+        ),
     )
     update_pipeline_run_record(
         repo_root, run_id, "packet-consolidated-build-judge-summary.json",
@@ -123,6 +195,82 @@ def test_resumed_build_includes_last_capped_judge_feedback(
 
     assert "# Previous capped judge feedback" in captured["assignment"]
     assert "Verification appeared before the builder gate." in captured["assignment"]
+
+
+def test_dispatch_to_build_uses_authoritative_first_packet_and_holds_remainder(
+    repo_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from devflow.loop import execution
+    from devflow.loop.adapter import save_loop_state
+    from devflow.loop.execution_plan import (
+        ExecutionPacket,
+        ExecutionPlan,
+        ExecutionValidator,
+        save_execution_plan,
+    )
+    from devflow.loop.pipeline_run import update_pipeline_run_record
+
+    sid, run_id = brainstorm.start_session(repo_root, intent="Two packet plan")
+    state = load_loop_state(repo_root, run_id).model_copy(
+        update={"stage": LoopStage.assignment}
+    )
+    save_loop_state(repo_root, state)
+    update_pipeline_run_record(repo_root, run_id, "spec.md", "typed spec")
+    save_execution_plan(
+        repo_root,
+        run_id,
+        ExecutionPlan(
+            target_files=["src/a.py", "tests/test_a.py"],
+            packets=[
+                ExecutionPacket(id="packet-01", target_files=["src/a.py"]),
+                ExecutionPacket(
+                    id="packet-02",
+                    target_files=["tests/test_a.py"],
+                    depends_on=["packet-01"],
+                ),
+            ],
+            validators=[
+                ExecutionValidator(
+                    id="focused-tests",
+                    argv=["python", "-m", "pytest", "tests/test_a.py", "-q"],
+                    evidence=["exit-code"],
+                )
+            ],
+        ),
+    )
+    captured: dict = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "build": SimpleNamespace(model="builder", content="code"),
+            "judge": SimpleNamespace(model="judge"),
+            "decision": "passed",
+            "verification": None,
+            "build_rounds": [{}],
+            "build_cap_exhausted": False,
+        }
+
+    monkeypatch.setattr(execution, "run_build_judge_verify", fake_run)
+
+    result = brainstorm.dispatch_to_build(
+        repo_root,
+        session_id=sid,
+        definition_of_done="Both packets are complete.",
+        target_files=["caller.py"],
+        verification_command="unsafe shell text",
+        ensure_lane_on=False,
+    )
+
+    assert captured["target_files"] == ["src/a.py"]
+    assert captured["validators"][0].id == "focused-tests"
+    assert captured["verification_command"] is None
+    assert result["dispatched_packet_id"] == "packet-01"
+    assert result["remaining_packet_ids"] == ["packet-02"]
+    assert result["plan_complete"] is False
+    assert result["dispatch_status"] == "awaiting_packet_scheduler"
 
 
 def test_status_extraction_reads_real_run(repo_root: Path) -> None:

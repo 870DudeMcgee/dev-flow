@@ -220,7 +220,7 @@ It looks at the target repo and relevant environment only as much as needed to b
 - runtime and machine requirements;
 - filesystem paths and generated artifacts;
 - reports and evidence sources;
-- tests and verification commands;
+- tests and typed validator definitions;
 - known constraints from Obsidian or other approved context sources.
 
 The spec loop must not hoard context. It gathers the minimum facts required to advance the current product-building stage safely.
@@ -240,12 +240,20 @@ It identifies:
 - worker assignments;
 - what can run in parallel;
 - what must be sequential;
-- verification commands;
+- typed validator declarations with argv, cwd, timeout, network, permission,
+  and evidence policy;
 - evidence requirements;
 - human approval points;
 - rollback or recovery concerns.
 
 Output: an Execution Plan made of bounded tasks.
+
+For new canonical planning runs, `execution-plan.json` is the authoritative
+typed artifact and `plan.md` is its human-readable projection. The host rejects
+unsafe paths, duplicate or cyclic packet graphs, incomplete/overlapping packet
+coverage, unallowlisted validator executables, planner shell strings, and
+missing validator declarations before assignment. Browser planning also
+requires a ready persisted orientation receipt.
 
 ### 4. Planning Judge
 
@@ -256,7 +264,7 @@ The planning judge asks:
 - Is the plan grounded in the repo and environment?
 - Are tasks small and bounded?
 - Are dependencies and prerequisites known?
-- Are verification commands real?
+- Are typed validators real, bounded, and executable without a shell?
 - Are risk and approval boundaries clear?
 - Is the plan overbuilt?
 - Is there a simpler path?
@@ -317,6 +325,18 @@ Build judges ask:
 - Is it safe to continue?
 
 Output: a verified or rejected implementation slice.
+
+The current canonical browser dispatch executes only the first approved packet,
+runs its typed deterministic validators before the model judge, persists their
+receipts, and exposes `remaining_packet_ids`. It never labels the complete plan
+finished. Phase 1 enforces the argv allowlist, relative cwd, timeout, empty
+extra-permission set, and `shell=False`; its `network=forbid` declaration is
+persisted policy evidence, not OS-level network isolation. Packet scheduling,
+an append-only workflow ledger, frozen snapshots,
+worktree sandboxes, immutable patch integration, independent integration
+verification, final acceptance, and local result-branch creation remain later
+implementation phases; the Packet 1 hold must remain explicit until those
+surfaces exist.
 
 ### 7. Verification and Next Human Decision
 
@@ -438,7 +458,7 @@ Approved context sources include:
 - current repo files;
 - git state;
 - generated reports and evidence artifacts;
-- verification command output;
+- typed validator receipts and output;
 - explicit user input;
 - bounded context packets from Obsidian or other approved data-layer tools.
 

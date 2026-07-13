@@ -30,6 +30,19 @@ from devflow.loop.model_router import _global_local_model_runtime_status
 from devflow.loop.routing import ResolvedSlot
 
 
+def _typed_validator(target: str) -> dict:
+    return {
+        "id": "focused-tests",
+        "kind": "command",
+        "argv": ["python", "-m", "py_compile", target],
+        "cwd": ".",
+        "timeout_seconds": 60,
+        "network": "forbid",
+        "permissions": [],
+        "evidence": ["exit-code"],
+    }
+
+
 class FakeClient:
     """Deterministic stand-in for LocalModelClient. No network."""
 
@@ -50,9 +63,47 @@ class FakeClient:
                 "spec": "add a calculator module",
                 "plan": "create calc.py with add()",
                 "target_files": ["calc.py"],
-                "verification_command": "python -c 'import ast,pathlib;ast.parse(pathlib.Path(\"calc.py\").read_text())'",
+                "validators": [_typed_validator("calc.py")],
             }), {}
         return "def add(a, b):\n    return a + b\n", {}
+
+
+class DivergentPlannerClient(FakeClient):
+    """Planner authority differs deliberately from the caller's suggestion."""
+
+    def chat(self, *, messages, max_tokens=2048, temperature=0.0,
+             reasoning=False, stop=None):
+        sys = messages[0]["content"].lower()
+        if "planning judge" in sys:
+            return json.dumps({"decision": "approve", "rationale": "ok"}), {}
+        if "planner" in sys:
+            return json.dumps({
+                "spec": "change the approved target",
+                "plan": "update approved.py and verify it",
+                "target_files": ["approved.py"],
+                "packets": [{
+                    "id": "packet-01",
+                    "target_files": ["approved.py"],
+                    "depends_on": [],
+                }],
+                "validators": [{
+                    "id": "syntax",
+                    "kind": "command",
+                    "argv": ["python", "-m", "py_compile", "approved.py"],
+                    "cwd": ".",
+                    "timeout_seconds": 60,
+                    "network": "forbid",
+                    "permissions": [],
+                    "evidence": ["exit-code"],
+                }],
+            }), {}
+        return super().chat(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            reasoning=reasoning,
+            stop=stop,
+        )
 
 
 def test_ensure_lane_fails_closed_when_router_start_fails(monkeypatch, tmp_path) -> None:
@@ -102,7 +153,7 @@ class RevisingPlannerClient:
                 "spec": "add a calculator module",
                 "plan": f"create {target} with add()",
                 "target_files": [target],
-                "verification_command": "python -m pytest tests/test_loop_models.py -q",
+                "validators": [_typed_validator(target)],
             }), {}
         return "def add(a, b):\n    return a + b\n", {}
 
@@ -147,7 +198,7 @@ class CapturingPlannerContextClient:
             "spec": "create a cron-backed semantic scorer",
             "plan": "write cron scorer and Obsidian queue integration",
             "target_files": ["brief_sorter.py"],
-            "verification_command": "python -m pytest tests/test_sorter.py -q",
+            "validators": [_typed_validator("brief_sorter.py")],
         }), {}
 
 
@@ -2136,6 +2187,97 @@ def test_plan_build_judge_offline(tmp_path):
     assert "plan.md" in pr.load_pipeline_run(root, run_id)
 
 
+def test_plan_build_judge_uses_approved_plan_targets_and_validators(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devflow.loop.execution_plan import load_execution_plan
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "planner authority"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.planning_judge}
+    )
+    save_loop_state(root, state)
+    (root / "approved.py").write_text("", encoding="utf-8")
+    captured: dict = {}
+
+    def fake_build(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "build": None,
+            "judge": None,
+            "decision": "passed",
+            "verification": None,
+            "build_rounds": [],
+            "build_cap_exhausted": False,
+        }
+
+    monkeypatch.setattr(ex, "run_build_judge_verify", fake_build)
+
+    result = ex.run_plan_build_judge(
+        root,
+        run_id,
+        topic="Use the approved target",
+        target_files=["caller.py"],
+        definition_of_done="The approved target is used.",
+        ensure_lane_on=False,
+        client_factory=DivergentPlannerClient,
+    )
+
+    plan = load_execution_plan(root, run_id)
+    records = pr.load_pipeline_run(root, run_id)
+    assert result["planning_decision"] == "approve"
+    assert plan.target_files == ["approved.py"]
+    assert plan.validators[0].argv[-1] == "approved.py"
+    assert records["execution-plan.json"]["target_files"] == ["approved.py"]
+    assert records["plan.md"].startswith("# Execution Plan\n")
+    assert "`approved.py`" in records["plan.md"]
+    assert captured["target_files"] == ["approved.py"]
+    assert captured["validators"] == plan.validators
+    assert captured.get("verification_command") is None
+
+
+def test_planner_shell_command_fails_before_plan_artifacts_are_written(
+    tmp_path: Path,
+) -> None:
+    class LegacyShellPlannerClient(FakeClient):
+        def chat(self, *, messages, **kwargs):
+            if "planner" in messages[0]["content"].lower():
+                return json.dumps(
+                    {
+                        "spec": "legacy",
+                        "plan": "legacy",
+                        "target_files": ["calc.py"],
+                        "verification_command": "python -m pytest",
+                    }
+                ), {}
+            return super().chat(messages=messages, **kwargs)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "reject shell"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.planning_judge}
+    )
+    save_loop_state(root, state)
+    (root / "calc.py").write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="typed validators"):
+        ex.run_planner(
+            root,
+            run_id,
+            topic="Reject shell strings",
+            target_files=["calc.py"],
+            ensure_lane_on=False,
+            client_factory=LegacyShellPlannerClient,
+        )
+
+    records = pr.load_pipeline_run(root, run_id)
+    assert "execution-plan.json" not in records
+    assert "plan.md" not in records
+
+
 def test_planning_loop_retries_until_approved(tmp_path):
     """A revise decision returns to the planner until the cap or approval."""
     RevisingPlannerClient.planner_calls = 0
@@ -2180,6 +2322,82 @@ def test_build_judge_loop_retries_until_passed(tmp_path):
     assert len(out["build_rounds"]) == 2
     assert out["build_cap_exhausted"] is False
     assert load_loop_state(root, run_id).stage == LoopStage.verification
+
+
+def test_typed_validator_failure_routes_back_to_builder_before_model_judge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devflow.loop.execution_plan import (
+        ExecutionValidator,
+        ExecutionValidatorReceipt,
+    )
+
+    root, run_id = _fresh_root(tmp_path)
+    workspace = Path(root) / ".devflow" / "pipeline-runs" / run_id / "workspace"
+    workspace.mkdir(parents=True)
+    judge_called = False
+
+    def fake_builder(*args, **kwargs):
+        return ex.RoleResult(
+            role="builder",
+            model="fake",
+            endpoint="",
+            content="candidate",
+            usage={},
+            raw={
+                "build_manifest": {
+                    "workspace": str(workspace),
+                    "declared_target_files": ["calc.py"],
+                }
+            },
+        )
+
+    def fake_validator_run(*args, **kwargs):
+        return [
+            ExecutionValidatorReceipt(
+                validator_id="syntax",
+                argv=["python", "-m", "py_compile", "calc.py"],
+                cwd=".",
+                exit_code=1,
+                passed=False,
+                stdout="",
+                stderr="SyntaxError",
+            )
+        ]
+
+    def fake_judge(*args, **kwargs):
+        nonlocal judge_called
+        judge_called = True
+        raise AssertionError("model judge must not run after validator failure")
+
+    monkeypatch.setattr(ex, "run_builder", fake_builder)
+    monkeypatch.setattr(ex, "run_execution_validators", fake_validator_run)
+    monkeypatch.setattr(ex, "run_judge", fake_judge)
+    monkeypatch.setattr(ex, "_builder_preflight", lambda *args: None)
+
+    result = ex.run_build_judge_verify(
+        root,
+        run_id,
+        assignment="Fix calc.py",
+        definition_of_done="Syntax is valid.",
+        target_files=["calc.py"],
+        validators=[
+            ExecutionValidator(
+                id="syntax",
+                argv=["python", "-m", "py_compile", "calc.py"],
+                evidence=["exit-code"],
+            )
+        ],
+        max_rounds=1,
+        ensure_lane_on=False,
+    )
+
+    records = pr.load_pipeline_run(root, run_id)
+    assert result["decision"] == "failed"
+    assert result["build_cap_exhausted"] is True
+    assert judge_called is False
+    assert records["packet-validator-receipts.json"][0]["passed"] is False
+    assert "SyntaxError" in result["build_rounds"][0]["rationale"]
 
 
 @pytest.mark.skipif(

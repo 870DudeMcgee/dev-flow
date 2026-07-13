@@ -48,6 +48,15 @@ from devflow.loop import builder_judge as bj
 from devflow.loop import planning_judge as pj
 from devflow.loop import verification as ver
 from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.execution_plan import (
+    ExecutionPacket,
+    ExecutionPlan,
+    ExecutionValidator,
+    load_execution_plan,
+    render_execution_plan_markdown,
+    run_execution_validators,
+    save_execution_plan,
+)
 from devflow.loop.local_audition_host_gates import evaluate_verifier_host_gates
 from devflow.loop.pipeline_run import (
     append_pipeline_event,
@@ -1029,9 +1038,8 @@ PLANNER_SYSTEM = (
     "coherent unit of work the builder can complete in a single pass. Fewer "
     "packets is better — consolidate related files into one packet when they "
     "depend on each other (shared imports, same module).\n"
-    "4. SPECIFY a real verification command — a shell command that actually "
-    "exists in this repo and will pass when the implementation is correct. "
-    "If no test command exists yet, specify 'python -m pytest <new test file>'.\n"
+    "4. SPECIFY typed validators using argv arrays, a relative cwd, timeout, "
+    "network policy, permissions, and evidence. Never emit a shell string.\n"
     "5. OUTPUT a single JSON object and nothing else.\n\n"
     "## Anti-patterns (do NOT do these)\n"
     "- Do NOT plan files that are not needed to satisfy the Definition of Done. "
@@ -1040,8 +1048,8 @@ PLANNER_SYSTEM = (
     "explicitly requires them.\n"
     "- Do NOT plan more packets than necessary. If all target files are one "
     "module, they should be one packet.\n"
-    "- Do NOT specify a verification command that does not exist or cannot run. "
-    "'make test' is wrong if the repo has no Makefile.\n"
+    "- Do NOT put shell syntax in validator argv. Each argument is one JSON "
+    "array entry and the executable must exist in this repo environment.\n"
     "- Do NOT include refactoring or cleanup steps that are not required by "
     "the DoD. The plan builds exactly what is asked, nothing more.\n"
     "- Do NOT leave target_files empty. Every plan must name the concrete "
@@ -1051,8 +1059,12 @@ PLANNER_SYSTEM = (
     '{"spec": "<what to build and why, 2-4 sentences>", '
     '"plan": "<numbered steps, each step concrete and bounded>", '
     '"target_files": ["relative/path/to/file.py"], '
-    '"packets": [{"id": "packet-01", "target_files": ["files in this packet"]}], '
-    '"verification_command": "<shell command that verifies the change>"}'
+    '"packets": [{"id": "packet-01", "target_files": ["files in this packet"], '
+    '"depends_on": []}], '
+    '"validators": [{"id": "focused-tests", "kind": "command", '
+    '"argv": ["python", "-m", "pytest", "tests/test_file.py", "-q"], '
+    '"cwd": ".", "timeout_seconds": 120, "network": "forbid", '
+    '"permissions": [], "evidence": ["exit-code", "output"]}]}'
 )
 JUDGE_SYSTEM = (
     "You are the DevFlow judge. Your job is to review the builder's diff "
@@ -2122,11 +2134,29 @@ def run_planner(
     plan_text = plan.get("plan", "")
     planned_files = plan.get("target_files", target_files or [])
     packets = plan.get("packets") or build_packets(list(planned_files))
-    verification_command = plan.get("verification_command")
+    if "verification_command" in plan:
+        raise ValueError(
+            "Canonical planner output must use typed validators, not verification_command."
+        )
+    execution_plan = ExecutionPlan(
+        target_files=planned_files,
+        packets=[ExecutionPacket.model_validate(packet) for packet in packets],
+        validators=[
+            ExecutionValidator.model_validate(validator)
+            for validator in plan.get("validators", [])
+        ],
+    )
+    plan_projection = render_execution_plan_markdown(execution_plan, plan_text)
 
     update_pipeline_run_record(root, run_id, "spec.md", spec)
-    update_pipeline_run_record(root, run_id, "plan.md", plan_text)
-    update_pipeline_run_record(root, run_id, "build-packets.json", packets)
+    save_execution_plan(root, run_id, execution_plan)
+    update_pipeline_run_record(root, run_id, "plan.md", plan_projection)
+    update_pipeline_run_record(
+        root,
+        run_id,
+        "build-packets.json",
+        [packet.model_dump(mode="json") for packet in execution_plan.packets],
+    )
     state = load_loop_state(root, run_id)
     state = state.model_copy(update={"spec_path": "spec.md", "plan_path": "plan.md"})
     save_loop_state(root, state)
@@ -2140,11 +2170,17 @@ def run_planner(
         run_id=run_id,
         plan_path="plan.md",
         spec_path="spec.md",
-        target_files=planned_files,
-        verification_command=verification_command,
-        constraints=[],
+        target_files=execution_plan.target_files,
+        verification_command=None,
+        validators=[
+            validator.model_dump(mode="json")
+            for validator in execution_plan.validators
+        ],
+        constraints=[
+            f"typed-validator:{validator.id}" for validator in execution_plan.validators
+        ],
         files_exist=files_exist,
-        has_verification=bool(verification_command),
+        has_verification=bool(execution_plan.validators),
     )
     _, report = run_planning_judge_model(
         root,
@@ -2273,9 +2309,10 @@ def run_plan_build_judge(
     if not planning_report or planning_report.decision != pj.JudgeDecision.approve:
         return out
 
+    execution_plan = load_execution_plan(root, run_id)
     assignment = (
         f"# Spec\n{planning_report.repo_grounding}\n\n"
-        f"# Plan\n{(target_files or [])}\n\n"
+        f"# Plan\n{execution_plan.target_files}\n\n"
         f"Implement per the planner output for: {topic}"
     )
     out.update(run_build_judge_verify(
@@ -2283,7 +2320,8 @@ def run_plan_build_judge(
         run_id,
         assignment=assignment,
         definition_of_done=definition_of_done,
-        target_files=target_files,
+        target_files=execution_plan.target_files,
+        validators=execution_plan.validators,
         verification_command=None,
         max_rounds=max_build_rounds,
         worker_id=worker_id,
@@ -2735,6 +2773,7 @@ def run_build_judge_verify(
     assignment: str,
     definition_of_done: str,
     target_files: Optional[list[str]] = None,
+    validators: Optional[list[ExecutionValidator]] = None,
     verification_command: Optional[str] = None,
     max_rounds: int = DEFAULT_MAX_BUILD_ROUNDS,
     worker_id: str = "native-executor",
@@ -2747,6 +2786,18 @@ def run_build_judge_verify(
     Each model step swaps in its lane via ``ensure_lane`` (single-flight).
     Judge runs only after build; verification only after a passing judge.
     """
+    typed_validators = [
+        ExecutionValidator.model_validate(validator) for validator in (validators or [])
+    ]
+    if typed_validators and verification_command is not None:
+        raise ValueError("typed validators cannot be combined with verification_command")
+    if typed_validators:
+        validator_summary = json.dumps(
+            [validator.model_dump(mode="json") for validator in typed_validators],
+            indent=2,
+        )
+        assignment += f"\n\n# Approved Typed Validators\n{validator_summary}"
+
     build: Optional[RoleResult] = None
     judge_result: Optional[RoleResult] = None
     decision: Optional[str] = None
@@ -2804,22 +2855,57 @@ def run_build_judge_verify(
             })
             feedback = preflight_failure
         else:
-            judge_result, decision = run_judge(
-                root,
-                run_id,
-                definition_of_done=definition_of_done,
-                worker_id=worker_id,
-                ensure_lane_on=ensure_lane_on,
-                client_factory=client_factory,
-            )
-            payload = _build_judge_payload_from_result(judge_result)
-            rounds.append({
-                "round": round_index,
-                "build": build,
-                "judge": judge_result,
-                "decision": decision,
-                "rationale": payload.get("rationale", ""),
-            })
+            validator_failure = ""
+            if typed_validators:
+                validator_receipts = run_execution_validators(ws_path, typed_validators)
+                update_pipeline_run_record(
+                    root,
+                    run_id,
+                    "packet-validator-receipts.json",
+                    [receipt.model_dump(mode="json") for receipt in validator_receipts],
+                )
+                failures = [receipt for receipt in validator_receipts if not receipt.passed]
+                validator_failure = "; ".join(
+                    f"{receipt.validator_id}: "
+                    f"{receipt.stderr or receipt.stdout or 'validator failed'}"
+                    for receipt in failures
+                )
+            if validator_failure:
+                decision = "failed"
+                payload = {"status": "failed", "rationale": validator_failure}
+                judge_result = RoleResult(
+                    role="judge",
+                    model="typed-validator",
+                    endpoint="",
+                    content=json.dumps(payload),
+                    usage={},
+                    raw={"typed_validator": True},
+                )
+                rounds.append({
+                    "round": round_index,
+                    "build": build,
+                    "judge": judge_result,
+                    "decision": decision,
+                    "rationale": validator_failure,
+                })
+                feedback = validator_failure
+            else:
+                judge_result, decision = run_judge(
+                    root,
+                    run_id,
+                    definition_of_done=definition_of_done,
+                    worker_id=worker_id,
+                    ensure_lane_on=ensure_lane_on,
+                    client_factory=client_factory,
+                )
+                payload = _build_judge_payload_from_result(judge_result)
+                rounds.append({
+                    "round": round_index,
+                    "build": build,
+                    "judge": judge_result,
+                    "decision": decision,
+                    "rationale": payload.get("rationale", ""),
+                })
         if decision == "passed":
             if verification_command:
                 verification = run_verification(

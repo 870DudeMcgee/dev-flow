@@ -282,6 +282,10 @@ def dispatch_to_planning(
 
     state = load_loop_state(root, run_id)
 
+    from devflow.loop.orient import require_orientation_receipt
+
+    require_orientation_receipt(root, run_id)
+
     # Advance through definition → spec → planning → planning_judge
     # The planner needs to be at planning_judge stage
     if state.stage == LoopStage.definition:
@@ -351,7 +355,8 @@ def dispatch_to_build(
     an approved planning judge decision. It runs builder (Ornith 35B) then
     judge (Qwen 27B) and returns the results for human review.
     """
-    from devflow.loop.execution import run_build_judge_verify, build_packets
+    from devflow.loop.execution import run_build_judge_verify
+    from devflow.loop.execution_plan import load_execution_plan
 
     root = Path(root).resolve()
     run_id = _read_link(root, session_id)
@@ -375,39 +380,18 @@ def dispatch_to_build(
     if not isinstance(plan_text, str):
         plan_text = str(plan_text)
 
-    # If target_files not explicitly provided, derive from build-packets.json
-    # or fall back to the plan's target_files. Then split into bounded packets
-    # and dispatch ONLY packet 1 (at most MAX_TARGET_FILES_PER_BUILD files).
-    if not target_files:
-        packets_raw = data.get("build-packets.json")
-        if isinstance(packets_raw, list) and packets_raw:
-            target_files = packets_raw[0].get("target_files", [])
-        elif isinstance(packets_raw, str):
-            import json as _json
-            try:
-                packets_list = _json.loads(packets_raw)
-                if packets_list:
-                    target_files = packets_list[0].get("target_files", [])
-            except _json.JSONDecodeError:
-                pass
-
-    if not target_files:
-        from devflow.loop.execution import _parse_planner_json
-        plan_obj = _parse_planner_json(plan_text) if plan_text else {}
-        target_files = plan_obj.get("target_files", [])
-
-    packets = build_packets(target_files or [])
-    if not packets:
-        raise ValueError("No target files to build — check spec.md and plan.md.")
-
-    packet_1 = packets[0]
-    packet_files = packet_1["target_files"]
+    # The typed JSON plan is authoritative. Caller targets, Markdown parsing,
+    # and the legacy shell-command parameter cannot override it.
+    execution_plan = load_execution_plan(root, run_id)
+    packet_1 = execution_plan.packets[0]
+    packet_files = packet_1.target_files
+    remaining_packet_ids = [packet.id for packet in execution_plan.packets[1:]]
 
     assignment = (
         f"# Spec\n{spec_text}\n\n"
         f"# Plan\n{plan_text}\n\n"
-        f"# Packet\nDispatching packet {packet_1['id']} "
-        f"({len(packet_files)} of {len(target_files or [])} files). "
+        f"# Packet\nDispatching packet {packet_1.id} "
+        f"({len(packet_files)} of {len(execution_plan.target_files)} files). "
         f"Build ONLY the files listed below."
     )
     if state.stage == LoopStage.build_judge:
@@ -426,7 +410,8 @@ def dispatch_to_build(
         assignment=assignment,
         definition_of_done=definition_of_done,
         target_files=packet_files,
-        verification_command=verification_command,
+        validators=execution_plan.validators,
+        verification_command=None,
         max_rounds=max_rounds,
         worker_id="dispatch-from-brainstorm",
         ensure_lane_on=ensure_lane_on,
@@ -448,5 +433,13 @@ def dispatch_to_build(
         "judge_model": judge.model if judge else "unknown",
         "judge_decision": decision,
         "verification": result.get("verification"),
+        "dispatched_packet_id": packet_1.id,
+        "remaining_packet_ids": remaining_packet_ids,
+        "plan_complete": False,
+        "dispatch_status": (
+            "awaiting_packet_scheduler"
+            if remaining_packet_ids
+            else "packet_complete_awaiting_integration"
+        ),
         "message": f"Build+Judge completed. Decision: {decision}.",
     }

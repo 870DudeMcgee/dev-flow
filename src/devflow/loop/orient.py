@@ -126,6 +126,27 @@ def save_orient_evidence(root: Path | str, run_id: str, json_str: str) -> None:
     evidence_path.write_text(json_str, encoding="utf-8")
 
 
+def require_orientation_receipt(root: Path | str, run_id: str) -> OrientResult:
+    """Return the ready receipt that authorizes planning, or fail closed."""
+    from devflow.loop.pipeline_run import load_pipeline_run
+
+    records = load_pipeline_run(root, run_id)
+    raw = records.get("orient-result.json")
+    if raw is None:
+        raise ValueError(
+            f"orientation receipt missing for run {run_id!r}; run orientation first"
+        )
+    try:
+        receipt = OrientResult.model_validate(raw)
+    except Exception as exc:
+        raise ValueError(f"orientation receipt is malformed for run {run_id!r}") from exc
+    if receipt.run_id != run_id:
+        raise ValueError(f"orientation receipt run_id mismatch for run {run_id!r}")
+    if not receipt.ready:
+        raise ValueError(f"orientation receipt is not ready for run {run_id!r}")
+    return receipt
+
+
 def _run_dir(root: Path | str, run_id: str) -> Path:
     """Resolve the pipeline run directory for a given run_id."""
     from devflow.loop.pipeline_run import _run_dir as _internal_run_dir
