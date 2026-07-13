@@ -286,6 +286,13 @@ code. Frontier-provider adapters are verified with mocked transports during
 local execution; local workers must not replace semantic API integration with
 keyword matching.
 
+Before any verifier model is resolved, deterministic host gates require
+passing workspace tests, an explicitly passing persisted build-judge decision,
+and exact equality between valid manifest changed files and declared targets.
+An explicit failure fails verification; missing or malformed evidence holds for
+review; and every host-only outcome is persisted with host provenance rather
+than naming a model that did not run.
+
 ## Canonical Stage Artifacts
 
 DevFlow should prefer a small set of stage artifacts over sprawling architecture docs.

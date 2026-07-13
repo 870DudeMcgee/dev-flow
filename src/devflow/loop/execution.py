@@ -43,6 +43,7 @@ from devflow.loop import builder_judge as bj
 from devflow.loop import planning_judge as pj
 from devflow.loop import verification as ver
 from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.local_audition_host_gates import evaluate_verifier_host_gates
 from devflow.loop.pipeline_run import (
     append_pipeline_event,
     append_worker_feed_entry,
@@ -2285,31 +2286,122 @@ def run_verifier(
 
     # Read the build-diff as evidence (used in the code excerpt below).
     _read_record(root, run_id, "build-diff.patch")  # noqa: B018 — validates existence
-    # Pull the canonical judge decision from the run records (best-effort).
-    judge_text = "unknown"
+    # Pull the canonical judge decision from the current run records. The host
+    # gate below treats anything except an explicitly supported value as
+    # missing evidence rather than delegating that uncertainty to a model.
+    prior_review: object = None
     try:
-        judge_record = _read_record(root, run_id, "judge-decision.json") or "{}"
+        judge_record = _read_record(root, run_id, "judge-decision.json")
+        if judge_record is None:
+            raise ValueError("missing judge decision")
         judge_payload = _json.loads(judge_record)
-        judge_text = judge_payload.get("status", judge_payload.get("decision", "unknown"))
+        if not isinstance(judge_payload, dict):
+            raise ValueError("judge decision must be an object")
+        prior_review = (
+            judge_payload.get("status")
+            if "status" in judge_payload
+            else judge_payload.get("decision")
+        )
     except Exception:
-        judge_text = "unknown"
+        prior_review = None
 
     # Build a bounded code excerpt from the actual on-disk files listed in the
     # build manifest. This exposes imports and top-level signatures without
     # dumping the entire build diff into the verifier context.
-    manifest = _read_record(root, run_id, "build-manifest.json") or "{}"
-    declared_targets: list[str] = []
+    manifest = _read_record(root, run_id, "build-manifest.json")
+    manifest_payload: object = None
     try:
+        if manifest is None:
+            raise ValueError("missing build manifest")
         manifest_payload = _json.loads(manifest)
-        changed = manifest_payload.get("changed_files", []) or []
-        declared_targets = manifest_payload.get("declared_target_files", []) or []
+        if not isinstance(manifest_payload, dict):
+            raise ValueError("build manifest must be an object")
     except Exception:
-        changed = []
-    workspace = ""
+        manifest_payload = None
+    changed_evidence = (
+        manifest_payload.get("changed_files")
+        if isinstance(manifest_payload, dict)
+        else None
+    )
+    declared_evidence = (
+        manifest_payload.get("declared_target_files")
+        if isinstance(manifest_payload, dict)
+        else None
+    )
+    workspace_value = (
+        manifest_payload.get("workspace", "")
+        if isinstance(manifest_payload, dict)
+        else ""
+    )
+    workspace = workspace_value if isinstance(workspace_value, str) else ""
+    workspace_path = (
+        Path(workspace)
+        if workspace
+        else pipeline_runs_dir(root) / run_id / "workspace"
+    )
+
+    # Run only safe candidate test paths. Strict manifest validation still
+    # occurs below, but malformed traversal/absolute paths must never influence
+    # the pytest invocation while their host finding is being collected.
+    changed_test_candidates = []
+    if isinstance(changed_evidence, list):
+        for value in changed_evidence:
+            if not isinstance(value, str):
+                continue
+            candidate = Path(value)
+            if candidate.is_absolute() or ".." in candidate.parts:
+                continue
+            changed_test_candidates.append(candidate.as_posix())
+
+    test_result = _run_workspace_tests(
+        workspace_path,
+        test_files=changed_test_candidates,
+    )
     try:
-        workspace = _json.loads(manifest).get("workspace", "")
+        _write_record(root, run_id, "test-result.json", _json.dumps(test_result))
     except Exception:
-        workspace = ""
+        pass
+
+    host_gates = evaluate_verifier_host_gates(
+        test_result=test_result,
+        prior_review=prior_review,
+        changed_files=changed_evidence,
+        declared_target_files=declared_evidence,
+    )
+    if host_gates["outcome"] != "model_may_decide":
+        finding_states = "; ".join(
+            f"{finding['gate_id']}={finding['outcome']}"
+            for finding in host_gates["findings"]
+        )
+        outcome = host_gates["outcome"]
+        summary_verb = "failed" if outcome == "failed" else "need review"
+        scope_details = (
+            f"\nchanged_files={host_gates['changed_files']!r}; "
+            f"declared_target_files={host_gates['declared_target_files']!r}."
+        )
+        receipt = ver.VerificationReceipt(
+            run_id=run_id,
+            receipt_id=f"vr-verifier-{int(time.time() * 1000)}",
+            status=(
+                ver.VerificationStatus.failed
+                if outcome == "failed"
+                else ver.VerificationStatus.needs_review
+            ),
+            command="verifier (deterministic host gates)",
+            summary=(
+                f"Deterministic verifier gates {summary_verb}: "
+                f"{finding_states}.{scope_details}"
+            ),
+            evidence_path=None,
+            exit_code=1,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        ver.record_verification_receipt(root, receipt)
+        return receipt
+
+    changed = host_gates["changed_files"]
+    declared_targets = host_gates["declared_target_files"]
+    judge_text = str(prior_review)
 
     excerpt_parts: list[str] = []
     per_file_cap = 900  # chars per file (signatures + imports + Item fields)
@@ -2318,7 +2410,7 @@ def run_verifier(
     for rel in changed:
         if rel.endswith("__init__.py"):
             continue
-        fpath = Path(workspace) / rel if workspace else Path(root) / run_id / "workspace" / rel
+        fpath = workspace_path / rel
         if not fpath.exists():
             continue
         try:
@@ -2347,18 +2439,6 @@ def run_verifier(
         excerpt_parts.append(f"## {rel}\n{joined}")
     code_excerpt = "\n\n".join(excerpt_parts)
 
-    # Run only build-manifest test files inside the staged workspace. The
-    # workspace intentionally omits unrelated source modules, so a full copied
-    # repository suite would produce irrelevant collection errors.
-    test_result = _run_workspace_tests(
-        Path(workspace) if workspace else Path(root) / run_id / "workspace",
-        test_files=changed,
-    )
-    try:
-        _write_record(root, run_id, "test-result.json", _json.dumps(test_result))
-    except Exception:
-        pass
-
     dod_head = definition_of_done.strip().splitlines()[:10]
 
     # List existing test files so the verifier doesn't flag missing tests
@@ -2377,10 +2457,10 @@ def run_verifier(
 
     test_block = (
         f"# Test results (actual pytest run)\n"
-        f"exit_code: {test_result['exit_code']}\n"
-        f"passed: {test_result['passed']}  failed: {test_result['failed']}  "
-        f"errors: {test_result['errors']}\n"
-        f"{test_result['summary'].strip()[:1500]}"
+        f"exit_code: {test_result.get('exit_code')}\n"
+        f"passed: {test_result.get('passed')}  failed: {test_result.get('failed')}  "
+        f"errors: {test_result.get('errors')}\n"
+        f"{str(test_result.get('summary') or '').strip()[:1500]}"
     )
     # Test signatures alone can hide the assertions that satisfy a narrow DoD.
     # Include a bounded head+tail excerpt for each changed test file so the
@@ -2390,7 +2470,7 @@ def run_verifier(
     for rel in changed:
         if not rel.startswith(("tests/", "test/")):
             continue
-        test_path = Path(workspace) / rel if workspace else Path(root) / run_id / "workspace" / rel
+        test_path = workspace_path / rel
         try:
             text = test_path.read_text(encoding="utf-8", errors="replace")
         except Exception:
@@ -2425,42 +2505,27 @@ def run_verifier(
     )
 
     slot = resolve_role_slot("verifier")
-    deterministic_test_failure = (
-        type(test_result.get("exit_code")) is not int
-        or test_result.get("exit_code") != 0
-        or bool(test_result.get("failed"))
-        or bool(test_result.get("errors"))
-    )
-    if deterministic_test_failure:
-        decision = "failed"
-        content = (
-            "Deterministic test gate failed: "
-            f"exit_code={test_result.get('exit_code')!r}, "
-            f"failed={test_result.get('failed')!r}, "
-            f"errors={test_result.get('errors')!r}."
+    try:
+        role_result = run_role(
+            root,
+            role="verifier",
+            system_prompt=VERIFIER_SYSTEM,
+            user_prompt=user,
+            task_id=run_id,
+            worker_id=worker_id,
+            max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
+            reasoning=True,
+            ensure_lane_on=ensure_lane_on,
+            client_factory=client_factory,
         )
-    else:
-        try:
-            role_result = run_role(
-                root,
-                role="verifier",
-                system_prompt=VERIFIER_SYSTEM,
-                user_prompt=user,
-                task_id=run_id,
-                worker_id=worker_id,
-                max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
-                reasoning=True,
-                ensure_lane_on=ensure_lane_on,
-                client_factory=client_factory,
-            )
-            content = role_result.content
-            verifier_payload = _build_judge_payload_from_result(role_result)
-            decision = str(verifier_payload.get("status") or "needs_review").lower()
-            if decision not in {"passed", "failed", "needs_review"}:
-                decision = "needs_review"
-        except Exception as exc:  # never let the verifier hang the loop
+        content = role_result.content
+        verifier_payload = _build_judge_payload_from_result(role_result)
+        decision = str(verifier_payload.get("status") or "needs_review").lower()
+        if decision not in {"passed", "failed", "needs_review"}:
             decision = "needs_review"
-            content = f"Verifier error: {exc!r}"
+    except Exception as exc:  # never let the verifier hang the loop
+        decision = "needs_review"
+        content = f"Verifier error: {exc!r}"
 
     status = (
         ver.VerificationStatus.passed if decision == "passed"

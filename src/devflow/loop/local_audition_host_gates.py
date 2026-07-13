@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 
@@ -511,6 +512,102 @@ def evaluate_final_judge_action(
     }
 
 
+def _normalize_verifier_scope_paths(paths: Any) -> tuple[str, ...] | None:
+    """Return a stable validated scope set, or ``None`` when malformed."""
+    if not isinstance(paths, list):
+        return None
+
+    normalized: list[str] = []
+    for value in paths:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        posix_path = PurePosixPath(value)
+        windows_path = PureWindowsPath(value)
+        if (
+            posix_path.is_absolute()
+            or windows_path.is_absolute()
+            or windows_path.drive
+            or ".." in posix_path.parts
+            or ".." in windows_path.parts
+        ):
+            return None
+        normalized_value = posix_path.as_posix()
+        if normalized_value in {"", "."}:
+            return None
+        normalized.append(normalized_value)
+
+    if len(normalized) != len(set(normalized)):
+        return None
+    return tuple(sorted(normalized))
+
+
+def evaluate_verifier_host_gates(
+    *,
+    test_result: Mapping[str, Any] | None,
+    prior_review: Any,
+    changed_files: Any,
+    declared_target_files: Any,
+) -> dict[str, Any]:
+    """Classify verifier preflight facts before any model may be resolved."""
+    counters = () if not isinstance(test_result, Mapping) else (
+        test_result.get("exit_code"),
+        test_result.get("failed"),
+        test_result.get("errors"),
+    )
+    tests_passed = (
+        len(counters) == 3
+        and all(type(value) is int and value >= 0 for value in counters)
+        and counters == (0, 0, 0)
+    )
+    test_outcome = "passed" if tests_passed else "failed"
+
+    review_outcome = (
+        {
+            "passed": "passed",
+            "failed": "failed",
+            "blocked": "failed",
+            "needs_review": "needs_review",
+        }.get(prior_review, "needs_review")
+        if isinstance(prior_review, str)
+        else "needs_review"
+    )
+
+    normalized_changed = _normalize_verifier_scope_paths(changed_files)
+    normalized_declared = _normalize_verifier_scope_paths(declared_target_files)
+    if normalized_changed is None or normalized_declared is None:
+        scope_outcome = "needs_review"
+    elif normalized_changed != normalized_declared:
+        scope_outcome = "failed"
+    else:
+        scope_outcome = "passed"
+
+    outcomes = {
+        "prior_review": review_outcome,
+        "scope": scope_outcome,
+        "tests": test_outcome,
+    }
+    if "failed" in outcomes.values():
+        outcome = "failed"
+    elif "needs_review" in outcomes.values():
+        outcome = "needs_review"
+    else:
+        outcome = "model_may_decide"
+
+    return {
+        "outcome": outcome,
+        "findings": [
+            {"gate_id": gate_id, "outcome": gate_outcome}
+            for gate_id, gate_outcome in outcomes.items()
+        ],
+        "changed_files": (
+            list(normalized_changed) if normalized_changed is not None else None
+        ),
+        "declared_target_files": (
+            list(normalized_declared) if normalized_declared is not None else None
+        ),
+    }
+
+
 def evaluate_host_gates(
     *,
     test_result: Mapping[str, Any] | None = None,
@@ -593,6 +690,7 @@ __all__ = [
     "derive_final_judge_next_human_decision",
     "evaluate_final_judge_action",
     "evaluate_host_gates",
+    "evaluate_verifier_host_gates",
     "summarize_final_decision",
     "validate_final_decision_receipt",
 ]

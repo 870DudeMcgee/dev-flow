@@ -136,9 +136,9 @@ All six calls were runtime-, request-, identity-, and protocol-clean. Four
 cases passed, but Ornith returned `hold` instead of `block` for an explicitly
 unresolved mandatory choice and falsely qualified an explicit failed review.
 That review result produced one raw and effective critical false accept because
-the generic host gate does not yet own review failure. No further prompt
-tuning, blind qualification, promotion, or final-judge routing is justified
-for Ornith.
+the generic host gate did not yet own review failure at the time of the screen.
+No further prompt tuning, blind qualification, promotion, or final-judge
+routing is justified for Ornith.
 
 The durable final-decision boundary is now: deterministic host code decides,
 the local model may only explain an already-committed decision, and the human
@@ -221,9 +221,13 @@ self-judged result, or a run with unresolved reliability breaches.
 
 Hold production qualification and keep all tested roles audition-only. Do not
 resume Qwen builder or Ornith final-judge prompt/decoder tuning. The next
-justified verifier work is deterministic host ownership of prior-review
-failure and scope mismatch before any model judgment, not another Qwythos v2
-prompt screen. Final judge has no surviving finalist, and screening another
-candidate requires separate human approval. The deterministic host receipt
-itself grants no model capability. Qwythos v1 remains excluded, and verifier or
-final-judge assignment still requires full-path evidence.
+verifier path now deterministically owns test results, prior-review status, and
+exact manifest scope before any model resolution. Failed or blocked review and
+scope mismatch fail verification; missing or malformed evidence holds for
+review; host-only receipts name no model. The next human decision is whether to
+leave verifier assignment unqualified or authorize a separately fingerprinted
+screen of a different candidate. Do not rerun Qwythos v2 automatically. Final
+judge has no surviving finalist, and screening another candidate requires
+separate human approval. The deterministic host receipt itself grants no model
+capability. Qwythos v1 remains excluded, and verifier or final-judge assignment
+still requires full-path evidence.

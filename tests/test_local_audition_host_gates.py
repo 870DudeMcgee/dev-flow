@@ -12,8 +12,120 @@ from devflow.loop.local_audition_host_gates import (
     derive_final_judge_next_human_decision,
     evaluate_final_judge_action,
     evaluate_host_gates,
+    evaluate_verifier_host_gates,
     summarize_final_decision,
 )
+
+
+def test_verifier_host_gates_require_every_explicit_pass() -> None:
+    result = evaluate_verifier_host_gates(
+        test_result={"exit_code": 0, "failed": 0, "errors": 0},
+        prior_review="passed",
+        changed_files=["tests/test_sample.py", "src/sample.py"],
+        declared_target_files=["src/sample.py", "tests/test_sample.py"],
+    )
+
+    assert result == {
+        "outcome": "model_may_decide",
+        "findings": [
+            {"gate_id": "prior_review", "outcome": "passed"},
+            {"gate_id": "scope", "outcome": "passed"},
+            {"gate_id": "tests", "outcome": "passed"},
+        ],
+        "changed_files": ["src/sample.py", "tests/test_sample.py"],
+        "declared_target_files": ["src/sample.py", "tests/test_sample.py"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("prior_review", "expected"),
+    [
+        ("failed", "failed"),
+        ("blocked", "failed"),
+        ("needs_review", "needs_review"),
+        (None, "needs_review"),
+        ("unknown", "needs_review"),
+        (True, "needs_review"),
+    ],
+)
+def test_verifier_host_gate_normalizes_prior_review(prior_review, expected) -> None:
+    result = evaluate_verifier_host_gates(
+        test_result={"exit_code": 0, "failed": 0, "errors": 0},
+        prior_review=prior_review,
+        changed_files=["src/sample.py"],
+        declared_target_files=["src/sample.py"],
+    )
+
+    review = next(item for item in result["findings"] if item["gate_id"] == "prior_review")
+    assert review["outcome"] == expected
+    assert result["outcome"] == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["src/sample.py", "src/sample.py"],
+        [""],
+        ["   "],
+        ["/tmp/sample.py"],
+        ["src/../sample.py"],
+        "src/sample.py",
+        [1],
+    ],
+)
+def test_verifier_host_gate_rejects_malformed_scope(value) -> None:
+    result = evaluate_verifier_host_gates(
+        test_result={"exit_code": 0, "failed": 0, "errors": 0},
+        prior_review="passed",
+        changed_files=value,
+        declared_target_files=["src/sample.py"],
+    )
+
+    assert result["outcome"] == "needs_review"
+    assert result["findings"][1] == {"gate_id": "scope", "outcome": "needs_review"}
+
+
+@pytest.mark.parametrize(
+    "test_result",
+    [
+        {"exit_code": 1, "failed": 0, "errors": 0},
+        {"exit_code": 0, "failed": 1, "errors": 0},
+        {"exit_code": 0, "failed": 0, "errors": 1},
+        {"exit_code": True, "failed": 0, "errors": 0},
+        {"exit_code": 0, "failed": False, "errors": 0},
+        {"exit_code": 0, "failed": -1, "errors": 0},
+        {"exit_code": 0, "errors": 0},
+        None,
+    ],
+)
+def test_verifier_host_gate_fails_closed_on_nonpassing_or_malformed_tests(
+    test_result,
+) -> None:
+    result = evaluate_verifier_host_gates(
+        test_result=test_result,
+        prior_review="passed",
+        changed_files=["src/sample.py"],
+        declared_target_files=["src/sample.py"],
+    )
+
+    assert result["outcome"] == "failed"
+    assert result["findings"][2] == {"gate_id": "tests", "outcome": "failed"}
+
+
+def test_verifier_host_gate_independent_failure_wins_and_keeps_all_findings() -> None:
+    result = evaluate_verifier_host_gates(
+        test_result={"exit_code": 1, "failed": 1, "errors": 0},
+        prior_review="failed",
+        changed_files=["src/sample.py", "tests/test_sample.py"],
+        declared_target_files=["src/sample.py"],
+    )
+
+    assert result["outcome"] == "failed"
+    assert result["findings"] == [
+        {"gate_id": "prior_review", "outcome": "failed"},
+        {"gate_id": "scope", "outcome": "failed"},
+        {"gate_id": "tests", "outcome": "failed"},
+    ]
 
 
 def _final_inputs(**updates) -> FinalDecisionInputs:

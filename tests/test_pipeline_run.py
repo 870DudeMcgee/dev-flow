@@ -133,6 +133,14 @@ class TestLoadPipelineRun:
         loaded = load_pipeline_run(tmp_path, run_id)
         assert loaded["intent.md"] == "# Updated intent\n"
 
+    def test_keeps_malformed_json_as_inspectable_raw_evidence(self, tmp_path: Path) -> None:
+        run_id = create_pipeline_run(tmp_path, {"repo": "test"})
+        update_pipeline_run_record(tmp_path, run_id, "judge-decision.json", "{")
+
+        loaded = load_pipeline_run(tmp_path, run_id)
+
+        assert loaded["judge-decision.json"] == "{"
+
 
 # ---------------------------------------------------------------------------
 # update_pipeline_run_record

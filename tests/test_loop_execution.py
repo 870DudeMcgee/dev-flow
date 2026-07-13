@@ -476,7 +476,14 @@ def test_verifier_requests_reasoning_and_emits_model_agnostic_evidence(tmp_path,
         root,
         run_id,
         "build-manifest.json",
-        json.dumps({"changed_files": [], "workspace": str(root)}),
+        json.dumps({
+            "changed_files": [],
+            "declared_target_files": [],
+            "workspace": str(root),
+        }),
+    )
+    pr.update_pipeline_run_record(
+        root, run_id, "judge-decision.json", json.dumps({"status": "passed"})
     )
     monkeypatch.setattr(
         ex,
@@ -516,7 +523,14 @@ def test_verifier_uses_role_lifecycle_while_model_is_running(tmp_path, monkeypat
         root,
         run_id,
         "build-manifest.json",
-        json.dumps({"changed_files": [], "workspace": str(root)}),
+        json.dumps({
+            "changed_files": [],
+            "declared_target_files": [],
+            "workspace": str(root),
+        }),
+    )
+    pr.update_pipeline_run_record(
+        root, run_id, "judge-decision.json", json.dumps({"status": "passed"})
     )
     monkeypatch.setattr(
         ex,
@@ -558,7 +572,14 @@ def test_verifier_token_capped_pass_becomes_needs_review(tmp_path, monkeypatch):
         root,
         run_id,
         "build-manifest.json",
-        {"changed_files": [], "workspace": str(root)},
+        {
+            "changed_files": [],
+            "declared_target_files": [],
+            "workspace": str(root),
+        },
+    )
+    pr.update_pipeline_run_record(
+        root, run_id, "judge-decision.json", {"status": "passed"}
     )
     monkeypatch.setattr(
         ex,
@@ -604,7 +625,14 @@ def test_verifier_failed_test_gate_bypasses_model_pass(tmp_path, monkeypatch):
         root,
         run_id,
         "build-manifest.json",
-        {"changed_files": [], "workspace": str(root)},
+        {
+            "changed_files": [],
+            "declared_target_files": [],
+            "workspace": str(root),
+        },
+    )
+    pr.update_pipeline_run_record(
+        root, run_id, "judge-decision.json", {"status": "passed"}
     )
     monkeypatch.setattr(
         ex,
@@ -632,8 +660,297 @@ def test_verifier_failed_test_gate_bypasses_model_pass(tmp_path, monkeypatch):
     assert invoked is False
     assert receipt.status == ex.ver.VerificationStatus.failed
     assert receipt.exit_code == 1
-    assert "Deterministic test gate failed" in receipt.summary
+    assert "Deterministic verifier gates failed" in receipt.summary
     assert load_loop_state(root, run_id).stage == LoopStage.verification
+
+
+_MISSING_VERIFIER_RECORD = object()
+_DEFAULT_VERIFIER_MANIFEST = object()
+
+
+def _run_host_bypass_case(
+    tmp_path,
+    monkeypatch,
+    *,
+    judge_record=_MISSING_VERIFIER_RECORD,
+    manifest_record=_DEFAULT_VERIFIER_MANIFEST,
+    changed_files=None,
+    declared_target_files=None,
+    test_result=None,
+):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.verification, "builder_judge_passed": True}
+    )
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    if manifest_record is _DEFAULT_VERIFIER_MANIFEST:
+        manifest_record = {
+            "changed_files": ["src/sample.py"] if changed_files is None else changed_files,
+            "declared_target_files": (
+                ["src/sample.py"]
+                if declared_target_files is None
+                else declared_target_files
+            ),
+            "workspace": str(root),
+        }
+    if manifest_record is not _MISSING_VERIFIER_RECORD:
+        pr.update_pipeline_run_record(
+            root, run_id, "build-manifest.json", manifest_record
+        )
+    if judge_record is not _MISSING_VERIFIER_RECORD:
+        pr.update_pipeline_run_record(
+            root, run_id, "judge-decision.json", judge_record
+        )
+    result = (
+        test_result
+        if test_result is not None
+        else {
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "summary": "1 passed",
+            "working_directory": str(root),
+        }
+    )
+    monkeypatch.setattr(ex, "_run_workspace_tests", lambda *args, **kwargs: result)
+
+    def model_path_must_not_run(*args, **kwargs):
+        raise AssertionError("verifier model path must not run after host-gate bypass")
+
+    monkeypatch.setattr(ex, "resolve_role_slot", model_path_must_not_run)
+    monkeypatch.setattr(ex, "run_role", model_path_must_not_run)
+
+    receipt = ex.run_verifier(root, run_id, definition_of_done="Tests pass.")
+    data = pr.load_pipeline_run(root, run_id)
+    receipt_name = f"verification-receipt-{receipt.receipt_id}.json"
+    attestation_name = f"verification-attestation-{receipt.receipt_id}.json"
+    assert data[receipt_name]["command"] == "verifier (deterministic host gates)"
+    assert attestation_name in data
+    assert not any(
+        entry.get("role") == "verifier"
+        for entry in data.get("worker-feed.jsonl", [])
+    )
+    assert load_loop_state(root, run_id).stage == LoopStage.verification
+    return receipt
+
+
+@pytest.mark.parametrize(
+    ("judge_record", "expected_status", "review_finding"),
+    [
+        ({"status": "failed"}, ex.ver.VerificationStatus.failed, "failed"),
+        ({"status": "blocked"}, ex.ver.VerificationStatus.failed, "failed"),
+        (
+            {"status": "needs_review"},
+            ex.ver.VerificationStatus.needs_review,
+            "needs_review",
+        ),
+        (
+            _MISSING_VERIFIER_RECORD,
+            ex.ver.VerificationStatus.needs_review,
+            "needs_review",
+        ),
+        ("{", ex.ver.VerificationStatus.needs_review, "needs_review"),
+        ({"status": "surprising"}, ex.ver.VerificationStatus.needs_review, "needs_review"),
+        ([], ex.ver.VerificationStatus.needs_review, "needs_review"),
+    ],
+)
+def test_verifier_prior_review_host_gate_bypasses_model(
+    tmp_path,
+    monkeypatch,
+    judge_record,
+    expected_status,
+    review_finding,
+):
+    receipt = _run_host_bypass_case(
+        tmp_path,
+        monkeypatch,
+        judge_record=judge_record,
+    )
+
+    assert receipt.status == expected_status
+    assert receipt.exit_code == 1
+    assert receipt.command == "verifier (deterministic host gates)"
+    assert f"prior_review={review_finding}" in receipt.summary
+    assert "scope=passed" in receipt.summary
+    assert "tests=passed" in receipt.summary
+
+
+@pytest.mark.parametrize(
+    "manifest_record",
+    [_MISSING_VERIFIER_RECORD, "{", []],
+)
+def test_verifier_missing_or_malformed_manifest_holds_before_model(
+    tmp_path,
+    monkeypatch,
+    manifest_record,
+):
+    receipt = _run_host_bypass_case(
+        tmp_path,
+        monkeypatch,
+        judge_record={"status": "passed"},
+        manifest_record=manifest_record,
+    )
+
+    assert receipt.status == ex.ver.VerificationStatus.needs_review
+    assert "prior_review=passed; scope=needs_review; tests=passed" in receipt.summary
+
+
+@pytest.mark.parametrize(
+    ("changed_files", "declared_target_files"),
+    [
+        (["src/sample.py", "tests/test_sample.py"], ["src/sample.py"]),
+        (["src/sample.py"], ["src/sample.py", "tests/test_sample.py"]),
+    ],
+)
+def test_verifier_exact_scope_mismatch_fails_before_model(
+    tmp_path,
+    monkeypatch,
+    changed_files,
+    declared_target_files,
+):
+    receipt = _run_host_bypass_case(
+        tmp_path,
+        monkeypatch,
+        judge_record={"status": "passed"},
+        changed_files=changed_files,
+        declared_target_files=declared_target_files,
+    )
+
+    assert receipt.status == ex.ver.VerificationStatus.failed
+    assert "prior_review=passed; scope=failed; tests=passed" in receipt.summary
+
+
+@pytest.mark.parametrize(
+    ("changed_files", "declared_target_files"),
+    [
+        (["src/sample.py", "src/sample.py"], ["src/sample.py"]),
+        ([""], ["src/sample.py"]),
+        (["/tmp/sample.py"], ["src/sample.py"]),
+        (["src/../sample.py"], ["src/sample.py"]),
+        ("src/sample.py", ["src/sample.py"]),
+        ([1], ["src/sample.py"]),
+        (["src/sample.py"], None),
+    ],
+)
+def test_verifier_malformed_scope_holds_before_model(
+    tmp_path,
+    monkeypatch,
+    changed_files,
+    declared_target_files,
+):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.verification, "builder_judge_passed": True}
+    )
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "build-manifest.json",
+        {
+            "changed_files": changed_files,
+            "declared_target_files": declared_target_files,
+            "workspace": str(root),
+        },
+    )
+    pr.update_pipeline_run_record(
+        root, run_id, "judge-decision.json", {"status": "passed"}
+    )
+    monkeypatch.setattr(
+        ex,
+        "_run_workspace_tests",
+        lambda *args, **kwargs: {
+            "exit_code": 0,
+            "passed": 1,
+            "failed": 0,
+            "errors": 0,
+            "summary": "1 passed",
+        },
+    )
+
+    def model_path_must_not_run(*args, **kwargs):
+        raise AssertionError("malformed scope must bypass verifier model")
+
+    monkeypatch.setattr(ex, "resolve_role_slot", model_path_must_not_run)
+    monkeypatch.setattr(ex, "run_role", model_path_must_not_run)
+
+    receipt = ex.run_verifier(root, run_id, definition_of_done="Tests pass.")
+
+    assert receipt.status == ex.ver.VerificationStatus.needs_review
+    assert "prior_review=passed; scope=needs_review; tests=passed" in receipt.summary
+    assert receipt.command == "verifier (deterministic host gates)"
+    assert load_loop_state(root, run_id).stage == LoopStage.verification
+
+
+def test_verifier_failure_precedence_keeps_simultaneous_host_findings(
+    tmp_path,
+    monkeypatch,
+):
+    receipt = _run_host_bypass_case(
+        tmp_path,
+        monkeypatch,
+        judge_record={"status": "failed"},
+        changed_files=["src/sample.py", "tests/test_sample.py"],
+        declared_target_files=["src/sample.py"],
+        test_result={
+            "exit_code": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "summary": "1 failed",
+        },
+    )
+
+    assert receipt.status == ex.ver.VerificationStatus.failed
+    assert "prior_review=failed; scope=failed; tests=failed" in receipt.summary
+
+
+def test_verifier_failed_review_wins_over_malformed_scope(
+    tmp_path,
+    monkeypatch,
+):
+    receipt = _run_host_bypass_case(
+        tmp_path,
+        monkeypatch,
+        judge_record={"status": "failed"},
+        changed_files="src/sample.py",
+        declared_target_files=["src/sample.py"],
+    )
+
+    assert receipt.status == ex.ver.VerificationStatus.failed
+    assert "prior_review=failed; scope=needs_review; tests=passed" in receipt.summary
+
+
+@pytest.mark.parametrize(
+    "test_result",
+    [
+        {"exit_code": True, "passed": 1, "failed": 0, "errors": 0},
+        {"exit_code": 0, "passed": 1, "failed": False, "errors": 0},
+        {"exit_code": 0, "passed": 1, "failed": -1, "errors": 0},
+        {"exit_code": 0, "passed": 1, "errors": 0},
+    ],
+)
+def test_verifier_malformed_test_result_fails_before_model(
+    tmp_path,
+    monkeypatch,
+    test_result,
+):
+    receipt = _run_host_bypass_case(
+        tmp_path,
+        monkeypatch,
+        judge_record={"status": "passed"},
+        test_result=test_result,
+    )
+
+    assert receipt.status == ex.ver.VerificationStatus.failed
+    assert "prior_review=passed; scope=passed; tests=failed" in receipt.summary
 
 
 def test_verifier_prompt_includes_scope_and_prior_judge_evidence(tmp_path, monkeypatch):
@@ -658,7 +975,7 @@ def test_verifier_prompt_includes_scope_and_prior_judge_evidence(tmp_path, monke
         root,
         run_id,
         "judge-decision.json",
-        json.dumps({"status": "passed"}),
+        json.dumps({"decision": "passed"}),
     )
     monkeypatch.setattr(
         ex,

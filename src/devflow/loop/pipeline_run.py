@@ -154,7 +154,14 @@ def load_pipeline_run(root: Path | str, run_id: str) -> Dict[str, Any]:
         if not child.is_file():
             continue
         if child.suffix == ".json":
-            result[child.name] = json.loads(child.read_text(encoding="utf-8"))
+            raw = child.read_text(encoding="utf-8")
+            try:
+                result[child.name] = json.loads(raw)
+            except json.JSONDecodeError:
+                # Keep malformed persisted evidence inspectable so lifecycle
+                # gates can fail closed instead of making the entire run
+                # unreadable before they classify the bad record.
+                result[child.name] = raw
         elif child.suffix == ".jsonl":
             lines = child.read_text(encoding="utf-8").strip().splitlines()
             result[child.name] = [
