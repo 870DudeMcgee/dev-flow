@@ -18,6 +18,10 @@ _RECEIPT_KEYS = (
     "error_type",
     "error",
     "sequence",
+    "request_evidence",
+    "parsed_packet",
+    "protocol_validation",
+    "deterministic_gates",
 )
 _MAX_CONTENT_CHARS = 64_000
 _MAX_ERROR_CHARS = 2_000
@@ -43,6 +47,10 @@ def _receipt(
     finish_reason: str = "",
     error_type: str = "",
     error: str = "",
+    request_evidence: dict | None = None,
+    parsed_packet: dict | None = None,
+    protocol_validation: dict | None = None,
+    deterministic_gates: dict | None = None,
 ) -> dict:
     values = {
         "case_id": case_id,
@@ -56,6 +64,10 @@ def _receipt(
         "error_type": error_type,
         "error": error[:_MAX_ERROR_CHARS],
         "sequence": sequence,
+        "request_evidence": deepcopy(request_evidence or {}),
+        "parsed_packet": deepcopy(parsed_packet or {}),
+        "protocol_validation": deepcopy(protocol_validation or {}),
+        "deterministic_gates": deepcopy(deterministic_gates or {}),
     }
     return {key: values[key] for key in _RECEIPT_KEYS}
 
@@ -72,6 +84,10 @@ def _failed(
     content: str = "",
     usage: dict | None = None,
     finish_reason: str = "",
+    request_evidence: dict | None = None,
+    parsed_packet: dict | None = None,
+    protocol_validation: dict | None = None,
+    deterministic_gates: dict | None = None,
 ) -> dict:
     return _receipt(
         case_id=case_id,
@@ -84,6 +100,10 @@ def _failed(
         finish_reason=finish_reason,
         error_type=error_type,
         error=error,
+        request_evidence=request_evidence,
+        parsed_packet=parsed_packet,
+        protocol_validation=protocol_validation,
+        deterministic_gates=deterministic_gates,
     )
 
 
@@ -144,6 +164,10 @@ def run_local_audition(
         content = raw.get("content")
         usage = raw.get("usage", {})
         finish_reason = raw.get("finish_reason", "")
+        request_evidence = raw.get("request_evidence", {})
+        parsed_packet = raw.get("parsed_packet", {})
+        protocol_validation = raw.get("protocol_validation", {})
+        deterministic_gates = raw.get("deterministic_gates", {})
         malformed_fields = [
             name
             for name, value, expected in (
@@ -151,6 +175,10 @@ def run_local_audition(
                 ("content", content, str),
                 ("usage", usage, Mapping),
                 ("finish_reason", finish_reason, str),
+                ("request_evidence", request_evidence, Mapping),
+                ("parsed_packet", parsed_packet, Mapping),
+                ("protocol_validation", protocol_validation, Mapping),
+                ("deterministic_gates", deterministic_gates, Mapping),
             )
             if not isinstance(value, expected)
         ]
@@ -177,6 +205,10 @@ def run_local_audition(
                 content=content,
                 usage=dict(usage),
                 finish_reason=finish_reason,
+                request_evidence=dict(request_evidence),
+                parsed_packet=dict(parsed_packet),
+                protocol_validation=dict(protocol_validation),
+                deterministic_gates=dict(deterministic_gates),
             ))
             continue
         if actual_model != requested_model:
@@ -194,6 +226,10 @@ def run_local_audition(
                 content=content,
                 usage=dict(usage),
                 finish_reason=finish_reason,
+                request_evidence=dict(request_evidence),
+                parsed_packet=dict(parsed_packet),
+                protocol_validation=dict(protocol_validation),
+                deterministic_gates=dict(deterministic_gates),
             ))
             continue
         if not content.strip():
@@ -207,6 +243,10 @@ def run_local_audition(
                 actual_model=actual_model,
                 usage=dict(usage),
                 finish_reason=finish_reason,
+                request_evidence=dict(request_evidence),
+                parsed_packet=dict(parsed_packet),
+                protocol_validation=dict(protocol_validation),
+                deterministic_gates=dict(deterministic_gates),
             ))
             continue
         if finish_reason.strip().lower() in _CAPPED_FINISH_REASONS:
@@ -221,6 +261,48 @@ def run_local_audition(
                 content=content,
                 usage=dict(usage),
                 finish_reason=finish_reason,
+                request_evidence=dict(request_evidence),
+                parsed_packet=dict(parsed_packet),
+                protocol_validation=dict(protocol_validation),
+                deterministic_gates=dict(deterministic_gates),
+            ))
+            continue
+
+        if protocol_validation and protocol_validation.get("valid") is not True:
+            receipts.append(_failed(
+                case_id,
+                role,
+                requested_model,
+                sequence,
+                "ProtocolValidationFailed",
+                "The structured output packet failed its versioned contract.",
+                actual_model=actual_model,
+                content=content,
+                usage=dict(usage),
+                finish_reason=finish_reason,
+                request_evidence=dict(request_evidence),
+                parsed_packet=dict(parsed_packet),
+                protocol_validation=dict(protocol_validation),
+                deterministic_gates=dict(deterministic_gates),
+            ))
+            continue
+        host_outcome = deterministic_gates.get("outcome")
+        if host_outcome in {"failed", "needs_review", "block"}:
+            receipts.append(_failed(
+                case_id,
+                role,
+                requested_model,
+                sequence,
+                "HostGateTerminal",
+                f"Deterministic host outcome: {host_outcome}.",
+                actual_model=actual_model,
+                content=content,
+                usage=dict(usage),
+                finish_reason=finish_reason,
+                request_evidence=dict(request_evidence),
+                parsed_packet=dict(parsed_packet),
+                protocol_validation=dict(protocol_validation),
+                deterministic_gates=dict(deterministic_gates),
             ))
             continue
 
@@ -234,6 +316,10 @@ def run_local_audition(
             usage=dict(usage),
             finish_reason=finish_reason,
             sequence=sequence,
+            request_evidence=dict(request_evidence),
+            parsed_packet=dict(parsed_packet),
+            protocol_validation=dict(protocol_validation),
+            deterministic_gates=dict(deterministic_gates),
         ))
     return receipts
 

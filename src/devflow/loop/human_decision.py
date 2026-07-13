@@ -11,14 +11,23 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
 
 from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
 from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.local_audition_host_gates import (
+    FinalDecisionInputs,
+    classify_final_decision,
+    summarize_final_decision,
+    validate_final_decision_receipt,
+)
 from devflow.loop.models import DevFlowLoopState, LoopStage
-from devflow.loop.reliability import record_reliability_report
+
+
+FINAL_DECISION_RECEIPT_FILE = "final-decision-receipt.json"
+FINAL_DECISION_SUMMARY_FILE = "final-decision-summary.json"
 
 
 ALLOWED_CONTINUE_WORK_TARGETS = frozenset(
@@ -72,6 +81,42 @@ def decision_completes_loop(record: HumanDecisionRecord) -> bool:
     )
 
 
+def record_final_decision(
+    root: Path | str,
+    run_id: str,
+    inputs: FinalDecisionInputs,
+    *,
+    summarizer: Callable[[dict[str, Any]], Any] | None = None,
+) -> dict[str, Any]:
+    """Commit the deterministic receipt before any optional model summary."""
+    state = load_loop_state(root, run_id)
+    if state.stage != LoopStage.human_decision:
+        raise ValueError(
+            "Final decision receipt can only be committed at human_decision, "
+            f"got {state.stage.value}."
+        )
+    receipt = classify_final_decision(inputs)
+    run_data = load_pipeline_run(root, run_id)
+    existing = run_data.get(FINAL_DECISION_RECEIPT_FILE)
+    if existing is not None and existing != receipt:
+        raise ValueError("Conflicting final decision receipt replay.")
+    update_pipeline_run_record(root, run_id, FINAL_DECISION_RECEIPT_FILE, receipt)
+
+    if summarizer is not None:
+        summary = summarize_final_decision(receipt, summarizer)
+        update_pipeline_run_record(
+            root,
+            run_id,
+            FINAL_DECISION_SUMMARY_FILE,
+            {
+                "authoritative": False,
+                "receipt_file": FINAL_DECISION_RECEIPT_FILE,
+                "summary": summary,
+            },
+        )
+    return receipt
+
+
 def record_human_decision(
     root: Path | str, record: HumanDecisionRecord
 ) -> tuple[DevFlowLoopState, HumanDecisionRecord]:
@@ -100,25 +145,14 @@ def record_human_decision(
             )
 
     if decision_completes_loop(record):
-        if not state.builder_judge_passed:
-            raise ValueError(
-                "Cannot complete loop without a passing builder/judge gate."
-            )
         run_data = load_pipeline_run(root, record.run_id)
-        has_passing_receipt = any(
-            isinstance(run_data.get(receipt_path), dict)
-            and run_data[receipt_path].get("status") == "passed"
-            for receipt_path in state.verification_receipts
+        receipt = validate_final_decision_receipt(
+            run_data.get(FINAL_DECISION_RECEIPT_FILE)
         )
-        if not has_passing_receipt:
+        if receipt["decision"] != "qualify" or receipt["next_action"] != "none":
             raise ValueError(
-                "Cannot complete loop without a passing verification receipt."
-            )
-        reliability = record_reliability_report(root, record.run_id)
-        if not reliability.safe:
-            raise ValueError(
-                "Cannot complete loop because the reliability gate failed: "
-                + "; ".join(reliability.breaches)
+                "Cannot complete loop because the deterministic final decision "
+                f"is {receipt['decision']}/{receipt['next_action']}."
             )
 
     # Write record JSON into the pipeline run directory

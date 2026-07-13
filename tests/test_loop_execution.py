@@ -15,8 +15,10 @@ Two layers of evidence:
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,6 +52,26 @@ class FakeClient:
                 "verification_command": "python -c 'import ast,pathlib;ast.parse(pathlib.Path(\"calc.py\").read_text())'",
             }), {}
         return "def add(a, b):\n    return a + b\n", {}
+
+
+def test_ensure_lane_fails_closed_when_router_start_fails(monkeypatch, tmp_path) -> None:
+    slot = SimpleNamespace(
+        transport="openai-http",
+        endpoint="http://127.0.0.1:8088/v1",
+        model_path="~/models/ornith.gguf",
+        model_id="ornith-9b-mini",
+        model_name="ornith-9b-mini",
+    )
+    monkeypatch.setattr(ex, "resolve_role_slot", lambda role: slot)
+
+    def failed_start(command, *, check, env):
+        assert check is True
+        raise ex.subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(ex.subprocess, "run", failed_start)
+
+    with pytest.raises(ex.subprocess.CalledProcessError):
+        ex.ensure_lane("final_judge", script=tmp_path / "model-router")
 
 
 class RevisingPlannerClient:
@@ -569,6 +591,51 @@ def test_verifier_token_capped_pass_becomes_needs_review(tmp_path, monkeypatch):
     assert load_loop_state(root, run_id).stage == LoopStage.verification
 
 
+def test_verifier_failed_test_gate_bypasses_model_pass(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+    state = load_loop_state(root, run_id).model_copy(
+        update={"stage": LoopStage.verification, "builder_judge_passed": True}
+    )
+    save_loop_state(root, state)
+    pr.update_pipeline_run_record(root, run_id, "build-diff.patch", "diff")
+    pr.update_pipeline_run_record(
+        root,
+        run_id,
+        "build-manifest.json",
+        {"changed_files": [], "workspace": str(root)},
+    )
+    monkeypatch.setattr(
+        ex,
+        "_run_workspace_tests",
+        lambda *args, **kwargs: {
+            "exit_code": 1,
+            "passed": 7,
+            "failed": 1,
+            "errors": 0,
+            "summary": "1 failed, 7 passed",
+            "working_directory": str(root),
+        },
+    )
+    invoked = False
+
+    def model_must_not_run(*args, **kwargs):
+        nonlocal invoked
+        invoked = True
+        raise AssertionError("verifier model should not run after deterministic failure")
+
+    monkeypatch.setattr(ex, "run_role", model_must_not_run)
+
+    receipt = ex.run_verifier(root, run_id, definition_of_done="Tests pass.")
+
+    assert invoked is False
+    assert receipt.status == ex.ver.VerificationStatus.failed
+    assert receipt.exit_code == 1
+    assert "Deterministic test gate failed" in receipt.summary
+    assert load_loop_state(root, run_id).stage == LoopStage.verification
+
+
 def test_verifier_prompt_includes_scope_and_prior_judge_evidence(tmp_path, monkeypatch):
     ReasoningCaptureClient.user_prompts = []
     root = tmp_path / "proj"
@@ -1031,6 +1098,127 @@ def test_remote_non_reasoning_stream_disables_provider_reasoning(monkeypatch):
     assert captured["include_reasoning"] is False
 
 
+def test_local_client_sends_native_schema_decoder_controls_and_explicit_thinking(monkeypatch):
+    captured = {}
+
+    def fake_post(endpoint, payload, timeout, api_key=None):
+        captured.update(payload)
+        return {
+            "model": "candidate-model",
+            "choices": [{"message": {"content": '{"schema_version":1}'}}],
+        }
+
+    schema = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "devflow_planner_v1",
+            "strict": True,
+            "schema": {"type": "object"},
+        },
+    }
+    monkeypatch.setattr(ex.LocalModelClient, "_do_post", staticmethod(fake_post))
+    client = ex.LocalModelClient(
+        "http://127.0.0.1:8088", model_name="candidate-model"
+    )
+
+    client.chat(
+        messages=[{"role": "user", "content": "plan"}],
+        temperature=0.2,
+        reasoning=True,
+        request_options={
+            "top_p": 0.9,
+            "top_k": 20,
+            "repeat_penalty": 1.1,
+            "seed": 7,
+            "response_format": schema,
+        },
+    )
+
+    assert captured["temperature"] == 0.2
+    assert captured["top_p"] == 0.9
+    assert captured["top_k"] == 20
+    assert captured["repeat_penalty"] == 1.1
+    assert captured["seed"] == 7
+    assert captured["response_format"] == schema
+    assert captured["chat_template_kwargs"] == {"enable_thinking": True}
+    assert client.last_request_payload == captured
+
+
+def test_local_client_records_actual_retry_payload_when_template_kwargs_rejected(monkeypatch):
+    calls = []
+
+    def fake_post(endpoint, payload, timeout, api_key=None):
+        calls.append(dict(payload))
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(endpoint, 400, "bad template kwargs", {}, None)
+        return {"choices": [{"message": {"content": "{}"}}]}
+
+    monkeypatch.setattr(ex.LocalModelClient, "_do_post", staticmethod(fake_post))
+    client = ex.LocalModelClient(
+        "http://127.0.0.1:8088", model_name="candidate-model"
+    )
+    client.chat(
+        messages=[{"role": "user", "content": "judge"}],
+        reasoning=False,
+        request_options={"response_format": {"type": "json_object"}},
+    )
+
+    assert calls[0]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert "chat_template_kwargs" not in calls[1]
+    assert client.last_request_payload == calls[1]
+    assert client.last_request_payload["response_format"] == {"type": "json_object"}
+
+
+def test_local_stream_sends_same_bounded_request_options(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def __iter__(self):
+            return iter([
+                b'data: {"model":"candidate-model","choices":[{"delta":{"content":"{}"},"finish_reason":"stop"}]}\n'
+            ])
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data))
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    client = ex.LocalModelClient(
+        "http://127.0.0.1:8088", model_name="candidate-model"
+    )
+    content, usage, finish, _ = client.chat_stream(
+        messages=[{"role": "user", "content": "judge"}],
+        reasoning=False,
+        request_options={"top_p": 0.8, "top_k": 1, "seed": 11},
+    )
+
+    assert content == "{}"
+    assert usage["actual_model"] == "candidate-model"
+    assert finish == "stop"
+    assert captured["top_p"] == 0.8
+    assert captured["top_k"] == 1
+    assert captured["seed"] == 11
+    assert captured["chat_template_kwargs"] == {"enable_thinking": False}
+    assert client.last_request_payload == captured
+
+
+def test_local_client_rejects_unknown_request_option() -> None:
+    client = ex.LocalModelClient(
+        "http://127.0.0.1:8088", model_name="candidate-model"
+    )
+    with pytest.raises(ValueError, match="Unsupported local-model request options"):
+        client.chat(
+            messages=[{"role": "user", "content": "judge"}],
+            request_options={"invented_sampler": 1},
+        )
+
+
 def test_planner_and_qwen_judge_receive_persisted_readiness_context(tmp_path):
     CapturingPlannerContextClient.planner_user_prompt = ""
     CapturingPlannerContextClient.judge_user_prompt = ""
@@ -1252,6 +1440,7 @@ def test_builder_workspace_preserves_parent_packages_for_new_modules(tmp_path):
         test_files=["tests/test_run_labels.py"],
     )
     assert result["exit_code"] == 0, result["summary"]
+    assert "in <duration>s" in result["summary"]
 
 
 def test_greenfield_builder_prompt_omits_unrelated_sibling_context(tmp_path):

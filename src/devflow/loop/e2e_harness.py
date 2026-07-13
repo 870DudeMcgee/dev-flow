@@ -20,10 +20,23 @@ from devflow.loop.builder_judge import (
     prepare_builder_judge_assignment,
     record_builder_judge_result,
 )
-from devflow.loop.human_decision import HumanDecision, HumanDecisionRecord, record_human_decision
+from devflow.loop.human_decision import (
+    HumanDecision,
+    HumanDecisionRecord,
+    record_final_decision,
+    record_human_decision,
+)
+from devflow.loop.local_audition_host_gates import (
+    FinalDecisionInputs,
+    IdentityEvidenceInput,
+    ReliabilityResultInput,
+    ReviewResultInput,
+    VerificationTestReceiptInput,
+)
 from devflow.loop.models import LoopStage, advance_stage
 from devflow.loop.orient import run_orient
 from devflow.loop.planning_judge import PlanningEvidence, run_planning_judge
+from devflow.loop.reliability import record_reliability_report
 from devflow.loop.verification import VerificationReceipt, VerificationStatus, record_verification_receipt
 
 
@@ -190,6 +203,41 @@ def run_e2e_loop_harness(
     )
     state, _receipt = record_verification_receipt(root_path, receipt)
     observed.append(state.stage)
+
+    reliability = record_reliability_report(root_path, run_id)
+    record_final_decision(
+        root_path,
+        run_id,
+        FinalDecisionInputs(
+            test_receipt=VerificationTestReceiptInput(
+                "verification-receipt-fixture-verification.json",
+                0,
+                0,
+                0,
+                "passed",
+            ),
+            review_result=ReviewResultInput("builder-judge-link.json", "passed"),
+            reliability_result=ReliabilityResultInput(
+                "reliability-report.json", "safe" if reliability.safe else "unsafe"
+            ),
+            identity_evidence=IdentityEvidenceInput(
+                "deterministic-fixture-identity",
+                "deterministic-host",
+                "deterministic-host",
+                True,
+            ),
+            required_artifact_ids=(
+                "builder-judge-link.json",
+                "verification-receipt-fixture-verification.json",
+                "reliability-report.json",
+            ),
+            present_artifact_ids=(
+                "builder-judge-link.json",
+                "verification-receipt-fixture-verification.json",
+                "reliability-report.json",
+            ),
+        ),
+    )
 
     decision = HumanDecisionRecord(
         run_id=run_id,

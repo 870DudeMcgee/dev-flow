@@ -10,7 +10,15 @@ from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.human_decision import (
     HumanDecision,
     HumanDecisionRecord,
+    record_final_decision,
     record_human_decision,
+)
+from devflow.loop.local_audition_host_gates import (
+    FinalDecisionInputs,
+    IdentityEvidenceInput,
+    ReliabilityResultInput,
+    ReviewResultInput,
+    VerificationTestReceiptInput,
 )
 from devflow.loop.models import LoopStage
 from devflow.loop.pipeline_run import (
@@ -98,7 +106,21 @@ def test_attested_receipt_passes_and_tampering_blocks_acceptance(tmp_path):
         summary="accept",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
-    with pytest.raises(ValueError, match="reliability gate failed"):
+    record_final_decision(
+        root,
+        run_id,
+        FinalDecisionInputs(
+            test_receipt=VerificationTestReceiptInput(
+                "verification-receipt-verified.json", 0, 0, 0, "passed"
+            ),
+            review_result=ReviewResultInput("builder-judge-gate", "passed"),
+            reliability_result=ReliabilityResultInput("reliability-report.json", "unsafe"),
+            identity_evidence=IdentityEvidenceInput(
+                "identity-gate", "deterministic-host", "deterministic-host", True
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="deterministic final decision"):
         record_human_decision(root, decision)
     decision_path = (
         root / ".devflow" / "pipeline-runs" / run_id

@@ -15,6 +15,10 @@ RECEIPT_KEYS = {
     "error_type",
     "error",
     "sequence",
+    "request_evidence",
+    "parsed_packet",
+    "protocol_validation",
+    "deterministic_gates",
 }
 
 
@@ -148,3 +152,51 @@ def test_runner_rejects_served_identity_mismatch_and_capped_completion() -> None
         "ModelIdentityMismatch",
         "CappedCompletion",
     ]
+
+
+def test_runner_persists_contract_evidence_and_honors_terminal_host_gate() -> None:
+    calls = [
+        {
+            "actual_model": "expected-model",
+            "content": '{"schema_version":1}',
+            "usage": {"completion_tokens": 3},
+            "finish_reason": "stop",
+            "request_evidence": {"schema_id": "devflow.verifier.v1"},
+            "parsed_packet": {"schema_version": 1},
+            "protocol_validation": {"valid": True, "errors": []},
+            "deterministic_gates": {
+                "outcome": "failed",
+                "findings": [{"gate_id": "deterministic_tests", "outcome": "failed"}],
+            },
+        }
+    ]
+
+    receipt = run_local_audition(
+        [{"case_id": "failed-tests", "role": "verifier"}],
+        {"verifier": "expected-model"},
+        lambda _model, _case: calls.pop(),
+    )[0]
+
+    assert receipt["status"] == "failed"
+    assert receipt["error_type"] == "HostGateTerminal"
+    assert receipt["request_evidence"]["schema_id"] == "devflow.verifier.v1"
+    assert receipt["protocol_validation"]["valid"] is True
+    assert receipt["deterministic_gates"]["outcome"] == "failed"
+
+
+def test_runner_fails_closed_on_invalid_structured_packet() -> None:
+    receipt = run_local_audition(
+        [{"case_id": "bad-packet", "role": "planner"}],
+        {"planner": "expected-model"},
+        lambda _model, _case: {
+            "actual_model": "expected-model",
+            "content": "{}",
+            "usage": {},
+            "finish_reason": "stop",
+            "parsed_packet": {},
+            "protocol_validation": {"valid": False, "errors": ["keys_invalid"]},
+        },
+    )[0]
+
+    assert receipt["status"] == "failed"
+    assert receipt["error_type"] == "ProtocolValidationFailed"

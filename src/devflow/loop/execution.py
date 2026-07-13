@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from copy import deepcopy
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -143,6 +144,29 @@ class LocalModelClient:
         self._fallback_model_ids = tuple(fallback_model_ids)
         self._api_key: Optional[str] = api_key
         self._is_remote = not self._is_local_endpoint(self.endpoint)
+        self.last_request_payload: dict = {}
+
+    @staticmethod
+    def _apply_request_options(payload: dict, request_options: Optional[dict]) -> None:
+        """Apply only the bounded decoder/schema controls DevFlow measures."""
+        if request_options is None:
+            return
+        if not isinstance(request_options, dict):
+            raise TypeError("request_options must be a mapping.")
+        allowed = {
+            "top_p",
+            "top_k",
+            "repeat_penalty",
+            "seed",
+            "response_format",
+            "chat_template_kwargs",
+        }
+        unknown = set(request_options) - allowed
+        if unknown:
+            raise ValueError(
+                "Unsupported local-model request options: " + ", ".join(sorted(unknown))
+            )
+        payload.update(deepcopy(request_options))
 
     @staticmethod
     def _is_local_endpoint(endpoint: str) -> bool:
@@ -213,6 +237,7 @@ class LocalModelClient:
         temperature: float = 0.0,
         reasoning: bool = False,
         stop: Optional[list[str]] = None,
+        request_options: Optional[dict] = None,
     ) -> tuple[str, dict]:
         model_id = self._fetch_model_id()
         api_key = self._resolve_api_key()
@@ -227,24 +252,28 @@ class LocalModelClient:
             payload["model"] = model_id
         if stop:
             payload["stop"] = stop
+        self._apply_request_options(payload, request_options)
         if self._is_remote:
             payload["reasoning_effort"] = "low" if reasoning else "none"
             payload["include_reasoning"] = False
         # Ornith runs with --reasoning auto; disable the thinking trace so the
         # content budget is spent on the actual answer, not a CoT dump.
-        if not reasoning and not self._is_remote:
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        if not self._is_remote and "chat_template_kwargs" not in payload:
+            payload["chat_template_kwargs"] = {"enable_thinking": bool(reasoning)}
         try:
+            self.last_request_payload = deepcopy(payload)
             data = self._do_post(self.endpoint, payload, self.timeout, api_key)
         except urllib.error.HTTPError:
             # Some servers reject chat_template_kwargs; retry without it.
             if "chat_template_kwargs" in payload:
                 payload.pop("chat_template_kwargs")
+                self.last_request_payload = deepcopy(payload)
                 data = self._do_post(self.endpoint, payload, self.timeout, api_key)
             else:
                 raise
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         if self._is_remote and not str(content or "").strip():
+            self.last_request_payload = deepcopy(payload)
             data = self._do_post(self.endpoint, payload, self.timeout, api_key)
             content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         if self._is_remote and not str(content or "").strip():
@@ -264,6 +293,7 @@ class LocalModelClient:
         stop: Optional[list[str]] = None,
         on_delta: Optional[Callable[[str], None]] = None,
         on_reasoning_delta: Optional[Callable[[str], None]] = None,
+        request_options: Optional[dict] = None,
     ) -> tuple[str, dict, str, str]:
         """Stream an OpenAI-compatible response and expose each text delta.
 
@@ -285,15 +315,17 @@ class LocalModelClient:
             payload["model"] = model_id
         if stop:
             payload["stop"] = stop
+        self._apply_request_options(payload, request_options)
         if self._is_remote:
             payload["reasoning_effort"] = "low" if reasoning else "none"
             payload["include_reasoning"] = False
-        if not reasoning and not self._is_remote:
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        if not self._is_remote and "chat_template_kwargs" not in payload:
+            payload["chat_template_kwargs"] = {"enable_thinking": bool(reasoning)}
 
         api_key = self._resolve_api_key()
 
         def request(active_payload: dict):
+            self.last_request_payload = deepcopy(active_payload)
             headers = {"Content-Type": "application/json"}
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
@@ -496,8 +528,8 @@ def ensure_lane(role: str, *, script: Optional[Path] = None) -> None:
     if slot.model_path:
         env["MINI_QWEN_MODEL_PATH"] = os.path.expanduser(slot.model_path)
         env["MINI_MODEL_ALIAS"] = slot.model_id or slot.model_name
-    # model-router prints; we only care about the side effect.
-    subprocess.run([str(script), "start", port], check=False, env=env)
+    # A failed launcher must stop the call before endpoint identity is trusted.
+    subprocess.run([str(script), "start", port], check=True, env=env)
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +545,8 @@ def run_role(
     worker_id: Optional[str] = None,
     max_tokens: Optional[int] = None,
     reasoning: Optional[bool] = None,
+    request_options: Optional[dict] = None,
+    request_metadata: Optional[dict] = None,
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> RoleResult:
@@ -579,6 +613,10 @@ def run_role(
     )
     if ensure_lane_on:
         ensure_lane(role)
+    request_evidence = {
+        **deepcopy(request_metadata or {}),
+        "decoder_settings": deepcopy(request_options or {}),
+    }
 
     # Transport-aware client selection: hermes-chat → HermesSubscriptionClient,
     # everything else → LocalModelClient. Caller can override via client_factory.
@@ -614,6 +652,7 @@ def run_role(
             "worker_id": worker_id,
             "task_id": task_id,
             "requested_max_tokens": requested_max_tokens,
+            "request_evidence": deepcopy(request_evidence),
             "system_prompt": system_prompt[:500],
             "user_prompt": user_prompt[:2000],
         })
@@ -687,12 +726,17 @@ def run_role(
         finish_reason = "stop"
         try:
             if hasattr(client, "chat_stream"):
+                stream_kwargs = {
+                    "messages": messages,
+                    "max_tokens": requested_max_tokens,
+                    "reasoning": resolved_reasoning,
+                    "on_delta": on_delta,
+                    "on_reasoning_delta": None,
+                }
+                if request_options is not None:
+                    stream_kwargs["request_options"] = deepcopy(request_options)
                 result = client.chat_stream(
-                    messages=messages,
-                    max_tokens=requested_max_tokens,
-                    reasoning=resolved_reasoning,
-                    on_delta=on_delta,
-                    on_reasoning_delta=None,
+                    **stream_kwargs,
                 )
                 # Support both 3-tuple (legacy) and 4-tuple (reasoning) returns.
                 if len(result) >= 4:
@@ -700,11 +744,31 @@ def run_role(
                 else:
                     content, usage, finish_reason = result[:3]
             else:
-                content, usage = client.chat(
-                    messages=messages,
-                    max_tokens=requested_max_tokens,
-                    reasoning=resolved_reasoning,
-                )
+                chat_kwargs = {
+                    "messages": messages,
+                    "max_tokens": requested_max_tokens,
+                    "reasoning": resolved_reasoning,
+                }
+                if request_options is not None:
+                    chat_kwargs["request_options"] = deepcopy(request_options)
+                content, usage = client.chat(**chat_kwargs)
+            if (
+                needs_local_lock
+                and slot.resolved_via == "audition_override"
+                and client_factory is None
+                and factory is LocalModelClient
+            ):
+                actual_model = str((usage or {}).get("actual_model") or "").strip()
+                expected_model = str(slot.model_id or slot.model).strip()
+                if not actual_model:
+                    raise RuntimeError(
+                        "Audition call did not report the served local-model identity."
+                    )
+                if actual_model != expected_model:
+                    raise RuntimeError(
+                        "Audition local-model identity mismatch: requested "
+                        f"{expected_model!r}, served {actual_model!r}."
+                    )
         except Exception as exc:
             partial = "".join(streamed)
             error_payload: dict = {
@@ -729,6 +793,9 @@ def run_role(
             )
             raise
         token_cap_reached = finish_reason == "length"
+        request_evidence["actual_request"] = deepcopy(
+            getattr(client, "last_request_payload", {})
+        )
         append_pipeline_event(
             root,
             task_id or slot.role,
@@ -739,6 +806,7 @@ def run_role(
                 "usage": usage,
                 "requested_max_tokens": requested_max_tokens,
                 "finish_reason": finish_reason,
+                "request_evidence": deepcopy(request_evidence),
             },
         )
 
@@ -757,6 +825,7 @@ def run_role(
             "requested_max_tokens": requested_max_tokens,
             "finish_reason": finish_reason,
             "token_cap_reached": token_cap_reached,
+            "request_evidence": deepcopy(request_evidence),
         }
         append_worker_feed_entry(root, task_id or slot.role, completed_entry)
         clear_worker_live_output(root, task_id or slot.role)
@@ -782,6 +851,7 @@ def run_role(
                 "requested_max_tokens": requested_max_tokens,
                 "finish_reason": finish_reason,
                 "token_cap_reached": token_cap_reached,
+                "request_evidence": deepcopy(request_evidence),
             },
         )
 
@@ -1191,8 +1261,15 @@ def _run_workspace_tests(
         # The run failed but we didn't parse failure counts — record at least
         # one error so consumers don't mistake this for a clean pass.
         result["errors"] = max(result["errors"], 1)
-    # Keep the tail (failures/summary) so GLM sees what broke.
-    result["summary"] = out[-1500:]
+    # Keep the tail (failures/summary) so the verifier sees what broke, but
+    # remove pytest's nondeterministic elapsed time from otherwise identical
+    # evidence packets. Exact prompt fingerprints must not change with wall time.
+    stable_out = _re.sub(
+        r"(?m)(\b(?:passed|failed|error(?:s)?)\b[^\n]*?) in \d+(?:\.\d+)?s$",
+        r"\1 in <duration>s",
+        out,
+    )
+    result["summary"] = stable_out[-1500:]
     return result
 
 
@@ -2190,6 +2267,7 @@ def run_verifier(
     *,
     definition_of_done: str,
     worker_id: str = "verifier",
+    ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
 ) -> ver.VerificationReceipt:
     """Run the model selected for the canonical verifier role.
@@ -2347,26 +2425,42 @@ def run_verifier(
     )
 
     slot = resolve_role_slot("verifier")
-    try:
-        role_result = run_role(
-            root,
-            role="verifier",
-            system_prompt=VERIFIER_SYSTEM,
-            user_prompt=user,
-            task_id=run_id,
-            worker_id=worker_id,
-            max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
-            reasoning=True,
-            client_factory=client_factory,
+    deterministic_test_failure = (
+        type(test_result.get("exit_code")) is not int
+        or test_result.get("exit_code") != 0
+        or bool(test_result.get("failed"))
+        or bool(test_result.get("errors"))
+    )
+    if deterministic_test_failure:
+        decision = "failed"
+        content = (
+            "Deterministic test gate failed: "
+            f"exit_code={test_result.get('exit_code')!r}, "
+            f"failed={test_result.get('failed')!r}, "
+            f"errors={test_result.get('errors')!r}."
         )
-        content = role_result.content
-        verifier_payload = _build_judge_payload_from_result(role_result)
-        decision = str(verifier_payload.get("status") or "needs_review").lower()
-        if decision not in {"passed", "failed", "needs_review"}:
+    else:
+        try:
+            role_result = run_role(
+                root,
+                role="verifier",
+                system_prompt=VERIFIER_SYSTEM,
+                user_prompt=user,
+                task_id=run_id,
+                worker_id=worker_id,
+                max_tokens=ROLE_TOKEN_BUDGETS.get("verifier", 2048),
+                reasoning=True,
+                ensure_lane_on=ensure_lane_on,
+                client_factory=client_factory,
+            )
+            content = role_result.content
+            verifier_payload = _build_judge_payload_from_result(role_result)
+            decision = str(verifier_payload.get("status") or "needs_review").lower()
+            if decision not in {"passed", "failed", "needs_review"}:
+                decision = "needs_review"
+        except Exception as exc:  # never let the verifier hang the loop
             decision = "needs_review"
-    except Exception as exc:  # never let the verifier hang the loop
-        decision = "needs_review"
-        content = f"Verifier error: {exc!r}"
+            content = f"Verifier error: {exc!r}"
 
     status = (
         ver.VerificationStatus.passed if decision == "passed"

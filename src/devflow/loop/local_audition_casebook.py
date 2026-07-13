@@ -159,7 +159,7 @@ _CASES = (
         ],
     },
     {
-        "case_id": "local-final-judge-handoff-v1",
+        "case_id": "local-final-judge-handoff-v3",
         "role": "final_judge",
         "system_prompt": "Synthesize evidence into the next explicit human decision.",
         "user_prompt": (
@@ -169,13 +169,31 @@ _CASES = (
         "max_tokens": 2048,
         "required_output": {
             "format": "json_object",
-            "required_keys": ["decision", "residual_risk", "next_human_decision"],
+            "required_keys": [
+                "schema_version",
+                "decision",
+                "rationale",
+                "evidence_refs",
+                "residual_risks",
+                "next_action",
+            ],
             "allowed_decisions": ["qualify", "hold", "block"],
+            "allowed_next_actions": [
+                "none",
+                "repair_and_reverify",
+                "provide_missing_evidence",
+                "reconcile_conflicting_evidence",
+                "human_choice_required",
+            ],
         },
         "checks": [
             {
                 "name": "identity_evidence_required",
-                "expectation": {"decision": "hold", "requests_identity_evidence": True},
+                "expectation": {
+                    "decision": "hold",
+                    "next_action": "provide_missing_evidence",
+                    "requests_identity_evidence": True,
+                },
             },
         ],
     },

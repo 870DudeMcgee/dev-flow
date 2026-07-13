@@ -267,6 +267,16 @@ failed evidence before releasing ownership for an explicit retry. Receipts
 created before this gate require an explicit operator-confirmed local-attestation
 migration with an audit note; they are never silently trusted or discarded.
 
+The final transition consumes a committed deterministic host receipt, not a
+model verdict. Typed test, review, reliability, identity, artifact,
+authoritative-receipt, mandatory-choice, and product-required-gate facts are
+normalized before global precedence. An unresolved mandatory choice blocks;
+otherwise an independent uncontradicted failure blocks even when another gate
+has conflicting evidence; otherwise conflict holds, missing evidence holds,
+and only complete passing mandatory gates qualify. The host owns the decision,
+next action, decisive evidence references, and display text. Any later model
+summary is non-authoritative and cannot change or delay that receipt.
+
 Builder work is file-producing, bounded, and isolated. A builder packet may
 touch at most six declared files. Multi-file output must be a complete unified
 diff, is checked before application, and is materialized in the pipeline run's
