@@ -59,7 +59,7 @@ verify: ## Canonical gate: the full release-readiness check CI runs.
 	./scripts/release-check.sh
 
 .PHONY: serve
-serve: ## Start the V2 read-only pipeline status board on port 8770.
+serve: ## Start the V2 brainstorm and pipeline-status surface on port 8770.
 	$(PYTHON) -m devflow.cli status serve
 
 .PHONY: health

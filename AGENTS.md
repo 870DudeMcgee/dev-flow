@@ -34,6 +34,12 @@ calls and does not replace model-backed execution work.
 - **Hermes:** messaging, tools, and bounded worker orchestration.
 - **Local models:** replaceable bounded labor, never silent authority.
 
+DevFlow is model-agnostic and machine-agnostic. Do not present one profile or
+one machine's local fleet as the architecture. Resolve the host registry,
+active profile, live endpoint identity, and qualification evidence separately;
+then recommend the closest proven mode for operator approval. The exact contract
+and current gaps are in `docs/DEVFLOW_SOURCE_OF_TRUTH.md`.
+
 Do not add broad dashboards, hidden automation, a model zoo, or speculative
 architecture back into the active surface.
 
@@ -50,6 +56,11 @@ architecture back into the active surface.
    for integration and proof. Prefer the cheapest capable worker when the
    orchestration surface exposes model or cost selection; do not imply that a
    model was selected when the surface does not expose that control.
+8. During the M1 local-role audition process, follow
+   [docs/M1_LOCAL_ROLE_AUDITION_PLAN.md](docs/M1_LOCAL_ROLE_AUDITION_PLAN.md):
+   use Hermes `tencent/hy3:free` workers by default, record any failure or
+   fallback explicitly, and use `gpt-5.6-luna` only when HY3 cannot complete a
+   grounded packet. GPT-5.6 Sol remains responsible for integration and proof.
 
 ## Verification
 

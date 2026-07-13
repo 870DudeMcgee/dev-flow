@@ -23,13 +23,17 @@ registry + roles + profiles.
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
+from devflow.loop.model_catalog import load_free_cloud_catalog
+from devflow.loop.model_routing_state import load_role_scores, rank_free_cloud_models
 from devflow.loop.registry import (
     COST_CLASSES,
     ModelEntry,
@@ -122,6 +126,16 @@ def _get_profile_role_model(role_name: str, profile_name: str | None = None) -> 
 # ---------------------------------------------------------------------------
 _COST_RANK = {cls: i for i, cls in enumerate(COST_CLASSES)}
 
+_CATALOG_PROFILE_FOR_ROLE = {
+    "brainstorm": "planning-specification",
+    "planner": "planning-specification",
+    "planning_judge": "judge-reviewer",
+    "builder": "builder",
+    "build_judge": "judge-reviewer",
+    "verifier": "judge-reviewer",
+    "final_judge": "judge-reviewer",
+}
+
 
 def _rank_by_cost_class(
     models: list[ModelEntry],
@@ -144,6 +158,40 @@ def _candidates_for_role(
     return registry.with_capabilities(role.required_capabilities)
 
 
+def _dynamic_free_slot(role_name: str, root: Path) -> ResolvedSlot | None:
+    """Resolve one role through the live catalog's top three healthy free models."""
+
+    profile = _CATALOG_PROFILE_FOR_ROLE.get(role_name)
+    if profile is None:
+        return None
+    catalog = load_free_cloud_catalog(root)
+    raw_models = catalog.get("models") if isinstance(catalog, dict) else None
+    if not isinstance(raw_models, list):
+        return None
+    models = [model for model in raw_models if isinstance(model, dict)]
+    persisted = load_role_scores(root)
+    scores = {
+        model_id: score
+        for (model_id, score_profile), score in persisted.items()
+        if score_profile == profile
+    }
+    ranked = rank_free_cloud_models(models, profile, scores=scores, limit=3)
+    if not ranked:
+        return None
+    model_ids = tuple(score.model_id for score in ranked)
+    return ResolvedSlot(
+        role=role_name,
+        model_name=model_ids[0],
+        provider="openrouter",
+        endpoint="https://openrouter.ai/api/v1",
+        transport="openai-http",
+        cost_class="free_cloud",
+        resolved_via="dynamic_catalog",
+        model_id=model_ids[0],
+        fallback_model_ids=model_ids[1:],
+    )
+
+
 def resolve_role(
     role_name: str,
     *,
@@ -151,6 +199,8 @@ def resolve_role(
     audition_override_model: Optional[str] = None,
     registry: Optional[ModelRegistry] = None,
     profile_name: Optional[str] = None,
+    catalog_root: Path | str | None = None,
+    dynamic_catalog: bool = True,
 ) -> ResolvedSlot:
     """Route a role to the best available model.
 
@@ -197,12 +247,6 @@ def resolve_role(
         return _make_slot(role_name, entry, "audition_override")
 
     candidates = _candidates_for_role(role, reg)
-    if not candidates:
-        raise ValueError(
-            f"No eligible model for role '{role_name}'. "
-            f"Required capabilities: {', '.join(role.required_capabilities)}. "
-            f"Check models.yaml for models with these capabilities."
-        )
 
     # Capability-checked explicit override. Still must be eligible.
     if override_model:
@@ -221,9 +265,84 @@ def resolve_role(
             return _make_slot(role_name, entry, "profile")
         # Profile model unavailable/retired — fall through to auto routing.
 
+    # Live free-cloud discovery participates in automatic fallback. It must not
+    # replace an eligible model selected by the operator's active profile.
+    if dynamic_catalog and (catalog_root is not None or registry is None):
+        root = Path(catalog_root) if catalog_root is not None else Path(
+            os.environ.get("DEVFLOW_ROOT", str(Path.cwd()))
+        )
+        dynamic_slot = _dynamic_free_slot(role_name, root)
+        if dynamic_slot is not None:
+            return dynamic_slot
+
+    if not candidates:
+        raise ValueError(
+            f"No eligible model for role '{role_name}'. "
+            f"Required capabilities: {', '.join(role.required_capabilities)}. "
+            "Refresh the free-cloud catalog or check models.yaml."
+        )
+
     # 3+4. Automatic routing: rank by cost-class preference
     ranked = _rank_by_cost_class(candidates, role.preferred_cost_classes)
     return _make_slot(role_name, ranked[0], "auto")
+
+
+def resolve_local_fallback(
+    role_name: str,
+    *,
+    registry: Optional[ModelRegistry] = None,
+    profile_name: Optional[str] = None,
+) -> ResolvedSlot | None:
+    """Return one capable local fallback without crossing into paid routes."""
+
+    role = get_role(role_name)
+    if role is None:
+        raise ValueError(
+            f"Unknown DevFlow role '{role_name}'. Known roles: {', '.join(known_roles())}"
+        )
+    reg = registry if registry is not None else get_registry()
+    local_entries = [
+        entry
+        for entry in reg.all()
+        if entry.cost_class == "local"
+        and entry.provider == "local"
+        and not entry.retired
+        and entry.has_all_capabilities(role.required_capabilities)
+    ]
+    live_candidates = [entry for entry in local_entries if _live_local_entry(entry)]
+    local_candidates = live_candidates or [entry for entry in local_entries if entry.is_eligible]
+    if not local_candidates:
+        return None
+    profile_model_name = _get_profile_role_model(role_name, profile_name)
+    if profile_model_name:
+        preferred = reg.get(profile_model_name)
+        if preferred in local_candidates:
+            return _make_slot(role_name, preferred, "local_fallback")
+    return _make_slot(
+        role_name,
+        sorted(local_candidates, key=lambda entry: entry.name)[0],
+        "local_fallback",
+    )
+
+
+def _live_local_entry(entry: ModelEntry) -> bool:
+    """Confirm that a local registry entry's exact model identity is resident."""
+
+    base = entry.endpoint.rstrip("/")
+    url = f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return False
+    raw_models = payload.get("data") if isinstance(payload, dict) else None
+    served_ids = {
+        str(model.get("id") or "")
+        for model in (raw_models if isinstance(raw_models, list) else [])
+        if isinstance(model, dict)
+    }
+    expected = {entry.name, entry.model_id} - {""}
+    return bool(served_ids & expected)
 
 
 def _make_slot(role_name: str, entry: ModelEntry, resolved_via: str) -> ResolvedSlot:
@@ -264,6 +383,13 @@ def resolve_role_compatible(role_name: str, **kwargs) -> ResolvedSlot:
     """
     canonical = _resolve_canonical_role(role_name)
     return resolve_role(canonical, **kwargs)
+
+
+def resolve_local_fallback_compatible(role_name: str, **kwargs) -> ResolvedSlot | None:
+    """Resolve a local-only fallback while accepting the active judge alias."""
+
+    canonical = _resolve_canonical_role(role_name)
+    return resolve_local_fallback(canonical, **kwargs)
 
 
 # ---------------------------------------------------------------------------

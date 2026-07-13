@@ -8,6 +8,13 @@
 # To add a new model: add an entry here. No pipeline code changes.
 # To retire a model: set retired: true. No pipeline code changes.
 # To swap a model: change the endpoint/properties here. No pipeline code changes.
+#
+# Machine note: this checked-in registry is currently M1-Mini-oriented. The M4
+# Studio entries remain documented below but are marked available: false. Use a
+# host-specific registry via DEVFLOW_MODELS_YAML (or an explicitly approved
+# availability change) for the M4. Profiles do not make an unavailable model
+# eligible. Runtime /v1/models discovery identifies what is resident; local
+# audition evidence establishes which roles that model has proven.
 
 models:
   # -----------------------------------------------------------------

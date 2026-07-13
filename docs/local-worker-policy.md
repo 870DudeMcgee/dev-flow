@@ -2,9 +2,73 @@
 
 Status: active
 
-DevFlow's product and workflow authority is
+DevFlow's product, model-routing, operating-mode, and machine-capability
+authority is
 [`DEVFLOW_SOURCE_OF_TRUTH.md`](DEVFLOW_SOURCE_OF_TRUTH.md). This document owns
-only the current local-worker boundary and evaluation posture.
+only local-worker safety and evaluation posture. Its M1/M4 details are scoped
+evidence, not a fixed-fleet architecture.
+
+## Hermes subagent routing truth
+
+Select workers by the capability and isolation required by the packet, then
+record the route that actually answered. Do not infer a child's provider or
+model from the parent session, a profile name, keyword routing, or configured
+capacity alone.
+
+The installed Hermes runtime and live `delegate_task` schema were inspected on
+2026-07-13. That contract exposed only the task, context, and orchestration
+role; it did not expose `worker_lane`, `toolsets`, or direct per-call
+`model`/`provider` selection. A separate Hermes source checkout contains
+worker-lane machinery, but source-only support is not an active runtime
+capability. Keyword entries under `model_routing` are not worker-lane
+definitions. Therefore no named native lane is approved for this audition
+until the live tool contract exposes it and a receipt proves the selected
+model, provider, tools, and isolation boundary. Re-verify this host-specific
+schema after a Hermes runtime update.
+
+Treat configured native-delegation defaults and configured capacity as hints,
+not proof of an available route: the live tool contract may impose a stricter
+cap. Native child tool inheritance is also not a safe isolation boundary while
+MCP inheritance is enabled. Packets requiring a strict model/tool boundary use
+the stripped synchronous adapter below.
+
+Every worker packet is anchor-first, bounded to one deliverable, and includes
+source precedence, allowed and forbidden actions, an output contract, and
+`NEED_CONTEXT` behavior. Independent packets may run in parallel only up to
+capacity proven by terminal receipts. Tasks touching the same files, and the
+implementer -> specification review -> quality review sequence, remain serial.
+Worker summaries are evidence, never proof: Sol checks the receipt, current
+source, diff, and deterministic verification before accepting a result.
+
+## M1 audition orchestration workflow
+
+The active plan for discovering small-model role fit is
+[`M1_LOCAL_ROLE_AUDITION_PLAN.md`](M1_LOCAL_ROLE_AUDITION_PLAN.md). For that
+process, GPT-5.6 Sol in Codex is the thin supervisor and final accountable
+party. Bounded discovery, compression, planning, implementation, and review
+route through Hermes to `tencent/hy3:free` by default; `gpt-5.6-luna` is the
+explicit fallback when HY3 cannot complete a grounded packet.
+
+Nonpersistent callers use the synchronous adapter documented by the audition
+plan. It runs one response turn with no tools, persistent memory, or injected
+workspace context, and returns a JSON receipt containing the packet ID,
+requested provider/model, elapsed duration, prior failures, and visible
+fallback state. Callers should pass `--receipt-path` and verify that durable
+receipt against stdout before treating an empty terminal pane as a worker
+failure. Its default is no hard deadline; callers may add a bounded timeout for
+a smoke test. The raw `hermes -z` / `hermes --cli` path is not an approved
+worker route. On 2026-07-13, two simultaneous HY3 workers returned distinct
+durable receipts on this route.
+
+Delegation is anchor-first and returns compact receipts. Provider failure,
+missing output, `NEED_CONTEXT`, retry, and fallback use are never hidden. Sol
+validates worker claims against current source, integrates changes, runs
+verification, and owns the final report.
+
+The M4 may run isolated candidate test lanes in parallel for this audition,
+but each lane preserves the M1 single-model, one-in-flight-call runtime
+contract. This task-specific harness does not alter the M4's normal profiles,
+router, settings, or production role assignments.
 
 ## Mac Mini fleet
 
@@ -33,7 +97,9 @@ Local audition routing is an explicit per-run override. It may test a model in
 a role whose production capabilities have not been established; it does not
 grant capabilities, change the default deployment profile, or qualify that
 model for production. Audition calls must remain local-only, serial, bounded,
-and evidence-backed. Builders do not approve their own work.
+and evidence-backed on the M1. The M4 test harness may run different isolated
+candidate lanes concurrently, but each candidate lane remains serial and
+M1-equivalent. Builders do not approve their own work.
 
 The July 12 five-iteration dogfood batch is provisional:
 

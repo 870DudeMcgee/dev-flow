@@ -7,39 +7,48 @@ user-invocable: true
 
 # DevFlow Product-Building Loop
 
-Use this skill only for the current DevFlow product direction.
+Read `AGENTS.md`, then `docs/DEVFLOW_SOURCE_OF_TRUTH.md`. Those files outrank
+this adapter. Do not use archived/generated handoffs as product authority.
 
-Active source of truth: `docs/DEVFLOW_SOURCE_OF_TRUTH.md`.
+DevFlow turns rough ideas into verified product implementations:
 
-DevFlow is the local operating layer for turning rough ideas into verified product implementations. Obsidian owns broad knowledge/context; DevFlow owns the active product-building loop.
+```text
+Idea -> Brainstorm -> Spec -> Plan -> Planning Judge -> Build -> Build Judge -> Verify -> Next human decision
+```
+
+## Model And Machine Contract
+
+- DevFlow is model-agnostic and machine-agnostic; no fixed fleet is the product.
+- The seven roles may use any qualified eligible model through per-run overrides,
+  deployment profiles, or automatic routing.
+- Local models are host-specific. M4 Studio and M1 Mini local models are not
+  interchangeable merely because both machines share the repository.
+- Free-cloud and included-subscription models may be mixed with local models.
+- Profiles are preference templates, not hardware discovery or fixed architecture.
+- Host resources, registry eligibility, live endpoint identity, and role-audition
+  evidence are different facts. Use all of them before recommending a profile.
+- Never silently download, start, promote, or reassign a model. Present the
+  closest proven profile/model recommendation for operator approval.
+
+The exact profile catalog, current registry orientation, discovery mechanisms,
+and known gaps live only in `docs/DEVFLOW_SOURCE_OF_TRUTH.md`.
+
+## Current Runtime Surface
+
+```bash
+PYTHONPATH=src .venv/bin/python -m devflow.cli status serve
+PYTHONPATH=src .venv/bin/python -m devflow.cli loop spine-fixture --json
+```
+
+The browser is both a brainstorm chat and live status/evidence surface. Hermes
+is the messaging, tool, and bounded-worker orchestration harness. DevFlow owns
+persisted pipeline state, evidence, verification, and the next human decision.
 
 ## Rules
 
-- Prefer direct implementation over process ceremony.
-- Do not use quarantined, deleted, or archived legacy workflows as authority.
-- Do not create legacy task files unless explicitly requested.
-- Do not route work through old agent, memory, context, DAG, trace, eval, or unified-diff runner surfaces.
-- Keep the active runtime focused on the current product-building loop unless the task explicitly implements a next approved sequence.
-- Verify narrowly and report what actually ran.
-- After every major feature, milestone, or direction change, align active docs, remove stale context, verify, commit, merge to `main`, push when approved, and write a compact handoff with one next safe action.
-- Treat stale plans, archived workflow instructions, old command lists, and conflicting architecture notes as poison context. Delete, rewrite, or quarantine them before they can steer another agent.
-
-## Current Loop
-
-Keep work aligned with:
-
-```text
-Idea -> definition -> spec -> plan -> planning judge -> bounded tasks -> builder/judge execution -> verification -> next human decision
-```
-
-## Not Yet
-
-- Aider
-- Hermes
-- OpenCode
-- memory
-- complex scheduling
-- autonomous routing
-- PR automation
-
-Non-local adapters must not become the product identity. Treat model/runtime details as bounded implementation lanes, not the source of truth.
+- Orient from current source, configs, tests, and live evidence.
+- Do not restore retired commands, compatibility shims, or historical UI flows.
+- Do not treat a configured model as live or a live model as role-qualified.
+- Do not claim a profile is offline when it contains cloud/subscription roles.
+- Keep edits scoped and verify with real commands.
+- Do not commit, merge, push, publish, or promote without explicit approval.

@@ -3,8 +3,8 @@
 Usage:
   devflow status serve [--host 127.0.0.1] [--port 8770]
 
-The status board is read-only: it shows pipeline run state from disk.
-Brainstorming and orchestration happen in Hermes.
+The browser combines pipeline status, bounded operator controls, and brainstorm
+chat. Hermes remains the messaging/tool/orchestration harness.
 """
 
 from __future__ import annotations

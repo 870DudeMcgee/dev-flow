@@ -1,6 +1,10 @@
 # DevFlow M4 Max Migration and Operating Handoff
 
-Status: active, temporary migration authority
+Status: active, temporary **machine-specific** migration evidence
+
+Authority: subordinate to `docs/DEVFLOW_SOURCE_OF_TRUTH.md`. This handoff
+records one M1-to-M4 transition; it does not define DevFlow's cross-machine
+model architecture, current profile semantics, or universal fleet.
 
 Prepared: July 13, 2026, America/Chicago
 

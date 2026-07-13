@@ -1,15 +1,17 @@
-"""Pipeline status board — reads loop state from disk and serves it to the browser.
+"""Unified status-board and brainstorm-chat server.
 
 This status surface reads pipeline runs from disk and exposes bounded operator
-controls. It never runs models itself. An approved dispatch may launch one
-run-owned process group, and stop actions may signal only that recorded group;
-shared model servers remain outside the browser process's control.
+controls. Chat requests dispatch through the bounded chat backend. An approved
+operator dispatch may launch one run-owned process group, and stop actions may
+signal only that recorded group; shared model servers remain outside the browser
+process's control.
 
 Routes:
   GET  /         → status board page (HTML)
   GET  /healthz  → health check
   GET  /api/status → all pipeline runs with current stage + recent events
-  POST /api/operator-action → record an operator control request
+  GET/POST /api/chat/* → brainstorm model, session, transcript, and message APIs
+  POST /api/operator-action → record or execute a bounded operator request
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from devflow.control_room.git_status import git_status_snapshot
 from devflow.control_room.page import STATUS_PAGE_HTML
 from devflow.control_room.system_memory import memory_pressure_snapshot
 from devflow.control_room import chat as chat_api
+from devflow.control_room import model_catalog as model_catalog_api
 from devflow.control_room import workspace as workspace_api
 
 
@@ -605,6 +608,47 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
         """Return the compact Git status signal used by the header badge."""
         self._send_json(git_status_snapshot(self.server.repo_root))
 
+    def _handle_model_catalog(self) -> None:
+        """Return free-cloud inventory, role rankings, and quarantine state."""
+
+        self._send_json(model_catalog_api.model_catalog_snapshot(self.server.repo_root))
+
+    def _handle_model_catalog_health(self) -> None:
+        """Apply one explicit operator quarantine or restoration decision."""
+
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length")
+            return
+        if length <= 0 or length > 8192:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid request body")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid JSON")
+            return
+        if not isinstance(payload, dict):
+            self.send_error(HTTPStatus.BAD_REQUEST, "JSON body must be an object")
+            return
+        try:
+            score = model_catalog_api.change_model_role_health(
+                self.server.repo_root,
+                model_id=str(payload.get("model_id") or ""),
+                profile=str(payload.get("profile") or ""),
+                action=str(payload.get("action") or ""),
+                reason=str(payload.get("reason") or ""),
+                human_approved=payload.get("human_approved") is True,
+            )
+        except ValueError as exc:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        self._send_json({
+            "score": score,
+            "catalog": model_catalog_api.model_catalog_snapshot(self.server.repo_root),
+        })
+
     def _handle_artifact(self, query: dict) -> None:
         """Serve the raw text content of a single artifact file from a run dir."""
         run_id = (query.get("run") or [""])[0]
@@ -901,6 +945,8 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
             self._handle_memory()
         elif path == "/api/git":
             self._handle_git()
+        elif path == "/api/model-catalog":
+            self._handle_model_catalog()
         elif path == "/api/artifact":
             self._handle_artifact(query)
         elif path.startswith("/static/"):
@@ -920,6 +966,8 @@ class StatusRequestHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         if parsed.path == "/api/operator-action":
             self._handle_operator_action()
+        elif parsed.path == "/api/model-catalog/health":
+            self._handle_model_catalog_health()
         elif parsed.path == "/api/chat/start":
             self._handle_chat_start()
         elif parsed.path == "/api/chat/send":
@@ -977,11 +1025,11 @@ def record_operator_action(
     *,
     note: str = "",
 ) -> dict:
-    """Persist an operator control request for Hermes/orchestrator follow-up.
+    """Persist and apply one bounded operator control request.
 
-    This records intent only. The status server must not launch model calls or
-    subprocesses because the operator needs visible, bounded orchestration
-    rather than hidden work from the browser process.
+    Most actions update visible run control state. ``dispatch_packet_1`` may
+    launch one recorded run-owned dispatcher process; shared model servers stay
+    outside this process's ownership boundary.
     """
     root = Path(root).resolve()
     if not run_id:

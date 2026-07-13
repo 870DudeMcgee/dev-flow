@@ -15,7 +15,11 @@ from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
 
-from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
+from devflow.loop.pipeline_run import (
+    append_worker_feed_entry,
+    load_pipeline_run,
+    update_pipeline_run_record,
+)
 from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.local_audition_host_gates import (
     FinalDecisionInputs,
@@ -24,6 +28,7 @@ from devflow.loop.local_audition_host_gates import (
     validate_final_decision_receipt,
 )
 from devflow.loop.models import DevFlowLoopState, LoopStage
+from devflow.loop.model_routing_state import record_run_human_feedback
 
 
 FINAL_DECISION_RECEIPT_FILE = "final-decision-receipt.json"
@@ -205,4 +210,18 @@ def record_human_decision(
         )
 
     save_loop_state(root, state)
+    try:
+        record_run_human_feedback(
+            root,
+            run_id=record.run_id,
+            decision_id=record.decision_id,
+            decision=record.decision.value,
+        )
+    except Exception as exc:
+        append_worker_feed_entry(root, record.run_id, {
+            "event": "score_persistence_failed",
+            "role": "human_decision",
+            "model": "",
+            "error": str(exc),
+        })
     return (state, record)

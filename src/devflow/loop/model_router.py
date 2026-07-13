@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import socket
+import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -51,6 +52,7 @@ def _relative_path(root: Path, path: Path) -> str:
 # Single-flight lock copied from the prior runtime implementation.
 # ---------------------------------------------------------------------------
 RuntimeLockState = Literal["free", "running", "stale"]
+MAX_RESIDENT_LOCAL_CALLS = 3
 
 
 class LocalModelRuntimeLockError(ValueError):
@@ -107,101 +109,166 @@ def local_model_runtime_lock(
     worker_id: str | None = None,
     operation: str = "local-model-run",
 ) -> Iterator[LocalModelRuntimeOwner]:
-    """Acquire the machine-wide single-flight lock for a local model call."""
+    """Admit up to three calls to one resident model and reject model mixing."""
 
     lock_dir = _global_local_model_lock_dir(root)
     owner_id = uuid.uuid4().hex
-    owner_payload = _owner_payload(
-        root,
-        lock_dir,
-        provider=provider,
-        model=model,
-        task_id=task_id,
-        worker_id=worker_id,
-        operation=operation,
-        owner_id=owner_id,
-    )
-    try:
-        lock_dir.parent.mkdir(parents=True, exist_ok=True)
-        lock_dir.mkdir(exist_ok=False)
-        (lock_dir / "owner.json").write_text(
+    lock_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock_dir.mkdir(exist_ok=True)
+    slot_dir = lock_dir / "slots" / owner_id
+    with _admission_lock(lock_dir):
+        statuses = _local_model_runtime_statuses(root)
+        stale = next((status for status in statuses if status.state == "stale"), None)
+        if stale is not None:
+            raise LocalModelRuntimeLockError(_stale_lock_message(root, stale))
+        if statuses and any(
+            status.provider != provider or status.model != model
+            for status in statuses
+        ):
+            raise LocalModelRuntimeLockError(
+                _running_lock_message(
+                    root,
+                    statuses[0],
+                    requested_provider=provider,
+                    requested_model=model,
+                )
+            )
+        if len(statuses) >= MAX_RESIDENT_LOCAL_CALLS:
+            raise LocalModelRuntimeLockError(
+                f"Resident local model '{provider}/{model}' is at capacity "
+                f"({MAX_RESIDENT_LOCAL_CALLS} active calls)."
+            )
+        slot_dir.mkdir(parents=True, exist_ok=False)
+        owner_payload = _owner_payload(
+            root,
+            slot_dir,
+            provider=provider,
+            model=model,
+            task_id=task_id,
+            worker_id=worker_id,
+            operation=operation,
+            owner_id=owner_id,
+        )
+        (slot_dir / "owner.json").write_text(
             json.dumps(owner_payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-    except FileExistsError as exc:
-        status = _global_local_model_runtime_status(root)
-        if status and status.state == "stale":
-            raise LocalModelRuntimeLockError(
-                _stale_lock_message(root, status)
-            ) from exc
-        if status:
-            raise LocalModelRuntimeLockError(
-                _running_lock_message(
-                    root, status, requested_provider=provider, requested_model=model
-                )
-            ) from exc
-        raise LocalModelRuntimeLockError(
-            f"Local model '{provider}/{model}' is locked at {_relative_path(root, lock_dir)}."
-        ) from exc
 
     owner = LocalModelRuntimeOwner(**owner_payload, state="running", elapsed_seconds=0)
     try:
         yield owner
     finally:
-        _release_lock(lock_dir, owner_id)
+        _release_lock(root, lock_dir, owner_id)
+
+
+@contextmanager
+def _admission_lock(lock_dir: Path) -> Iterator[None]:
+    """Serialize short owner-list mutations without serializing model calls."""
+
+    gate = lock_dir / "admission.lock"
+    deadline = time.monotonic() + 5.0
+    while True:
+        try:
+            gate.mkdir(exist_ok=False)
+            break
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise LocalModelRuntimeLockError(
+                    f"Timed out acquiring local-model admission gate at {gate}."
+                )
+            time.sleep(0.01)
+    try:
+        yield
+    finally:
+        shutil.rmtree(gate, ignore_errors=True)
+
+
+def _owner_paths(lock_dir: Path) -> list[Path]:
+    """Return current slot owners plus the legacy single-owner path."""
+
+    paths: list[Path] = []
+    legacy = lock_dir / "owner.json"
+    if legacy.exists():
+        paths.append(legacy)
+    slots = lock_dir / "slots"
+    if slots.exists():
+        paths.extend(sorted(slots.glob("*/owner.json")))
+    return paths
+
+
+def _local_model_runtime_statuses(root: Path) -> list[LocalModelRuntimeOwner]:
+    lock_dir = _global_local_model_lock_dir(root)
+    statuses: list[LocalModelRuntimeOwner] = []
+    for owner_path in _owner_paths(lock_dir):
+        payload = _read_owner_payload(owner_path)
+        state: RuntimeLockState = (
+            "running" if _owner_process_is_active(payload) else "stale"
+        )
+        statuses.append(LocalModelRuntimeOwner(
+            owner_id=str(payload.get("owner_id") or "unknown"),
+            provider=str(payload.get("provider") or "unknown"),
+            model=str(payload.get("model") or "unknown"),
+            task_id=_optional_str(payload.get("task_id")),
+            worker_id=_optional_str(payload.get("worker_id")),
+            operation=str(payload.get("operation") or "unknown"),
+            pid=_safe_int(payload.get("pid")),
+            host=str(payload.get("host") or "unknown"),
+            acquired_at=str(payload.get("acquired_at") or "unknown"),
+            lock_path=_relative_path(root, owner_path.parent),
+            state=state,
+            elapsed_seconds=_elapsed_seconds(payload.get("acquired_at")),
+        ))
+    return statuses
 
 
 def local_model_runtime_status(root: Path, *, provider: str, model: str) -> LocalModelRuntimeOwner | None:
-    status = _global_local_model_runtime_status(root)
-    if status is None:
-        return None
-    if status.provider != provider or status.model != model:
-        return None
-    return status
-
-
-def _global_local_model_runtime_status(root: Path) -> LocalModelRuntimeOwner | None:
-    lock_dir = _global_local_model_lock_dir(root)
-    owner_path = lock_dir / "owner.json"
-    if not owner_path.exists():
-        return None
-    payload = _read_owner_payload(owner_path)
-    state: RuntimeLockState = "running" if _owner_process_is_active(payload) else "stale"
-    elapsed = _elapsed_seconds(payload.get("acquired_at"))
-    provider = str(payload.get("provider") or "unknown")
-    model = str(payload.get("model") or "unknown")
-    return LocalModelRuntimeOwner(
-        owner_id=str(payload.get("owner_id") or "unknown"),
-        provider=provider,
-        model=model,
-        task_id=_optional_str(payload.get("task_id")),
-        worker_id=_optional_str(payload.get("worker_id")),
-        operation=str(payload.get("operation") or "unknown"),
-        pid=_safe_int(payload.get("pid")),
-        host=str(payload.get("host") or "unknown"),
-        acquired_at=str(payload.get("acquired_at") or "unknown"),
-        lock_path=_relative_path(root, lock_dir),
-        state=state,
-        elapsed_seconds=elapsed,
+    return next(
+        (
+            status
+            for status in _local_model_runtime_statuses(root)
+            if status.provider == provider and status.model == model
+        ),
+        None,
     )
 
 
+def _global_local_model_runtime_status(root: Path) -> LocalModelRuntimeOwner | None:
+    statuses = _local_model_runtime_statuses(root)
+    return statuses[0] if statuses else None
+
+
 def list_local_model_runtime_status(root: Path) -> dict[str, dict[str, Any]]:
-    status = _global_local_model_runtime_status(root)
-    if status is None:
-        return {}
-    return {f"{status.provider}/{status.model}": status.model_dump()}
+    return {
+        f"{status.provider}/{status.model}/{status.owner_id}": status.model_dump()
+        for status in _local_model_runtime_statuses(root)
+    }
 
 
 def reclaim_stale_local_model_runtime_lock(root: Path, *, provider: str, model: str) -> bool:
-    """Explicitly remove a stale lock. Live locks are never removed here."""
+    """Explicitly remove matching stale owners; live owners are never removed."""
 
-    status = local_model_runtime_status(root, provider=provider, model=model)
-    if status is None:
+    lock_dir = _global_local_model_lock_dir(root)
+    if not lock_dir.exists():
         return False
-    if status.state != "stale":
-        raise LocalModelRuntimeLockError(_running_lock_message(root, status))
-    shutil.rmtree(_global_local_model_lock_dir(root), ignore_errors=True)
+    with _admission_lock(lock_dir):
+        matching = [
+            status
+            for status in _local_model_runtime_statuses(root)
+            if status.provider == provider and status.model == model
+        ]
+        if not matching:
+            return False
+        running = next((status for status in matching if status.state == "running"), None)
+        if running is not None:
+            raise LocalModelRuntimeLockError(_running_lock_message(root, running))
+        stale_ids = {status.owner_id for status in matching}
+        for owner_path in _owner_paths(lock_dir):
+            payload = _read_owner_payload(owner_path)
+            if str(payload.get("owner_id")) in stale_ids:
+                if owner_path == lock_dir / "owner.json":
+                    owner_path.unlink(missing_ok=True)
+                else:
+                    shutil.rmtree(owner_path.parent, ignore_errors=True)
     return True
 
 
@@ -230,15 +297,20 @@ def _owner_payload(
     }
 
 
-def _release_lock(lock_dir: Path, owner_id: str) -> None:
-    owner_path = lock_dir / "owner.json"
-    try:
-        payload = _read_owner_payload(owner_path)
-    except Exception:
+def _release_lock(root: Path, lock_dir: Path, owner_id: str) -> None:
+    if not lock_dir.exists():
         return
-    if payload.get("owner_id") != owner_id:
-        return
-    shutil.rmtree(lock_dir, ignore_errors=True)
+    with _admission_lock(lock_dir):
+        for owner_path in _owner_paths(lock_dir):
+            payload = _read_owner_payload(owner_path)
+            if payload.get("owner_id") != owner_id:
+                continue
+            if owner_path == lock_dir / "owner.json":
+                owner_path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(owner_path.parent, ignore_errors=True)
+            break
+    _ = root
 
 
 def _read_owner_payload(owner_path: Path) -> dict[str, Any]:
@@ -292,7 +364,8 @@ def _running_lock_message(
         f"Local model '{status.provider}/{status.model}' is already running "
         f"for task {status.task_id or 'unknown'} via {status.worker_id or status.operation} "
         f"(pid: {status.pid}, elapsed: {status.elapsed_seconds}s, lock: {status.lock_path})."
-        f"{requested} DevFlow local model runs are single-flight; wait for it to finish or inspect runtime status."
+        f"{requested} DevFlow permits up to {MAX_RESIDENT_LOCAL_CALLS} concurrent "
+        "calls only to the same resident model; wait or inspect runtime status."
     )
 
 
@@ -334,6 +407,7 @@ def _optional_str(value: Any) -> str | None:
 
 from devflow.loop.routing import (
     ResolvedSlot,
+    resolve_local_fallback_compatible,
     resolve_role_compatible,
     known_roles as _routing_known_roles,
 )
@@ -389,6 +463,12 @@ def resolve_role_slot(role: str) -> ModelSlot:
     )
 
 
+def resolve_local_role_slot(role: str) -> ModelSlot | None:
+    """Resolve the one capable local fallback allowed after free-cloud exhaustion."""
+
+    return resolve_local_fallback_compatible(role)
+
+
 @contextmanager
 def acquire_role_slot(
     root: Path,
@@ -397,6 +477,7 @@ def acquire_role_slot(
     task_id: str | None = None,
     worker_id: str | None = None,
     operation: str = "v2-loop",
+    slot: ModelSlot | None = None,
 ) -> Iterator[ModelSlot]:
     """Acquire the single-flight lock for a DevFlow role (planner/builder/judge/verifier).
 
@@ -405,7 +486,7 @@ def acquire_role_slot(
     any other live model on this machine, given the single-resident fleet) can
     acquire a slot.
     """
-    slot = resolve_role_slot(role)
+    slot = slot or resolve_role_slot(role)
     with local_model_runtime_lock(
         root,
         provider=slot.provider,
@@ -427,5 +508,6 @@ __all__ = [
     "KNOWN_ROLES",
     "ModelSlot",
     "resolve_role_slot",
+    "resolve_local_role_slot",
     "acquire_role_slot",
 ]

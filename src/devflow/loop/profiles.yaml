@@ -8,19 +8,25 @@
 # the role's required capabilities before assigning it.
 #
 # Profile precedence (highest to lowest):
-#   1. Explicit per-run override (passed to resolve_role directly)
-#   2. Active deployment profile (below)
-#   3. Role policy (roles.py preferred_cost_classes)
-#   4. Automatic routing (cheapest eligible model)
-#   5. Safe fallback (first eligible model in registry)
+#   1. Explicit opt-in local-audition override
+#   2. Capability-checked per-run override
+#   3. Active deployment profile (below)
+#   4. Role policy (roles.py preferred cost classes / transports)
+#   5. Automatic routing (cheapest eligible registered model)
+#
+# Profiles are assignment templates, not machine detection and not fixed
+# architectures. Model eligibility comes from models.yaml (or the host-specific
+# DEVFLOW_MODELS_YAML override). A profile may name a model that is unavailable
+# on the current host; routing then falls through to another qualified model.
 
 profiles:
   # -----------------------------------------------------------------
-  # Legacy-current: replicate today's known-good configuration exactly.
-  # This is the default profile so existing behavior is preserved.
+  # Legacy-current: preserve the historical M4 mixed assignment template.
+  # This remains the default profile for compatibility, but host registry
+  # eligibility still controls whether its preferred models can be selected.
   # -----------------------------------------------------------------
   legacy-current:
-    description: "Replicate the current known-good fleet configuration."
+    description: "Compatibility default preserving the historical M4 mixed assignment template; actual eligibility is host-registry dependent."
     roles:
       planner: "agents-a1-q4"
       planning_judge: "qwen-27b-q5km"
@@ -79,11 +85,11 @@ profiles:
       brainstorm: "free-fast-reasoning-fleet"
 
   # -----------------------------------------------------------------
-  # Mini-Ollama: legacy profile, now routes to the Mini llama.cpp fleet.
-  # Kept for backward compatibility — prefer mini-baseline for new work.
+  # Mini-Ollama: legacy-named Mini mixed profile; it no longer uses Ollama.
+  # Its assignments differ from mini-baseline, so it is not a true alias.
   # -----------------------------------------------------------------
   mini-ollama:
-    description: "Mac mini local builder plus subscription reasoning. (Legacy alias for mini-baseline.)"
+    description: "Legacy-named Mac mini mixed route; local builder plus subscription reasoning. Does not use Ollama and is not equivalent to mini-baseline."
     roles:
       planner: "gpt-5.6-terra"
       planning_judge: "gpt-5.6-luna"

@@ -1,9 +1,14 @@
 # DevFlow Source of Truth
 
 Status: Active canonical direction
-Date: 2026-07-07
+Last audited against code/config: 2026-07-13
 
-This document is the active source of truth for DevFlow.
+This document is the active source of truth for DevFlow. For model routing,
+operating modes, and machine-agnostic behavior, the authoritative sections are
+**Model Routing & Operating Modes** and **Machine Agnosticism And Capability
+Discovery** below; other
+docs (README, handoffs, audition plans) are scoped or transitional and must not
+contradict these sections.
 
 Older architecture, roadmap, cockpit, orchestration, local-worker, model-routing, and software-factory documents are absent from the active checkout. Recover historical material from the Git archive only when a human explicitly asks; it must never be loaded as active context by default.
 
@@ -18,6 +23,123 @@ DevFlow's working principle is simple:
 ```text
 Idea -> Brainstorm -> Spec -> Plan -> Judge -> Build -> Judge -> Verify -> Next human decision
 ```
+
+## Model Routing & Operating Modes
+
+DevFlow is **model-agnostic by design**. It has seven stable roles
+(`brainstorm`, `planner`, `planning_judge`, `builder`, `build_judge`, `verifier`,
+`final_judge`), but no fixed fleet. A registered model may fill any role for
+which it is qualified, and the operator may combine machine-local, free-cloud,
+and subscription models in one run.
+
+`src/devflow/loop/routing.py` is the routing authority. Its precedence is:
+
+1. explicit opt-in local-audition override;
+2. capability-checked per-run override;
+3. active deployment profile from `src/devflow/loop/profiles.yaml`;
+4. role cost/transport policy from `src/devflow/loop/roles.py`;
+5. automatic selection of the cheapest eligible registered model.
+
+Profiles are **named operating-mode templates, not architectures and not the
+complete set of allowed combinations**. The checked-in profiles currently mean:
+
+| Profile | Current assignment intent |
+| --- | --- |
+| `legacy-current` | M4 Studio local planner/builder/judges plus GLM-5.2 subscription brainstorm, verification, and final judgment. |
+| `studio-local-heavy` | M4 Studio local-heavy mix; GLM-5.2 still serves brainstorm and final judgment. |
+| `mini-baseline` | Provisional M1 Mini local builder/reviewer assignments plus subscription reasoning roles. Its local assignments remain audition-only until human-approved qualification. |
+| `mini-ollama` | Legacy-named M1 Mini mixed route. It no longer uses Ollama and is **not assignment-equivalent** to `mini-baseline`. |
+| `mini-free-cloud` / `hy3-swap` | HY3 free-cloud assignment for all seven roles. |
+| `cloud-free-fast` | Separate free-cloud planning, building, and review fleets. |
+| `mini-laguna-builder` | M1 Mini mixed profile with Laguna M.1 as the auditioned builder. |
+| `gpt-swap` | M4 local planner/builder/judges with GPT-5.6 subscription reasoning roles. |
+| `custom` | No profile preferences; routing uses qualified eligible models unless the operator supplies per-run overrides. |
+
+The governing principle is: **use whatever qualified capacity is available, in
+any role, at any time, under operator control.** Valid modes include:
+
+- machine-local models for zero-token-cost and offline work;
+- OpenRouter `:free` models for zero-incremental-cost cloud work;
+- included-subscription frontier models through Hermes OAuth;
+- any deliberate mixture of those classes, including per-role overrides.
+
+Cloud availability, price, and free-tier aliases are runtime facts, not permanent
+architecture. Actual routed model identity must be recorded in run evidence.
+Builder/reviewer independence and capability gates still apply; model-agnostic
+does not mean every unqualified model silently serves every role.
+
+### Current offline-profile gap
+
+A fully local/offline operating mode is part of the product contract, but the
+checked-in profile catalog does **not currently contain a named seven-role,
+M4-local-only profile**. `legacy-current` and `studio-local-heavy` are mixed
+profiles because both assign some roles to GLM-5.2. Do not describe either as
+fully offline. Promoting a named all-local profile requires evidence that local
+models satisfy every assigned role, or explicit bounded audition overrides.
+
+## Machine Agnosticism And Capability Discovery
+
+DevFlow is **machine-agnostic**: the loop is portable, while local capacity is
+host-specific. Cloud/free and subscription targets can be used from any
+supported host with the required configured credential or Hermes OAuth access.
+Local endpoints, model files, memory limits, and proven role assignments belong
+to the machine that owns them.
+
+Known machine-specific local lanes and candidates include:
+
+- **M4 Max Studio (64 GB):** Ornith 35B (`:8084`), Qwen 27B (`:8083`), and
+  Agents-A1 (`:8087`) are the known local lanes.
+- **M1 Mac mini (16 GB):** candidate smaller single-flight llama.cpp models such as
+  `qwen2.5-coder-7b-mini` and `ornith-9b-mini` share `:8088`. The Mini does not
+  inherit the Studio's local model twins merely because the profile names exist.
+  Their presence in `mini-baseline` is provisional configuration, not production
+  qualification; the audition and human-promotion gates remain authoritative.
+
+Machine capability is established from several evidence layers:
+
+1. **Host resources:** the repository contains macOS memory probes and a local
+   model doctor that detects memory class. Resource detection informs a
+   recommendation; it must not silently start or promote a model.
+2. **Machine registry:** `models.yaml`, or a host-specific file selected through
+   `DEVFLOW_MODELS_YAML`, declares local paths/endpoints and `available` status.
+3. **Runtime identity:** local clients and the model router inspect `/health` and
+   `/v1/models` to verify which model is actually resident at an endpoint.
+4. **Role fitness:** the local-audition casebook, matrix, scorecards, deterministic
+   gates, and human promotion decision establish which roles a model has proven.
+5. **Profile suggestion:** DevFlow should recommend the closest proven profile
+   and compatible local models from the detected resources and audition evidence;
+   the operator chooses the final mode and may mix local, free-cloud, and
+   subscription models.
+
+Discovery has three different meanings and documentation must not conflate them:
+resource discovery says what the host can plausibly run; endpoint discovery says
+what is live now; audition evidence says what that model can safely do.
+
+### Current configuration reality
+
+The checked-in `src/devflow/loop/models.yaml` is presently **M1-Mini-oriented**:
+its M4 Studio entries are retained but marked `available: false`, while Mini
+entries are eligible. Therefore the M4 assignment profiles are templates unless
+paired with an M4-specific registry/availability configuration. The default
+`DEVFLOW_PROFILE=legacy-current` does not by itself make unavailable Studio
+models eligible; routing falls through to another statically eligible model.
+Routing does not preflight endpoint reachability before selection, so an
+eligible-but-unreachable Mini model can still be chosen on the M4 and fail when
+the runtime tries to start/probe it. Runtime endpoint discovery is real, but it
+happens after declarative eligibility and does not replace correct host registry
+configuration.
+
+The older `scripts/local_models_doctor.sh` and `scripts/local_agent_runner.py`
+do auto-select a size class from detected memory, but their Ollama model map is
+legacy and is not the V2 routing authority. The V2 CLI currently exposes only
+`status serve` and `loop spine-fixture`; automatic host discovery-to-profile
+recommendation is an intended capability assembled from the evidence layers
+above, not a reason to trust those legacy model names.
+
+For a new machine: discover resources, inspect installed/live local models,
+compare against proven profiles and scorecards, recommend the closest safe
+configuration, and require operator approval before changing eligibility,
+profiles, downloading models, or starting servers.
 
 The parts underneath may be complex, but every part exists only to advance this loop safely.
 

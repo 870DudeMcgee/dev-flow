@@ -56,49 +56,50 @@ disk; Hermes remains the bounded worker/orchestration harness.
 
 ## Deployment Profiles
 
-DevFlow routes roles through capability-checked model profiles. The default
-`legacy-current` profile assumes the Mac Studio local fleet. On this Mac mini,
-set the low-resource `mini-free-cloud` profile in the environment of any
-model-backed execution process:
+DevFlow is model-agnostic and machine-agnostic. Profiles are preferred
+role-to-model assignments for an environment; they are not fixed architectures.
+The operator may use machine-local models, OpenRouter `:free` models,
+Hermes-subscription models, or any qualified mixture through a profile or
+per-run override.
+
+The current profile catalog is defined only by
+[`src/devflow/loop/profiles.yaml`](src/devflow/loop/profiles.yaml). The current
+model registry is defined by
+[`src/devflow/loop/models.yaml`](src/devflow/loop/models.yaml), or by the
+host-specific files named in `DEVFLOW_PROFILES_YAML` and
+`DEVFLOW_MODELS_YAML`. See
+[Model Routing & Operating Modes](docs/DEVFLOW_SOURCE_OF_TRUTH.md#model-routing--operating-modes)
+and
+[Machine Agnosticism And Capability Discovery](docs/DEVFLOW_SOURCE_OF_TRUTH.md#machine-agnosticism-and-capability-discovery)
+for the authoritative contract and current implementation gaps.
+
+Important current facts:
+
+- `legacy-current` and `studio-local-heavy` describe M4 Studio **mixed** routes;
+  neither is a fully offline profile because each uses GLM-5.2 for some roles.
+- `mini-baseline` describes the M1 Mini's smaller single-flight local fleet plus
+  subscription reasoning; the Mini does not inherit the Studio's local models.
+- `mini-free-cloud`, `cloud-free-fast`, and `hy3-swap` are zero-incremental-cost
+  cloud modes and require an OpenRouter credential in the DevFlow process.
+- The checked-in registry is currently Mini-oriented: Studio model entries are
+  present but marked unavailable. An M4 route needs the matching host registry
+  or availability configuration; selecting an M4 profile alone is insufficient.
+- Runtime endpoint discovery (`/health`, `/v1/models`) identifies the resident
+  model, while local auditions establish role fitness. These are separate from
+  host-resource discovery and profile recommendation.
+
+Select a profile explicitly for model-backed execution:
 
 ```bash
 export DEVFLOW_PROFILE=mini-free-cloud
-# Required by DevFlow's direct OpenRouter client; supply it securely, never in Git.
-export OPENROUTER_API_KEY="..."
+export OPENROUTER_API_KEY="..."  # required only for direct OpenRouter routes
 ```
 
-`mini-free-cloud` routes every V2 text role to the zero-cost OpenRouter HY3
-worker, so it does not load a local model. The `cloud-free-fast` profile uses
-three ordered OpenRouter `:free` fleets: HY3-first brainstorm/planning, an
-HY3-first builder lane backed by Gemma 4 26B and Laguna M.1, and a disjoint
-Nemotron-Nano-first review lane backed by Gemma 4 31B, with Nemotron Super only
-as a last-resort availability fallback. Nano is the fastest reviewer proven by
-DevFlow runs; Gemma 4 31B remains quality-unproven because its bounded live
-audition was rate-limited, and Super repeatedly returned unusable judge output. All
-fallbacks remain cloud-only and zero-token-cost, actual routed models are
-recorded in usage evidence, and the builder fleet never judges its own work.
-Poolside Laguna M.1 is registered under the exact free slug
-`poolside/laguna-m.1:free`. OpenRouter's HY3 free alias is currently scheduled
-to expire on July 21, 2026, and free endpoints have no availability SLA, so the
-fleet must be re-auditioned before each production-readiness batch. The
-`mini-laguna-builder` audition profile remains the mixed local/cloud comparison
-profile. OpenRouter advertises tool calling and reasoning but not API-enforced
-response-format support, so Laguna's structured-output capability here refers
-only to its verified DevFlow worker prompt contracts.
-Hermes may manage an OpenRouter credential separately, but DevFlow's V2 remote
-executor requires that key in its own process environment. `devflow status
-serve` observes pipeline evidence and does not call the selected profile.
-
-When local implementation work is desired instead, set
-`DEVFLOW_PROFILE=mini-baseline`. It uses the Mac mini's single-flight llama.cpp
-fleet for bounded builder/review work and capability-checked Hermes subscription
-models for planning, verification, and final judgment. The legacy profile name
-`mini-ollama` remains an alias for this assignment; it does not start or use
-Ollama.
-
-These profiles contain no credentials. For a different fleet, provide an
-external registry/profile with `DEVFLOW_MODELS_YAML` and
-`DEVFLOW_PROFILES_YAML`.
+Profiles contain no credentials. Included-subscription GLM/GPT routes use
+Hermes OAuth; direct OpenRouter routes use `OPENROUTER_API_KEY`. Actual routed
+model identity must be recorded in run evidence. Free aliases and provider
+availability are runtime facts and must be rechecked rather than treated as
+permanent architecture.
 
 ## Development Boundary
 

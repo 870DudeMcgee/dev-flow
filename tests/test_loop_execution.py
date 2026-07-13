@@ -27,6 +27,7 @@ from devflow.loop import pipeline_run as pr
 from devflow.loop.adapter import load_loop_state, save_loop_state
 from devflow.loop.models import LoopStage
 from devflow.loop.model_router import _global_local_model_runtime_status
+from devflow.loop.routing import ResolvedSlot
 
 
 class FakeClient:
@@ -255,6 +256,192 @@ def test_run_role_derives_reasoning_from_canonical_role(tmp_path):
     )
 
     assert ReasoningCaptureClient.reasoning_values == [True, False]
+
+
+def _fallback_test_slot(
+    *, model: str, endpoint: str, provenance: str, fallbacks: tuple[str, ...] = (),
+) -> ResolvedSlot:
+    return ResolvedSlot(
+        role="builder",
+        model_name=model,
+        provider="openrouter" if "openrouter.ai" in endpoint else "local",
+        endpoint=endpoint,
+        transport="openai-http",
+        cost_class="free_cloud" if "openrouter.ai" in endpoint else "local",
+        resolved_via=provenance,
+        model_id=model,
+        fallback_model_ids=fallbacks,
+        model_path="",
+    )
+
+
+def test_run_role_falls_back_from_free_fleet_to_one_local_slot(tmp_path, monkeypatch):
+    class FreeFailsLocalPasses:
+        endpoints: list[str] = []
+
+        def __init__(self, endpoint: str, *, timeout: int = 1):
+            self.endpoint = endpoint
+            type(self).endpoints.append(endpoint)
+
+        def chat(self, **kwargs):
+            if "openrouter.ai" in self.endpoint:
+                raise RuntimeError("free fleet unavailable")
+            return "local completion", {}
+
+    free_slot = _fallback_test_slot(
+        model="free/one:free",
+        endpoint="https://openrouter.ai/api/v1",
+        provenance="dynamic_catalog",
+        fallbacks=("free/two:free", "free/three:free"),
+    )
+    local_slot = _fallback_test_slot(
+        model="local-builder",
+        endpoint="http://127.0.0.1:8084",
+        provenance="local_fallback",
+    )
+    monkeypatch.setattr(ex, "resolve_role_slot", lambda role: free_slot)
+    monkeypatch.setattr(ex, "resolve_local_role_slot", lambda role: local_slot)
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+
+    result = ex.run_role(
+        root,
+        role="builder",
+        system_prompt="build",
+        user_prompt="implement",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=FreeFailsLocalPasses,
+    )
+
+    assert result.model == "local-builder"
+    assert FreeFailsLocalPasses.endpoints == [
+        "https://openrouter.ai/api/v1",
+        "http://127.0.0.1:8084",
+    ]
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert [entry["event"] for entry in feed] == [
+        "started",
+        "routing_fallback",
+        "started",
+        "completed",
+    ]
+    assert feed[1]["failed_free_models"] == [
+        "free/one:free",
+        "free/two:free",
+        "free/three:free",
+    ]
+    control = pr.read_execution_control(root, run_id)
+    assert control["status"] == "running"
+    assert control["active_role"] is None
+    assert control["last_completed_role"] == "builder"
+    assert control["model"] == "local-builder"
+
+
+def test_run_role_stops_for_human_after_free_and_local_failure(tmp_path, monkeypatch):
+    class EveryRouteFails:
+        endpoints: list[str] = []
+
+        def __init__(self, endpoint: str, *, timeout: int = 1):
+            self.endpoint = endpoint
+            type(self).endpoints.append(endpoint)
+
+        def chat(self, **kwargs):
+            raise RuntimeError(f"failed: {self.endpoint}")
+
+    free_slot = _fallback_test_slot(
+        model="free/one:free",
+        endpoint="https://openrouter.ai/api/v1",
+        provenance="dynamic_catalog",
+        fallbacks=("free/two:free", "free/three:free"),
+    )
+    local_slot = _fallback_test_slot(
+        model="local-builder",
+        endpoint="http://127.0.0.1:8084",
+        provenance="local_fallback",
+    )
+    monkeypatch.setattr(ex, "resolve_role_slot", lambda role: free_slot)
+    monkeypatch.setattr(ex, "resolve_local_role_slot", lambda role: local_slot)
+    root = tmp_path / "proj"
+    root.mkdir()
+    run_id = pr.create_pipeline_run(root, {"title": "t", "description": "d"})
+
+    with pytest.raises(RuntimeError, match="Human approval is required"):
+        ex.run_role(
+            root,
+            role="builder",
+            system_prompt="build",
+            user_prompt="implement",
+            task_id=run_id,
+            ensure_lane_on=False,
+            client_factory=EveryRouteFails,
+        )
+
+    assert EveryRouteFails.endpoints == [
+        "https://openrouter.ai/api/v1",
+        "http://127.0.0.1:8084",
+    ]
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert [entry["event"] for entry in feed] == [
+        "started",
+        "routing_fallback",
+        "started",
+        "failed",
+        "failed",
+    ]
+    routed_models = {
+        str(entry.get(key) or "")
+        for entry in feed
+        for key in ("model", "next_route", "configured_route")
+    }
+    assert routed_models <= {"", "free/one:free", "local-builder"}
+    control = pr.read_execution_control(root, run_id)
+    assert control["status"] == "stalled"
+    assert "Human approval is required" in control["error"]
+
+
+def test_score_persistence_failure_does_not_change_successful_role_result(
+    tmp_path,
+    monkeypatch,
+):
+    class SuccessfulClient:
+        def __init__(self, endpoint: str, *, timeout: int = 1):
+            self.endpoint = endpoint
+
+        def chat(self, **kwargs):
+            return "model success", {"completion_tokens": 2}
+
+    root, run_id = _fresh_root(tmp_path)
+    free_slot = _fallback_test_slot(
+        model="free/one:free",
+        endpoint="https://openrouter.ai/api/v1",
+        provenance="dynamic_catalog",
+        fallbacks=("free/two:free", "free/three:free"),
+    )
+
+    def fail_score_write(*args, **kwargs):
+        raise OSError("score store unavailable")
+
+    monkeypatch.setattr(ex, "record_persisted_role_outcome", fail_score_write)
+
+    result = ex.run_role(
+        root,
+        role="builder",
+        system_prompt="build",
+        user_prompt="implement",
+        task_id=run_id,
+        ensure_lane_on=False,
+        client_factory=SuccessfulClient,
+        slot_override=free_slot,
+    )
+
+    feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
+    assert result.content == "model success"
+    assert [entry["event"] for entry in feed][-2:] == [
+        "score_persistence_failed",
+        "completed",
+    ]
 
 
 def test_run_role_persists_audition_route_provenance(tmp_path, monkeypatch):
@@ -1592,7 +1779,9 @@ def test_role_budgets_and_streaming_metadata_are_persisted(tmp_path):
     feed = pr.load_pipeline_run(root, run_id)["worker-feed.jsonl"]
     assert feed[0]["requested_max_tokens"] == 16384
     assert feed[0]["configured_route"] == feed[0]["model"]
-    assert feed[0]["route_provenance"] in {"profile", "auto", "override"}
+    assert feed[0]["route_provenance"] in {
+        "profile", "auto", "override", "dynamic_catalog"
+    }
     assert feed[-1]["finish_reason"] == "length"
     assert feed[-1]["token_cap_reached"] is True
     assert feed[-1]["configured_route"] == feed[-1]["model"]
@@ -1602,12 +1791,18 @@ def test_role_budgets_and_streaming_metadata_are_persisted(tmp_path):
 
 def test_stream_failure_preserves_partial_output_and_stalled_state(tmp_path):
     root, run_id = _fresh_root(tmp_path)
+    local_slot = _fallback_test_slot(
+        model="local-builder",
+        endpoint="http://127.0.0.1:8084",
+        provenance="local_fallback",
+    )
 
     with pytest.raises(RuntimeError, match="model disconnected"):
         ex.run_role(
             root, role="builder", system_prompt="build", user_prompt="implement",
             task_id=run_id, ensure_lane_on=False,
             client_factory=FailingStreamingClient,
+            slot_override=local_slot,
         )
 
     data = pr.load_pipeline_run(root, run_id)
@@ -1846,19 +2041,42 @@ def test_execute_full_chain_offline(tmp_path):
     assert state.stage == LoopStage.human_decision
 
 
-def test_execute_single_flight_lock_held(tmp_path):
-    """While a role slot is held, no other acquire_role_slot can proceed."""
-    from devflow.loop.model_router import acquire_role_slot
+def test_execute_local_lock_allows_three_calls_to_one_resident_model(tmp_path):
+    from devflow.loop.model_router import (
+        LocalModelRuntimeLockError,
+        acquire_role_slot,
+        list_local_model_runtime_status,
+    )
 
     root, _ = _fresh_root(tmp_path)
-    with acquire_role_slot(Path(root), role="builder", task_id="x") as owner:
-        # A second caller for a different role must see the lock occupied.
-        status = _global_local_model_runtime_status(Path(root))
-        assert status is not None
-        assert status.state == "running"
-        # Lock path is shared regardless of role/model:
-        assert "global.lock" in status.lock_path
-    # Released after exit
+    resident = _fallback_test_slot(
+        model="resident-heavy",
+        endpoint="http://127.0.0.1:8084",
+        provenance="local_fallback",
+    )
+    other = _fallback_test_slot(
+        model="other-heavy",
+        endpoint="http://127.0.0.1:8088",
+        provenance="local_fallback",
+    )
+    with acquire_role_slot(Path(root), role="builder", task_id="one", slot=resident):
+        with acquire_role_slot(Path(root), role="builder", task_id="two", slot=resident):
+            with acquire_role_slot(Path(root), role="builder", task_id="three", slot=resident):
+                statuses = list_local_model_runtime_status(Path(root))
+                assert len(statuses) == 3
+                assert {status["model"] for status in statuses.values()} == {
+                    "resident-heavy"
+                }
+                with pytest.raises(LocalModelRuntimeLockError, match="capacity"):
+                    with acquire_role_slot(
+                        Path(root), role="builder", task_id="four", slot=resident
+                    ):
+                        pass
+                with pytest.raises(LocalModelRuntimeLockError, match="another local model"):
+                    with acquire_role_slot(
+                        Path(root), role="builder", task_id="other", slot=other
+                    ):
+                        pass
     assert _global_local_model_runtime_status(Path(root)) is None
 
 

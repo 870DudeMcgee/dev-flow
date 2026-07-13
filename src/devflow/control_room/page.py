@@ -735,12 +735,24 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
   .system-widget:hover, .system-widget.open { border-color: var(--accent); color: var(--text); }
   .system-popover {
     display: none; position: absolute; right: 0; top: 48px; z-index: 24;
-    width: 250px; padding: 12px; border: 1px solid var(--border-bright);
+    width: min(460px, calc(100vw - 24px)); max-height: min(720px, calc(100vh - 70px)); overflow-y: auto;
+    padding: 12px; border: 1px solid var(--border-bright);
     border-radius: 14px; background: rgba(5,10,28,0.98);
     box-shadow: 0 20px 70px rgba(0,0,0,0.5); backdrop-filter: blur(12px);
   }
   .system-popover.open { display: flex; flex-direction: column; gap: 10px; }
   .system-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .model-catalog-section { border-top: 1px solid var(--border); padding-top: 10px; }
+  .model-catalog-title { font: 800 12px var(--font-display); color: var(--text); }
+  .model-catalog-summary { margin-top: 3px; color: var(--text-dim); font-size: 11px; }
+  .model-profile { margin-top: 10px; }
+  .model-profile-name { color: var(--accent); font: 800 10px var(--font-body); text-transform: uppercase; letter-spacing: .08em; }
+  .model-candidate { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+  .model-candidate-id { color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
+  .model-candidate-score { color: var(--text-dim); font-size: 10px; }
+  .model-health-action { border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--text-dim); padding: 4px 7px; cursor: pointer; font: 700 10px var(--font-body); }
+  .model-health-action:hover { border-color: var(--accent); color: var(--text); }
+  .model-quarantine-list { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
   .header > .header-right > .memory-widget { flex: 0 0 auto; }
   .header .workspace-widget,
   .header .git-widget,
@@ -940,6 +952,11 @@ STATUS_PAGE_HTML = r"""<!DOCTYPE html>
       <div class="system-meta">
         <span class="ui-version" title="Status board UI build">UI v4</span>
         <span class="live-indicator"><span class="live-dot"></span>LIVE</span>
+      </div>
+      <div class="model-catalog-section">
+        <div class="model-catalog-title">Worker model routing</div>
+        <div class="model-catalog-summary" id="model-catalog-summary">Loading free-cloud catalog…</div>
+        <div id="model-catalog-profiles"></div>
       </div>
     </div>
   </div>
@@ -1143,6 +1160,77 @@ function closeSystemDetails() {
   popover.classList.remove('open');
   widget.classList.remove('open');
   widget.setAttribute('aria-expanded', 'false');
+}
+
+async function loadModelCatalog() {
+  const summary = document.getElementById('model-catalog-summary');
+  const profiles = document.getElementById('model-catalog-profiles');
+  if (!summary || !profiles) return;
+  try {
+    const resp = await fetch('/api/model-catalog');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.status !== 'ready') {
+      summary.textContent = 'No generated catalog yet. Run the model refresh command.';
+      profiles.innerHTML = '';
+      return;
+    }
+    const counts = data.capability_counts || {};
+    const limits = data.limits || {};
+    summary.textContent = `${data.model_count || 0} free chat models · ${counts.tool_calling || 0} tools · ${counts.reasoning || 0} reasoning · limits ${limits.total || 0}/${limits.writers || 0}/${limits.local_heavy || 0}`;
+    const profileHtml = Object.entries(data.profiles || {}).map(([profile, candidates]) => {
+      if (!Array.isArray(candidates) || !candidates.length) return '';
+      const rows = candidates.map(candidate => `
+        <div class="model-candidate">
+          <div>
+            <div class="model-candidate-id">${escapeHtml(candidate.model_id)}</div>
+            <div class="model-candidate-score">${candidate.quality_score}/100 · ${escapeHtml(candidate.confidence)} · ${candidate.sample_count} tasks</div>
+          </div>
+          <button class="model-health-action" type="button" data-model="${escapeHtml(candidate.model_id)}" data-profile="${escapeHtml(profile)}" data-action="quarantine">Quarantine</button>
+        </div>`).join('');
+      return `<div class="model-profile"><div class="model-profile-name">${escapeHtml(profile)}</div>${rows}</div>`;
+    }).join('');
+    const quarantined = (data.quarantined_roles || []).map(entry => `
+      <div class="model-candidate">
+        <div>
+          <div class="model-candidate-id">${escapeHtml(entry.model_id)} · ${escapeHtml(entry.profile)}</div>
+          <div class="model-candidate-score">${escapeHtml(entry.reason || 'Human review required')}</div>
+        </div>
+        <button class="model-health-action" type="button" data-model="${escapeHtml(entry.model_id)}" data-profile="${escapeHtml(entry.profile)}" data-action="restore">Restore</button>
+      </div>`).join('');
+    profiles.innerHTML = profileHtml + (quarantined ? `<div class="model-quarantine-list"><div class="model-profile-name">Quarantined</div>${quarantined}</div>` : '');
+    profiles.querySelectorAll('.model-health-action').forEach(button => {
+      button.addEventListener('click', () => changeModelRoleHealth(
+        button.dataset.model,
+        button.dataset.profile,
+        button.dataset.action,
+      ));
+    });
+  } catch (error) {
+    summary.textContent = `Catalog unavailable: ${error.message || error}`;
+    profiles.innerHTML = '';
+  }
+}
+
+async function changeModelRoleHealth(modelId, profile, action) {
+  let reason = '';
+  if (action === 'quarantine') {
+    reason = window.prompt('Quarantine reason');
+    if (!reason || !reason.trim()) return;
+  } else if (action === 'restore' && !window.confirm('Restore this model role? Human approval is required.')) {
+    return;
+  }
+  try {
+    const resp = await fetch('/api/model-catalog/health', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_id: modelId, profile, action, reason, human_approved: true}),
+    });
+    if (!resp.ok) throw new Error((await resp.text()) || `HTTP ${resp.status}`);
+    await loadModelCatalog();
+  } catch (error) {
+    window.alert(`Model health update failed: ${error.message || error}`);
+  }
 }
 
 async function refresh() {
@@ -2102,6 +2190,7 @@ document.addEventListener('keydown', event => {
 refresh();
 refreshGit();
 refreshMemory();
+loadModelCatalog();
 
 // Adaptive refresh: poll every 1s when a worker is actively streaming so the
 // operator sees output flowing in near-real-time. When idle, fall back to 3s to
@@ -2113,6 +2202,7 @@ function adaptiveRefresh() {
 setTimeout(adaptiveRefresh, 3000);
 setInterval(refreshGit, 3000);
 setInterval(refreshMemory, 2000);
+setInterval(loadModelCatalog, 30000);
 
 // ── Workspace picker logic ──
 let WORKSPACE_STATE = { active: null, recent: [], platform: 'unknown' };

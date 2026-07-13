@@ -1,176 +1,73 @@
 ---
 name: hermes-devflow
-description: Use when Hermes Agent OS operates Dev-Flow as an external chat/mobile/CLI operator gateway.
+description: Use when Hermes operates the current DevFlow loop.
 ---
 
-# Hermes Dev-Flow Operator Skill
+# Hermes DevFlow Operator Skill
 
-Hermes is an operator, chat, scheduling, and delegation layer over Dev-Flow. Hermes is not Dev-Flow's source of truth, runtime, memory layer, or orchestration brain.
+Read `<repo-root>/AGENTS.md` and
+`<repo-root>/docs/DEVFLOW_SOURCE_OF_TRUTH.md` first. DevFlow artifacts and live
+source/config evidence outrank Hermes memory and this adapter.
 
-Dev-Flow artifacts beat Hermes memory every time.
+## Ownership
 
-## Path Authority
+- **DevFlow:** persisted pipeline state, stage artifacts, evidence, verification,
+  model-role routing contracts, and the next human decision.
+- **Hermes:** chat/messaging, tools, bounded worker orchestration, and one of the
+  brainstorm entry surfaces.
+- **Browser:** brainstorm chat plus live pipeline status/evidence.
+- **Operator:** model/profile choice, approval, taste, and final decisions.
 
-Portable checkout authority:
+## Model And Machine Discipline
 
-```text
-<repo-root>
-```
+DevFlow is model-agnostic and machine-agnostic. Never assume a fixed fleet.
+Resolve the active profile and registry, then distinguish:
 
-Prohibited old checkout:
+1. host resources and plausible local capacity;
+2. local models configured for this host;
+3. the model actually resident at an endpoint (`/health`, `/v1/models`);
+4. roles proven by audition evidence;
+5. cloud/free and Hermes-subscription targets currently available.
 
-```text
-/Users/jewelbait/Desktop/DevFlow
-```
+M4 Studio local models do not exist on the M1 Mini unless separately installed
+and qualified. Cloud and subscription models can be shared across machines when
+the required credential/OAuth is configured. Recommend the closest proven
+profile and compatible local models, but do not silently download, start,
+promote, or reassign anything.
 
-Never use the old path for current work. It is quarantined. Use `<repo-root>` for portable command examples. This checkout is referred to as `DevFlow` in docs and handoffs, but operators should use their actual repo root.
+See the source-of-truth sections **Model Routing & Operating Modes** and
+**Machine Agnosticism And Capability Discovery** for exact profiles, current
+registry orientation, and implementation gaps.
 
-## Command Prefix
+## Current Command Surface
 
-Run Dev-Flow commands from the repo root with:
+Run from `<repo-root>`:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m devflow.cli
+PYTHONPATH=src .venv/bin/python -m devflow.cli status serve
+PYTHONPATH=src .venv/bin/python -m devflow.cli loop spine-fixture --json
 ```
 
-## Default Mode
+Do not recommend removed commands such as `dashboard`, `supervisor`, `project`,
+`task`, `knowledge`, `sync-main`, or `push-main`; they are not present in the
+current V2 CLI.
 
-Default to read-only.
+## Safety
 
-Use these first:
+- Default to read-only inspection.
+- Never mutate `.devflow/` state directly.
+- Never start a local model blindly; inspect the approved fleet manager and live
+  endpoint identity first.
+- Never promote, commit, merge, push, delete, or publish without explicit human
+  approval and current verification evidence.
+- Report actual routed model identity and fallback use; never imply a model was
+  selected when the surface does not expose that control.
 
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli status --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli dashboard --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor policy --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor packet --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli supervisor route-message "<raw Telegram text>" --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli hermes imessage-check --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli project list`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli task next-action <task-id> --json`
-- `PYTHONPATH=src .venv/bin/python -m devflow.cli task review <task-id> --json`
-
-## Allowed Read-Only Commands
-
-- status, dashboard, supervisor policy, supervisor packet
-- supervisor route-message
-- hermes imessage-check
-- project list, show, status, doctor
-- task list, show, log, next-action, review
-- task promote-preview as non-promoting preview
-- git status
-- worktree list
-- branch list
-- knowledge list, show, search
-
-## Approval-Required Commands
-
-Ask for explicit human approval before recommending or running:
-
-- project create/import/archive/remove
-- knowledge capture
-- task create
-- task close
-- task cleanup preview/apply
-- task run
-- task review-patch
-- task patch-dry-run
-- task apply-patch
-- task verify
-
-If `supervisor route-message` returns `operator_plan.pending_action`, store that exact action for the chat session and execute only that action once after explicit approval.
-
-## High-Risk Commands
-
-Require explicit human approval plus current Dev-Flow readiness evidence:
-
-- task promote
-- project connect-github
-- git commit
-- git merge
-- git push
-- sync-main
-- push-main
-
-## Forbidden Commands And Actions
-
-- direct `.devflow/` mutation
-- direct source edits
-- direct git index, branch, remote, or promotion-state mutation
-- raw destructive cleanup such as `rm -rf`
-- hidden canonical state in Hermes memory
-- use of `/Users/jewelbait/Desktop/DevFlow` for current work
-- unbounded parallel worker spawning
-- multiple writer agents on one task/worktree
-- exposing secrets or message contents in logs
-
-## Response Format
-
-Use this format for operator replies:
+## Response Shape
 
 ```markdown
 ## Status
-
 ## Evidence
-
 ## Risks
-
 ## Next safe action
-
-## Command
-```
-
-## iMessage-specific response discipline
-
-- short status by default
-- no secrets
-- no giant logs
-- no message-content dumps
-- summarize instead of dumping raw artifacts
-- ask for explicit approval before mutation
-- quote the exact command that needs approval
-- refuse vague approvals like "push it" or "merge everything"
-
-## Scheduled Brief Examples
-
-Morning Dev-Flow Brief:
-
-- Run `status --json`, `supervisor packet --json`, and `git status`.
-- Report status, review queue, blocked tasks, and one next safe action.
-- Do not run workers, verify, promote, push, or create tasks.
-
-Evening Dev-Flow Debrief:
-
-- Run `dashboard --json`, `task list`, and `supervisor packet --json`.
-- Summarize active work, failed work, and what needs Josh.
-- Do not close tasks automatically.
-
-Stale Task Watchdog:
-
-- Run `status --json` and `task next-action <task-id> --json`.
-- Alert on failed verification, stale/conflicted evidence, and old active tasks.
-- Do not repair locks or delete worktrees.
-
-Git Hygiene Check:
-
-- Run `git status`, `worktree list`, and `branch list`.
-- Alert on dirty main checkout or orphaned worktree candidates.
-- Do not run `sync-main`, `push-main`, prune, archive, promote, merge, or push.
-
-Knowledge/Idea Review Queue:
-
-- Run `knowledge list` and `knowledge search <query>`.
-- Report proposed notes that need human review.
-- Do not promote/reject knowledge or create tasks without approval.
-
-## Promotion Rule
-
-Never promote, push, merge, delete, or directly edit without explicit human approval and current Dev-Flow readiness evidence.
-
-In short: never promote, push, merge, delete, or directly edit without explicit human approval and current Dev-Flow readiness evidence.
-
-For risky actions, require language like:
-
-```text
-I approve this exact Dev-Flow command after reviewing the cited readiness evidence:
-<command>
 ```

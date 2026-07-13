@@ -156,3 +156,14 @@ def test_completed_overview_scroll_survives_status_refresh() -> None:
     assert "runOverviewScroll," in STATUS_PAGE_HTML
     assert "Object.entries(state.runOverviewScroll || {})" in STATUS_PAGE_HTML
     assert "overview.scrollTop = scrollTop;" in STATUS_PAGE_HTML
+
+
+def test_system_popover_exposes_model_catalog_and_human_health_controls() -> None:
+    assert 'id="model-catalog-summary"' in STATUS_PAGE_HTML
+    assert 'id="model-catalog-profiles"' in STATUS_PAGE_HTML
+    assert "fetch('/api/model-catalog')" in STATUS_PAGE_HTML
+    assert "fetch('/api/model-catalog/health'" in STATUS_PAGE_HTML
+    assert "function loadModelCatalog()" in STATUS_PAGE_HTML
+    assert "function changeModelRoleHealth(" in STATUS_PAGE_HTML
+    assert "Restore this model role?" in STATUS_PAGE_HTML
+    assert "Quarantine reason" in STATUS_PAGE_HTML

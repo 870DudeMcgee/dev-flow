@@ -9,8 +9,21 @@ chain:
 Idea -> Brainstorm -> Spec -> Plan -> Judge -> Build -> Judge -> Verify -> Next human decision
 ```
 
-Hermes owns brainstorm interaction and bounded orchestration. DevFlow owns the
-stage artifacts and evidence. The browser is a read-only status board.
+The browser and Hermes are both brainstorm entry surfaces. DevFlow owns persisted
+stage artifacts and evidence; Hermes also provides messaging, tools, and bounded
+worker orchestration. The browser combines brainstorm chat with the live status
+board.
+
+Model and machine routing authority is split deliberately:
+
+- `src/devflow/loop/roles.py` defines the seven stable role contracts;
+- `src/devflow/loop/models.yaml` (or `DEVFLOW_MODELS_YAML`) defines eligible targets;
+- `src/devflow/loop/profiles.yaml` (or `DEVFLOW_PROFILES_YAML`) defines environment preferences;
+- `src/devflow/loop/routing.py` resolves roles by override, profile, capability, and cost;
+- local endpoint probes establish resident identity; audition evidence establishes role fitness.
+
+See `docs/DEVFLOW_SOURCE_OF_TRUTH.md` for the authoritative model-agnostic and
+machine-agnostic contract, current profile meanings, and known implementation gaps.
 
 ## Active Layout
 

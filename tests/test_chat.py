@@ -257,14 +257,18 @@ def test_send_message_syncs_brainstorm_md(repo_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Default model resolution
+# Unselected-model routing
 # ---------------------------------------------------------------------------
 
-def test_default_model_resolves_from_profile() -> None:
-    """_default_model returns the active profile's brainstorm model."""
-    model = chat_api._default_model()
-    # The legacy-current profile has brainstorm: glm-5.2
-    assert model == "glm-5.2"
+def test_unselected_chat_model_uses_brainstorm_role_router() -> None:
+    """The chat fallback follows routing without pinning one frontier model."""
+    with patch("devflow.loop.routing.resolve_role_compatible") as resolve:
+        resolve.return_value.model_name = "operator-routed-frontier"
+
+        model = chat_api._default_model()
+
+    assert model == "operator-routed-frontier"
+    resolve.assert_called_once_with("brainstorm")
 
 
 # ---------------------------------------------------------------------------

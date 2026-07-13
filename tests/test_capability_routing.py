@@ -11,6 +11,7 @@ so existing callers (execution.py, server.py) work unchanged.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ from devflow.loop.registry import (
 from devflow.loop.roles import get_role, known_roles, role_requires
 from devflow.loop.routing import (
     ResolvedSlot,
+    resolve_local_fallback,
     resolve_role,
     resolve_role_compatible,
     set_active_profile,
@@ -35,6 +37,7 @@ from devflow.loop.model_router import (
     KNOWN_ROLES,
     ModelSlot,
 )
+from devflow.loop.model_routing_state import ModelRoleScore, save_role_scores
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +298,117 @@ class TestRoles:
 # Routing tests
 # ---------------------------------------------------------------------------
 class TestRouting:
+    def test_local_fallback_never_crosses_into_subscription(
+        self, small_registry: ModelRegistry,
+    ):
+        builder = resolve_local_fallback("builder", registry=small_registry)
+        final_judge = resolve_local_fallback("final_judge", registry=small_registry)
+
+        assert builder is not None
+        assert builder.model_name == "cheap-builder"
+        assert builder.resolved_via == "local_fallback"
+        assert final_judge is None
+
+    def test_dynamic_catalog_fills_unavailable_profile_and_caps_free_attempts_at_three(
+        self, tmp_path: Path, small_registry: ModelRegistry,
+    ):
+        catalog_path = tmp_path / ".devflow" / "model-catalog" / "current.json"
+        catalog_path.parent.mkdir(parents=True)
+        models = [
+            {
+                "id": f"example/builder-{index}:free",
+                "name": f"Builder {index}",
+                "cost_class": "free_cloud",
+                "eligible_profiles": ["builder"],
+                "capabilities": {
+                    "coding": True,
+                    "tool_calling": True,
+                    "structured_output": True,
+                    "reasoning": True,
+                    "long_context": True,
+                },
+            }
+            for index in range(4)
+        ]
+        catalog_path.write_text(json.dumps({"models": models}), encoding="utf-8")
+        save_role_scores(
+            tmp_path,
+            {
+                (model["id"], "builder"): ModelRoleScore(
+                    model_id=model["id"],
+                    profile="builder",
+                    prior_score=99 - index,
+                )
+                for index, model in enumerate(models)
+            },
+        )
+
+        slot = resolve_role(
+            "builder",
+            registry=small_registry,
+            profile_name="legacy-current",
+            catalog_root=tmp_path,
+        )
+
+        assert slot.model_id == "example/builder-0:free"
+        assert slot.fallback_model_ids == (
+            "example/builder-1:free",
+            "example/builder-2:free",
+        )
+        assert slot.cost_class == "free_cloud"
+        assert slot.resolved_via == "dynamic_catalog"
+
+    def test_available_profile_precedes_dynamic_catalog(
+        self, tmp_path: Path, small_registry: ModelRegistry,
+    ):
+        catalog_path = tmp_path / ".devflow" / "model-catalog" / "current.json"
+        catalog_path.parent.mkdir(parents=True)
+        dynamic_model = {
+            "id": "example/dynamic-builder:free",
+            "name": "Dynamic Builder",
+            "cost_class": "free_cloud",
+            "eligible_profiles": ["builder"],
+            "capabilities": {
+                "coding": True,
+                "tool_calling": True,
+                "structured_output": True,
+                "reasoning": True,
+                "long_context": True,
+            },
+        }
+        catalog_path.write_text(
+            json.dumps({"models": [dynamic_model]}), encoding="utf-8",
+        )
+        save_role_scores(
+            tmp_path,
+            {
+                (dynamic_model["id"], "builder"): ModelRoleScore(
+                    model_id=dynamic_model["id"],
+                    profile="builder",
+                    prior_score=100,
+                ),
+            },
+        )
+        small_registry.add(ModelEntry(
+            name="ornith-35b",
+            display_name="Profile Builder",
+            provider="local",
+            transport="openai-http",
+            endpoint="http://localhost:8084",
+            capabilities=("code_generation", "structured_output", "edit_planning"),
+            cost_class="local",
+        ))
+
+        slot = resolve_role(
+            "builder",
+            registry=small_registry,
+            profile_name="legacy-current",
+            catalog_root=tmp_path,
+        )
+
+        assert slot.model_name == "ornith-35b"
+        assert slot.resolved_via == "profile"
+
     def test_resolve_builder_to_cheap_local(self, small_registry: ModelRegistry):
         slot = resolve_role("builder", registry=small_registry, profile_name="custom")
         assert slot.model_name == "cheap-builder"
@@ -464,7 +578,7 @@ class TestProfiles:
     def test_profile_switch_changes_routing(self):
         set_active_profile("studio-local-heavy")
         assert get_active_profile_name() == "studio-local-heavy"
-        slot = resolve_role("verifier")
+        slot = resolve_role("verifier", dynamic_catalog=False)
         # studio-local-heavy prefers qwen-27b, but it's unavailable on the
         # Mini (available: false), so routing falls through to auto.
         assert slot.model_name != "qwen-27b-q5km"
@@ -474,7 +588,7 @@ class TestProfiles:
     def test_profile_routes_to_available_free_model(self):
         """When the profile's preferred model IS available, routing uses it."""
         set_active_profile("mini-free-cloud")
-        slot = resolve_role("builder")
+        slot = resolve_role("builder", dynamic_catalog=False)
         assert slot.model_name == "hy3-free"
         assert slot.resolved_via == "profile"
         set_active_profile("legacy-current")
@@ -483,7 +597,7 @@ class TestProfiles:
         """Mac-mini free-cloud profile never wakes a local model."""
         set_active_profile("mini-free-cloud")
         for role_name in known_roles():
-            slot = resolve_role(role_name)
+            slot = resolve_role(role_name, dynamic_catalog=False)
             assert slot.model_name == "hy3-free"
             assert slot.cost_class == "free_cloud"
             assert slot.resolved_via == "profile"
@@ -501,15 +615,25 @@ class TestProfiles:
         }
 
         for role_name, expected_model in expected_models.items():
-            slot = resolve_role(role_name, profile_name="cloud-free-fast")
+            slot = resolve_role(
+                role_name,
+                profile_name="cloud-free-fast",
+                dynamic_catalog=False,
+            )
             assert slot.model_name == expected_model
             assert slot.provider != "local"
             assert slot.cost_class == "free_cloud"
             assert slot.resolved_via == "profile"
 
-        builder = resolve_role("builder", profile_name="cloud-free-fast")
-        judge = resolve_role("build_judge", profile_name="cloud-free-fast")
-        planner = resolve_role("planner", profile_name="cloud-free-fast")
+        builder = resolve_role(
+            "builder", profile_name="cloud-free-fast", dynamic_catalog=False
+        )
+        judge = resolve_role(
+            "build_judge", profile_name="cloud-free-fast", dynamic_catalog=False
+        )
+        planner = resolve_role(
+            "planner", profile_name="cloud-free-fast", dynamic_catalog=False
+        )
         assert planner.model_id == "tencent/hy3:free"
         assert builder.model_id == "tencent/hy3:free"
         assert builder.fallback_model_ids == (
@@ -539,11 +663,11 @@ class TestProfiles:
         assert set(expected_models) == set(known_roles())
         set_active_profile("mini-ollama")
         for role_name, expected_model in expected_models.items():
-            slot = resolve_role(role_name)
+            slot = resolve_role(role_name, dynamic_catalog=False)
             assert slot.model_name == expected_model
             assert slot.resolved_via == "profile"
 
-        builder = resolve_role("builder")
+        builder = resolve_role("builder", dynamic_catalog=False)
         assert builder.endpoint == "http://127.0.0.1:8088"
         assert builder.model_id == "qwen2.5-coder-7b-mini"
         assert builder.cost_class == "local"
@@ -569,9 +693,15 @@ class TestProfiles:
         assert entry.model_id == "poolside/laguna-m.1:free"
 
     def test_laguna_builder_audition_profile_changes_only_builder(self):
-        builder = resolve_role("builder", profile_name="mini-laguna-builder")
-        brainstorm = resolve_role("brainstorm", profile_name="mini-laguna-builder")
-        build_judge = resolve_role("build_judge", profile_name="mini-laguna-builder")
+        builder = resolve_role(
+            "builder", profile_name="mini-laguna-builder", dynamic_catalog=False
+        )
+        brainstorm = resolve_role(
+            "brainstorm", profile_name="mini-laguna-builder", dynamic_catalog=False
+        )
+        build_judge = resolve_role(
+            "build_judge", profile_name="mini-laguna-builder", dynamic_catalog=False
+        )
 
         assert builder.model_name == "laguna-m1-free"
         assert builder.resolved_via == "profile"

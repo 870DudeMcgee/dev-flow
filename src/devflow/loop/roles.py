@@ -41,22 +41,21 @@ class RoleDefinition:
 # ---------------------------------------------------------------------------
 # Cost-class preference shortcuts
 # ---------------------------------------------------------------------------
-# Builder / generation roles: prefer local first, then free cloud, then
-# subscription. Avoid metered frontier for bulk generation.
+# All routine roles prefer capable healthy free cloud before local execution.
+# Subscription and metered routes remain explicit fallbacks.
 _GENERATION_PREFS = (
-    "local",
     "free_cloud",
+    "local",
     "included_subscription",
     "metered_low",
     "metered_high",
 )
 
-# Reasoning / judgment roles: prefer subscription (already paid), then local.
-# These are small-output, high-value tasks.
+# Reasoning and judgment use the same free-cloud-first policy.
 _REASONING_PREFS = (
-    "included_subscription",
-    "local",
     "free_cloud",
+    "local",
+    "included_subscription",
     "metered_low",
     "metered_high",
 )

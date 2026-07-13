@@ -1,6 +1,12 @@
 # Changelog
 
-All notable Dev-Flow changes should be recorded here before a tag is cut.
+> **Historical pre-V2 draft:** the `0.1.0` notes below describe the removed V1
+> checkout and are retained only as release history. They are not an active
+> runtime contract or roadmap. Current behavior is governed by
+> [`docs/DEVFLOW_SOURCE_OF_TRUTH.md`](docs/DEVFLOW_SOURCE_OF_TRUTH.md),
+> `AGENTS.md`, and the current CLI help.
+
+All notable DevFlow V2 changes should be recorded here before a tag is cut.
 
 Dev-Flow follows semantic versioning for public releases:
 

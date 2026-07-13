@@ -1,8 +1,9 @@
 """V2-only DevFlow command surface.
 
-DevFlow's interactive work happens in Hermes. This CLI exposes the read-only
-pipeline status board and a deterministic loop-fixture harness for regression
-verification; it deliberately has no compatibility path to retired code.
+DevFlow's brainstorm interaction is available through Hermes and the unified
+browser surface. This CLI starts that browser surface and exposes a deterministic
+loop-fixture harness for regression verification; it deliberately has no
+compatibility path to retired code.
 """
 from __future__ import annotations
 
@@ -12,7 +13,13 @@ from pathlib import Path
 import typer
 
 from devflow.control_room.command import status_app
+from devflow.control_room.model_catalog import model_catalog_snapshot
 from devflow.loop.e2e_harness import run_e2e_loop_harness
+from devflow.loop.model_catalog import load_free_cloud_catalog, refresh_free_cloud_catalog
+from devflow.loop.model_catalog_markdown import (
+    render_model_catalog_markdown,
+    update_model_dashboard,
+)
 
 app = typer.Typer(
     help="DevFlow V2 pipeline tools.",
@@ -22,8 +29,65 @@ loop_app = typer.Typer(
     help="Deterministic V2 loop verification tools.",
     no_args_is_help=True,
 )
+models_app = typer.Typer(
+    help="Live model catalog tools.",
+    no_args_is_help=True,
+)
 app.add_typer(status_app, name="status")
 app.add_typer(loop_app, name="loop")
+app.add_typer(models_app, name="models")
+
+
+@models_app.command("refresh")
+def models_refresh(
+    root: Path = typer.Option(
+        Path("."),
+        "--root",
+        help="Repository root that owns the generated .devflow catalog.",
+    ),
+    obsidian_dashboard: Path | None = typer.Option(
+        None,
+        "--obsidian-dashboard",
+        help="Optional Obsidian note that receives the generated read-only inventory block.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit the refresh result as JSON."),
+) -> None:
+    """Refresh the free-cloud catalog; stay silent when nothing changed."""
+
+    try:
+        result = refresh_free_cloud_catalog(root)
+        dashboard_changed = False
+        if obsidian_dashboard is not None:
+            dashboard_changed = update_model_dashboard(
+                obsidian_dashboard,
+                render_model_catalog_markdown(
+                    load_free_cloud_catalog(root),
+                    model_catalog_snapshot(root),
+                ),
+            )
+    except Exception as exc:
+        typer.echo(f"Model catalog refresh failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    payload = {
+        "changed": result.changed,
+        "model_count": result.model_count,
+        "added": list(result.added),
+        "removed": list(result.removed),
+        "modified": list(result.modified),
+        "current_path": str(result.current_path),
+        "dashboard_changed": dashboard_changed,
+        "history_path": str(result.history_path) if result.history_path else None,
+    }
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    elif result.changed:
+        typer.echo(
+            "Free-cloud catalog changed: "
+            f"{result.model_count} models "
+            f"(+{len(result.added)} -{len(result.removed)} ~{len(result.modified)})."
+        )
+
 
 
 @loop_app.command("spine-fixture")

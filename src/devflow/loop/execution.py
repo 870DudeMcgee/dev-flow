@@ -4,11 +4,11 @@ This is the layer that closes the gap between the deterministic V2 spine
 (``models``, ``adapter``, ``builder_judge``, ``verification``,
 ``planning_judge`` — all no-model adapters) and actual local-model work.
 
-Single-flight guarantee (the "one large model resident at a time" rule):
+Resident-model guarantee (the "one large model resident at a time" rule):
   * Every model call runs inside ``acquire_role_slot`` from
     ``devflow.loop.model_router`` — a machine-wide filesystem lock. The lock
-    path is identical regardless of role/model, so at most ONE role holds it
-    at any instant, even if two servers happened to be up.
+    path is identical regardless of role/model. It admits up to three calls to
+    the same resident model and rejects a competing local model.
   * Before a call, ``ensure_lane`` brings the role's server up via the
     canonical ``~/.hermes/scripts/model-router`` launcher. That launcher
     swaps out any other heavy-group sibling first, so the resident model
@@ -38,7 +38,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
-from devflow.loop.model_router import acquire_role_slot, resolve_role_slot
+from devflow.loop.model_router import (
+    ModelSlot,
+    acquire_role_slot,
+    resolve_local_role_slot,
+    resolve_role_slot,
+)
 from devflow.loop import builder_judge as bj
 from devflow.loop import planning_judge as pj
 from devflow.loop import verification as ver
@@ -57,6 +62,7 @@ from devflow.loop.pipeline_run import (
     write_worker_live_output,
 )
 from devflow.loop.models import LoopStage, advance_stage
+from devflow.loop.model_routing_state import record_persisted_role_outcome
 from devflow.loop.roles import get_role, known_roles
 
 
@@ -502,7 +508,12 @@ class HermesSubscriptionClient:
 # ---------------------------------------------------------------------------
 # Lane lifecycle (uses the real model-router launcher)
 # ---------------------------------------------------------------------------
-def ensure_lane(role: str, *, script: Optional[Path] = None) -> None:
+def ensure_lane(
+    role: str,
+    *,
+    script: Optional[Path] = None,
+    slot: ModelSlot | None = None,
+) -> None:
     """Bring the role's server up, swapping out any different local model.
 
     For local openai-http endpoints (llama-server), delegates to
@@ -514,7 +525,7 @@ def ensure_lane(role: str, *, script: Optional[Path] = None) -> None:
     For hermes-chat (subscription) and remote openai-http (OpenRouter),
     this is a no-op: no local server to start.
     """
-    slot = resolve_role_slot(role)
+    slot = slot or resolve_role_slot(role)
     # Subscription and remote-cloud endpoints don't need a local server.
     if slot.transport == "hermes-chat":
         return
@@ -534,8 +545,41 @@ def ensure_lane(role: str, *, script: Optional[Path] = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Core role runner (single-flight inside acquire_role_slot)
+# Core role runner (resident-model admission inside acquire_role_slot)
 # ---------------------------------------------------------------------------
+def _record_model_outcome_non_authoritative(
+    root: Path | str,
+    *,
+    task_id: str,
+    model_id: str,
+    role: str,
+    success: bool,
+    fault_kind: str = "",
+    output_tokens_per_second: float | None = None,
+) -> None:
+    """Persist score telemetry without changing the task's authoritative result."""
+
+    try:
+        record_persisted_role_outcome(
+            root,
+            model_id=model_id,
+            role=role,
+            success=success,
+            fault_kind=fault_kind,
+            output_tokens_per_second=output_tokens_per_second,
+        )
+    except Exception as exc:
+        try:
+            append_worker_feed_entry(root, task_id, {
+                "event": "score_persistence_failed",
+                "role": role,
+                "model": model_id,
+                "error": str(exc),
+            })
+        except Exception:
+            pass
+
+
 def run_role(
     root: Path | str,
     *,
@@ -550,8 +594,9 @@ def run_role(
     request_metadata: Optional[dict] = None,
     ensure_lane_on: bool = True,
     client_factory: Optional[ClientFactory] = None,
+    slot_override: ModelSlot | None = None,
 ) -> RoleResult:
-    slot = resolve_role_slot(role)
+    slot = slot_override or resolve_role_slot(role)
     role_definition = get_role(slot.role)
     disabled_thinking_roles = {
         value.strip().lower()
@@ -612,8 +657,6 @@ def run_role(
         if max_tokens is None and audition_token_budget is not None
         else (max_tokens or ROLE_TOKEN_BUDGETS.get(role, 2048))
     )
-    if ensure_lane_on:
-        ensure_lane(role)
     request_evidence = {
         **deepcopy(request_metadata or {}),
         "decoder_settings": deepcopy(request_options or {}),
@@ -636,11 +679,19 @@ def run_role(
         and LocalModelClient._is_local_endpoint(slot.endpoint)
     )
     slot_lock = (
-        acquire_role_slot(Path(root), role=role, task_id=task_id, worker_id=worker_id)
+        acquire_role_slot(
+            Path(root),
+            role=role,
+            task_id=task_id,
+            worker_id=worker_id,
+            slot=slot,
+        )
         if needs_local_lock
         else nullcontext(slot)
     )
     with slot_lock:
+        if ensure_lane_on:
+            ensure_lane(role, slot=slot)
         # A role is "started" only after it owns its applicable execution slot.
         append_worker_feed_entry(root, task_id or slot.role, {
             "event": "started",
@@ -725,6 +776,7 @@ def run_role(
             last_publish_size = current_size
 
         finish_reason = "stop"
+        call_started_at = time.monotonic()
         try:
             if hasattr(client, "chat_stream"):
                 stream_kwargs = {
@@ -771,6 +823,54 @@ def run_role(
                         f"{expected_model!r}, served {actual_model!r}."
                     )
         except Exception as exc:
+            if slot.resolved_via == "dynamic_catalog":
+                for failed_model_id in (slot.model_id, *slot.fallback_model_ids):
+                    _record_model_outcome_non_authoritative(
+                        root,
+                        task_id=task_id or slot.role,
+                        model_id=failed_model_id,
+                        role=slot.role,
+                        success=False,
+                        fault_kind="provider_or_transport_failure",
+                    )
+                local_slot = resolve_local_role_slot(role)
+                if local_slot is not None:
+                    append_worker_feed_entry(root, task_id or slot.role, {
+                        "event": "routing_fallback",
+                        "role": role,
+                        "failed_route": slot.model,
+                        "failed_free_models": [slot.model_id, *slot.fallback_model_ids],
+                        "next_route": local_slot.model,
+                        "route_provenance": local_slot.resolved_via,
+                        "error": str(exc),
+                    })
+                    try:
+                        return run_role(
+                            root,
+                            role=role,
+                            system_prompt=system_prompt,
+                            user_prompt=user_prompt,
+                            task_id=task_id,
+                            worker_id=worker_id,
+                            max_tokens=max_tokens,
+                            reasoning=reasoning,
+                            request_options=request_options,
+                            request_metadata=request_metadata,
+                            ensure_lane_on=ensure_lane_on,
+                            client_factory=client_factory,
+                            slot_override=local_slot,
+                        )
+                    except Exception as local_exc:
+                        exc = RuntimeError(
+                            "Three free-cloud candidates and the eligible local fallback "
+                            "failed. Human approval is required before any subscription "
+                            f"or paid route. Local error: {local_exc}"
+                        )
+                else:
+                    exc = RuntimeError(
+                        "Three free-cloud candidates failed and no eligible local fallback "
+                        "exists. Human approval is required before any subscription or paid route."
+                    )
             partial = "".join(streamed)
             error_payload: dict = {
                 "event": "failed", "status": "stalled", "role": role,
@@ -792,7 +892,20 @@ def run_role(
                 root, task_id or slot.role,
                 status="stalled", active_role=role, error=str(exc),
             )
-            raise
+            raise exc
+        if slot.resolved_via == "dynamic_catalog":
+            elapsed = max(time.monotonic() - call_started_at, 0.001)
+            completion_tokens = int((usage or {}).get("completion_tokens") or 0)
+            output_tps = completion_tokens / elapsed if completion_tokens > 0 else None
+            actual_model_id = str((usage or {}).get("actual_model") or slot.model_id)
+            _record_model_outcome_non_authoritative(
+                root,
+                task_id=task_id or slot.role,
+                model_id=actual_model_id,
+                role=slot.role,
+                success=True,
+                output_tokens_per_second=output_tps,
+            )
         token_cap_reached = finish_reason == "length"
         request_evidence["actual_request"] = deepcopy(
             getattr(client, "last_request_payload", {})
