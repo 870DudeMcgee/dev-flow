@@ -15,22 +15,19 @@ record the route that actually answered. Do not infer a child's provider or
 model from the parent session, a profile name, keyword routing, or configured
 capacity alone.
 
-The installed Hermes runtime and live `delegate_task` schema were inspected on
-2026-07-13. That contract exposed only the task, context, and orchestration
-role; it did not expose `worker_lane`, `toolsets`, or direct per-call
-`model`/`provider` selection. A separate Hermes source checkout contains
-worker-lane machinery, but source-only support is not an active runtime
-capability. Keyword entries under `model_routing` are not worker-lane
-definitions. Therefore no named native lane is approved for this audition
-until the live tool contract exposes it and a receipt proves the selected
-model, provider, tools, and isolation boundary. Re-verify this host-specific
-schema after a Hermes runtime update.
+The installed Hermes source and live `delegate_task` contract were rechecked on
+2026-07-13. Native delegation accepts `goal`, `context`, exact `toolsets`,
+`role`, optional `worker_lane`, and bounded iterations. Direct per-call
+`model`/`provider` fields are not public controls; route pinning belongs in a
+configured worker lane. Require the returned provider, model, lane, resolved
+toolsets, exit reason, and tool trace before claiming which route ran.
 
-Treat configured native-delegation defaults and configured capacity as hints,
-not proof of an available route: the live tool contract may impose a stricter
-cap. Native child tool inheritance is also not a safe isolation boundary while
-MCP inheritance is enabled. Packets requiring a strict model/tool boundary use
-the stripped synchronous adapter below.
+Treat configured defaults and capacity as hints, not completion proof. Parent
+capabilities are the ceiling, lane toolsets may override task toolsets, and MCP
+toolsets may inherit unless strict inheritance is disabled. Preflight the
+resolved capability boundary. Use native delegation with the smallest exact
+toolset for tool-required work; use the stripped synchronous adapter only for
+fully supplied text-only packets that require a durable receipt.
 
 Every worker packet is anchor-first, bounded to one deliverable, and includes
 source precedence, allowed and forbidden actions, an output contract, and
@@ -46,12 +43,20 @@ The active plan for discovering small-model role fit is
 [`M1_LOCAL_ROLE_AUDITION_PLAN.md`](M1_LOCAL_ROLE_AUDITION_PLAN.md). For that
 process, GPT-5.6 Sol in Codex is the thin supervisor and final accountable
 party. Bounded discovery, compression, planning, implementation, and review
-route through Hermes to `tencent/hy3:free` by default; `gpt-5.6-luna` is the
-explicit fallback when HY3 cannot complete a grounded packet.
+route through native Hermes delegation to `tencent/hy3:free` by default, with
+only the toolsets required by each packet. Tool-free adapter calls are limited
+to fully supplied synthesis or reader-test packets. That adapter tries its
+ordered OpenRouter `:free` fallbacks when HY3 cannot complete a grounded
+packet. For each packet, use the initial grounded free attempt plus up to three
+corrected free retries before native Codex Luna. Luna is a final fallback, not
+a readiness gate: do not check for it, stop work, or terminate free workers
+before the free budget is exhausted. Paid fallback requires explicit human
+authorization.
 
-Nonpersistent callers use the synchronous adapter documented by the audition
-plan. It runs one response turn with no tools, persistent memory, or injected
-workspace context, and returns a JSON receipt containing the packet ID,
+For text-only durable-receipt work, nonpersistent callers use the synchronous
+adapter documented by the audition plan. It runs one response turn with no
+tools, persistent memory, or injected workspace context, and returns a JSON
+receipt containing the packet ID,
 requested provider/model, elapsed duration, prior failures, and visible
 fallback state. Callers should pass `--receipt-path` and verify that durable
 receipt against stdout before treating an empty terminal pane as a worker
@@ -59,6 +64,23 @@ failure. Its default is no hard deadline; callers may add a bounded timeout for
 a smoke test. The raw `hermes -z` / `hermes --cli` path is not an approved
 worker route. On 2026-07-13, two simultaneous HY3 workers returned distinct
 durable receipts on this route.
+
+`--stdin` selects the adapter's input mode but does not feed a packet. The same
+shell invocation must attach nonempty stdin by quoted heredoc, pipe, or input
+redirection; use the quoted-heredoc command in the audition plan as the
+canonical form. A process launch, shell quoting error, missing redirection, or
+empty stdin that produces no terminal receipt is a packet-dispatch failure,
+not evidence that HY3 failed. Reuse the same packet ID, objective, exact
+anchors, and receipt path, then retry the unchanged HY3-first route. Do not
+manually advance the fallback chain because packaging failed. The adapter may
+use its configured fallback only after it actually attempts `openrouter` /
+`tencent/hy3:free` and cannot complete the packet. Keep that fallback on a
+free route unless the human explicitly authorizes a paid model; replace the
+primary or fallback configuration when a provider's free window ends.
+"Cannot complete" means the terminal receipt records an HY3 provider exception
+or empty response in `prior_failures` or `attempts`; missing stdin,
+`NEED_CONTEXT`, and supervisor rejection of otherwise returned output do not
+automatically advance the route chain.
 
 Delegation is anchor-first and returns compact receipts. Provider failure,
 missing output, `NEED_CONTEXT`, retry, and fallback use are never hidden. Sol

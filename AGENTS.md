@@ -15,6 +15,12 @@ and the next explicit human decision.
 3. The browser is the unified brainstorm and status surface. It hosts a live status board on the left and a brainstorm chat panel on the right. Hermes remains the orchestration harness and bounded worker runtime; it is no longer the only brainstorm surface.
 4. Historical code and documents were removed from this checkout. Recover them only when a human explicitly requests archival recovery; do not recreate compatibility shims or older UI flows.
 
+Before any subagent planning, worker routing, dispatch, retry, fallback, or
+delegated integration, read the machine-wide
+[`SUBAGENT_RULEBOOK.md`](SUBAGENT_RULEBOOK.md). Its scope is general Codex
+building and usage. The repository-specific rules in this file and `docs/`
+supplement it only for work in this repository.
+
 ## Current Commands
 
 ```bash
@@ -58,9 +64,17 @@ architecture back into the active surface.
    model was selected when the surface does not expose that control.
 8. During the M1 local-role audition process, follow
    [docs/M1_LOCAL_ROLE_AUDITION_PLAN.md](docs/M1_LOCAL_ROLE_AUDITION_PLAN.md):
-   use Hermes `tencent/hy3:free` workers by default, record any failure or
-   fallback explicitly, and use `gpt-5.6-luna` only when HY3 cannot complete a
-   grounded packet. GPT-5.6 Sol remains responsible for integration and proof.
+   use Hermes `tencent/hy3:free` workers by default and record actual route,
+   tools, failures, and fallback. Tool-required packets use native
+   `delegate_task` with the smallest exact toolsets. Fully supplied text-only
+   packets may use the plan's durable-receipt adapter and exact quoted-heredoc
+   `--stdin` command; the flag alone does not feed the packet. If no terminal
+   receipt exists, retry the same packet and anchors on the unchanged HY3-first
+   route instead of manually skipping to a fallback. Use the initial free
+   attempt plus up to three corrected free retries before native Luna. Do not
+   check Luna availability or stop free work before that budget is exhausted.
+   Keep the configured fallback free unless the human explicitly authorizes a
+   paid route. GPT-5.6 Sol remains responsible for integration and proof.
 
 ## Verification
 

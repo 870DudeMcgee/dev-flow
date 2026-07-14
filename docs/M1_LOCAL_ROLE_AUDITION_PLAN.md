@@ -38,19 +38,76 @@ needed for final judgment. Sol should minimize production output that a bounded
 worker can safely produce.
 
 Hermes workers perform bounded discovery, compression, planning,
-implementation, test analysis, and independent review. The default worker is
-the synchronous bounded Hermes adapter. It resolves the free OpenRouter route,
-exposes no worker tools, permits one response turn, emits a terminal JSON
-receipt, and falls back to Luna only when HY3 fails. It has no default hard
-deadline; a caller may request one for a bounded smoke test:
+implementation, test analysis, and independent review. The default route for
+work that needs tools is native Hermes `delegate_task`, with only the toolsets
+required by that packet: `file_readonly` for live source scouting, `web` for
+external research, `file` plus `terminal` for an owned implementation slice,
+and `terminal` plus `file_readonly` for one exact test. Resolve HY3 through the
+configured worker lane/default and require returned provider, model, toolset,
+and tool-trace evidence; prompt text alone does not prove the route.
+
+The synchronous bounded HY3 adapter is reserved for fully supplied text-only
+packets that need a durable JSON receipt. It exposes no tools, permits one
+response turn, and retains ordered OpenRouter `:free` fallbacks when HY3 fails.
+Paid fallback requires explicit human authorization. Do not use it for source
+inspection, implementation, testing, or web research.
+
+Cost order is mandatory: free workers first, native Luna last. For each packet,
+make the initial grounded free attempt plus up to three corrected free retries.
+The adapter's ordered `:free` providers and corrected HY3 retries all remain
+ahead of Luna. A launch/packaging failure without a terminal provider receipt
+does not consume the retry budget. Only after the free budget is exhausted may
+Sol use the native Codex `luna` agent; Luna availability is not a preflight gate
+and must never stop or terminate free-worker progress.
+
+### Canonical HY3 stdin dispatch
+
+Use this quoted-heredoc form for multiline packets. `--stdin` only selects the
+input mode; the `<<'HERMES_PACKET' ... HERMES_PACKET` block is what actually
+feeds the packet. The quoted delimiter preserves source anchors literally.
+Use a stable, shell-safe packet ID:
 
 ```bash
+packet_id='<stable-packet-id>'
+receipt_path=".devflow/runtime/hermes-receipts/${packet_id}.json"
+
 /Users/jewelbait/.hermes/hermes-agent/venv/bin/python \
   /Users/jewelbait/.hermes/scripts/hermes_hy3_worker.py \
-  --packet-id '<stable packet ID>' \
-  --prompt '<bounded task packet>' \
-  --receipt-path '.devflow/runtime/hermes-receipts/<stable packet ID>.json'
+  --packet-id "$packet_id" \
+  --stdin \
+  --receipt-path "$receipt_path" <<'HERMES_PACKET'
+Packet ID: <same-stable-packet-id>
+Objective: <one bounded deliverable>
+Role: scout | compress | plan | build | review | reader-test
+Exact source anchors:
+- <file plus current symbol or text anchor>
+Allowed files or evidence:
+- <bounded list>
+Required output schema: <exact output shape>
+Acceptance evidence: <what must be cited or checked>
+Token/output cap: <bound>
+Forbidden actions: <explicit prohibitions>
+If context is insufficient: return NEED_CONTEXT with the missing anchor
+Next Action: <first concrete command or inspection>
+HERMES_PACKET
 ```
+
+Do not use `--stdin` without a pipe, heredoc, or `< packet-file` redirection.
+Do not pass both `--prompt` and `--stdin`. After exit, require a nonempty
+receipt at `$receipt_path`, verify its `packet_id`, and inspect `provider`,
+`model`, `status`, `fallback_used`, and `prior_failures`. Compare that durable
+receipt with the adapter's stdout JSON before accepting the result.
+
+If launch, quoting, or packet packaging fails before a receipt exists, no
+provider/model attempt is proven. Record a dispatch failure, then rerun this
+same command with the same packet ID, objective, exact anchors, output
+contract, receipt path, and enabled free fallback chain. Packaging failure does
+not authorize manually skipping HY3 or changing the packet. `NEED_CONTEXT`
+requires a better anchored packet and another HY3-first dispatch; it is not a
+provider failure. The adapter advances automatically only when the terminal
+receipt records an HY3 provider exception or empty response in
+`prior_failures` or `attempts`; weak but nonempty output remains supervisor
+review evidence and does not silently select another model.
 
 Fallback is never silent. The receipt must name the failed primary route, the
 failure reason, any retry, and the fallback that actually served the packet.
@@ -58,9 +115,10 @@ failure reason, any retry, and the fallback that actually served the packet.
 
 Do not use raw `hermes -z` / `--cli` calls as worker dispatch. That path loads
 the full CLI tool surface, auto-approves tools, and cannot receive the terminal
-result of Hermes's background-only top-level delegation. Use the adapter above
-for Codex and other nonpersistent callers. Native Hermes TUI delegation is
-separately pinned to HY3 with bounded child settings.
+result of Hermes's background-only top-level delegation. Use native
+`delegate_task` for tool-required work and the adapter above only for its
+text-only durable-receipt niche. Native Hermes delegation is pinned to HY3 by
+the active configuration; verify that route in every returned result.
 
 Use as many useful bounded Hermes workers as the task permits. Prefer parallel
 dispatch for independent packets only when Hermes returns distinct terminal
@@ -283,5 +341,5 @@ and no-semantic calibration contracts are implemented. Obtain explicit human
 approval for one ephemeral candidate lane, then perform exactly one serial
 identity-only calibration and validate its durable receipt before making any
 semantic matrix call. Do not alter `profiles.yaml`, the M4 registry/router, or
-normal runtime settings. Use HY3:FREE for bounded scout/review packets and Luna
-only for an explicitly recorded fallback.
+normal runtime settings. Use HY3:FREE for bounded scout/review packets and an
+ordered OpenRouter `:free` route only for an explicitly recorded fallback.
