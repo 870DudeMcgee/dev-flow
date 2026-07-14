@@ -352,10 +352,32 @@ snapshot, plan, packet graph, validator declarations, and required passing
 receipts match.
 Missing, stale, conflicting, corrupt, or wrong-run evidence fails closed.
 
-Packet scheduling, worktree sandboxes, idempotent advancement and durable
-claims, immutable patch integration, independent integration verification,
-final acceptance, and local result-branch creation remain later implementation
-phases; the Packet 1 hold must remain explicit until those surfaces exist.
+Phase 4 adds bounded packet and integration Git sandboxes rooted only at the
+exact Phase 3 authorized snapshot commit. Sandbox paths and immutable lifecycle
+receipts are run-scoped and traversal-safe; capacity, ownership conflicts,
+missing authorization or snapshot refs, malformed records, and unsafe cleanup
+all fail closed. Cleanup removes only positively identified run-owned linked
+worktrees and preserves the operator checkout, real index, branch, snapshot
+refs, and unrelated worktrees.
+
+Canonical packet execution advances only through the host-owned
+`advance_run(root, repo, run_id, command_id)` entry point. Immutable command and
+outcome records plus an append-only event ledger reconstruct durable claims,
+attempts, ready sets, heartbeats, owner-only terminal actions, cancellation,
+expired-lease recovery, and owner/route-preserving retries after restart. The
+complete deterministic ready set is persisted while the runtime permits at most
+one active packet. Packet state may reach the workflow ledger only through a
+fully typed `NodeReceipt` and `WorkflowEvent`; stage-only advancement remains
+rejected. The optional supervisor is stateless and repeat-only: it discovers
+already-persisted pending commands and calls `advance_run` without inventing
+commands, packets, claims, attempts, routes, evidence, recovery, cancellation,
+or success.
+
+Immutable patch retention/application, dependency-ordered integration,
+conflict repair, independent integration verification, final acceptance, and
+local result-branch creation remain later phases. Phase 4 integration
+worktrees are empty execution sandboxes only; no packet patches are applied
+there yet.
 
 ### 7. Verification and Next Human Decision
 

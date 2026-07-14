@@ -44,6 +44,12 @@ EXECUTION_CONTROL_FILE = "execution-control.json"
 _LEDGER_OWNED_FILES = frozenset(
     {"workflow-definition.json", "workflow-events.jsonl"}
 )
+# Advancement-owned records are persisted immutably by run_advancement.py
+# (O_EXCL + fsync) and must never be mutated through the generic record API.
+_ADVANCEMENT_OWNED_FILES = frozenset(
+    {"advancement-events.jsonl", "advancement-snapshot.json"}
+)
+_ADVANCEMENT_OWNED_PREFIX = "advancement-"
 _LAST_RUN_ID_BASE = ""
 _LAST_RUN_ID_COUNTER = 0
 
@@ -166,10 +172,17 @@ def load_pipeline_run(root: Path | str, run_id: str) -> Dict[str, Any]:
                 # unreadable before they classify the bad record.
                 result[child.name] = raw
         elif child.suffix == ".jsonl":
-            lines = child.read_text(encoding="utf-8").strip().splitlines()
-            result[child.name] = [
-                json.loads(line) for line in lines if line.strip()
-            ]
+            raw = child.read_text(encoding="utf-8")
+            lines = raw.strip().splitlines()
+            try:
+                result[child.name] = [
+                    json.loads(line) for line in lines if line.strip()
+                ]
+            except json.JSONDecodeError:
+                # Keep malformed persisted jsonl inspectable so downstream
+                # gates (e.g. advancement ledger replay) can fail closed with
+                # their own strict corruption error instead of exploding here.
+                result[child.name] = raw
         else:
             result[child.name] = child.read_text(encoding="utf-8")
 
@@ -194,6 +207,13 @@ def update_pipeline_run_record(
         raise ValueError(
             f"Authoritative workflow file {file_name!r} may only be changed "
             "through the workflow ledger API"
+        )
+    if file_name in _ADVANCEMENT_OWNED_FILES or file_name.startswith(
+        _ADVANCEMENT_OWNED_PREFIX
+    ):
+        raise ValueError(
+            f"Authoritative advancement file {file_name!r} may only be changed "
+            "through the advancement API (save_advancement_command / advance_run)"
         )
     if file_name.startswith("snapshot-") and file_name.endswith(".json"):
         raise ValueError(
