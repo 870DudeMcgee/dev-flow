@@ -195,6 +195,11 @@ def update_pipeline_run_record(
             f"Authoritative workflow file {file_name!r} may only be changed "
             "through the workflow ledger API"
         )
+    if file_name.startswith("snapshot-") and file_name.endswith(".json"):
+        raise ValueError(
+            f"Authoritative source snapshot file {file_name!r} may only be changed "
+            "through the source snapshot service"
+        )
 
     target = _validate_write_path(run_dir, file_name)
     if isinstance(content, (dict, list)):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -207,6 +209,16 @@ class ExecutionPlan(BaseModel):
         return self
 
 
+def execution_plan_hash(plan: ExecutionPlan) -> str:
+    """Return the deterministic SHA-256 binding for an authoritative plan."""
+    payload = json.dumps(
+        plan.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def render_execution_plan_markdown(plan: ExecutionPlan, narrative: str = "") -> str:
     """Render the human view from the authoritative typed plan."""
     lines = ["# Execution Plan", ""]
@@ -324,6 +336,7 @@ __all__ = [
     "ExecutionPlan",
     "ExecutionValidator",
     "ExecutionValidatorReceipt",
+    "execution_plan_hash",
     "load_execution_plan",
     "render_execution_plan_markdown",
     "run_execution_validators",

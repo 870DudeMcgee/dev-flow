@@ -10,6 +10,7 @@ from devflow.loop.execution_plan import (
     ExecutionPacket,
     ExecutionPlan,
     ExecutionValidator,
+    execution_plan_hash,
     load_execution_plan,
     run_execution_validators,
     save_execution_plan,
@@ -50,6 +51,17 @@ def test_execution_plan_round_trips_typed_authoritative_contract() -> None:
     assert restored.packets[1].depends_on == ["packet-01"]
     assert restored.validators[0].argv[:3] == ["python", "-m", "pytest"]
     assert restored.validators[0].network == "forbid"
+    assert execution_plan_hash(restored) == execution_plan_hash(plan)
+    assert len(execution_plan_hash(plan)) == 64
+
+
+def test_execution_plan_hash_changes_with_authoritative_content() -> None:
+    original = _valid_plan()
+    changed = original.model_copy(
+        update={"validators": [original.validators[0].model_copy(update={"timeout_seconds": 121})]}
+    )
+
+    assert execution_plan_hash(changed) != execution_plan_hash(original)
 
 
 def test_execution_plan_persists_as_authoritative_json(tmp_path: Path) -> None:

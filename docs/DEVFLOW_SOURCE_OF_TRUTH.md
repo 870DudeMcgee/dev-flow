@@ -329,17 +329,33 @@ Output: a verified or rejected implementation slice.
 The current canonical browser dispatch executes only the first approved packet,
 runs its typed deterministic validators before the model judge, persists their
 receipts, and exposes `remaining_packet_ids`. It never labels the complete plan
-finished. Phase 1 enforces the argv allowlist, relative cwd, timeout, empty
-extra-permission set, and `shell=False`; its `network=forbid` declaration is
-persisted policy evidence, not OS-level network isolation. New canonical runs
-now use the immutable `canonical_product_build@1` definition, an append-only
-workflow event ledger, immutable node receipts, deterministic replay, and a
-rebuildable snapshot whose `LoopStage` is only a compatibility/UI projection.
-Runs without the canonical marker retain their saved-state and inference path
-without migration. Packet scheduling, worktree sandboxes, immutable patch
-integration, independent integration verification, final acceptance, and local
-result-branch creation remain later implementation phases; the Packet 1 hold
-must remain explicit until those surfaces exist.
+finished. New canonical runs use the immutable `canonical_product_build@1`
+definition, append-only workflow event ledger, immutable node receipts,
+deterministic replay, and rebuildable snapshot whose `LoopStage` is only a
+compatibility/UI projection. Runs without the canonical marker retain their
+saved-state and inference path without migration.
+
+Phase 3 adds host-owned preparation gates beneath that canonical path. Source
+snapshots accept only explicitly selected repo-relative regular files, reject
+ignored and known-sensitive paths, bind the approved execution-plan hash, base
+commit, selected source-byte hashes, and create a deterministic internal commit
+through a temporary Git index and run-scoped ref without changing the operator
+checkout, real index, or branch. The host validates the packet DAG and derives a
+stable dependency-satisfied ready set. Typed validators execute allowlisted argv
+with relative cwd, bounded timeout, explicit no-network/no-extra-permission
+policy, `shell=False`, and immutable outcome receipts that distinguish spawn,
+timeout, nonzero, malformed-evidence, and pass states. The network and
+permission fields are fail-closed declarations and receipt evidence in Phase 3;
+they do not claim OS-level network isolation or privilege dropping. Execution is
+authorized only by an immutable deterministic host receipt after the exact
+snapshot, plan, packet graph, validator declarations, and required passing
+receipts match.
+Missing, stale, conflicting, corrupt, or wrong-run evidence fails closed.
+
+Packet scheduling, worktree sandboxes, idempotent advancement and durable
+claims, immutable patch integration, independent integration verification,
+final acceptance, and local result-branch creation remain later implementation
+phases; the Packet 1 hold must remain explicit until those surfaces exist.
 
 ### 7. Verification and Next Human Decision
 

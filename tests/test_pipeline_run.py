@@ -194,6 +194,21 @@ class TestUpdatePipelineRunRecord:
                 tmp_path, run_id, "/tmp/outside.txt", "bad"
             )
 
+    @pytest.mark.parametrize(
+        "file_name",
+        [
+            "workflow-definition.json",
+            "workflow-events.jsonl",
+            "snapshot-snap-1.json",
+        ],
+    )
+    def test_generic_persistence_cannot_overwrite_authoritative_phase_records(
+        self, tmp_path: Path, file_name: str
+    ) -> None:
+        run_id = create_pipeline_run(tmp_path, {"repo": "test"})
+        with pytest.raises(ValueError, match="Authoritative"):
+            update_pipeline_run_record(tmp_path, run_id, file_name, {})
+
 
 # ---------------------------------------------------------------------------
 # append_pipeline_event
