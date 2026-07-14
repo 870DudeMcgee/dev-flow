@@ -14,7 +14,12 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
-from devflow.loop.adapter import create_run_with_state, load_loop_state, save_loop_state
+from devflow.loop.adapter import (
+    advance_loop_state,
+    create_run_with_state,
+    load_loop_state,
+    save_loop_state,
+)
 from devflow.loop.builder_judge import (
     BuilderJudgeAssignment,
     prepare_builder_judge_assignment,
@@ -33,7 +38,7 @@ from devflow.loop.local_audition_host_gates import (
     ReviewResultInput,
     VerificationTestReceiptInput,
 )
-from devflow.loop.models import LoopStage, advance_stage
+from devflow.loop.models import LoopStage
 from devflow.loop.orient import run_orient
 from devflow.loop.planning_judge import PlanningEvidence, run_planning_judge
 from devflow.loop.reliability import record_reliability_report
@@ -84,7 +89,14 @@ def _assert_target_exists(root: Path, target_file: str) -> None:
 
 def _advance_and_save(root: Path, run_id: str, stage: LoopStage) -> LoopStage:
     state = load_loop_state(root, run_id)
-    state = advance_stage(state, stage)
+    evidence_by_stage = {
+        LoopStage.spec: {"orientation-receipt": "orient-result.json"},
+        LoopStage.planning: {"spec": "fixture-spec.md"},
+        LoopStage.planning_judge: {"execution-plan": "fixture-plan.md"},
+    }
+    state = advance_loop_state(
+        root, state, stage, evidence=evidence_by_stage[stage]
+    )
     save_loop_state(root, state)
     return state.stage
 

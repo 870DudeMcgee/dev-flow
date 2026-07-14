@@ -14,11 +14,10 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from devflow.loop.pipeline_run import update_pipeline_run_record
-from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
 from devflow.loop.models import (
     DevFlowLoopState,
     LoopStage,
-    advance_stage,
 )
 
 
@@ -223,14 +222,28 @@ def run_planning_judge(
 
     # Update state based on decision
     if report.decision == JudgeDecision.approve and state.stage == LoopStage.planning_judge:
-        state = advance_stage(state, LoopStage.assignment)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.assignment,
+            evidence={"planning-judge-report": "planning-judge.json"},
+        )
     elif report.decision == JudgeDecision.block:
-        state = advance_stage(state, LoopStage.blocked)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.blocked,
+            evidence={"planning-judge-report": "planning-judge.json"},
+        )
     elif report.decision == JudgeDecision.escalate_to_user:
-        state = state.model_copy(
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.blocked,
+            evidence={"planning-judge-report": "planning-judge.json"},
+        ).model_copy(
             update={
-                "stage": LoopStage.blocked,
-                "next_human_decision": "Make a human decision on the escalation constraints.",
+                "next_human_decision": "Make a human decision on the escalation constraints."
             }
         )
     # REVISE stays at planning_judge, no state change needed

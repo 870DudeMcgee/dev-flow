@@ -47,7 +47,7 @@ from devflow.loop.model_router import (
 from devflow.loop import builder_judge as bj
 from devflow.loop import planning_judge as pj
 from devflow.loop import verification as ver
-from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
 from devflow.loop.execution_plan import (
     ExecutionPacket,
     ExecutionPlan,
@@ -70,9 +70,10 @@ from devflow.loop.pipeline_run import (
     update_execution_control,
     write_worker_live_output,
 )
-from devflow.loop.models import LoopStage, advance_stage
+from devflow.loop.models import LoopStage
 from devflow.loop.model_routing_state import record_persisted_role_outcome
 from devflow.loop.roles import get_role, known_roles
+from devflow.loop.workflow_ledger import is_canonical_workflow_run
 
 
 DEFAULT_MAX_PLANNING_ROUNDS = 3
@@ -1178,11 +1179,13 @@ def _loop_exhausted(
     try:
         state = load_loop_state(root, run_id)
         if state.stage not in (LoopStage.complete, LoopStage.blocked):
-            state = state.model_copy(update={
-                "stage": LoopStage.human_decision,
-                "next_human_decision": next_action,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
+            updates = {"next_human_decision": next_action}
+            if not is_canonical_workflow_run(root, run_id):
+                updates.update({
+                    "stage": LoopStage.human_decision,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            state = state.model_copy(update=updates)
             save_loop_state(root, state)
     except Exception:
         pass
@@ -1946,13 +1949,27 @@ def _record_planning_judge_report(
     state = load_loop_state(root, run_id)
     state = state.model_copy(update={"planning_judge_path": "planning-judge.json"})
     if report.decision == pj.JudgeDecision.approve and state.stage == LoopStage.planning_judge:
-        state = advance_stage(state, LoopStage.assignment)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.assignment,
+            evidence={"planning-judge-report": "planning-judge.json"},
+        )
     elif report.decision == pj.JudgeDecision.block:
-        state = advance_stage(state, LoopStage.blocked)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.blocked,
+            evidence={"planning-judge-report": "planning-judge.json"},
+        )
     elif report.decision == pj.JudgeDecision.escalate_to_user:
-        state = state.model_copy(update={
-            "stage": LoopStage.blocked,
-            "next_human_decision": "Make a human decision on the planning judge escalation.",
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.blocked,
+            evidence={"planning-judge-report": "planning-judge.json"},
+        ).model_copy(update={
+            "next_human_decision": "Make a human decision on the planning judge escalation."
         })
     save_loop_state(root, state)
 
@@ -2104,8 +2121,11 @@ def run_planner(
     planning-judge.json and advances the stage on approve).
     """
     state = load_loop_state(root, run_id)
-    if state.stage != LoopStage.planning_judge:
-        raise ValueError(f"Expected planning_judge, got {state.stage.value}.")
+    canonical = is_canonical_workflow_run(root, run_id)
+    if state.stage != LoopStage.planning_judge and not (
+        canonical and state.stage == LoopStage.spec
+    ):
+        raise ValueError(f"Expected spec or planning_judge, got {state.stage.value}.")
 
     files_block = "\n".join(target_files or [])
     persisted_context = _planner_context_block(root, run_id)
@@ -2159,6 +2179,20 @@ def run_planner(
     )
     state = load_loop_state(root, run_id)
     state = state.model_copy(update={"spec_path": "spec.md", "plan_path": "plan.md"})
+    if canonical and state.stage == LoopStage.spec:
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.planning,
+            evidence={"spec": "spec.md"},
+        )
+        save_loop_state(root, state)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.planning_judge,
+            evidence={"execution-plan": "execution-plan.json"},
+        )
     save_loop_state(root, state)
 
     root_path = Path(root)

@@ -19,13 +19,41 @@ from devflow.control_room.server import (
     STAGE_ORDER,
     STAGE_LABELS,
 )
-from devflow.loop.adapter import load_loop_state
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
 from devflow.loop.models import LoopStage
+from devflow.loop.pipeline_run import update_pipeline_run_record
 
 
 @pytest.fixture
 def repo_root(tmp_path: Path) -> Path:
     return tmp_path
+
+
+def _advance_canonical_fixture(
+    root: Path, run_id: str, target: LoopStage
+) -> None:
+    chain = [
+        (LoopStage.definition, "idea-brief", "brainstorm.md"),
+        (LoopStage.spec, "orientation-receipt", "orient-result.json"),
+        (LoopStage.planning, "spec", "spec.md"),
+        (LoopStage.planning_judge, "execution-plan", "execution-plan.json"),
+        (LoopStage.assignment, "planning-judge-report", "planning-judge.json"),
+        (LoopStage.build_judge, "approved-execution-plan", "execution-plan.json"),
+    ]
+    for stage, evidence_key, evidence_file in chain:
+        if evidence_file not in {"brainstorm.md"}:
+            update_pipeline_run_record(root, run_id, evidence_file, {})
+        state = load_loop_state(root, run_id)
+        state = advance_loop_state(
+            root,
+            state,
+            stage,
+            evidence={evidence_key: evidence_file},
+        )
+        save_loop_state(root, state)
+        if stage == target:
+            return
+    raise AssertionError(f"unsupported fixture target: {target}")
 
 
 def test_start_session_creates_pipeline_run_at_idea(repo_root: Path) -> None:
@@ -131,7 +159,6 @@ def test_resumed_build_includes_last_capped_judge_feedback(
 ) -> None:
     """A human continue-work decision must not lose the decisive judge defect."""
     from types import SimpleNamespace
-    from devflow.loop.adapter import save_loop_state
     from devflow.loop.pipeline_run import update_pipeline_run_record
     from devflow.loop import execution
     from devflow.loop.execution_plan import (
@@ -142,10 +169,7 @@ def test_resumed_build_includes_last_capped_judge_feedback(
     )
 
     sid, run_id = brainstorm.start_session(repo_root, intent="Resume a capped build")
-    state = load_loop_state(repo_root, run_id).model_copy(
-        update={"stage": LoopStage.build_judge}
-    )
-    save_loop_state(repo_root, state)
+    _advance_canonical_fixture(repo_root, run_id, LoopStage.build_judge)
     update_pipeline_run_record(repo_root, run_id, "spec.md", "bounded spec")
     update_pipeline_run_record(repo_root, run_id, "plan.md", "bounded plan")
     update_pipeline_run_record(
@@ -203,7 +227,6 @@ def test_dispatch_to_build_uses_authoritative_first_packet_and_holds_remainder(
     from types import SimpleNamespace
 
     from devflow.loop import execution
-    from devflow.loop.adapter import save_loop_state
     from devflow.loop.execution_plan import (
         ExecutionPacket,
         ExecutionPlan,
@@ -213,10 +236,7 @@ def test_dispatch_to_build_uses_authoritative_first_packet_and_holds_remainder(
     from devflow.loop.pipeline_run import update_pipeline_run_record
 
     sid, run_id = brainstorm.start_session(repo_root, intent="Two packet plan")
-    state = load_loop_state(repo_root, run_id).model_copy(
-        update={"stage": LoopStage.assignment}
-    )
-    save_loop_state(repo_root, state)
+    _advance_canonical_fixture(repo_root, run_id, LoopStage.assignment)
     update_pipeline_run_record(repo_root, run_id, "spec.md", "typed spec")
     save_execution_plan(
         repo_root,
@@ -319,9 +339,9 @@ def test_status_extraction_reads_workers(repo_root: Path) -> None:
     sid, run_id = brainstorm.start_session(repo_root, intent="Workers test")
     from devflow.loop.adapter import load_loop_state, save_loop_state
     from devflow.loop.models import LoopStage
+    _advance_canonical_fixture(repo_root, run_id, LoopStage.build_judge)
     st = load_loop_state(repo_root, run_id)
     st = st.model_copy(update={
-        "stage": LoopStage.build_judge,
         "assignments": [
             {"task_id": "t1", "worker_id": "Ornith-35B", "role": "builder", "status": "active"},
         ],

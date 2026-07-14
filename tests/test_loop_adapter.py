@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from devflow.loop.pipeline_run import (
     create_pipeline_run,
     pipeline_runs_dir,
     update_pipeline_run_record,
 )
 from devflow.loop.adapter import (
+    advance_loop_state,
     create_run_with_state,
     infer_stage,
     load_loop_state,
@@ -214,3 +217,57 @@ class TestRoundTrip:
         save_loop_state(tmp_path, state)
         loaded = load_loop_state(tmp_path, run_id)
         assert loaded.spec_path == "/tmp/spec.md"
+
+
+class TestCanonicalLedgerProjection:
+    def test_new_runs_are_marked_canonical_and_replay_drives_stage(
+        self, tmp_path: Path
+    ) -> None:
+        run_id, state = create_run_with_state(tmp_path, {"repo": "test/repo"})
+        run_dir = pipeline_runs_dir(tmp_path) / run_id
+
+        assert (run_dir / "workflow-definition.json").is_file()
+        assert (run_dir / "workflow-events.jsonl").is_file()
+        assert state.stage == LoopStage.idea
+
+        advanced = advance_loop_state(
+            tmp_path,
+            state,
+            LoopStage.definition,
+            evidence={"idea-brief": "brainstorm.md"},
+        )
+        save_loop_state(tmp_path, advanced)
+        assert load_loop_state(tmp_path, run_id).stage == LoopStage.definition
+
+    def test_snapshot_and_saved_stage_cannot_advance_a_canonical_run(
+        self, tmp_path: Path
+    ) -> None:
+        run_id, state = create_run_with_state(tmp_path, {"repo": "test/repo"})
+        run_dir = pipeline_runs_dir(tmp_path) / run_id
+        (run_dir / "workflow-snapshot.json").write_text('{"stage":"complete"}')
+
+        with pytest.raises(ValueError, match="evidence-backed ledger event"):
+            save_loop_state(
+                tmp_path, state.model_copy(update={"stage": LoopStage.complete})
+            )
+
+        assert load_loop_state(tmp_path, run_id).stage == LoopStage.idea
+
+    def test_canonical_transition_requires_node_evidence(self, tmp_path: Path) -> None:
+        _, state = create_run_with_state(tmp_path, {"repo": "test/repo"})
+
+        with pytest.raises(ValueError, match="missing evidence"):
+            advance_loop_state(
+                tmp_path, state, LoopStage.definition, evidence={}
+            )
+
+    def test_old_runs_still_load_without_being_migrated(self, tmp_path: Path) -> None:
+        run_id = create_pipeline_run(tmp_path, {"repo": "legacy/repo"})
+        update_pipeline_run_record(
+            tmp_path, run_id, "brainstorm.md", "legacy brainstorm"
+        )
+
+        assert load_loop_state(tmp_path, run_id).stage == LoopStage.definition
+        assert not (
+            pipeline_runs_dir(tmp_path) / run_id / "workflow-definition.json"
+        ).exists()

@@ -27,6 +27,7 @@ from devflow.loop.pipeline_run import (
     load_pipeline_run,
     update_pipeline_run_record,
 )
+from devflow.loop.workflow_ledger import is_canonical_workflow_run
 
 TRANSCRIPT_FILE = "transcript.jsonl"
 SESSION_LINK_FILE = "pipeline-run-link.json"
@@ -230,7 +231,17 @@ def escalate_to_definition(
             f"# Definition of Done\n\n{definition_of_done}\n",
         )
 
-    state = advance_stage(state, LoopStage.definition)
+    if is_canonical_workflow_run(root, run_id):
+        from devflow.loop.adapter import advance_loop_state
+
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.definition,
+            evidence={"idea-brief": "brainstorm.md"},
+        )
+    else:
+        state = advance_stage(state, LoopStage.definition)
     save_loop_state(root, state)
     append_pipeline_event(root, run_id, {
         "event": "escalated_to_definition",
@@ -289,16 +300,32 @@ def dispatch_to_planning(
     # Advance through definition → spec → planning → planning_judge
     # The planner needs to be at planning_judge stage
     if state.stage == LoopStage.definition:
-        state = advance_stage(state, LoopStage.spec)
-        save_loop_state(root, state)
-        state = advance_stage(state, LoopStage.planning)
-        save_loop_state(root, state)
-        state = advance_stage(state, LoopStage.planning_judge)
-        save_loop_state(root, state)
+        if is_canonical_workflow_run(root, run_id):
+            from devflow.loop.adapter import advance_loop_state
 
-    if state.stage != LoopStage.planning_judge:
+            state = advance_loop_state(
+                root,
+                state,
+                LoopStage.spec,
+                evidence={"orientation-receipt": "orient-result.json"},
+            )
+            save_loop_state(root, state)
+        else:
+            state = advance_stage(state, LoopStage.spec)
+            save_loop_state(root, state)
+            state = advance_stage(state, LoopStage.planning)
+            save_loop_state(root, state)
+            state = advance_stage(state, LoopStage.planning_judge)
+            save_loop_state(root, state)
+
+    expected_stages = (
+        (LoopStage.spec, LoopStage.planning_judge)
+        if is_canonical_workflow_run(root, run_id)
+        else (LoopStage.planning_judge,)
+    )
+    if state.stage not in expected_stages:
         raise ValueError(
-            f"Expected planning_judge stage, got '{state.stage.value}'. "
+            f"Expected a planning-ready stage, got '{state.stage.value}'. "
             f"Call this right after escalate_to_definition."
         )
 

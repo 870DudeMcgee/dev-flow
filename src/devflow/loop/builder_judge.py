@@ -12,11 +12,10 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from devflow.loop.pipeline_run import update_pipeline_run_record
-from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
 from devflow.loop.models import (
     DevFlowLoopState,
     LoopStage,
-    advance_stage,
 )
 
 
@@ -99,7 +98,14 @@ def prepare_builder_judge_assignment(
 
     # Advance stage if needed
     if state.stage == LoopStage.assignment:
-        state = advance_stage(state, LoopStage.build_judge)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.build_judge,
+            evidence={
+                "approved-execution-plan": state.plan_path or "execution-plan.json"
+            },
+        )
 
     # Ensure builder_judge_runs is unique
     state = state.model_copy(
@@ -170,7 +176,12 @@ def record_builder_judge_result(
 
     # Advance or stay based on status
     if status == "passed":
-        state = advance_stage(state, LoopStage.verification)
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.verification,
+            evidence={"build-judge-report": link_evidence},
+        )
         state = state.model_copy(update={"builder_judge_passed": True})
 
     # Add builder_judge_run_id to state if not present

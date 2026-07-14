@@ -15,8 +15,8 @@ from typing import Optional
 from pydantic import BaseModel
 
 from devflow.loop.pipeline_run import load_pipeline_run, update_pipeline_run_record
-from devflow.loop.adapter import load_loop_state, save_loop_state
-from devflow.loop.models import DevFlowLoopState, LoopStage, advance_stage
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
+from devflow.loop.models import DevFlowLoopState, LoopStage
 from devflow.loop.reliability import (
     attest_verification_receipt,
     verification_attestation_name,
@@ -115,7 +115,12 @@ def record_verification_receipt(
     # verification so the operator sees the gate failure.
     if state.stage == LoopStage.verification:
         if receipt.status == VerificationStatus.passed and state.builder_judge_passed:
-            state = advance_stage(state, LoopStage.human_decision)
+            state = advance_loop_state(
+                root,
+                state,
+                LoopStage.human_decision,
+                evidence={"verification-receipt": receipt_path},
+            )
         elif receipt.status == VerificationStatus.passed:
             state = state.model_copy(update={
                 "next_human_decision": (
@@ -134,7 +139,12 @@ def record_verification_receipt(
             )
             state = state.model_copy(update={"next_human_decision": prompt})
         elif receipt.status == VerificationStatus.blocked:
-            state = advance_stage(state, LoopStage.blocked)
+            state = advance_loop_state(
+                root,
+                state,
+                LoopStage.blocked,
+                evidence={"verification-receipt": receipt_path},
+            )
             state = state.model_copy(
                 update={"next_human_decision": receipt.summary}
             )

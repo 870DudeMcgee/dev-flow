@@ -19,9 +19,8 @@ from devflow.loop.scout_discovery import AgentScoutDiscovery
 from devflow.loop.scout_discovery import (
     discover_agent_scout_context,
 )
-from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
 from devflow.loop.models import (
-    advance_stage,
     DevFlowLoopState,
     LoopStage,
 )
@@ -106,14 +105,19 @@ def run_orient(
     # Run scout discovery
     orient = orient_packet(root, run_id, handoff=handoff, files_to_touch=files_to_touch)
 
-    # If we're at idea stage and orient is ready, advance to definition
-    if state.stage == LoopStage.idea and orient.ready:
-        state = advance_stage(state, LoopStage.definition)
-        save_loop_state(root, state)
-
-    # Write orient evidence to pipeline run dir
+    # Persist the evidence before any authoritative transition references it.
     orient_json = orient.model_dump_json(indent=2, ensure_ascii=False)
     save_orient_evidence(root, run_id, orient_json)
+
+    # If we're at idea stage and orient is ready, advance to definition.
+    if state.stage == LoopStage.idea and orient.ready:
+        state = advance_loop_state(
+            root,
+            state,
+            LoopStage.definition,
+            evidence={"idea-brief": "intent.md"},
+        )
+        save_loop_state(root, state)
 
     return state, orient
 

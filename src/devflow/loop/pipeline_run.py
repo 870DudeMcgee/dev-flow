@@ -41,6 +41,9 @@ RUN_LOG_FILE = "run-log.jsonl"
 WORKER_FEED_FILE = "worker-feed.jsonl"
 WORKER_LIVE_FILE = "worker-live.json"
 EXECUTION_CONTROL_FILE = "execution-control.json"
+_LEDGER_OWNED_FILES = frozenset(
+    {"workflow-definition.json", "workflow-events.jsonl"}
+)
 _LAST_RUN_ID_BASE = ""
 _LAST_RUN_ID_COUNTER = 0
 
@@ -187,6 +190,11 @@ def update_pipeline_run_record(
     run_dir = _run_dir(root, run_id)
     if not run_dir.is_dir():
         raise FileNotFoundError(f"Pipeline run not found: {run_dir}")
+    if file_name in _LEDGER_OWNED_FILES:
+        raise ValueError(
+            f"Authoritative workflow file {file_name!r} may only be changed "
+            "through the workflow ledger API"
+        )
 
     target = _validate_write_path(run_dir, file_name)
     if isinstance(content, (dict, list)):

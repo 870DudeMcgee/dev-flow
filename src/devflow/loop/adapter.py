@@ -15,6 +15,16 @@ from devflow.loop.pipeline_run import (
     update_pipeline_run_record,
 )
 from devflow.loop.models import DevFlowLoopState, LoopStage, new_loop_state
+from devflow.loop.workflow_definition import canonical_product_build_v1
+from devflow.loop.workflow_ledger import (
+    EvidenceReference,
+    NodeReceipt,
+    WorkflowEvent,
+    initialize_workflow_run,
+    is_canonical_workflow_run,
+    record_node_outcome,
+    replay_workflow_run,
+)
 
 
 def infer_stage(run_data: dict) -> LoopStage:
@@ -65,6 +75,20 @@ def load_loop_state(root: Path | str, run_id: str) -> DevFlowLoopState:
     """Read the pipeline run directory and return a DevFlowLoopState."""
     data = load_pipeline_run(root, run_id)
 
+    if is_canonical_workflow_run(root, run_id):
+        snapshot = replay_workflow_run(root, run_id)
+        saved_state = data.get("loop-state.json")
+        try:
+            state = DevFlowLoopState.model_validate(saved_state)
+        except Exception:
+            state = new_loop_state(run_id)
+        return state.model_copy(
+            update={
+                "stage": snapshot.stage,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     # Try to load saved state from loop-state.json first
     saved_state = data.get("loop-state.json")
     if isinstance(saved_state, dict):
@@ -109,6 +133,9 @@ def _load_old_stage(root: Path | str, run_id: str) -> LoopStage:
     try:
         existing = load_pipeline_run(root, run_id)
         old_json = existing.get("loop-state.json")
+        if isinstance(old_json, dict):
+            old_state = DevFlowLoopState.model_validate(old_json)
+            return old_state.stage
         if isinstance(old_json, str) and old_json.strip():
             old_state = DevFlowLoopState.model_validate_json(old_json)
             return old_state.stage
@@ -120,6 +147,14 @@ def _load_old_stage(root: Path | str, run_id: str) -> LoopStage:
 
 def save_loop_state(root: Path | str, state: DevFlowLoopState) -> None:
     """Write the loop state back to the pipeline run directory."""
+    canonical = is_canonical_workflow_run(root, state.run_id)
+    if canonical:
+        authoritative_stage = replay_workflow_run(root, state.run_id).stage
+        if state.stage != authoritative_stage:
+            raise ValueError(
+                "canonical workflow stage cannot advance without an "
+                "evidence-backed ledger event"
+            )
     old_stage = _load_old_stage(root, state.run_id)
 
     # Serialize and write loop-state.json
@@ -146,7 +181,7 @@ def save_loop_state(root: Path | str, state: DevFlowLoopState) -> None:
         update_pipeline_run_record(root, state.run_id, "artifacts.json", artifact_data)
 
     # Append stage-change event if the stage actually changed
-    if old_stage != state.stage:
+    if not canonical and old_stage != state.stage:
         event = {
             "event": "stage_changed",
             "from": old_stage.value,
@@ -160,5 +195,69 @@ def create_run_with_state(
 ) -> tuple[str, DevFlowLoopState]:
     """Convenience: create a pipeline run AND return its initial loop state."""
     run_id = create_pipeline_run(root, source)
+    initialize_workflow_run(root, run_id)
     state = load_loop_state(root, run_id)
     return (run_id, state)
+
+
+def advance_loop_state(
+    root: Path | str,
+    state: DevFlowLoopState,
+    new_stage: LoopStage,
+    *,
+    evidence: dict[str, str],
+) -> DevFlowLoopState:
+    """Advance a canonical run through one validated evidence-backed edge.
+
+    Legacy runs retain the historical ``LoopStage`` transition behavior so old
+    persisted runs remain readable and operable without silent migration.
+    """
+
+    if not is_canonical_workflow_run(root, state.run_id):
+        from devflow.loop.models import advance_stage
+
+        return advance_stage(state, new_stage)
+
+    snapshot = replay_workflow_run(root, state.run_id)
+    if state.stage != snapshot.stage:
+        raise ValueError("supplied loop state does not match authoritative replay")
+    definition = canonical_product_build_v1()
+    matching = [
+        edge
+        for edge in definition.edges
+        if edge.source == snapshot.current_node_id
+        and next(node.stage for node in definition.nodes if node.id == edge.target)
+        == new_stage
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            f"canonical workflow has no transition from {state.stage.value!r} "
+            f"to {new_stage.value!r}"
+        )
+    edge = matching[0]
+    ordinal = len(snapshot.completed_node_ids) + 1
+    suffix = f"{ordinal:02d}-{snapshot.current_node_id}-{edge.outcome}"
+    receipt = NodeReceipt(
+        receipt_id=f"receipt-{suffix}",
+        node_id=snapshot.current_node_id,
+        outcome=edge.outcome,
+        evidence=tuple(
+            EvidenceReference(key=key, reference=reference)
+            for key, reference in sorted(evidence.items())
+        ),
+    )
+    event = WorkflowEvent(
+        event_id=f"event-{suffix}",
+        node_id=snapshot.current_node_id,
+        outcome=edge.outcome,
+        receipt_id=receipt.receipt_id,
+    )
+    projected = record_node_outcome(
+        root, state.run_id, receipt=receipt, event=event
+    )
+    return state.model_copy(
+        update={
+            "stage": projected.stage,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )

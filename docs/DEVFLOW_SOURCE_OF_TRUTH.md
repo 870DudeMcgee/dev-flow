@@ -331,12 +331,15 @@ runs its typed deterministic validators before the model judge, persists their
 receipts, and exposes `remaining_packet_ids`. It never labels the complete plan
 finished. Phase 1 enforces the argv allowlist, relative cwd, timeout, empty
 extra-permission set, and `shell=False`; its `network=forbid` declaration is
-persisted policy evidence, not OS-level network isolation. Packet scheduling,
-an append-only workflow ledger, frozen snapshots,
-worktree sandboxes, immutable patch integration, independent integration
-verification, final acceptance, and local result-branch creation remain later
-implementation phases; the Packet 1 hold must remain explicit until those
-surfaces exist.
+persisted policy evidence, not OS-level network isolation. New canonical runs
+now use the immutable `canonical_product_build@1` definition, an append-only
+workflow event ledger, immutable node receipts, deterministic replay, and a
+rebuildable snapshot whose `LoopStage` is only a compatibility/UI projection.
+Runs without the canonical marker retain their saved-state and inference path
+without migration. Packet scheduling, worktree sandboxes, immutable patch
+integration, independent integration verification, final acceptance, and local
+result-branch creation remain later implementation phases; the Packet 1 hold
+must remain explicit until those surfaces exist.
 
 ### 7. Verification and Next Human Decision
 

@@ -20,7 +20,7 @@ from devflow.loop.pipeline_run import (
     load_pipeline_run,
     update_pipeline_run_record,
 )
-from devflow.loop.adapter import load_loop_state, save_loop_state
+from devflow.loop.adapter import advance_loop_state, load_loop_state, save_loop_state
 from devflow.loop.local_audition_host_gates import (
     FinalDecisionInputs,
     classify_final_decision,
@@ -29,6 +29,7 @@ from devflow.loop.local_audition_host_gates import (
 )
 from devflow.loop.models import DevFlowLoopState, LoopStage
 from devflow.loop.model_routing_state import record_run_human_feedback
+from devflow.loop.workflow_ledger import is_canonical_workflow_run
 
 
 FINAL_DECISION_RECEIPT_FILE = "final-decision-receipt.json"
@@ -160,6 +161,17 @@ def record_human_decision(
                 f"is {receipt['decision']}/{receipt['next_action']}."
             )
 
+    canonical = is_canonical_workflow_run(root, record.run_id)
+    if canonical and record.decision not in {
+        HumanDecision.accept,
+        HumanDecision.complete,
+        HumanDecision.block,
+    }:
+        raise ValueError(
+            "canonical_product_build@1 does not permit reverse or retry "
+            "transitions after human_decision"
+        )
+
     # Write record JSON into the pipeline run directory
     record_file_name = f"human-decision-{record.decision_id}.json"
     record_json = record.model_dump_json(indent=2, ensure_ascii=False)
@@ -175,9 +187,17 @@ def record_human_decision(
     # Transition based on decision — bypass advance_stage for reverse
     # transitions (revise_*), which the canonical transition map doesn't allow.
     if record.decision == HumanDecision.block:
-        state = state.model_copy(
-            update={"stage": LoopStage.blocked, "updated_at": datetime.now(timezone.utc).isoformat()}
-        )
+        if canonical:
+            state = advance_loop_state(
+                root,
+                state,
+                LoopStage.blocked,
+                evidence={"human-decision": record_file_name},
+            )
+        else:
+            state = state.model_copy(
+                update={"stage": LoopStage.blocked, "updated_at": datetime.now(timezone.utc).isoformat()}
+            )
         state = state.model_copy(update={"next_human_decision": record.summary})
     elif record.decision == HumanDecision.continue_work:
         if record.next_stage is not None:
@@ -202,12 +222,20 @@ def record_human_decision(
             )
     elif record.decision in _DECISION_STAGE_MAP:
         target = _DECISION_STAGE_MAP[record.decision]
-        state = state.model_copy(
-            update={
-                "stage": target,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        if canonical:
+            state = advance_loop_state(
+                root,
+                state,
+                target,
+                evidence={"human-decision": record_file_name},
+            )
+        else:
+            state = state.model_copy(
+                update={
+                    "stage": target,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
     save_loop_state(root, state)
     try:
