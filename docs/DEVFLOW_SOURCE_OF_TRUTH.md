@@ -391,6 +391,28 @@ to the Phase 6 `human_decision` boundary. Deterministic final acceptance,
 reliability reporting, human acceptance, and local result-branch creation remain
 Phase 6 work.
 
+Phase 6 records the operator decision as a typed immutable `DecisionReceipt`
+(`accept` / `reject` / `request_changes`) bound to the exact clean
+integration head/tree/fingerprint and a currently valid passing independent
+`integration_verification` receipt (its canonical SHA-256 must match). The
+loop itself never self-accepts: `accept` only sets `promotion_eligible`; it
+authorizes but does not by itself complete the loop or create/move any branch.
+`reject` and `request_changes` create or move no branch. A real local branch
+`refs/heads/devflow/results/<run_id>` is created create-only via the host-owned
+`git update-ref` (shell=False) pointing only at the exact verified integration
+head; `run_id` must pass the ref-safe regex `^[A-Za-z0-9][A-Za-z0-9._-]*$` and
+the full shorthand must pass host-owned `git check-ref-format --branch`, and a
+pre-existing branch at a different commit fails closed (no force move). The
+immutable `PromotionCommand` is persisted before the side effect and the
+`PromotionReceipt` after it; exact replay is idempotent and crash
+recovery reconstructs the receipt before the ref without moving or rewriting
+canonical authority. The repeat-only supervisor stops at `human_decision`,
+discovers nothing past it, and never self-accepts/promotes, touches `main`,
+checks out, merges, pushes, opens a PR, or deploys. Push/PR preparation and
+deployment authorization are separate, strict, disabled-by-default human
+boundaries (frozen typed commands with `enabled=False`) that the supervisor may
+not execute or synthesize and that have no Phase 6 side effects.
+
 ### 7. Verification and Next Human Decision
 
 DevFlow must always be able to answer:

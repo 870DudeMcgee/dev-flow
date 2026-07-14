@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import fcntl
 from contextlib import contextmanager
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Iterator
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from devflow.loop.models import LoopStage
 from devflow.loop.pipeline_run import pipeline_runs_dir
@@ -26,6 +29,10 @@ WORKFLOW_EVENTS_FILE = "workflow-events.jsonl"
 WORKFLOW_RECEIPTS_DIR = "workflow-receipts"
 WORKFLOW_SNAPSHOT_FILE = "workflow-snapshot.json"
 _ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+_DECISION_SHA256 = r"^[0-9a-f]{64}$"
+_DECISION_GIT_SHA = r"^[0-9a-f]{40,64}$"
+DECISION_RECEIPTS_DIR = "decision-receipts"
+DECISION_EVENTS_FILE = "decision-events.jsonl"
 
 
 class EvidenceReference(BaseModel):
@@ -68,6 +75,66 @@ class WorkflowSnapshot(BaseModel):
     current_node_id: str
     stage: LoopStage
     completed_node_ids: tuple[str, ...] = ()
+
+
+class DecisionType(str, Enum):
+    """Operator decision type at the human_decision boundary.
+
+    Separate from the legacy :class:`HumanDecision` enum in
+    ``human_decision.py`` and intentionally does not alter any of its members
+    or behavior. Only ``accept`` makes the work promotion-eligible.
+    """
+
+    accept = "accept"
+    reject = "reject"
+    request_changes = "request_changes"
+
+
+class DecisionReceipt(BaseModel):
+    """Immutable operator decision binding the verified integration state.
+
+    The receipt binds the run, the integration worktree head/tree/fingerprint,
+    the independent verification receipt id and its canonical sha256 hash, the
+    actor, the decision type, and a UTC-aware timestamp. It is persisted
+    immutably (O_EXCL + 0o444) and replayable.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    decision_id: str = Field(pattern=_ID_PATTERN)
+    run_id: str = Field(pattern=_ID_PATTERN)
+    integration_id: str = Field(pattern=_ID_PATTERN)
+    integration_head: str = Field(pattern=_DECISION_GIT_SHA)
+    integration_tree: str = Field(pattern=_DECISION_GIT_SHA)
+    integration_fingerprint: str = Field(pattern=_DECISION_SHA256)
+    verification_receipt_id: str = Field(pattern=_ID_PATTERN)
+    verification_receipt_hash: str = Field(pattern=_DECISION_SHA256)
+    actor: str = Field(min_length=1)
+    decision_type: DecisionType
+    promotion_eligible: bool
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def _check_promotion_eligibility(self) -> "DecisionReceipt":
+        if self.decision_type == DecisionType.accept and not self.promotion_eligible:
+            raise ValueError("accept decisions must be promotion_eligible")
+        if self.decision_type != DecisionType.accept and self.promotion_eligible:
+            raise ValueError(
+                "only accept decisions may be promotion_eligible"
+            )
+        return self
+
+
+class DecisionEvent(BaseModel):
+    """One ordered, append-only event linking a decision to its receipt."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_id: str = Field(pattern=_ID_PATTERN)
+    decision_id: str = Field(pattern=_ID_PATTERN)
+    node_id: Literal["human_decision"]
+    outcome: Literal["accept", "reject", "request_changes"]
+    receipt_id: str = Field(pattern=_ID_PATTERN)
 
 
 def _run_dir(root: Path | str, run_id: str) -> Path:
@@ -364,14 +431,204 @@ def record_node_outcome(
         return rebuilt
 
 
+def _load_decision_receipt(run_dir: Path, decision_id: str) -> DecisionReceipt:
+    path = run_dir / DECISION_RECEIPTS_DIR / f"{decision_id}.json"
+    try:
+        receipt = DecisionReceipt.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"decision receipt {decision_id!r} is missing or corrupt") from exc
+    if receipt.decision_id != decision_id:
+        raise ValueError(f"decision receipt filename does not match {decision_id!r}")
+    return receipt
+
+
+# ---------------------------------------------------------------------------
+# Phase 6A — typed immutable human-decision authority
+# ---------------------------------------------------------------------------
+def record_decision(
+    root: Path | str,
+    receipt: DecisionReceipt,
+    *,
+    repo: Path | str,
+    event_id: str | None = None,
+) -> DecisionReceipt:
+    """Persist an immutable operator decision and append one ordered event.
+
+    Reuses the Phase 5 authority to fail closed before any terminal state is
+    exposed:
+
+    * the integration worktree must be clean (not dirty/stale/mismatched) and
+      its live ``head``/``tree``/``fingerprint`` must match the receipt;
+    * the bound independent verification receipt must be present, non-corrupt,
+      passing, and of the ``integration_verification`` family;
+    * the bound verification receipt's canonical sha256 must equal
+      ``receipt.verification_receipt_hash``.
+
+    Persistence is immutable (O_EXCL + 0o444) and the ordered event is fsync'd
+    to ``decision-events.jsonl`` *before* the receipt file is exposed. Identical
+    replay returns the existing receipt; a conflicting replay fails closed.
+
+    ``accept`` sets ``promotion_eligible`` only. It does not complete the loop,
+    create or move a result branch, or mutate ``main``. ``reject`` and
+    ``request_changes`` are non-promoting and non-completing and create/move no
+    branch.
+    """
+    from devflow.loop.run_integration import (
+        IntegrationError,
+        IntegrationVerificationReceipt,
+        load_integration_snapshot,
+        load_sandbox_receipt,
+    )
+
+    if receipt.decision_type == DecisionType.accept and not receipt.promotion_eligible:
+        raise ValueError("accept decisions must be promotion_eligible")
+    if receipt.decision_type != DecisionType.accept and receipt.promotion_eligible:
+        raise ValueError("only accept decisions may be promotion_eligible")
+
+    run_dir = _run_dir(root, receipt.run_id)
+    with _ledger_lock(run_dir, exclusive=True):
+        # --- Phase 5 integration worktree checks (reused, never weakened) ---
+        state = load_integration_snapshot(root, receipt.run_id)
+        if state.integration_id != receipt.integration_id:
+            raise ValueError(
+                "decision is bound to a different integration id than the run"
+            )
+        if state.sandbox_id is None:
+            raise ValueError("integration worktree has not been created")
+        sandbox = load_sandbox_receipt(root, receipt.run_id, state.sandbox_id)
+        worktree = Path(sandbox.path).resolve()
+        if not worktree.is_dir():
+            raise ValueError("integration worktree is missing")
+        from devflow.loop.run_integration import _status_paths, _current_git_state
+
+        if _status_paths(worktree):
+            raise ValueError("integration worktree is dirty")
+        live_head, live_tree = _current_git_state(worktree)
+        if (live_head, live_tree) != (receipt.integration_head, receipt.integration_tree):
+            raise ValueError(
+                "integration worktree head/tree does not match the decision receipt"
+            )
+        if state.fingerprint != receipt.integration_fingerprint:
+            raise ValueError(
+                "integration fingerprint does not match the decision receipt"
+            )
+
+        # --- Phase 5 independent verification receipt checks (reused) ---
+        verification_path = (
+            run_dir / "integration-verification-receipts" / f"{receipt.verification_receipt_id}.json"
+        )
+        try:
+            verification = IntegrationVerificationReceipt.model_validate_json(
+                verification_path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                "bound integration verification receipt is missing or corrupt"
+            ) from exc
+        if verification.receipt_id != receipt.verification_receipt_id:
+            raise ValueError(
+                "integration verification receipt filename does not match its id"
+            )
+        if verification.run_id != receipt.run_id:
+            raise ValueError(
+                "integration verification receipt is bound to a different run"
+            )
+        if verification.integration_id != receipt.integration_id:
+            raise ValueError(
+                "integration verification receipt is bound to a different integration"
+            )
+        if verification.verdict != "pass":
+            raise ValueError(
+                "decision cannot bind a non-passing integration verification receipt"
+            )
+        try:
+            verification_sha256 = hashlib.sha256(
+                json.dumps(
+                    verification.model_dump(mode="json"),
+                    indent=2,
+                    sort_keys=True,
+                ).encode()
+                + b"\n"
+            ).hexdigest()
+        except IntegrationError as exc:  # pragma: no cover - defensive
+            raise ValueError(
+                "bound integration verification receipt is corrupt"
+            ) from exc
+        if verification_sha256 != receipt.verification_receipt_hash:
+            raise ValueError(
+                "integration verification receipt hash does not match the decision receipt"
+            )
+
+        receipts_dir = run_dir / DECISION_RECEIPTS_DIR
+        receipts_dir.mkdir(mode=0o755, exist_ok=True)
+        receipt_path = receipts_dir / f"{receipt.decision_id}.json"
+
+        if receipt_path.exists():
+            existing = _load_decision_receipt(run_dir, receipt.decision_id)
+            if existing == receipt:
+                return existing
+            raise ValueError(
+                f"conflicting decision receipt replay for {receipt.decision_id!r}"
+            )
+
+        resolved_event_id = event_id or f"decision-{receipt.decision_id}"
+        events_path = run_dir / DECISION_EVENTS_FILE
+        if events_path.exists():
+            for line in events_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    recorded = DecisionEvent.model_validate_json(line)
+                except ValueError:
+                    continue
+                if recorded.receipt_id == receipt.decision_id:
+                    raise ValueError(
+                        f"duplicate decision event for receipt {receipt.decision_id!r}"
+                    )
+
+        event = DecisionEvent(
+            event_id=resolved_event_id,
+            decision_id=receipt.decision_id,
+            node_id="human_decision",
+            outcome=receipt.decision_type.value,  # type: ignore[arg-type]
+            receipt_id=receipt.decision_id,
+        )
+
+        # Ordered event appended and fsync'd BEFORE the terminal receipt is exposed.
+        try:
+            with events_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    json.dumps(event.model_dump(mode="json"), sort_keys=True) + "\n"
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+        except Exception:
+            raise
+
+        receipt_payload = (
+            json.dumps(receipt.model_dump(mode="json"), indent=2, sort_keys=True).encode()
+            + b"\n"
+        )
+        try:
+            _write_exclusive(receipt_path, receipt_payload)
+        except Exception:
+            events_path.unlink(missing_ok=True)
+            raise
+        return receipt
+
+
 __all__ = [
     "EvidenceReference",
     "NodeReceipt",
     "WorkflowEvent",
     "WorkflowSnapshot",
+    "DecisionType",
+    "DecisionReceipt",
+    "DecisionEvent",
     "is_canonical_workflow_run",
     "initialize_workflow_run",
     "rebuild_workflow_snapshot",
     "record_node_outcome",
+    "record_decision",
     "replay_workflow_run",
 ]

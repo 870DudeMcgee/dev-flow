@@ -29,7 +29,11 @@ from devflow.loop.local_audition_host_gates import (
 )
 from devflow.loop.models import DevFlowLoopState, LoopStage
 from devflow.loop.model_routing_state import record_run_human_feedback
-from devflow.loop.workflow_ledger import is_canonical_workflow_run
+from devflow.loop.workflow_ledger import (
+    DecisionReceipt,
+    is_canonical_workflow_run,
+    record_decision,
+)
 
 
 FINAL_DECISION_RECEIPT_FILE = "final-decision-receipt.json"
@@ -253,3 +257,19 @@ def record_human_decision(
             "error": str(exc),
         })
     return (state, record)
+
+
+def record_operator_decision(
+    root: Path | str,
+    receipt: DecisionReceipt,
+    *,
+    repo: Path | str,
+    event_id: str | None = None,
+) -> DecisionReceipt:
+    """Record a typed immutable operator decision (Phase 6A authority).
+
+    Thin wrapper over :func:`workflow_ledger.record_decision`. The legacy
+    :class:`HumanDecision` enum and :func:`record_human_decision` paths are
+    untouched; this is a separate, independently-replayable authority.
+    """
+    return record_decision(root, receipt, repo=repo, event_id=event_id)

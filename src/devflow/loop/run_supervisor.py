@@ -31,12 +31,15 @@ Contract (cpb4-supervisor-build-r0):
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from devflow.loop.adapter import load_loop_state
+from devflow.loop.models import LoopStage
 from devflow.loop.run_advancement import (
     AdvanceAction,
     AdvanceOutcome,
@@ -52,6 +55,15 @@ from devflow.loop.run_integration import (
     integrate_run,
 )
 
+# Reserved authority prefixes owned solely by P6-A/P6-B (workflow_ledger.record_decision
+# via the 'decision-' owned prefix, and result_branch via the 'promotion-command-' /
+# 'promotion-' owned prefixes). The supervisor MUST never author, accept, redispatch,
+# or synthesize a command that targets these reserved namespaces. A repeat-only
+# supervisor is permitted to act ONLY on already-immutable advancement-command and
+# integration-command records it discovers.
+_RESERVED_DECISION_PREFIX = "decision-"
+_RESERVED_PROMOTION_PREFIX = "promotion-"
+
 __all__ = [
     "SupervisorCycleResult",
     "pending_command_ids",
@@ -59,11 +71,108 @@ __all__ = [
     "IntegrationSupervisorCycleResult",
     "pending_integration_command_ids",
     "run_integration_supervisor_cycle",
+    "phase6_reached_human_decision",
+    "PushPrepareAuthorization",
+    "DeployAuthorization",
+    "PushPrepareCommand",
+    "DeployAuthorizeCommand",
 ]
 
 _MAX_COMMANDS_MIN = 1
 _MAX_COMMANDS_MAX = 64
 _COMMAND_DIR = "advancement-commands"
+
+# The authoritative final node the supervisor must never cross automatically.
+# After independent verification passes, the run parks at ``human_decision``;
+# acceptance, rejection, request_changes, and result promotion are explicit
+# external human-command actions that the supervisor may only *discover and
+# redispatch* as already-immutable commands — it never synthesizes them.
+_HUMAN_DECISION_STAGE = LoopStage.human_decision
+
+_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+
+
+def phase6_reached_human_decision(root: Path | str, run_id: str) -> bool:
+    """Return True once the run has parked at the explicit ``human_decision`` stage.
+
+    The supervisor uses this to enforce the hard human boundary: no redispatch,
+    repeat, or restart path may cross ``human_decision`` automatically. Once the
+    loop reaches ``human_decision`` the only legal progress is an explicit
+    external human command (accept / reject / request_changes / promotion), which
+    the supervisor never authors or simulates.
+    """
+    try:
+        state = load_loop_state(root, run_id)
+    except FileNotFoundError:
+        return False
+    return state.stage == _HUMAN_DECISION_STAGE
+
+
+# ---------------------------------------------------------------------------
+# Strict typed, disabled-by-default human-authorization boundaries (P6-C)
+# ---------------------------------------------------------------------------
+class PushPrepareAuthorization(str, Enum):
+    """Closed set of explicit push/PR-preparation authorizations.
+
+    Distinct from acceptance and promotion. The supervisor never performs any
+    push/PR side effect; this is a reserved command/boundary that is disabled by
+    default and only ever actioned by an explicit external human command.
+    """
+
+    prepare_push = "prepare_push"
+    prepare_pr = "prepare_pr"
+
+
+class DeployAuthorization(str, Enum):
+    """Closed set of explicit deployment authorizations.
+
+    Distinct from acceptance, promotion, and push/PR preparation. The supervisor
+    never performs any deployment side effect; this is a reserved command/boundary
+    that is disabled by default and only ever actioned by an explicit external
+    human command.
+    """
+
+    deploy = "deploy"
+
+
+class PushPrepareCommand(BaseModel):
+    """Immutable, disabled-by-default push/PR-preparation authorization command.
+
+    Strict typed frozen model following the live strict-model conventions used by
+    the surrounding Phase 5/6 code (extra="forbid", frozen=True, ref-safe id
+    patterns). It carries NO side-effect implementation: preparation of a push or
+    PR is a separate, distinct human-authorization boundary that the supervisor
+    must never execute or synthesize on its own. ``enabled`` is False by default
+    so the boundary is inert unless an explicit external human command enables it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: str = Field(pattern=_ID_PATTERN)
+    run_id: str = Field(pattern=_ID_PATTERN)
+    authorization: PushPrepareAuthorization
+    enabled: bool = False
+    actor: str = Field(default="", min_length=0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DeployAuthorizeCommand(BaseModel):
+    """Immutable, disabled-by-default deployment-authorization command.
+
+    Strict typed frozen model, distinct from acceptance, promotion, and
+    push/PR preparation. It carries NO deployment side effect: deployment
+    authorization is a separate human-authorization boundary that the supervisor
+    must never execute or synthesize on its own. ``enabled`` is False by default.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command_id: str = Field(pattern=_ID_PATTERN)
+    run_id: str = Field(pattern=_ID_PATTERN)
+    authorization: DeployAuthorization
+    enabled: bool = False
+    actor: str = Field(default="", min_length=0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SupervisorCycleResult(BaseModel):
@@ -113,6 +222,24 @@ def _command_store(root: Path | str, run_id: str) -> Optional[Path]:
     return run_dir / _COMMAND_DIR
 
 
+def _command_is_reserved(command_id: str) -> Optional[str]:
+    """Return the reserved authority prefix a command id targets, or None.
+
+    The supervisor is strictly repeat-only: it may act ONLY on already-immutable
+    advancement-command and integration-command records it discovers. Any command
+    id whose filename targets a reserved P6-A/P6-B namespace (``decision-`` /
+    ``promotion-``) is a reserved-authority command the supervisor is forbidden
+    from authoring, accepting, redispatching, or synthesizing. Such ids must never
+    appear in the advancement-commands store the supervisor drives; if one does,
+    discovery fails closed.
+    """
+    if command_id.startswith(_RESERVED_DECISION_PREFIX):
+        return _RESERVED_DECISION_PREFIX
+    if command_id.startswith(_RESERVED_PROMOTION_PREFIX):
+        return _RESERVED_PROMOTION_PREFIX
+    return None
+
+
 def pending_command_ids(root: Path | str, run_id: str) -> list[str]:
     """Stable sorted pending command ids with no valid immutable outcome.
 
@@ -146,6 +273,21 @@ def pending_command_ids(root: Path | str, run_id: str) -> list[str]:
                 f"unexpected non-JSON file in advancement-commands store: {child.name!r}"
             )
         command_id = child.stem
+        # Reserved P6-A/P6-B authority commands (decision-*/promotion-*) are
+        # forbidden inside the repeat-only supervisor store: the supervisor may
+        # never author, accept, redispatch, or synthesize such commands. If one
+        # appears, fail closed rather than treat it as a dispatchable command.
+        reserved = _command_is_reserved(command_id)
+        if reserved is not None:
+            raise ValueError(
+                f"supervisor command {command_id!r} targets reserved authority "
+                f"prefix {reserved!r}; the repeat-only supervisor may not act on "
+                f"reserved human-decision or result-branch authority"
+            )
+        # Hard human boundary: once the run has parked at human_decision, no
+        # redispatch/repeat path may cross it automatically. Discovery stops.
+        if phase6_reached_human_decision(root, run_id):
+            break
         # Validates the command filename/id and the full record; raises on
         # malformed/missing/corrupt or path-mismatch.
         load_advancement_command(root, run_id, command_id)
@@ -202,13 +344,29 @@ def run_supervisor_cycle(
     :class:`ValueError`. Advancement errors are not caught or hidden: any
     exception from ``advance_run`` propagates to the caller.
 
-    Passing ``now`` forwards the same host time to ``advance_run`` only when
-    supplied (otherwise each call uses its own ``advance_run`` default).
+    The supervisor is strictly repeat-only. It calls exactly ``advance_run``
+    for already-immutable commands it discovers; it NEVER calls
+    ``record_decision`` or ``create_result_ref`` and never synthesizes human
+    acceptance. Once the run has parked at ``human_decision`` (the hard human
+    boundary) discovery returns nothing, so no redispatch/repeat path crosses
+    the boundary automatically. Acceptance, rejection, request_changes, and
+    result promotion remain explicit external human-command actions.
     """
     if max_commands < _MAX_COMMANDS_MIN or max_commands > _MAX_COMMANDS_MAX:
         raise ValueError(
             f"max_commands must be in {_MAX_COMMANDS_MIN}..{_MAX_COMMANDS_MAX}, "
             f"got {max_commands!r}"
+        )
+
+    # Hard human boundary: the supervisor must not redispatch/repeat past the
+    # explicit human_decision gate. Reserved-authority commands are rejected by
+    # pending_command_ids, so this short-circuits any crossing attempt.
+    if phase6_reached_human_decision(root, run_id):
+        return SupervisorCycleResult(
+            considered_command_ids=(),
+            advanced_command_ids=(),
+            outcomes={},
+            stopped=False,
         )
 
     considered: list[str] = []
@@ -243,7 +401,14 @@ def run_supervisor_cycle(
 
 
 def pending_integration_command_ids(root: Path | str, run_id: str) -> list[str]:
-    """Discover valid immutable integration commands without outcomes."""
+    """Discover valid immutable integration commands without outcomes.
+
+    The repeat-only supervisor may only rediscover already-persisted Phase 5
+    integration commands. Reserved P6-A/P6-B authority commands
+    (``decision-``/``promotion-``) are forbidden, and once the run parks at
+    ``human_decision`` no further repeat/redispatch is permitted across that
+    boundary — so discovery returns nothing.
+    """
     from devflow.loop.pipeline_run import pipeline_runs_dir
 
     run_dir = (pipeline_runs_dir(root).resolve() / run_id).resolve()
@@ -252,12 +417,35 @@ def pending_integration_command_ids(root: Path | str, run_id: str) -> list[str]:
     store = run_dir / "integration-commands"
     if not store.is_dir():
         return []
+    # The hard human boundary is a whole-run property captured once before
+    # iterating. Crucially, the reserved-authority check below MUST run before
+    # any boundary short-circuit: a tampered ``decision-*``/``promotion-*`` file
+    # in the integration-commands store must never be silently skipped by the
+    # human_decision early return (fail-closed). This mirrors the correct
+    # ordering in pending_command_ids (reserved check precedes the break).
+    reached_human_decision = phase6_reached_human_decision(root, run_id)
     pending: list[str] = []
     for child in sorted(store.iterdir()):
         if not child.is_file() or child.suffix != ".json":
             raise ValueError(
                 f"unexpected entry in integration-commands store: {child.name!r}"
             )
+        # Reserved P6-A/P6-B authority commands are never integration commands
+        # the supervisor may redispatch; fail closed if one appears here. This
+        # check runs BEFORE the human_decision break so a reserved tamper is
+        # always rejected, even after the run has parked at human_decision.
+        reserved = _command_is_reserved(child.stem)
+        if reserved is not None:
+            raise ValueError(
+                f"integration command {child.stem!r} targets reserved authority "
+                f"prefix {reserved!r}; the repeat-only supervisor may not act on "
+                f"reserved human-decision or result-branch authority"
+            )
+        # Hard human boundary: no redispatch/repeat path may cross
+        # human_decision. Once reached, no further integration command is
+        # considered pending (but any reserved file above was still rejected).
+        if reached_human_decision:
+            break
         try:
             command = IntegrationCommand.model_validate_json(
                 child.read_text(encoding="utf-8")
@@ -300,6 +488,18 @@ def run_integration_supervisor_cycle(
         raise ValueError(
             f"max_commands must be in {_MAX_COMMANDS_MIN}..{_MAX_COMMANDS_MAX}, "
             f"got {max_commands!r}"
+        )
+    # Hard human boundary: the supervisor must not redispatch/repeat past the
+    # explicit human_decision gate. Reserved-authority commands are rejected by
+    # pending_integration_command_ids, so this short-circuits any crossing
+    # attempt before discovery even runs. Both guards are independent and must
+    # agree: neither must silently skip a reserved tamper at the boundary.
+    if phase6_reached_human_decision(root, run_id):
+        return IntegrationSupervisorCycleResult(
+            considered_command_ids=(),
+            advanced_command_ids=(),
+            outcomes={},
+            stopped=False,
         )
     considered: list[str] = []
     advanced: list[str] = []

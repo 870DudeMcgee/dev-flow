@@ -50,6 +50,12 @@ _ADVANCEMENT_OWNED_FILES = frozenset(
     {"advancement-events.jsonl", "advancement-snapshot.json"}
 )
 _ADVANCEMENT_OWNED_PREFIX = "advancement-"
+# Phase 6 decision and promotion authorities are persisted immutably outside
+# the generic record API (workflow_ledger.record_decision for decision receipts
+# and a direct O_EXCL write for promotion receipts). The generic artifact API
+# must never overwrite either authority.
+_DECISION_OWNED_PREFIX = "decision-"
+_PROMOTION_OWNED_PREFIX = "promotion-"
 _INTEGRATION_OWNED_PREFIXES = (
     "packet-patch-",
     "packet-patches",
@@ -224,6 +230,16 @@ def update_pipeline_run_record(
         raise ValueError(
             f"Authoritative integration file {file_name!r} may only be changed "
             "through the packet-patch / integration APIs"
+        )
+    if file_name.startswith(_DECISION_OWNED_PREFIX):
+        raise ValueError(
+            f"Authoritative decision file {file_name!r} may only be changed "
+            "through the decision API (workflow_ledger.record_decision)"
+        )
+    if file_name.startswith(_PROMOTION_OWNED_PREFIX):
+        raise ValueError(
+            f"Authoritative promotion file {file_name!r} may only be changed "
+            "through the promotion API (O_EXCL direct write)"
         )
     if file_name.startswith("snapshot-") and file_name.endswith(".json"):
         raise ValueError(
