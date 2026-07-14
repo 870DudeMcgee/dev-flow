@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from enum import Enum
 from pathlib import Path
 
@@ -190,32 +192,38 @@ def run_validator(
 
     env = dict(os.environ)
     env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
-    try:
-        completed = subprocess.run(
-            request.validator.argv,
-            shell=False,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=request.validator.timeout_seconds,
-            env=env,
-        )
-    except subprocess.TimeoutExpired as exc:
-        receipt = ValidatorReceipt(
-            **kwargs,
-            outcome=ValidatorOutcome.timeout,
-            passed=False,
-            stdout=(exc.stdout if isinstance(exc.stdout, str) else "")[-_OUTPUT_LIMIT:],
-            stderr=f"timed out after {request.validator.timeout_seconds} seconds",
-        )
-    except OSError as exc:
-        receipt = ValidatorReceipt(
-            **kwargs,
-            outcome=ValidatorOutcome.spawn_error,
-            passed=False,
-            stderr=f"could not start validator: {exc}",
-        )
-    else:
+    # Validators are evidence collectors, not builders.  Prevent Python-based
+    # validators (including ``py_compile``/pytest imports) from leaving
+    # ``__pycache__`` mutations in an otherwise immutable integration tree.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    pycache_dir = Path(tempfile.mkdtemp(prefix="devflow-validator-pycache-"))
+    env["PYTHONPYCACHEPREFIX"] = str(pycache_dir)
+    def _execute() -> ValidatorReceipt:
+        try:
+            completed = subprocess.run(
+                request.validator.argv,
+                shell=False,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=request.validator.timeout_seconds,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return ValidatorReceipt(
+                **kwargs,
+                outcome=ValidatorOutcome.timeout,
+                passed=False,
+                stdout=(exc.stdout if isinstance(exc.stdout, str) else "")[-_OUTPUT_LIMIT:],
+                stderr=f"timed out after {request.validator.timeout_seconds} seconds",
+            )
+        except OSError as exc:
+            return ValidatorReceipt(
+                **kwargs,
+                outcome=ValidatorOutcome.spawn_error,
+                passed=False,
+                stderr=f"could not start validator: {exc}",
+            )
         stdout = completed.stdout[-_OUTPUT_LIMIT:]
         stderr = completed.stderr[-_OUTPUT_LIMIT:]
         if completed.returncode != 0:
@@ -224,7 +232,7 @@ def run_validator(
             outcome = ValidatorOutcome.malformed_evidence
         else:
             outcome = ValidatorOutcome.passed
-        receipt = ValidatorReceipt(
+        return ValidatorReceipt(
             **kwargs,
             outcome=outcome,
             passed=outcome is ValidatorOutcome.passed,
@@ -232,6 +240,11 @@ def run_validator(
             stdout=stdout,
             stderr=stderr,
         )
+
+    try:
+        receipt = _execute()
+    finally:
+        shutil.rmtree(pycache_dir, ignore_errors=True)
     return _persist_receipt(root, receipt)
 
 

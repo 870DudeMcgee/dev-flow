@@ -205,6 +205,12 @@ class AdvanceCommand(BaseModel):
     # Explicit bounded concurrent sandbox limit passed to create_sandbox on
     # dispatch/retry. Prior sandboxes/evidence remain preserved.
     max_sandboxes: int = Field(default=8, ge=1, le=64)
+    # Phase 5 opt-in: a successful completion carrying the full worker identity
+    # captures its sandbox as an immutable packet patch before its outcome is
+    # published. Older Phase 4 commands omit these fields and remain readable.
+    patch_provider: Optional[str] = Field(default=None, min_length=1)
+    patch_model: Optional[str] = Field(default=None, min_length=1)
+    patch_model_family: Optional[str] = Field(default=None, min_length=1)
     # monotonic sequence assigned at persistence time for stable ordering.
     sequence: int = Field(default=0, ge=0)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -225,12 +231,32 @@ class AdvanceCommand(BaseModel):
             raise ValueError(
                 "workflow_receipt and workflow_event must be provided together"
             )
+        patch_identity = (
+            self.patch_provider,
+            self.patch_model,
+            self.patch_model_family,
+        )
+        if any(value is not None for value in patch_identity) and not all(
+            value is not None for value in patch_identity
+        ):
+            raise ValueError(
+                "patch_provider, patch_model, and patch_model_family must be supplied together"
+            )
+        if all(value is not None for value in patch_identity) and self.action != AdvanceAction.complete:
+            raise ValueError(
+                "packet patch capture identity is valid only for complete commands"
+            )
         return self
 
     @property
     def is_typed_workflow(self) -> bool:
         """True only when both workflow receipt and event are fully typed."""
         return self.workflow_receipt is not None and self.workflow_event is not None
+
+    @property
+    def captures_packet_patch(self) -> bool:
+        """Whether this successful completion requires Phase 5 patch capture."""
+        return self.patch_provider is not None
 
 
 class PacketClaim(BaseModel):
@@ -305,6 +331,7 @@ class AdvanceOutcome(BaseModel):
     ready_packet_ids: tuple[str, ...] = ()
     packet_state: Optional[PacketState] = None
     recorded_workflow: bool = False
+    packet_patch_receipt_id: Optional[str] = None
     decided_at: datetime
 
 
@@ -864,6 +891,7 @@ def load_advancement_outcome(
 
 def _recover_committed_outcome(
     root: Path | str,
+    repo: Path | str,
     run_id: str,
     command: AdvanceCommand,
     snapshot: AdvancementSnapshot,
@@ -918,6 +946,9 @@ def _recover_committed_outcome(
         and command.is_typed_workflow
     ):
         recorded_workflow = _maybe_record_workflow(root, run_id, command, snapshot)
+    packet_patch_receipt_id = _capture_completed_patch(
+        root, Path(repo), run_id, command, snapshot, decided_at
+    )
     _write_snapshot(root, run_id, snapshot)
     return _ok(
         root,
@@ -930,6 +961,7 @@ def _recover_committed_outcome(
         recovery_id=committed.get("recovery_id"),
         packet_state=packet_state,
         recorded_workflow=recorded_workflow,
+        packet_patch_receipt_id=packet_patch_receipt_id,
         message=message,
     )
 
@@ -981,7 +1013,7 @@ def advance_run(
         try:
             snapshot = _replay_ledger(root, run_id)
             committed_outcome = _recover_committed_outcome(
-                root, run_id, command, snapshot
+                root, repo, run_id, command, snapshot
             )
             if committed_outcome is not None:
                 return committed_outcome
@@ -991,9 +1023,9 @@ def advance_run(
             if command.action == AdvanceAction.heartbeat:
                 return _do_heartbeat(root, run_id, command, snapshot, now)
             if command.action == AdvanceAction.complete:
-                return _do_terminal(root, run_id, command, snapshot, now, _EV_COMPLETE, ClaimState.completed, PacketState.succeeded)
+                return _do_terminal(root, repo, run_id, command, snapshot, now, _EV_COMPLETE, ClaimState.completed, PacketState.succeeded)
             if command.action == AdvanceAction.fail:
-                return _do_terminal(root, run_id, command, snapshot, now, _EV_FAIL, ClaimState.failed, PacketState.failed)
+                return _do_terminal(root, repo, run_id, command, snapshot, now, _EV_FAIL, ClaimState.failed, PacketState.failed)
             if command.action == AdvanceAction.cancel:
                 return _do_cancel(root, run_id, command, snapshot, now)
             if command.action == AdvanceAction.release:
@@ -1164,7 +1196,7 @@ def _do_heartbeat(root, run_id, command, snapshot, now) -> AdvanceOutcome:
     )
 
 
-def _do_terminal(root, run_id, command, snapshot, now, event_kind, claim_state, packet_state) -> AdvanceOutcome:
+def _do_terminal(root, repo, run_id, command, snapshot, now, event_kind, claim_state, packet_state) -> AdvanceOutcome:
     claim = _claim_for_command(snapshot, command)
     if claim.state != ClaimState.active:
         return _reject(root, run_id, command, snapshot, now,
@@ -1221,12 +1253,16 @@ def _do_terminal(root, run_id, command, snapshot, now, event_kind, claim_state, 
     recorded_workflow = False
     if command.is_typed_workflow:
         recorded_workflow = _maybe_record_workflow(root, run_id, command, new_snapshot)
+    packet_patch_receipt_id = _capture_completed_patch(
+        root, Path(repo), run_id, command, new_snapshot, now
+    )
     _write_snapshot(root, run_id, new_snapshot)
     return _ok(
         root, run_id, command, new_snapshot, now,
         claim_id=claim.claim_id, attempt_id=claim.attempt_id,
         packet_state=packet_state,
         recorded_workflow=recorded_workflow,
+        packet_patch_receipt_id=packet_patch_receipt_id,
         message=f"{command.action.value} accepted",
     )
 
@@ -1485,6 +1521,52 @@ def _maybe_record_workflow(root, run_id, command, snapshot) -> bool:
     return True
 
 
+def _capture_completed_patch(root, repo, run_id, command, snapshot, captured_at):
+    """Capture an opted-in completed packet before publishing its outcome.
+
+    This runs on both the normal completion path and event-to-outcome recovery,
+    so a crash after the completion event cannot strand a successful packet
+    without its immutable Phase 5 patch receipt.
+    """
+    if command.action != AdvanceAction.complete or not command.captures_packet_patch:
+        return None
+    claim = next(
+        (item for item in snapshot.claims if item.claim_id == command.claim_id),
+        None,
+    )
+    if claim is None or claim.state != ClaimState.completed:
+        raise ValueError("packet patch capture requires the committed completed claim")
+    attempt = next(
+        (item for item in snapshot.attempts if item.attempt_id == claim.attempt_id),
+        None,
+    )
+    if attempt is None:
+        raise ValueError("packet patch capture requires the completed attempt")
+    from devflow.loop.run_integration import (
+        PatchCaptureCommand,
+        capture_packet_patch,
+        save_patch_capture_command,
+    )
+
+    capture_command = PatchCaptureCommand(
+        command_id=f"capture-{command.command_id}",
+        run_id=run_id,
+        packet_id=command.packet_id,
+        claim_id=claim.claim_id,
+        attempt_id=attempt.attempt_id,
+        owner_id=attempt.owner_id,
+        route=attempt.route,
+        provider=command.patch_provider,
+        model=command.patch_model,
+        model_family=command.patch_model_family,
+        created_at=captured_at,
+    )
+    save_patch_capture_command(root, capture_command)
+    return capture_packet_patch(
+        root, repo, run_id, capture_command.command_id
+    ).receipt_id
+
+
 def _load_recoveries(root, run_id) -> list[RecoveryReceipt]:
     run_dir = _run_dir(root, run_id)
     recovery_dir = run_dir / _RECOVERY_DIR
@@ -1529,6 +1611,7 @@ def _ok(
     recovery_id=None,
     packet_state=None,
     recorded_workflow=False,
+    packet_patch_receipt_id=None,
     message="",
     status: Literal["ok", "no-op", "rejected"] = "ok",
 ) -> AdvanceOutcome:
@@ -1547,6 +1630,7 @@ def _ok(
         ready_packet_ids=snapshot.ready_packet_ids,
         packet_state=packet_state,
         recorded_workflow=recorded_workflow,
+        packet_patch_receipt_id=packet_patch_receipt_id,
         decided_at=now,
     )
     outcome_path = _outcome_path(root, run_id, command.command_id)

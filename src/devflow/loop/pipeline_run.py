@@ -50,6 +50,11 @@ _ADVANCEMENT_OWNED_FILES = frozenset(
     {"advancement-events.jsonl", "advancement-snapshot.json"}
 )
 _ADVANCEMENT_OWNED_PREFIX = "advancement-"
+_INTEGRATION_OWNED_PREFIXES = (
+    "packet-patch-",
+    "packet-patches",
+    "integration-",
+)
 _LAST_RUN_ID_BASE = ""
 _LAST_RUN_ID_COUNTER = 0
 
@@ -214,6 +219,11 @@ def update_pipeline_run_record(
         raise ValueError(
             f"Authoritative advancement file {file_name!r} may only be changed "
             "through the advancement API (save_advancement_command / advance_run)"
+        )
+    if file_name.startswith(_INTEGRATION_OWNED_PREFIXES):
+        raise ValueError(
+            f"Authoritative integration file {file_name!r} may only be changed "
+            "through the packet-patch / integration APIs"
         )
     if file_name.startswith("snapshot-") and file_name.endswith(".json"):
         raise ValueError(

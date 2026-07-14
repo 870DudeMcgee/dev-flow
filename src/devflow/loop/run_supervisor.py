@@ -46,11 +46,19 @@ from devflow.loop.run_advancement import (
     load_advancement_outcome,
     load_advancement_snapshot,
 )
+from devflow.loop.run_integration import (
+    IntegrationCommand,
+    IntegrationOutcome,
+    integrate_run,
+)
 
 __all__ = [
     "SupervisorCycleResult",
     "pending_command_ids",
     "run_supervisor_cycle",
+    "IntegrationSupervisorCycleResult",
+    "pending_integration_command_ids",
+    "run_integration_supervisor_cycle",
 ]
 
 _MAX_COMMANDS_MIN = 1
@@ -72,6 +80,17 @@ class SupervisorCycleResult(BaseModel):
     considered_command_ids: tuple[str, ...]
     advanced_command_ids: tuple[str, ...]
     outcomes: dict[str, AdvanceOutcome]
+    stopped: bool
+
+
+class IntegrationSupervisorCycleResult(BaseModel):
+    """Frozen result of one repeat-only Phase 5 integration cycle."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    considered_command_ids: tuple[str, ...]
+    advanced_command_ids: tuple[str, ...]
+    outcomes: dict[str, IntegrationOutcome]
     stopped: bool
 
 
@@ -216,6 +235,87 @@ def run_supervisor_cycle(
         outcomes[command_id] = outcome
 
     return SupervisorCycleResult(
+        considered_command_ids=tuple(considered),
+        advanced_command_ids=tuple(advanced),
+        outcomes=outcomes,
+        stopped=stopped,
+    )
+
+
+def pending_integration_command_ids(root: Path | str, run_id: str) -> list[str]:
+    """Discover valid immutable integration commands without outcomes."""
+    from devflow.loop.pipeline_run import pipeline_runs_dir
+
+    run_dir = (pipeline_runs_dir(root).resolve() / run_id).resolve()
+    if not run_dir.is_dir():
+        return []
+    store = run_dir / "integration-commands"
+    if not store.is_dir():
+        return []
+    pending: list[str] = []
+    for child in sorted(store.iterdir()):
+        if not child.is_file() or child.suffix != ".json":
+            raise ValueError(
+                f"unexpected entry in integration-commands store: {child.name!r}"
+            )
+        try:
+            command = IntegrationCommand.model_validate_json(
+                child.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"integration command {child.stem!r} is corrupt"
+            ) from exc
+        if command.command_id != child.stem or command.run_id != run_id:
+            raise ValueError("integration command does not match its path")
+        outcome_path = (
+            run_dir / "integration-outcomes" / f"{command.command_id}.json"
+        )
+        if outcome_path.exists():
+            try:
+                outcome = IntegrationOutcome.model_validate_json(
+                    outcome_path.read_text(encoding="utf-8")
+                )
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    f"integration outcome {command.command_id!r} is corrupt"
+                ) from exc
+            if outcome.command_id != command.command_id or outcome.run_id != run_id:
+                raise ValueError("integration outcome does not match its path")
+            continue
+        pending.append(command.command_id)
+    return pending
+
+
+def run_integration_supervisor_cycle(
+    root: Path | str,
+    repo: Path | str,
+    run_id: str,
+    *,
+    max_commands: int = 1,
+    stop_requested: Optional[Callable[[], bool]] = None,
+) -> IntegrationSupervisorCycleResult:
+    """Repeat only already-persisted Phase 5 integration commands."""
+    if max_commands < _MAX_COMMANDS_MIN or max_commands > _MAX_COMMANDS_MAX:
+        raise ValueError(
+            f"max_commands must be in {_MAX_COMMANDS_MIN}..{_MAX_COMMANDS_MAX}, "
+            f"got {max_commands!r}"
+        )
+    considered: list[str] = []
+    advanced: list[str] = []
+    outcomes: dict[str, IntegrationOutcome] = {}
+    stopped = False
+    for command_id in pending_integration_command_ids(root, run_id):
+        if len(advanced) >= max_commands:
+            break
+        if stop_requested is not None and stop_requested():
+            stopped = True
+            break
+        considered.append(command_id)
+        outcome = integrate_run(root, repo, run_id, command_id)
+        advanced.append(command_id)
+        outcomes[command_id] = outcome
+    return IntegrationSupervisorCycleResult(
         considered_command_ids=tuple(considered),
         advanced_command_ids=tuple(advanced),
         outcomes=outcomes,

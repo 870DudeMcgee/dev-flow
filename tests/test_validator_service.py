@@ -63,6 +63,10 @@ def test_validator_runs_typed_argv_with_shell_false_and_persists_immutable_recei
     assert captured["shell"] is False
     assert captured["cwd"] == workspace.resolve()
     assert captured["timeout"] == 30
+    validator_env = captured["env"]
+    assert isinstance(validator_env, dict)
+    pycache_prefix = Path(validator_env["PYTHONPYCACHEPREFIX"])
+    assert not pycache_prefix.exists()
     assert receipt.outcome is ValidatorOutcome.passed
     assert receipt.passed is True
     assert load_validator_receipt(tmp_path, run_id, request.receipt_id) == receipt
@@ -110,8 +114,10 @@ def test_validator_failures_are_explicit_and_never_pass(
     run_id = create_pipeline_run(tmp_path, {"repo": "test"})
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    captured_env: dict[str, str] = {}
 
     def fake_run(argv, **kwargs):
+        captured_env.update(kwargs["env"])
         if mode == "spawn":
             raise OSError("missing")
         if mode == "timeout":
@@ -125,6 +131,7 @@ def test_validator_failures_are_explicit_and_never_pass(
     receipt = run_validator(tmp_path, workspace, _request(run_id=run_id, validator=validator))
     assert receipt.outcome is expected
     assert receipt.passed is False
+    assert not Path(captured_env["PYTHONPYCACHEPREFIX"]).exists()
 
 
 def test_validator_rejects_missing_declared_output_stream(

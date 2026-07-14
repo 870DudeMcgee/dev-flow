@@ -1,7 +1,7 @@
 # DevFlow Source of Truth
 
 Status: Active canonical direction
-Last audited against code/config: 2026-07-13
+Last audited against code/config: 2026-07-14
 
 This document is the active source of truth for DevFlow. For model routing,
 operating modes, and machine-agnostic behavior, the authoritative sections are
@@ -373,11 +373,23 @@ already-persisted pending commands and calls `advance_run` without inventing
 commands, packets, claims, attempts, routes, evidence, recovery, cancellation,
 or success.
 
-Immutable patch retention/application, dependency-ordered integration,
-conflict repair, independent integration verification, final acceptance, and
-local result-branch creation remain later phases. Phase 4 integration
-worktrees are empty execution sandboxes only; no packet patches are applied
-there yet.
+Phase 5 adds opt-in immutable binary-safe patch capture for successful packet
+attempts, including event-to-outcome crash recovery. Packet receipts bind the
+claim, attempt, owner/route/model family, authorized snapshot, sandbox, Git
+trees, approved targets, patch bytes, and SHA-256. The host applies the complete
+validated patch set exactly once in deterministic dependency order to the Phase
+4 integration worktree, records each resulting commit/tree/fingerprint in an
+append-only integration ledger, and runs the approved typed validator set.
+
+Conflicts produce immutable receipts before a separately owned, three-attempt
+maximum integration-repair operation may edit only the integration worktree.
+Packet patches and packet sandboxes are never rewritten. Integration
+verification is read-only, exact-tree-bound, and rejects a verifier whose model
+family overlaps any packet builder or integration repair family. A passing
+typed verification receipt may advance only the canonical `verification` node
+to the Phase 6 `human_decision` boundary. Deterministic final acceptance,
+reliability reporting, human acceptance, and local result-branch creation remain
+Phase 6 work.
 
 ### 7. Verification and Next Human Decision
 
