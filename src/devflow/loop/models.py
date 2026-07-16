@@ -16,7 +16,14 @@ from pydantic import BaseModel, Field
 # Stage enum
 # ---------------------------------------------------------------------------
 class LoopStage(str, Enum):
-    """All pipeline stages in canonical order."""
+    """All pipeline stages in canonical order.
+
+    Compatibility/UI projection. The canonical workflow read model
+    (:mod:`devflow.loop.read_model`) derives a richer public view from the
+    ledger's :class:`~devflow.loop.workflow_ledger.WorkflowSnapshot` for
+    canonical-marked runs; this enum is retained for noncanonical/historical
+    compatibility and is not deleted.
+    """
 
     idea = "idea"
     definition = "definition"

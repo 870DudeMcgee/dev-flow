@@ -19,8 +19,10 @@ Changing a role's requirements: edit here. No pipeline code changes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from devflow.loop.agent_contracts import AgentContract
 
 
 
@@ -36,6 +38,9 @@ class RoleDefinition:
     output_size: str = "small"  # "small" (reasoning) or "large" (generation)
     reasoning: bool = False
     fallbacks: tuple[str, ...] = field(default_factory=tuple)
+    # M2-S3: optional typed agent contract (blueprint §7.1).
+    # None = legacy role without contract enforcement (backward compatible).
+    contract: Optional["AgentContract"] = None
 
 
 # ---------------------------------------------------------------------------

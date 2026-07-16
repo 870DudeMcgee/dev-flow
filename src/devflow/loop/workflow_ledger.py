@@ -20,11 +20,18 @@ from devflow.loop.pipeline_run import pipeline_runs_dir
 from devflow.loop.workflow_definition import (
     WORKFLOW_ID,
     WorkflowDefinition,
+    WorkflowEdge,
     canonical_product_build_v1,
+)
+from devflow.loop.workflow_schema import (
+    WorkflowSchemaV2,
+    WorkflowStrategy,
+    _detect_back_edges,
 )
 
 
 WORKFLOW_DEFINITION_FILE = "workflow-definition.json"
+WORKFLOW_DEFINITION_V2_FILE = "workflow-definition-v2.json"
 WORKFLOW_EVENTS_FILE = "workflow-events.jsonl"
 WORKFLOW_RECEIPTS_DIR = "workflow-receipts"
 WORKFLOW_SNAPSHOT_FILE = "workflow-snapshot.json"
@@ -71,10 +78,11 @@ class WorkflowSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    workflow_id: Literal["canonical_product_build@1"]
+    workflow_id: str
     current_node_id: str
     stage: LoopStage
     completed_node_ids: tuple[str, ...] = ()
+    active_node_ids: tuple[str, ...] = ()
 
 
 class DecisionType(str, Enum):
@@ -184,6 +192,21 @@ def _load_definition(run_dir: Path) -> WorkflowDefinition:
     if definition != canonical_product_build_v1():
         raise ValueError("persisted workflow definition is not canonical_product_build@1")
     return definition
+
+
+def _v2_definition_bytes(definition: WorkflowSchemaV2) -> bytes:
+    payload = definition.model_dump(mode="json")
+    return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+
+
+def _load_v2_definition(run_dir: Path) -> WorkflowSchemaV2 | None:
+    path = run_dir / WORKFLOW_DEFINITION_V2_FILE
+    if not path.is_file():
+        return None
+    try:
+        return WorkflowSchemaV2.model_validate_json(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise ValueError("generalized workflow definition (v2) is missing or corrupt") from exc
 
 
 def _load_events(run_dir: Path) -> tuple[WorkflowEvent, ...]:
@@ -300,7 +323,253 @@ def _project(
         current_node_id=current_node_id,
         stage=nodes[current_node_id].stage,
         completed_node_ids=tuple(completed),
+        active_node_ids=(),
     )
+
+
+def _project_v2(
+    definition: WorkflowSchemaV2,
+    events: tuple[WorkflowEvent, ...],
+    receipt_loader,
+) -> WorkflowSnapshot:
+    """Generalized projection that respects the v2 definition's node order.
+
+    Mirrors :func:`_project` but operates on a :class:`WorkflowSchemaV2` and
+    uses its ``workflow_id`` (which is ``str`` rather than the canonical
+    literal). The v2 node sequence may start at any node (e.g. ``analyze``),
+    unlike the canonical definition which always starts at ``idea``.
+    """
+    nodes = {node.id: node for node in definition.nodes}
+    edges = {
+        (edge.source, edge.outcome): edge
+        for edge in definition.edges
+    }
+    if not definition.nodes:
+        raise ValueError("generalized workflow definition has no nodes")
+    root_ids = {n.id for n in definition.nodes} - {e.target for e in definition.edges}
+    if not root_ids:
+        raise ValueError("workflow definition has no root node (cycle or empty graph)")
+    if len(root_ids) > 1:
+        raise ValueError(f"workflow definition has multiple root nodes: {sorted(root_ids)!r}")
+    current_node_id = next(iter(root_ids))
+    completed: list[str] = []
+    event_ids: set[str] = set()
+    used_receipt_ids: set[str] = set()
+
+    for event in events:
+        if event.event_id in event_ids:
+            raise ValueError(f"duplicate workflow event id: {event.event_id}")
+        if event.receipt_id in used_receipt_ids:
+            raise ValueError(f"duplicate workflow receipt reference: {event.receipt_id}")
+        if event.node_id != current_node_id:
+            raise ValueError(
+                f"invalid workflow transition: expected node {current_node_id!r}, "
+                f"got {event.node_id!r}"
+            )
+        edge = edges.get((event.node_id, event.outcome))
+        if edge is None:
+            raise ValueError(
+                f"invalid workflow outcome {event.outcome!r} for node {event.node_id!r}"
+            )
+        receipt = receipt_loader(event.receipt_id)
+        if (
+            receipt.node_id != event.node_id
+            or receipt.outcome != event.outcome
+            or receipt.receipt_id != event.receipt_id
+        ):
+            raise ValueError(f"workflow event {event.event_id!r} does not match its receipt")
+        evidence_keys = [reference.key for reference in receipt.evidence]
+        if len(evidence_keys) != len(set(evidence_keys)):
+            raise ValueError(f"workflow receipt {receipt.receipt_id!r} has duplicate evidence keys")
+        missing = set(nodes[event.node_id].required_evidence) - set(evidence_keys)
+        if missing:
+            raise ValueError(
+                f"workflow receipt {receipt.receipt_id!r} is missing evidence: "
+                f"{sorted(missing)}"
+            )
+        event_ids.add(event.event_id)
+        used_receipt_ids.add(event.receipt_id)
+        completed.append(event.node_id)
+        current_node_id = edge.target
+
+    return WorkflowSnapshot(
+        workflow_id=definition.workflow_id,
+        current_node_id=current_node_id,
+        stage=nodes[current_node_id].stage,
+        completed_node_ids=tuple(completed),
+        active_node_ids=(),
+    )
+
+
+def _project_v2_general(
+    definition: WorkflowSchemaV2,
+    events: tuple[WorkflowEvent, ...],
+    receipt_loader,
+) -> WorkflowSnapshot:
+    """Frontier-based projection for parallel/dag/loop v2 workflows.
+
+    Unlike :func:`_project_v2` (strict single cursor), this tracks a SET of
+    active nodes (the frontier). Each event marks its node completed and
+    advances any successor whose preconditions are now met onto the frontier.
+    Parallel/dag fan-out and loop back-edges are handled by set semantics.
+    """
+    nodes = {node.id: node for node in definition.nodes}
+    # (source, outcome) -> list[edge] because a node may fan out to
+    # multiple targets via several 'success' edges (parallel/dag).
+    edges: dict[tuple[str, str], list[WorkflowEdge]] = {}
+    for edge in definition.edges:
+        edges.setdefault((edge.source, edge.outcome), []).append(edge)
+    if not definition.nodes:
+        raise ValueError("generalized workflow definition has no nodes")
+
+    # Build the adjacency graph so the intentional loop back-edge can be
+    # detected (DFS) and excluded from in-degree for root discovery.
+    graph: dict[str, list[str]] = {nid: [] for nid in nodes}
+    for edge in definition.edges:
+        graph[edge.source].append(edge.target)
+
+    # For strategy=loop the one intentional DFS back-edge must be excluded
+    # from in-degree so the loop head (its intended target) is correctly
+    # identified as the single root. Non-loop strategies have no back-edge.
+    back_edges: set[tuple[str, str]] = set()
+    if definition.strategy == WorkflowStrategy.loop:
+        back_edges = _detect_back_edges(graph)
+
+    in_degree: dict[str, int] = {nid: 0 for nid in nodes}
+    for edge in definition.edges:
+        if (edge.source, edge.target) in back_edges:
+            continue
+        in_degree[edge.target] += 1
+    # Loop head (in-degree 0 after excluding the back-edge) is the start;
+    # for non-loop the unique root (parallel may have several).
+    roots = [nid for nid, d in in_degree.items() if d == 0]
+    if not roots:
+        raise ValueError("workflow definition has no root node (cycle or empty graph)")
+    if definition.strategy == WorkflowStrategy.loop:
+        if len(roots) != 1:
+            raise ValueError(f"workflow definition has multiple root nodes: {sorted(roots)!r}")
+    elif len(roots) > 1 and definition.strategy != WorkflowStrategy.parallel:
+        raise ValueError(f"workflow definition has multiple root nodes: {sorted(roots)!r}")
+
+    # Incoming predecessors per target, and the (source, target) -> outcomes
+    # map. A non-terminal target (a real DAG join) must wait until every
+    # non-terminal predecessor has completed via the outcome that fires its
+    # edge into the target. Terminal predecessors never block activation.
+    terminal_stages = {LoopStage.complete, LoopStage.blocked}
+    predecessors: dict[str, list[str]] = {nid: [] for nid in nodes}
+    source_target_outcomes: dict[tuple[str, str], set[str]] = {}
+    for edge in definition.edges:
+        predecessors.setdefault(edge.target, [])
+        if edge.source not in predecessors[edge.target]:
+            predecessors[edge.target].append(edge.source)
+        source_target_outcomes.setdefault(
+            (edge.source, edge.target), set()
+        ).add(edge.outcome)
+
+    active: set[str] = set(roots)
+    completed: list[str] = []
+    reached_terminals: list[str] = []
+    # node_id -> set of outcomes for which a matching event was replayed.
+    fired: dict[str, set[str]] = {}
+    event_ids: set[str] = set()
+    used_receipt_ids: set[str] = set()
+
+    for event in events:
+        if event.event_id in event_ids:
+            raise ValueError(f"duplicate workflow event id: {event.event_id}")
+        if event.receipt_id in used_receipt_ids:
+            raise ValueError(f"duplicate workflow receipt reference: {event.receipt_id}")
+        if event.node_id not in active:
+            raise ValueError(
+                f"invalid workflow transition: node {event.node_id!r} "
+                f"is not active; active={sorted(active)!r}"
+            )
+        matching_edges = edges.get((event.node_id, event.outcome))
+        if not matching_edges:
+            raise ValueError(
+                f"invalid workflow outcome {event.outcome!r} for node {event.node_id!r}"
+            )
+        receipt = receipt_loader(event.receipt_id)
+        if (
+            receipt.node_id != event.node_id
+            or receipt.outcome != event.outcome
+            or receipt.receipt_id != event.receipt_id
+        ):
+            raise ValueError(f"workflow event {event.event_id!r} does not match its receipt")
+        evidence_keys = [reference.key for reference in receipt.evidence]
+        if len(evidence_keys) != len(set(evidence_keys)):
+            raise ValueError(f"workflow receipt {receipt.receipt_id!r} has duplicate evidence keys")
+        missing = set(nodes[event.node_id].required_evidence) - set(evidence_keys)
+        if missing:
+            raise ValueError(
+                f"workflow receipt {receipt.receipt_id!r} is missing evidence: "
+                f"{sorted(missing)}"
+            )
+        event_ids.add(event.event_id)
+        used_receipt_ids.add(event.receipt_id)
+        completed.append(event.node_id)
+        active.discard(event.node_id)
+        # Record this node's fired outcome so downstream joins can wait on it.
+        fired.setdefault(event.node_id, set()).add(event.outcome)
+        for edge in matching_edges:
+            target = edge.target
+            if nodes[target].stage in terminal_stages:
+                # Terminal node reached; record it so the snapshot can
+                # resolve current_node_id to the terminal when the
+                # frontier empties (mirrors the linear projector). Do not
+                # emit terminal node events.
+                reached_terminals.append(target)
+                continue
+            # Real DAG join: a non-terminal target is activated only after
+            # every non-terminal predecessor has completed via the outcome
+            # that fires its edge into this target. Terminal predecessors
+            # (e.g. a loop that ended) never block activation; and a
+            # predecessor that fired the *wrong* outcome for this target is
+            # likewise not a pending precondition (it routed elsewhere).
+            preds = predecessors.get(target, [])
+            pending = [
+                src for src in preds
+                if src in nodes
+                and nodes[src].stage not in terminal_stages
+                and not (
+                    source_target_outcomes.get((src, target), set())
+                    & fired.get(src, set())
+                )
+            ]
+            if pending:
+                # Not all join preconditions are met yet; keep the join
+                # inactive until the remaining predecessors succeed on the
+                # edges that lead into it.
+                continue
+            active.add(target)
+
+    if not active:
+        current = reached_terminals[-1] if reached_terminals else (completed[-1] if completed else sorted(roots)[0])
+        return WorkflowSnapshot(
+            workflow_id=definition.workflow_id,
+            current_node_id=current,
+            stage=nodes[current].stage,
+            completed_node_ids=tuple(completed),
+            active_node_ids=(),
+        )
+    return WorkflowSnapshot(
+        workflow_id=definition.workflow_id,
+        current_node_id=sorted(active)[0] if len(active) == 1 else sorted(active)[0],
+        stage=nodes[sorted(active)[0]].stage,
+        completed_node_ids=tuple(completed),
+        active_node_ids=tuple(sorted(active)),
+    )
+
+
+def _project_v2_strategy(
+    definition: WorkflowSchemaV2,
+    events: tuple[WorkflowEvent, ...],
+    receipt_loader,
+) -> WorkflowSnapshot:
+    """Dispatch to the linear or frontier projector based on strategy."""
+    if definition.strategy == WorkflowStrategy.sequence:
+        return _project_v2(definition, events, receipt_loader)
+    return _project_v2_general(definition, events, receipt_loader)
 
 
 def _replay_unlocked(run_dir: Path) -> WorkflowSnapshot:
@@ -313,12 +582,37 @@ def _replay_unlocked(run_dir: Path) -> WorkflowSnapshot:
     return _project(definition, events, lambda receipt_id: receipts[receipt_id])
 
 
+def _replay_unlocked_v2(run_dir: Path) -> WorkflowSnapshot:
+    definition = _load_v2_definition(run_dir)
+    if definition is None:
+        raise ValueError("generalized workflow definition (v2) is missing")
+    events = _load_events(run_dir)
+    receipts = _load_all_receipts(run_dir)
+    referenced = {event.receipt_id for event in events}
+    if set(receipts) != referenced:
+        raise ValueError("workflow receipt store does not match the event ledger")
+    return _project_v2_strategy(definition, events, lambda receipt_id: receipts[receipt_id])
+
+
+def _replay_unlocked_any(run_dir: Path) -> WorkflowSnapshot:
+    """Replay a run, dispatching to the canonical or v2 projection automatically.
+
+    A run is treated as generalized when it carries a v2 definition marker and
+    no canonical (v1) definition. The legacy canonical path is unchanged.
+    """
+    if (run_dir / WORKFLOW_DEFINITION_FILE).is_file():
+        return _replay_unlocked(run_dir)
+    if (run_dir / WORKFLOW_DEFINITION_V2_FILE).is_file():
+        return _replay_unlocked_v2(run_dir)
+    return _replay_unlocked(run_dir)
+
+
 def replay_workflow_run(root: Path | str, run_id: str) -> WorkflowSnapshot:
     """Derive current state only from the immutable definition, events, and receipts."""
 
     run_dir = _run_dir(root, run_id)
     with _ledger_lock(run_dir, exclusive=False):
-        return _replay_unlocked(run_dir)
+        return _replay_unlocked_any(run_dir)
 
 
 def _write_snapshot(run_dir: Path, snapshot: WorkflowSnapshot) -> None:
@@ -336,7 +630,7 @@ def rebuild_workflow_snapshot(root: Path | str, run_id: str) -> WorkflowSnapshot
 
     run_dir = _run_dir(root, run_id)
     with _ledger_lock(run_dir, exclusive=True):
-        snapshot = _replay_unlocked(run_dir)
+        snapshot = _replay_unlocked_any(run_dir)
         _write_snapshot(run_dir, snapshot)
         return snapshot
 
@@ -350,35 +644,70 @@ def is_canonical_workflow_run(root: Path | str, run_id: str) -> bool:
         return False
 
 
-def initialize_workflow_run(root: Path | str, run_id: str) -> WorkflowSnapshot:
-    """Persist the one canonical definition and an empty append-only ledger."""
+def initialize_workflow_run(
+    root: Path | str,
+    run_id: str,
+    *,
+    definition: WorkflowDefinition | WorkflowSchemaV2 | None = None,
+) -> WorkflowSnapshot:
+    """Persist the workflow definition and an empty append-only ledger.
+
+    The definition marker written depends on the ``definition`` argument:
+
+    * ``None`` (default) — write the canonical ``canonical_product_build@1``
+      definition to ``workflow-definition.json`` (legacy behavior, unchanged).
+    * a :class:`WorkflowDefinition` (v1) — write canonical definition bytes.
+    * a :class:`WorkflowSchemaV2` — write the generalized definition to
+      ``workflow-definition-v2.json``. The run is NOT canonical, but it is
+      fully recorded and projectable through :func:`_project_v2`.
+
+    The rest of initialization (events file, receipts dir, snapshot) is
+    identical regardless of which definition is used.
+    """
 
     run_dir = _run_dir(root, run_id)
     definition_path = run_dir / WORKFLOW_DEFINITION_FILE
+    v2_definition_path = run_dir / WORKFLOW_DEFINITION_V2_FILE
     events_path = run_dir / WORKFLOW_EVENTS_FILE
     receipts_path = run_dir / WORKFLOW_RECEIPTS_DIR
 
     with _ledger_lock(run_dir, exclusive=True):
-        if definition_path.exists() or events_path.exists() or receipts_path.exists():
+        if (
+            definition_path.exists()
+            or v2_definition_path.exists()
+            or events_path.exists()
+            or receipts_path.exists()
+        ):
             if not (
-                definition_path.is_file()
-                and events_path.is_file()
-                and receipts_path.is_dir()
+                (
+                    definition_path.is_file()
+                    and events_path.is_file()
+                    and receipts_path.is_dir()
+                )
+                or (
+                    v2_definition_path.is_file()
+                    and events_path.is_file()
+                    and receipts_path.is_dir()
+                )
             ):
-                raise ValueError("canonical workflow initialization is partial or corrupt")
-            snapshot = _replay_unlocked(run_dir)
+                raise ValueError("workflow initialization is partial or corrupt")
+            snapshot = _replay_unlocked_any(run_dir)
             _write_snapshot(run_dir, snapshot)
             return snapshot
 
-        _write_exclusive(definition_path, _canonical_definition_bytes())
+        if isinstance(definition, WorkflowSchemaV2):
+            _write_exclusive(v2_definition_path, _v2_definition_bytes(definition))
+        else:
+            _write_exclusive(definition_path, _canonical_definition_bytes())
         try:
             _write_exclusive(events_path, b"", mode=0o644)
             receipts_path.mkdir(mode=0o755)
         except Exception:
             definition_path.unlink(missing_ok=True)
+            v2_definition_path.unlink(missing_ok=True)
             events_path.unlink(missing_ok=True)
             raise
-        snapshot = _replay_unlocked(run_dir)
+        snapshot = _replay_unlocked_any(run_dir)
         _write_snapshot(run_dir, snapshot)
         return snapshot
 
@@ -394,7 +723,49 @@ def record_node_outcome(
 
     run_dir = _run_dir(root, run_id)
     with _ledger_lock(run_dir, exclusive=True):
-        _replay_unlocked(run_dir)
+        # Detect generalized (v2) definitions without breaking the legacy
+        # canonical path. A run with a v2 definition marker but no canonical
+        # marker is projected through _project_v2.
+        v2_definition = None
+        if not (run_dir / WORKFLOW_DEFINITION_FILE).is_file():
+            v2_definition = _load_v2_definition(run_dir)
+
+        if v2_definition is not None:
+            definition = v2_definition  # type: ignore[assignment]
+            events = _load_events(run_dir)
+            if any(existing.event_id == event.event_id for existing in events):
+                raise ValueError(f"duplicate workflow event id: {event.event_id}")
+            receipt_path = run_dir / WORKFLOW_RECEIPTS_DIR / f"{receipt.receipt_id}.json"
+            if receipt_path.exists():
+                raise ValueError(f"duplicate workflow receipt id: {receipt.receipt_id}")
+            _project_v2_strategy(
+                definition,  # type: ignore[arg-type]
+                events + (event,),
+                lambda receipt_id: receipt
+                if receipt_id == receipt.receipt_id
+                else _load_receipt(run_dir, receipt_id),
+            )
+            _validate_evidence_references(run_dir, receipt)
+            receipt_payload = json.dumps(
+                receipt.model_dump(mode="json"), indent=2, sort_keys=True
+            ).encode() + b"\n"
+            _write_exclusive(receipt_path, receipt_payload)
+            event_path = run_dir / WORKFLOW_EVENTS_FILE
+            try:
+                with event_path.open("a", encoding="utf-8") as handle:
+                    handle.write(
+                        json.dumps(event.model_dump(mode="json"), sort_keys=True) + "\n"
+                    )
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except Exception:
+                receipt_path.chmod(0o644)
+                receipt_path.unlink(missing_ok=True)
+                raise
+            rebuilt = _replay_unlocked_v2(run_dir)
+            _write_snapshot(run_dir, rebuilt)
+            return rebuilt
+
         definition = _load_definition(run_dir)
         events = _load_events(run_dir)
         if any(existing.event_id == event.event_id for existing in events):

@@ -16,9 +16,19 @@ It is intentionally narrow:
 
 ## Start Here
 
-- [Source of truth](docs/DEVFLOW_SOURCE_OF_TRUTH.md)
-- [Agent guide](AGENTS.md)
-- [Active documentation index](docs/README.md)
+Read in this authority order:
+
+1. **[DevFlow Software Factory — Vision, Architecture & Blueprint](docs/DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx)**
+   — the immutable, highest product/architecture/direction authority for DevFlow
+   and its Obsidian integration. Read it first for any product-direction,
+   architecture, workflow-runtime, worker-contract, human-authority, or
+   DevFlow–Obsidian question. It describes the north-star direction, not
+   necessarily what is implemented in the current checkout.
+2. [Agent guide](AGENTS.md) — operational rules and current constraints
+   (subordinate to the blueprint on product direction).
+3. [Current-implementation reference](docs/DEVFLOW_SOURCE_OF_TRUTH.md) — what is
+   actually implemented today (routing, gaps); subordinate to the blueprint.
+4. [Active documentation index](docs/README.md)
 
 Historical designs are not active context. Do not add old compatibility layers,
 prior UI flows, or recovered code to the V2 runtime unless a human explicitly

@@ -1,16 +1,27 @@
-# DevFlow Source of Truth
+# DevFlow Current-Implementation Reference (Subordinate to the Blueprint)
 
-Status: Active canonical direction
+Status: Current-implementation and routing detail reference — SUBORDINATE to the blueprint
 Last audited against code/config: 2026-07-14
 
-This document is the active source of truth for DevFlow. For model routing,
-operating modes, and machine-agnostic behavior, the authoritative sections are
-**Model Routing & Operating Modes** and **Machine Agnosticism And Capability
-Discovery** below; other
-docs (README, handoffs, audition plans) are scoped or transitional and must not
-contradict these sections.
+> **Authority note:** The highest product, architecture, direction, workflow,
+> worker-contract, human-authority, and DevFlow–Obsidian authority is
+> [`DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx`](DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx).
+> Read the blueprint first for any DevFlow or DevFlow–Obsidian question. This
+> document is **no longer the top-level source of truth**; it is a legacy /
+> current-implementation detail and routing reference that records what is
+> actually implemented today. Where this document and the blueprint differ on
+> product direction or architecture, **the blueprint governs**. The concrete
+> implementation, routing, and current-gap facts below remain operational
+> constraints on today's runtime but cannot override the blueprint's direction.
 
-Older architecture, roadmap, cockpit, orchestration, local-worker, model-routing, and software-factory documents are absent from the active checkout. Recover historical material from the Git archive only when a human explicitly asks; it must never be loaded as active context by default.
+For model routing, operating modes, and machine-agnostic behavior, the
+authoritative *current-implementation* sections are **Model Routing & Operating
+Modes** and **Machine Agnosticism And Capability Discovery** below; other
+docs (README, handoffs, audition plans) are scoped or transitional and must not
+contradict these sections' description of today's runtime. All of it remains
+subordinate to the blueprint on product direction and architecture.
+
+Older architecture, roadmap, cockpit, orchestration, local-worker, model-routing, and software-factory documents are absent from the active checkout. The canonical blueprint (`DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx`) is exempt: it is active and must always be loaded first. Other historical architecture documents remain archived and are not active unless a human explicitly requests recovery; they must never be loaded as active context by default.
 
 ## One-Sentence Purpose
 
@@ -332,8 +343,11 @@ receipts, and exposes `remaining_packet_ids`. It never labels the complete plan
 finished. New canonical runs use the immutable `canonical_product_build@1`
 definition, append-only workflow event ledger, immutable node receipts,
 deterministic replay, and rebuildable snapshot whose `LoopStage` is only a
-compatibility/UI projection. Runs without the canonical marker retain their
-saved-state and inference path without migration.
+compatibility/UI projection; a richer canonical read model
+(`src/devflow/loop/read_model.py`, `CanonicalRunModel`) is derived additively
+from the ledger's `WorkflowSnapshot` for canonical-marked runs. Runs without
+the canonical marker retain their saved-state and inference path without
+migration, and `LoopStage` is not deleted.
 
 Phase 3 adds host-owned preparation gates beneath that canonical path. Source
 snapshots accept only explicitly selected repo-relative regular files, reject
@@ -388,8 +402,15 @@ verification is read-only, exact-tree-bound, and rejects a verifier whose model
 family overlaps any packet builder or integration repair family. A passing
 typed verification receipt may advance only the canonical `verification` node
 to the Phase 6 `human_decision` boundary. Deterministic final acceptance,
-reliability reporting, human acceptance, and local result-branch creation remain
-Phase 6 work.
+reliability reporting, human acceptance, and local result-branch creation are
+complete and verified as of baseline `6122fb5` (150 targeted Phase tests passed);
+the live run is a fixed `canonical_product_build@1` linear chain. The remaining
+blueprint work — control plane, generalized workflow VM, DAG/parallel, Obsidian
+Command Center projection, workflow families, generated workflows, and adaptive
+improvement — is tracked in
+[docs/DEVFLOW_BLUEPRINT_GAP_ASSESSMENT.md](DEVFLOW_BLUEPRINT_GAP_ASSESSMENT.md)
+with the closure plan in
+[docs/superpowers/plans/2026-07-14-devflow-software-factory-gap-closure.md](superpowers/plans/2026-07-14-devflow-software-factory-gap-closure.md).
 
 Phase 6 records the operator decision as a typed immutable `DecisionReceipt`
 (`accept` / `reject` / `request_changes`) bound to the exact clean

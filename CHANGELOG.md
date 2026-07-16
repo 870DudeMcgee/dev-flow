@@ -1,10 +1,18 @@
 # Changelog
 
+> **Authority note:** Current product direction and architecture are governed by
+> the immutable
+> [`docs/DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx`](docs/DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx),
+> the highest DevFlow product/direction authority (north-star, not a claim about
+> what is already implemented). The current code and CLI remain the evidence of
+> implemented behavior, and
+> [`docs/DEVFLOW_SOURCE_OF_TRUTH.md`](docs/DEVFLOW_SOURCE_OF_TRUTH.md) plus
+> `AGENTS.md` describe today's runtime, subordinate to the blueprint on
+> direction.
+
 > **Historical pre-V2 draft:** the `0.1.0` notes below describe the removed V1
 > checkout and are retained only as release history. They are not an active
-> runtime contract or roadmap. Current behavior is governed by
-> [`docs/DEVFLOW_SOURCE_OF_TRUTH.md`](docs/DEVFLOW_SOURCE_OF_TRUTH.md),
-> `AGENTS.md`, and the current CLI help.
+> runtime contract or roadmap.
 
 All notable DevFlow V2 changes should be recorded here before a tag is cut.
 

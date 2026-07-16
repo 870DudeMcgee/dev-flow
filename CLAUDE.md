@@ -1,6 +1,10 @@
-Read `AGENTS.md` first.
+Read `docs/DevFlow_Software_Factory_Vision_Architecture_Blueprint.docx` first —
+it is the immutable, highest product/architecture/direction authority for
+DevFlow and its Obsidian integration (north-star direction, not necessarily
+current runtime state). Then read `AGENTS.md`.
 
-DevFlow is V2-only. Read `docs/DEVFLOW_SOURCE_OF_TRUTH.md` and `CODE_MAP.md`
+DevFlow is V2-only. For current-implementation detail, read
+`docs/DEVFLOW_SOURCE_OF_TRUTH.md` (subordinate to the blueprint) and `CODE_MAP.md`
 before changing loop logic, the status board, or documentation.
 
 Use only the current command surface:

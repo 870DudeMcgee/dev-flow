@@ -64,6 +64,9 @@ class ResolvedSlot:
     model_id: str = ""  # API model ID (e.g. "tencent/hy3:free")
     fallback_model_ids: tuple[str, ...] = ()
     model_path: str = ""  # local GGUF path (for llama.cpp models)
+    # M2-S4: provider-independent capability route (blueprint §7.4).
+    # None when not set by legacy callers; populated by route-aware resolution.
+    capability_route: object | None = None  # CapabilityRoute enum value
 
     @property
     def model(self) -> str:

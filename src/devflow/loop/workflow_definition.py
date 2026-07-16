@@ -14,11 +14,19 @@ WORKFLOW_ID = "canonical_product_build@1"
 
 
 class NodeKind(str, Enum):
-    """Closed set of node executors supported by the canonical workflow."""
+    """Closed set of node executors supported by the canonical workflow.
+
+    Extended in M2-S1: ``gate``, ``human_gate``, and ``artifact_emit`` are
+    additive kinds for the generalized workflow VM (blueprint §6.5). They
+    coexist with the original ``human``/``agent``/``code`` kinds.
+    """
 
     human = "human"
     agent = "agent"
     code = "code"
+    gate = "gate"
+    human_gate = "human_gate"
+    artifact_emit = "artifact_emit"
 
 
 class WorkflowNode(BaseModel):

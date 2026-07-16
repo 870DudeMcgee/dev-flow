@@ -20,6 +20,11 @@ from devflow.loop.model_catalog_markdown import (
     render_model_catalog_markdown,
     update_model_dashboard,
 )
+from devflow.loop.pipeline_run import pipeline_runs_dir
+from devflow.loop.workflow_ledger import is_canonical_workflow_run
+from devflow.obsidian.projection import extract_projection
+from devflow.obsidian.render import render_all
+from devflow.obsidian.vault import write_vault_projection
 
 app = typer.Typer(
     help="DevFlow V2 pipeline tools.",
@@ -33,9 +38,14 @@ models_app = typer.Typer(
     help="Live model catalog tools.",
     no_args_is_help=True,
 )
+obsidian_app = typer.Typer(
+    help="Obsidian Command Center projection tools.",
+    no_args_is_help=True,
+)
 app.add_typer(status_app, name="status")
 app.add_typer(loop_app, name="loop")
 app.add_typer(models_app, name="models")
+app.add_typer(obsidian_app, name="obsidian")
 
 
 @models_app.command("refresh")
@@ -123,6 +133,109 @@ def loop_spine_fixture(
     typer.echo(f"final_stage: {payload['final_stage']}")
     typer.echo(f"target_file: {payload['target_file']}")
     typer.echo(f"evidence_files: {len(report.evidence_files)}")
+
+
+@obsidian_app.command("run")
+def obsidian_run(
+    run_id: str = typer.Argument(..., help="Canonical run ID to project."),
+    root: Path = typer.Option(
+        Path("."),
+        "--root",
+        help="Repository root that owns the .devflow/pipeline-runs/ directory.",
+    ),
+    vault: Path = typer.Option(
+        Path("."),
+        "--vault",
+        help="Obsidian vault root where .generated/ views are written.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit the result as JSON."),
+) -> None:
+    """Project one canonical run into the Obsidian Command Center."""
+
+    try:
+        if not is_canonical_workflow_run(root, run_id):
+            typer.echo(
+                f"Run {run_id!r} is not canonical (missing workflow-definition.json).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+        state = extract_projection(root, run_id)
+        views = render_all(state)
+        result = write_vault_projection(vault, run_id, views)
+    except Exception as exc:
+        typer.echo(f"Obsidian projection failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "health": state.health.value,
+                    "phase": state.current_phase,
+                    "progress_percent": state.progress_percent,
+                    "files_written": list(result.files_written),
+                    "bytes_written": result.bytes_written,
+                    "vault_dir": result.vault_dir,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        typer.echo(f"Projected run {run_id} → {result.vault_dir}")
+        typer.echo(f"  Health: {state.health.value} · Phase: {state.current_phase}")
+        typer.echo(f"  Progress: {state.progress_percent}%")
+        typer.echo(f"  Files: {len(result.files_written)}")
+
+
+@obsidian_app.command("list")
+def obsidian_list(
+    root: Path = typer.Option(
+        Path("."),
+        "--root",
+        help="Repository root that owns the .devflow/pipeline-runs/ directory.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit the result as JSON."),
+) -> None:
+    """List canonical run IDs available for projection."""
+
+    runs_dir = pipeline_runs_dir(root)
+    canonical_runs: list[dict[str, str]] = []
+
+    if runs_dir.is_dir():
+        for child in sorted(runs_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            rid = child.name
+            if is_canonical_workflow_run(root, rid):
+                try:
+                    state = extract_projection(root, rid)
+                    canonical_runs.append(
+                        {
+                            "run_id": rid,
+                            "health": state.health.value,
+                            "phase": state.current_phase,
+                            "progress": f"{state.progress_percent}%",
+                        }
+                    )
+                except Exception:
+                    canonical_runs.append(
+                        {"run_id": rid, "health": "Error", "phase": "unknown", "progress": "?"}
+                    )
+
+    if json_output:
+        typer.echo(json.dumps({"runs": canonical_runs}, indent=2, sort_keys=True))
+    else:
+        if not canonical_runs:
+            typer.echo("No canonical runs found.")
+            return
+        typer.echo(f"Found {len(canonical_runs)} canonical run(s):")
+        for r in canonical_runs:
+            typer.echo(
+                f"  {r['run_id']:<24} {r['health']:<20} {r['phase']:<24} {r['progress']}"
+            )
 
 
 def main() -> None:
