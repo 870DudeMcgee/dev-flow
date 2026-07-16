@@ -14,12 +14,10 @@ human-gated (M4-S6).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devflow.control_plane.aggregate import DependencyState, TicketStatus
+from devflow.control_plane.aggregate import DependencyState
 from devflow.loop.integration_candidates import CandidateSummary
 
 _ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"

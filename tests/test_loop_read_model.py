@@ -9,7 +9,6 @@ import pytest
 from devflow.loop.models import LoopStage
 from devflow.loop.pipeline_run import create_pipeline_run
 from devflow.loop.read_model import (
-    CanonicalRunModel,
     NodeStatus,
     NotCanonicalRunError,
     derive_canonical_run_model,

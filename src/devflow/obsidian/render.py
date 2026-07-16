@@ -14,7 +14,6 @@ The renderers produce five views following the blueprint's Appendix C format:
 
 from __future__ import annotations
 
-from datetime import datetime
 
 from devflow.loop.models import LoopStage
 from devflow.obsidian.projection import ProjectionState, RunHealth
@@ -150,7 +149,7 @@ def render_overview(state: ProjectionState) -> str:
     body = "\n".join([
         render_front_matter(state),
         "",
-        f"# DevFlow — Current Focus",
+        "# DevFlow — Current Focus",
         "",
         f"> [!info] {icon} Health: **{state.health.value}** · Phase: **{state.current_phase}**",
         f"> {bar}",
@@ -161,7 +160,7 @@ def render_overview(state: ProjectionState) -> str:
         "## Next Action",
         action,
         "",
-        f"[[Workflow]] · [[Evidence]] · [[Decisions]] · [[History]]",
+        "[[Workflow]] · [[Evidence]] · [[Decisions]] · [[History]]",
     ])
     return _wrap_generated(body)
 
@@ -185,9 +184,9 @@ def render_workflow(state: ProjectionState) -> str:
 
     # Terminal nodes
     if state.stage == LoopStage.complete:
-        rows.append(f"| Complete | Complete | ✅ reached |")
+        rows.append("| Complete | Complete | ✅ reached |")
     elif state.stage == LoopStage.blocked:
-        rows.append(f"| Blocked | Blocked | 🚫 reached |")
+        rows.append("| Blocked | Blocked | 🚫 reached |")
 
     body = "\n".join([
         render_front_matter(state),
@@ -198,7 +197,7 @@ def render_workflow(state: ProjectionState) -> str:
         "",
         *rows,
         "",
-        f"[[Overview]] · [[Evidence]] · [[Decisions]] · [[History]]",
+        "[[Overview]] · [[Evidence]] · [[Decisions]] · [[History]]",
     ])
     return _wrap_generated(body)
 
@@ -218,7 +217,7 @@ def render_evidence(state: ProjectionState) -> str:
         completed,
         "",
         "## Canonical State",
-        f"All receipts and evidence are persisted under:",
+        "All receipts and evidence are persisted under:",
         f"`{state.canonical_run_dir}`",
         "",
     ]
@@ -241,7 +240,7 @@ def render_evidence(state: ProjectionState) -> str:
         "Detailed verification receipts are available in the canonical run directory.",
         "This view will be expanded as the evidence layer matures (blueprint §10.2).",
         "",
-        f"[[Overview]] · [[Workflow]] · [[Decisions]] · [[History]]",
+        "[[Overview]] · [[Workflow]] · [[Decisions]] · [[History]]",
     ])
     return _wrap_generated("\n".join(body_lines))
 
@@ -274,7 +273,7 @@ def render_decisions(state: ProjectionState) -> str:
             "",
         ])
 
-    body_lines.append(f"[[Overview]] · [[Workflow]] · [[Evidence]] · [[History]]")
+    body_lines.append("[[Overview]] · [[Workflow]] · [[Evidence]] · [[History]]")
     return _wrap_generated("\n".join(body_lines))
 
 
@@ -305,7 +304,7 @@ def render_history(state: ProjectionState) -> str:
         "",
         f"_Updated: {state.updated_at}_",
         "",
-        f"[[Overview]] · [[Workflow]] · [[Evidence]] · [[Decisions]]",
+        "[[Overview]] · [[Workflow]] · [[Evidence]] · [[Decisions]]",
     ])
     return _wrap_generated("\n".join(body_lines))
 

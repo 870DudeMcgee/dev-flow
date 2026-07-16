@@ -17,7 +17,6 @@ Noncanonical runs return a minimal ``ProjectionState`` with
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -26,7 +25,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devflow.loop.models import LoopStage
 from devflow.loop.pipeline_run import pipeline_runs_dir
-from devflow.loop.read_model import load_canonical_run_model
 from devflow.loop.workflow_ledger import (
     DECISION_RECEIPTS_DIR,
     DecisionReceipt,

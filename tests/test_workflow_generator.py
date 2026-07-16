@@ -6,12 +6,10 @@ import pytest
 
 from devflow.loop.workflow_generator import (
     GenerationRequest,
-    GenerationResult,
     generate_workflow,
 )
 from devflow.loop.workflow_definition import NodeKind
 from devflow.loop.workflow_schema import (
-    WorkflowSchemaV2,
     WorkflowStrategy,
     validate_workflow,
 )

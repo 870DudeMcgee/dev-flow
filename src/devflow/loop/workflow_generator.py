@@ -13,7 +13,6 @@ Node count is bounded by ``max_nodes`` (3–30).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 

@@ -135,7 +135,6 @@ def propose_refinements(
     avg_retries = sum(m.retry_count for m in metrics_history) / len(metrics_history)
     avg_duration_min = sum(m.total_duration_seconds for m in metrics_history) / len(metrics_history) / 60.0
     avg_interventions = sum(m.human_interventions for m in metrics_history) / len(metrics_history)
-    avg_repair = sum(m.repair_rounds for m in metrics_history) / len(metrics_history)
 
     refinements: list[TemplateRefinement] = []
 

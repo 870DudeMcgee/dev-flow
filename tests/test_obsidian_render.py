@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from devflow.loop.models import LoopStage
 from devflow.loop.pipeline_run import create_pipeline_run
@@ -16,7 +15,6 @@ from devflow.loop.workflow_ledger import (
     record_node_outcome,
 )
 from devflow.obsidian.projection import (
-    DecisionSummary,
     ProjectionState,
     RunHealth,
     extract_projection,

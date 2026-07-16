@@ -23,10 +23,9 @@ Usage::
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from devflow.loop.independent_review import REVIEW_EVENTS_FILE, load_reviews
+from devflow.loop.independent_review import load_reviews
 from devflow.loop.metrics_aggregator import (
     aggregate_metrics,
     format_metrics_section,

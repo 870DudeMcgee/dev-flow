@@ -12,7 +12,6 @@ from devflow.control_plane.factory_router import (
 )
 from devflow.loop.routing import ResolvedSlot
 from devflow.loop.workflow_library import hotfix_template, feature_template
-from devflow.loop.workflow_schema import PromotionPolicy
 
 
 # ---------------------------------------------------------------------------

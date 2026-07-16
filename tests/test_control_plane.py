@@ -8,8 +8,6 @@ import pytest
 
 from devflow.control_plane.aggregate import (
     DependencyState,
-    Milestone,
-    Project,
     Ticket,
     TicketStatus,
     create_milestone,

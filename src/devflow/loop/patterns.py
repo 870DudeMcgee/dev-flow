@@ -137,7 +137,6 @@ def build_scatter_gather(spec: PatternSpec) -> PatternResult:
     nodes.append(_node(p, "synthesizer", NodeKind.agent, LoopStage.planning))
 
     # Blocked terminal
-    blocked_id = f"{p}-blocked"
     nodes.append(_node(p, "blocked", NodeKind.human, LoopStage.blocked, evidence=()))
 
     # Edges: each investigator → synthesizer (success), each → blocked (failure)
@@ -174,7 +173,6 @@ def build_competing(spec: PatternSpec) -> PatternResult:
     judge_id = f"{p}-judge"
     nodes.append(_node(p, "judge", NodeKind.agent, LoopStage.planning_judge))
 
-    blocked_id = f"{p}-blocked"
     nodes.append(_node(p, "blocked", NodeKind.human, LoopStage.blocked, evidence=()))
 
     for prop_id in proposer_ids:
@@ -198,7 +196,6 @@ def build_adversarial(spec: PatternSpec) -> PatternResult:
 
     builder_id = f"{p}-builder"
     reviewer_id = f"{p}-reviewer"
-    blocked_id = f"{p}-blocked"
 
     nodes = (
         _node(p, "builder", NodeKind.agent, LoopStage.assignment),
@@ -244,7 +241,6 @@ def build_map_verify_reduce(spec: PatternSpec) -> PatternResult:
     reducer_id = f"{p}-reducer"
     nodes.append(_node(p, "reducer", NodeKind.agent, LoopStage.build_judge))
 
-    blocked_id = f"{p}-blocked"
     nodes.append(_node(p, "blocked", NodeKind.human, LoopStage.blocked, evidence=()))
 
     # worker_i → verifier_i (success), worker_i → blocked (failure)
@@ -277,7 +273,6 @@ def build_convergence(spec: PatternSpec) -> PatternResult:
     checker_id = f"{p}-checker"
     repair_id = f"{p}-repair"
     exit_id = f"{p}-passed"
-    blocked_id = f"{p}-blocked"
 
     nodes = (
         _node(p, "checker", NodeKind.code, LoopStage.verification),

@@ -16,7 +16,7 @@ from typing import Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devflow.loop.capability_routes import CapabilityRoute, route_for_role
+from devflow.loop.capability_routes import route_for_role
 from devflow.loop.routing import ResolvedSlot
 from devflow.loop.workflow_schema import (
     BudgetPolicy,

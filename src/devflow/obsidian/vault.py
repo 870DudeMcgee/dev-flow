@@ -66,18 +66,14 @@ def _atomic_write(path: Path, content: str) -> int:
     if path.exists():
         existing = path.read_text(encoding="utf-8")
         if START_MARKER in existing and END_MARKER in existing:
-            prefix, remainder = existing.split(START_MARKER, 1)
-            _, suffix = remainder.split(END_MARKER, 1)
-            block = f"{START_MARKER}\n{content.rstrip()}\n{END_MARKER}"
-            updated = f"{prefix}{block}{suffix}"
-            # Only the generated content goes in — the renderer already wraps it
-            # in markers, so we strip the outer markers here to avoid double-wrap.
+            # Existing file with markers: the renderer output already includes
+            # START/END markers, so we overwrite the full file as-is.
             pass
         else:
             # No markers in existing file — overwrite entirely with generated content
-            updated = content
+            pass
     else:
-        updated = content
+        pass
 
     # Normalize: the renderers already include START/END markers in their output.
     # We write the full renderer output as-is (markers included).

@@ -18,7 +18,7 @@ from devflow.control_plane.template_refinement import (
     record_refinement_approval,
 )
 from devflow.loop.metrics_aggregator import WorkflowMetrics
-from devflow.loop.workflow_library import WORKFLOW_LIBRARY, get_template, list_templates
+from devflow.loop.workflow_library import get_template, list_templates
 
 
 # ---------------------------------------------------------------------------
